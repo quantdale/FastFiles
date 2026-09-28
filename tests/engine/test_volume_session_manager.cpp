@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -121,6 +122,48 @@ void AddSession(ffengine::VolumeSessionManager& manager, ffindexstore::VolumeRow
     manager.sessionsByEphemeralId_.emplace(7, ffengine::VolumeSessionManager::VolumeSession{volumeId, L'C', 0, false});
 }
 
+void DrainCapturedFrames(HANDLE client) {
+    while (HasCapturedBytes(client)) {
+        if (!ffipc::ReadFrame(client)) break;
+    }
+}
+
+std::optional<ffipc::ReceivedFrame> ReadCapturedFrameWithTimeout(HANDLE client,
+                                                                 std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!HasCapturedBytes(client) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (!HasCapturedBytes(client)) return std::nullopt;
+    return ffipc::ReadFrame(client);
+}
+
+std::optional<uint16_t> ReadCapturedMessageWithTimeout(HANDLE client, std::chrono::milliseconds timeout) {
+    const auto frame = ReadCapturedFrameWithTimeout(client, timeout);
+    if (!frame) return std::nullopt;
+    return frame->header.messageType;
+}
+
+struct CapturedScanStart {
+    uint32_t volumeId = 0;
+    std::vector<uint8_t> cursor;
+};
+
+std::optional<CapturedScanStart> ReadCapturedScanStartWithTimeout(HANDLE client, std::chrono::milliseconds timeout) {
+    const auto frame = ReadCapturedFrameWithTimeout(client, timeout);
+    if (!frame || frame->header.messageType != static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan)) {
+        return std::nullopt;
+    }
+    if (frame->payload.size() < sizeof(ffprotocol::StartVolumeScanRequest)) return std::nullopt;
+    ffprotocol::StartVolumeScanRequest request{};
+    std::memcpy(&request, frame->payload.data(), sizeof(request));
+    if (frame->payload.size() != sizeof(request) + request.resumeCursorLengthBytes) return std::nullopt;
+    CapturedScanStart captured;
+    captured.volumeId = request.volumeId.value;
+    captured.cursor.assign(frame->payload.begin() + sizeof(request), frame->payload.end());
+    return captured;
+}
+
 // Route the negotiated service-to-engine barrier through the production
 // PrivilegedConnection parser before it reaches VolumeSessionManager. This
 // keeps the scan-authority regressions bound to the exact reply frame and its
@@ -143,6 +186,24 @@ ffprotocol::MftRecordV1 MakeMftRecord(uint64_t id, uint64_t parent, std::u16stri
     r.fixed.fileNameLengthChars = static_cast<uint16_t>(name.size());
     r.fileName = std::move(name);
     return r;
+}
+
+// Test oracle for design D2's single-owner invariant. It mirrors
+// RetryOwnerStateLocked's derivation from the observable owner containers;
+// a test TU cannot call the private production method directly because
+// `#define private public` changes the member's access-mangled symbol.
+// Callers hold both mutex_ and wakeMutex_.
+int RetryOwnerCountForTest(ffengine::VolumeSessionManager& manager,
+                           ffindexstore::VolumeRowId durableId) {
+    int owners = 0;
+    if (manager.schedulerDispatchRetries_.contains(durableId)) ++owners;
+    if (manager.scanReissueFloors_.contains(durableId)) ++owners;
+    for (const auto& [ephemeralValue, session] : manager.sessionsByEphemeralId_) {
+        if (session.durableId != durableId) continue;
+        if (session.scanInProgress) ++owners;
+        if (manager.failedScanRetries_.contains(ephemeralValue)) ++owners;
+    }
+    return owners;
 }
 
 void TestMatchingJournalResumesWithoutReconciliation() {
@@ -853,6 +914,294 @@ void TestFailedReconciliationRetrySurvivesDisconnect() {
     manager.Stop();
 }
 
+// scan-generation-integrity-and-residual-certification-closure 2.1: the
+// already-indexed reconciliation failure must install its next retry owner
+// before OnScanFailed republishes, because the publication callback is a real
+// re-entrant window in which the connection can disconnect. On the current
+// source the failure clears the in-flight flag then republishes, so a
+// disconnect in that window finds no owner at all and the durable retry
+// intent is lost; the volume would then wait for the ordinary reconciliation
+// interval.
+void TestScanFailedRacingDisconnectFromPublicationKeepsRetryOwner() {
+    using namespace std::chrono_literals;
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_scan_failed_publication_race.db")),
+          "pipeline opens for the scan-failure publication-race test");
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the publication-race fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    manager.ReloadConfiguration({setting});
+    connection.state_ = ffengine::ConnectionState::Active;
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 2;
+    manager.Start();
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
+    const auto enumeration = ffipc::ReadFrame(capture->client);
+    Check(enumeration
+              && enumeration->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes),
+          "the publication-race connection begins with volume enumeration");
+    connection.volumeListCallback_({ffprotocol::VolumeInfo{ffprotocol::VolumeId{7}, L'C'}});
+    const auto initialScan = ffipc::ReadFrame(capture->client);
+    const auto initialJournal = ffipc::ReadFrame(capture->client);
+    Check(initialScan
+              && initialScan->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan),
+          "the publication-race session starts its first scan");
+    Check(initialJournal
+              && initialJournal->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal),
+          "the publication-race session opens its journal");
+    const auto first = manager.sessionsByEphemeralId_.find(7);
+    Check(first != manager.sessionsByEphemeralId_.end(), "the publication-race session is derived from the volume list");
+    if (first == manager.sessionsByEphemeralId_.end()) {
+        manager.Stop();
+        return;
+    }
+    const auto volumeId = first->second.durableId;
+    Check(pipeline.MarkScanComplete(volumeId), "the publication-race volume is already indexed");
+    Check(pipeline.SetJournalPosition(volumeId, 41, 900), "the publication-race volume persists a journal position");
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true;
+    session.reconciliationScan = true;
+    pipeline.BeginReconciliationPass(volumeId);
+
+    bool publicationRan = false;
+    bool ownerSurvivedDisconnect = false;
+    bool disconnectedOnce = false;
+    manager.SetSnapshotReadyCallback(
+        [&](ffindexstore::VolumeRowId, std::map<std::wstring, ffprotocol::SnapshotDirectory>) {
+            publicationRan = true;
+            if (disconnectedOnce) return;
+            disconnectedOnce = true;
+            // This is the production failure window: the in-flight attempt is
+            // already closed and the retry owner must already be installed.
+            manager.OnConnectionStateChanged(ffengine::ConnectionState::Disconnected);
+            {
+                std::lock_guard<std::mutex> lock(manager.mutex_);
+                if (manager.scanReissueFloors_.contains(volumeId)) ownerSurvivedDisconnect = true;
+            }
+            {
+                std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+                if (!manager.failedScanRetries_.empty()) ownerSurvivedDisconnect = true;
+            }
+        });
+
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+
+    Check(publicationRan, "the failure terminal republishes before arming its retry");
+    Check(ownerSurvivedDisconnect,
+          "an already-indexed reconciliation failure owns its retry before the publication window");
+
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
+    const auto reenumeration = ffipc::ReadFrame(capture->client);
+    Check(reenumeration
+              && reenumeration->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes),
+          "the replacement publication-race connection enumerates volumes");
+    connection.volumeListCallback_({ffprotocol::VolumeInfo{ffprotocol::VolumeId{8}, L'C'}});
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        const auto retry = manager.failedScanRetries_.find(8);
+        Check(retry != manager.failedScanRetries_.end() && retry->second.reconciliation
+                  && !manager.failedScanRetries_.contains(7),
+              "the raced retry intent reattaches to the replacement connection as a reconciliation");
+    }
+    manager.Stop();
+}
+
+// scan-generation-integrity-and-residual-certification-closure 2.2: a due
+// retry that has left its queue but is not yet admitted must still own the
+// durable volume. On the current source the scheduler extracts the retry into
+// a local vector and releases wakeMutex_, so a disconnect in that window
+// observes neither an in-flight scan nor a queued entry and drops the intent.
+void TestSchedulerDispatchRacingDisconnectKeepsRetryOwner() {
+    using namespace std::chrono_literals;
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_scheduler_dispatch_race.db")),
+          "pipeline opens for the scheduler dispatch-race test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 6402;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    Check(pipeline.MarkScanComplete(volumeId), "the scheduler dispatch-race volume is already indexed");
+    Check(pipeline.SetJournalPosition(volumeId, 41, 900),
+          "the scheduler dispatch-race volume persists a journal position");
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the scheduler dispatch-race fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    AddSession(manager, volumeId);
+    connection.state_ = ffengine::ConnectionState::Active;
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 2;
+    manager.active_ = true;
+    manager.Start();
+
+    std::promise<void> seamReached;
+    auto seamFuture = seamReached.get_future();
+    bool ownerSurvivedDisconnect = false;
+    manager.scanRetryDispatchSeam_ = [&]() {
+        manager.scanRetryDispatchSeam_ = nullptr;
+        // Exactly the reviewed window: the retry has left failedScanRetries_
+        // and no admission has happened yet.
+        manager.OnConnectionStateChanged(ffengine::ConnectionState::Disconnected);
+        {
+            std::lock_guard<std::mutex> lock(manager.mutex_);
+            if (manager.scanReissueFloors_.contains(volumeId)) ownerSurvivedDisconnect = true;
+        }
+        {
+            std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+            if (!manager.failedScanRetries_.empty()) ownerSurvivedDisconnect = true;
+        }
+        seamReached.set_value();
+    };
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        manager.failedScanRetries_[7] = {std::chrono::steady_clock::now() - 1ms, true};
+        ++manager.scanRetryGeneration_;
+    }
+    manager.wakeCv_.notify_one();
+
+    Check(seamFuture.wait_for(5s) == std::future_status::ready,
+          "the scheduler reaches its in-hand dispatch window");
+    Check(ownerSurvivedDisconnect,
+          "a due retry that left its queue still owns the durable volume across the disconnect");
+
+    // Let the scheduler finish its post-seam admission attempt: the durable
+    // owner must remain, never be clobbered by the dead session.
+    const auto settleDeadline = std::chrono::steady_clock::now() + 2s;
+    bool durableOwnerRemains = false;
+    while (std::chrono::steady_clock::now() < settleDeadline) {
+        {
+            std::lock_guard<std::mutex> lock(manager.mutex_);
+            durableOwnerRemains = manager.scanReissueFloors_.contains(volumeId);
+        }
+        if (durableOwnerRemains) break;
+        std::this_thread::sleep_for(10ms);
+    }
+    Check(durableOwnerRemains,
+          "the scheduler does not clobber the durable floor after the racing disconnect");
+    manager.Stop();
+}
+
+// D2: disabling a volume erases its connection-scoped session, so the owned
+// retry intent must move to the durable floor instead of disappearing with
+// the id. Re-enabling the volume consumes the floor exactly once.
+void TestDisableTransfersOwnedRetryToDurableFloor() {
+    using namespace std::chrono_literals;
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_disable_retry_transfer.db")),
+          "pipeline opens for the disable retry-transfer test");
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the disable transfer fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    ffprotocol::VolumeSetting enabled;
+    enabled.key = L"C:";
+    enabled.enabled = true;
+    manager.ReloadConfiguration({enabled});
+    connection.state_ = ffengine::ConnectionState::Active;
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 2;
+    manager.Start();
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
+    const auto enumeration = ffipc::ReadFrame(capture->client);
+    Check(enumeration
+              && enumeration->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes),
+          "the disable transfer connection begins with volume enumeration");
+    connection.volumeListCallback_({ffprotocol::VolumeInfo{ffprotocol::VolumeId{7}, L'C'}});
+    const auto first = manager.sessionsByEphemeralId_.find(7);
+    Check(first != manager.sessionsByEphemeralId_.end(),
+          "the disable transfer session is derived from the volume list");
+    if (first == manager.sessionsByEphemeralId_.end()) {
+        manager.Stop();
+        return;
+    }
+    const auto volumeId = first->second.durableId;
+    DrainCapturedFrames(capture->client);
+    Check(pipeline.MarkScanComplete(volumeId), "the disable transfer fixture is already indexed");
+    Check(pipeline.SetJournalPosition(volumeId, 41, 900), "the disable transfer fixture has a journal position");
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+
+    manager.sessionsByEphemeralId_.at(7).scanInProgress = true;
+    manager.sessionsByEphemeralId_.at(7).reconciliationScan = true;
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+    {
+        std::scoped_lock lock(manager.mutex_, manager.wakeMutex_);
+        Check(RetryOwnerCountForTest(manager, volumeId) == 1
+                  && manager.failedScanRetries_.contains(7),
+              "the delivered failure installs exactly one connection-scoped queued owner");
+    }
+
+    ffprotocol::VolumeSetting disabled;
+    disabled.key = L"C:";
+    disabled.enabled = false;
+    manager.ReloadConfiguration({disabled});
+    {
+        std::scoped_lock lock(manager.mutex_, manager.wakeMutex_);
+        Check(manager.sessionsByEphemeralId_.empty(), "disabling the volume tears its session down");
+        Check(RetryOwnerCountForTest(manager, volumeId) == 1
+                  && manager.scanReissueFloors_.contains(volumeId),
+              "disabling the volume transfers the retry intent to exactly the durable floor");
+        Check(!manager.failedScanRetries_.contains(7),
+              "no dead ephemeral id keeps a retry after disable");
+    }
+
+    manager.ReloadConfiguration({enabled});
+    DrainCapturedFrames(capture->client);
+    connection.volumeListCallback_({ffprotocol::VolumeInfo{ffprotocol::VolumeId{9}, L'C'}});
+    {
+        std::scoped_lock lock(manager.mutex_, manager.wakeMutex_);
+        const auto retry = manager.failedScanRetries_.find(9);
+        Check(RetryOwnerCountForTest(manager, volumeId) == 1
+                  && retry != manager.failedScanRetries_.end() && retry->second.reconciliation
+                  && !manager.failedScanRetries_.contains(7),
+              "re-enabling the volume consumes the floor onto exactly one reconciliation retry");
+    }
+    manager.Stop();
+}
+
+// D2: a volume disappearing from the enumeration erases its session, so its
+// owned retry intent must transfer to the durable floor before the id goes.
+void TestDisappearanceTransfersOwnedRetryToDurableFloor() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_disappearance_retry_transfer.db")),
+          "pipeline opens for the disappearance retry-transfer test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 6404;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    Check(pipeline.MarkScanComplete(volumeId), "the disappearance transfer fixture is already indexed");
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    manager.active_ = true;
+    manager.Start();
+    manager.sessionsByEphemeralId_.at(7).scanInProgress = true;
+    manager.sessionsByEphemeralId_.at(7).reconciliationScan = true;
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+
+    connection.volumeListCallback_({});
+    {
+        std::scoped_lock lock(manager.mutex_, manager.wakeMutex_);
+        Check(manager.sessionsByEphemeralId_.empty(), "a disappeared volume's session is erased");
+        Check(RetryOwnerCountForTest(manager, volumeId) == 1
+                  && manager.scanReissueFloors_.contains(volumeId),
+              "disappearance keeps the retry intent on exactly the durable floor, not the dead id");
+        Check(!manager.failedScanRetries_.contains(7), "the disappeared volume leaves no stranded retry");
+    }
+    manager.Stop();
+}
+
 // index-durability-false-success-closure 6.1: a terminal for a volume with
 // no scan in flight carries no authority -- it must never mark, and must
 // never finalize a pass its scan did not own.
@@ -866,6 +1215,10 @@ void TestDuplicateTerminalsWithoutScanInFlightAreRefused() {
 
     ffengine::PrivilegedConnection connection;
     ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the stale-terminal fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
     AddSession(manager, volumeId);
     manager.Start();
     // A pass exists with no scan feeding it (stale-state shape).
@@ -908,7 +1261,15 @@ void TestBatchFailedScanCompletionIsNotAuthoritative() {
 
     ffengine::PrivilegedConnection connection;
     ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the batch-failure fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
     AddSession(manager, volumeId);
+    connection.state_ = ffengine::ConnectionState::Active;
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 2;
+    manager.active_ = true;
     manager.Start();
     auto& session = manager.sessionsByEphemeralId_.at(7);
     session.scanInProgress = true;
@@ -947,13 +1308,31 @@ void TestBatchFailedScanCompletionIsNotAuthoritative() {
     Check(!pipeline.IsReconciliationPassActive(volumeId),
           "completion after a failed batch aborts the pass instead of deleting live rows");
 
-    // A pause/resume cycle re-issues the unfinished scan through the real
-    // (re)start path -- which resets the authority slate -- and the clean
-    // scan that follows marks completion normally.
+    // A pause/resume cycle re-issues the unfinished scan, but D2 requires the
+    // non-authoritative completion's single retry owner to be honored first:
+    // the slot survives at its five-second cadence and issues through the real
+    // retry path. The clean scan that follows marks completion normally.
     manager.SetIndexingPaused(0, true);
     manager.SetIndexingPaused(0, false);
-    Check(session.scanInProgress, "pause/resume re-issued the unfinished scan");
-    Check(!session.scanBatchFailed, "a (re)started scan begins with a clean authority slate");
+    Check(!session.scanInProgress, "pause/resume does not bypass the owned retry floor");
+    Check(!session.scanBatchFailed, "the deferred restart begins from a clean authority slate");
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        const auto retry = manager.failedScanRetries_.find(7);
+        Check(retry != manager.failedScanRetries_.end(),
+              "the non-authoritative completion keeps exactly one retry slot");
+        if (retry != manager.failedScanRetries_.end()) {
+            manager.failedScanRetries_.at(7).due = std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
+            ++manager.scanRetryGeneration_;
+        }
+    }
+    manager.wakeCv_.notify_one();
+    DrainCapturedFrames(capture->client);
+    const auto restart = ReadCapturedScanStartWithTimeout(capture->client, std::chrono::milliseconds(2000));
+    Check(restart && restart->volumeId == 7,
+          "the owned retry restarts the unfinished scan at its due time");
+    Check(session.scanInProgress && !session.scanBatchFailed,
+          "the (re)started scan begins in flight with a clean authority slate");
     const std::vector<ffprotocol::MftRecordV1> resumedBatch{
         MakeMftRecord(5, 5, u"", 0x10, 0),
         MakeMftRecord(120, 5, u"after-resume.txt", 0, 3),
@@ -1530,48 +1909,6 @@ void TestPausedReconciliationDropIsNonAuthoritative() {
         Check(seedPresent,
               "no durable row is deleted from the partial seen-set left by the paused window");
     }
-}
-
-void DrainCapturedFrames(HANDLE client) {
-    while (HasCapturedBytes(client)) {
-        if (!ffipc::ReadFrame(client)) break;
-    }
-}
-
-std::optional<ffipc::ReceivedFrame> ReadCapturedFrameWithTimeout(HANDLE client,
-                                                                 std::chrono::milliseconds timeout) {
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
-    while (!HasCapturedBytes(client) && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    if (!HasCapturedBytes(client)) return std::nullopt;
-    return ffipc::ReadFrame(client);
-}
-
-std::optional<uint16_t> ReadCapturedMessageWithTimeout(HANDLE client, std::chrono::milliseconds timeout) {
-    const auto frame = ReadCapturedFrameWithTimeout(client, timeout);
-    if (!frame) return std::nullopt;
-    return frame->header.messageType;
-}
-
-struct CapturedScanStart {
-    uint32_t volumeId = 0;
-    std::vector<uint8_t> cursor;
-};
-
-std::optional<CapturedScanStart> ReadCapturedScanStartWithTimeout(HANDLE client, std::chrono::milliseconds timeout) {
-    const auto frame = ReadCapturedFrameWithTimeout(client, timeout);
-    if (!frame || frame->header.messageType != static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan)) {
-        return std::nullopt;
-    }
-    if (frame->payload.size() < sizeof(ffprotocol::StartVolumeScanRequest)) return std::nullopt;
-    ffprotocol::StartVolumeScanRequest request{};
-    std::memcpy(&request, frame->payload.data(), sizeof(request));
-    if (frame->payload.size() != sizeof(request) + request.resumeCursorLengthBytes) return std::nullopt;
-    CapturedScanStart captured;
-    captured.volumeId = request.volumeId.value;
-    captured.cursor.assign(frame->payload.begin() + sizeof(request), frame->payload.end());
-    return captured;
 }
 
 bool HasDurableRow(ffengine::IndexPipeline& pipeline, ffindexstore::VolumeRowId volumeId,
@@ -2232,7 +2569,7 @@ void TestInterruptedReconciliationRetryReattachesToTheNewVolumeId() {
     Check(!enumerationFrame || *enumerationFrame == static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal),
           "the enumeration path issues no scan while the durable floor is unexpired");
     // Drain the enumeration's journal reopen while the retry is still
-    // future-dated. ArmScanReissue already wakes the scheduler during the
+    // future-dated. The floor transfer already woke the scheduler during the
     // volume-list callback; once the fixture expires the floor, a retry can
     // race any later drain and be consumed before the assertion reads it.
     DrainCapturedFrames(capture->client);
@@ -2391,6 +2728,10 @@ void TestRetryQueueStaysBoundedThrottledAndPauseAware() {
 
     // A paused volume's intent is not issued, but is not dropped either.
     manager.SetIndexingPaused(static_cast<uint8_t>(L'C'), true);
+    // Drain frames already on the wire before forcing the retries due: the
+    // scheduler may issue the unpaused volume's scan as soon as it is
+    // notified, and a later drain would consume that frame.
+    DrainCapturedFrames(capture->client);
     {
         std::lock_guard<std::mutex> lock(manager.wakeMutex_);
         for (auto& [ephemeral, retry] : manager.failedScanRetries_) {
@@ -2400,7 +2741,6 @@ void TestRetryQueueStaysBoundedThrottledAndPauseAware() {
         ++manager.scanRetryGeneration_;
     }
     manager.wakeCv_.notify_all();
-    DrainCapturedFrames(capture->client);
 
     const auto issuedFromQueue = ReadCapturedScanStartWithTimeout(capture->client, 2s);
     Check(issuedFromQueue && issuedFromQueue->volumeId == 10,
@@ -2595,16 +2935,41 @@ void TestCombinedPauseDisconnectReconnectStaleTerminalRecovers() {
     manager.SetIndexingPaused(0, false);
     DrainCapturedFrames(capture->client);
 
-    manager.OnConnectionStateChanged(ffengine::ConnectionState::Disconnected);
+    // The replacement attempt fails while its connection is still current;
+    // the publication callback is the production window in which a
+    // disconnect can re-enter. The single-owner transition must install the
+    // retry before publishing, and the disconnect must transfer it to the
+    // durable floor instead of dropping it.
+    bool disconnectedDuringPublication = false;
+    manager.SetSnapshotReadyCallback(
+        [&](ffindexstore::VolumeRowId, std::map<std::wstring, ffprotocol::SnapshotDirectory>) {
+            if (disconnectedDuringPublication) return;
+            disconnectedDuringPublication = true;
+            manager.OnConnectionStateChanged(ffengine::ConnectionState::Disconnected);
+        });
+    const auto failureAt = std::chrono::steady_clock::now();
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+    Check(disconnectedDuringPublication,
+          "the reconciliation failure owns its retry before the publication window");
     Check(!pipeline.IsReconciliationPassActive(volumeId),
-          "the interrupted reconciliation is discarded, never finalized on a partial seen-set");
+          "the failed reconciliation is discarded, never finalized on a partial seen-set");
     Check(HasDurableRow(pipeline, volumeId, L"seed.txt"),
-          "discarding the pass deletes no valid row");
+          "discarding the failed pass deletes no valid row");
     {
         std::lock_guard<std::mutex> lock(manager.mutex_);
         const auto floor = manager.scanReissueFloors_.find(volumeId);
         Check(floor != manager.scanReissueFloors_.end() && floor->second.reconciliation,
-              "the interrupted reconciliation keeps a durable five-second floor");
+              "the failed reconciliation keeps exactly one durable reconciliation floor");
+        if (floor != manager.scanReissueFloors_.end()) {
+            const auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(floor->second.due - failureAt);
+            Check(delay >= 0ms && delay <= 5100ms,
+                  "the transferred reconciliation floor preserves the five-second throttle");
+        }
+    }
+    {
+        std::scoped_lock lock(manager.mutex_, manager.wakeMutex_);
+        Check(RetryOwnerCountForTest(manager, volumeId) == 1,
+              "the failed reconciliation leaves exactly one retry owner after the disconnect");
     }
     // Disconnect cannot restore stale authority for the lost id.
     connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
@@ -2648,10 +3013,145 @@ void TestCombinedPauseDisconnectReconnectStaleTerminalRecovers() {
           "the recovered pass advances the reconciliation cadence clock");
     Check(HasDurableRow(pipeline, volumeId, L"seed.txt"),
           "the recovered pass keeps every valid row");
+    {
+        std::scoped_lock lock(manager.mutex_, manager.wakeMutex_);
+        Check(RetryOwnerCountForTest(manager, volumeId) == 0,
+              "the authoritative completion consumes the retry owner exactly once");
+        Check(manager.failedScanRetries_.empty() && manager.scanReissueFloors_.empty()
+                  && manager.schedulerDispatchRetries_.empty(),
+              "no queued, dispatched, or floored retry survives the authoritative completion");
+    }
+    Check(!manager.sessionsByEphemeralId_.contains(7),
+          "no stale connection-scoped id remains after recovery");
     manager.Stop();
 }
 
 } // namespace
+
+// scan-generation-integrity-and-residual-certification-closure 4.2/4.4/4.5:
+// the protocol-2.3 barrier stays reply-only and exact. The production parser
+// rejects truncated and extended payloads as protocol violations, an
+// unsolicited/duplicate/unknown-id barrier moves no authority, and a barrier
+// from a retired connection generation cannot release the current attempt.
+void TestScanAttemptStartedFrameIsExactAndAuthorityScoped() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_scan_attempt_started_frames.db")),
+          "pipeline opens for the barrier-frame validation test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 6405;
+    const auto volumeId = pipeline.ResolveVolume(key);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{7}),
+          "an exact-size ScanAttemptStarted frame is accepted by the production parser");
+    Check(!session.scanInProgress && !session.awaitingScanAttemptStarted && !session.scanBatchFailed,
+          "an unsolicited barrier for an idle session grants no authority");
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{99}),
+          "a well-formed barrier for an unknown volume id is still parsed");
+    Check(!session.scanInProgress && !session.awaitingScanAttemptStarted && !session.scanBatchFailed,
+          "a barrier for an unknown volume id changes no scan authority");
+
+    ffipc::ReceivedFrame shortFrame{};
+    shortFrame.header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::ScanAttemptStarted);
+    shortFrame.payload.resize(sizeof(ffprotocol::ScanAttemptStartedPayload) - 1);
+    Check(!connection.DispatchFrameForTesting(shortFrame),
+          "a truncated barrier payload is a fail-closed protocol violation");
+    ffipc::ReceivedFrame extendedFrame{};
+    extendedFrame.header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::ScanAttemptStarted);
+    extendedFrame.payload.resize(sizeof(ffprotocol::ScanAttemptStartedPayload) + 1);
+    Check(!connection.DispatchFrameForTesting(extendedFrame),
+          "an extended barrier payload (trailing bytes) is rejected, never treated as a start signal");
+    Check(!session.scanInProgress && !session.awaitingScanAttemptStarted,
+          "malformed barrier frames never grant authority");
+
+    // A provisional coverage-hole replacement accepts its barrier exactly once.
+    session.scanInProgress = true;
+    session.awaitingScanAttemptStarted = true;
+    session.scanBatchFailed = true;
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{7}),
+          "the replacement's ordered barrier is accepted");
+    Check(!session.awaitingScanAttemptStarted && !session.scanBatchFailed && session.scanInProgress,
+          "the accepted barrier releases the replacement and clears its provisional hole flag");
+    session.scanBatchFailed = true;
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{7}),
+          "a duplicate barrier is still a valid frame");
+    Check(session.scanBatchFailed && session.scanInProgress,
+          "a duplicate barrier neither clears a new coverage hole nor revokes the attempt");
+    manager.Stop();
+}
+
+// scan-generation-integrity-and-residual-certification-closure 4.4/4.5:
+// disconnect around the barrier must leave the retry intent owned, produce no
+// false completion, and let no later barrier from the lost generation
+// authorize the replacement connection's attempt.
+void TestDisconnectAroundBarrierKeepsRetryOwnership() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_disconnect_around_barrier.db")),
+          "pipeline opens for the disconnect-around-barrier test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 6406;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    pipeline.SetVolumeAvailable(volumeId, true, 1);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 3;
+    manager.active_ = true;
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true;
+    session.awaitingScanAttemptStarted = true;
+    session.scanBatchFailed = true;
+    pipeline.BeginReconciliationPass(volumeId);
+
+    // Disconnect before the barrier: the provisional attempt travels to the
+    // durable floor, and no partial pass is finalized.
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Disconnected);
+    Check(manager.sessionsByEphemeralId_.empty(), "disconnect before the barrier drops the connection-scoped ids");
+    {
+        std::lock_guard<std::mutex> lock(manager.mutex_);
+        Check(manager.scanReissueFloors_.contains(volumeId),
+              "disconnect before the barrier keeps the provisional attempt as a durable floor");
+    }
+    Check(!pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "a disconnect before the barrier never marks the volume complete");
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "a disconnect before the barrier discards the partial pass");
+
+    // A barrier from the retired generation is well-formed but finds no
+    // current attempt: it must not clear a hole, complete, or revoke anything.
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{7}),
+          "a retired-generation barrier frame still parses");
+    Check(manager.sessionsByEphemeralId_.empty(), "a retired-generation barrier creates no session");
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "a retired-generation barrier clears no coverage hole and starts no pass");
+
+    // A replacement connection's provisional attempt is scoped to its own
+    // connection-scoped id; the stale barrier for id 7 cannot release it.
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
+    manager.sessionsByEphemeralId_.emplace(
+        8, ffengine::VolumeSessionManager::VolumeSession{volumeId, L'C', 0, false});
+    auto& replacement = manager.sessionsByEphemeralId_.at(8);
+    replacement.scanInProgress = true;
+    replacement.awaitingScanAttemptStarted = true;
+    replacement.scanBatchFailed = true;
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{7}),
+          "a stale-id barrier is still parsed");
+    Check(replacement.awaitingScanAttemptStarted && replacement.scanBatchFailed,
+          "a barrier for the retired id cannot release the current attempt");
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{8}),
+          "the current attempt's own barrier is accepted");
+    Check(!replacement.awaitingScanAttemptStarted && !replacement.scanBatchFailed,
+          "the current attempt's barrier releases exactly that attempt");
+    manager.Stop();
+}
 
 int main() {
     TestMatchingJournalResumesWithoutReconciliation();
@@ -2668,6 +3168,10 @@ int main() {
     TestScanFailedSchedulesRetry();
     TestPauseResumeHonorsPendingScanFailureFloor();
     TestFailedReconciliationRetrySurvivesDisconnect();
+    TestScanFailedRacingDisconnectFromPublicationKeepsRetryOwner();
+    TestSchedulerDispatchRacingDisconnectKeepsRetryOwner();
+    TestDisableTransfersOwnedRetryToDurableFloor();
+    TestDisappearanceTransfersOwnedRetryToDurableFloor();
     TestDuplicateTerminalsWithoutScanInFlightAreRefused();
     TestBatchFailedScanCompletionIsNotAuthoritative();
     TestPausedCompletionIsNotAuthoritative();
@@ -2690,5 +3194,7 @@ int main() {
     TestRetryQueueStaysBoundedThrottledAndPauseAware();
     TestFailedRetrySubmissionReArmsOnlyTheSingleSlot();
     TestCombinedPauseDisconnectReconnectStaleTerminalRecovers();
+    TestScanAttemptStartedFrameIsExactAndAuthorityScoped();
+    TestDisconnectAroundBarrierKeepsRetryOwnership();
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

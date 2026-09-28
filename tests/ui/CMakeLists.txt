@@ -144,6 +144,15 @@ target_include_directories(ffaddress_bar_focus_tests PRIVATE ../../src/ui/includ
 target_link_libraries(ffaddress_bar_focus_tests PRIVATE user32)
 add_test(NAME ffaddress_bar_focus_tests COMMAND ffaddress_bar_focus_tests)
 
+# scan-generation-integrity-and-residual-certification-closure D4:
+# navigation-chrome Tab traversal seam (header-only, real-HWND contract test;
+# renderer-free) -- entry, adjacency, both escape boundaries, filtered
+# disabled/hidden stops, and address-edit eligibility.
+add_executable(ffchrome_tab_traversal_tests test_chrome_tab_traversal.cpp)
+target_include_directories(ffchrome_tab_traversal_tests PRIVATE ../../src/ui/include)
+target_link_libraries(ffchrome_tab_traversal_tests PRIVATE user32)
+add_test(NAME ffchrome_tab_traversal_tests COMMAND ffchrome_tab_traversal_tests)
+
 # modal-close-focus: dialog/modal close focus-target seam (header-only,
 # real-HWND contract test; renderer-free).
 add_executable(ffdialog_focus_return_tests test_dialog_focus_return.cpp)

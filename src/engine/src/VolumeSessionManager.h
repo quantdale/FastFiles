@@ -121,8 +121,9 @@ private:
 
     // A bounded retry deadline and its kind, shared by the delivered-failure
     // retry queue, the durable reissue floor, and the retirement path.
+    using RetryDeadline = std::chrono::steady_clock::time_point;
     struct FailedScanRetry {
-        std::chrono::steady_clock::time_point due;
+        RetryDeadline due;
         bool reconciliation = false;
     };
 
@@ -161,8 +162,12 @@ private:
     // tasks.md 7.6/D6: a from-scratch StartVolumeScan whose completion
     // (via IndexPipeline's reconciliation-pass tracking) self-corrects
     // missed events, rather than an unconditional full rescan discarding
-    // existing rows.
-    bool TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId);
+    // existing rows. `respectOwnedRetry` is set only by the ordinary
+    // interval sweep: a new coverage-gap trigger may atomically consume an
+    // owned retry slot, but the sweep must not preempt the slot's bounded
+    // five-second cadence.
+    bool TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId,
+                               bool respectOwnedRetry = false);
     // Caller holds mutex_. Consumes and returns the pending reissue floor for a
     // volume whose previous scan ended in connection loss. The caller decides
     // whether an unexpired floor defers the reissue, whether an expired floor
@@ -170,20 +175,47 @@ private:
     // intent onto the replacement connection's own retry slot at the same
     // durable due time.
     std::optional<FailedScanRetry> TakeScanReissueFloorLocked(ffindexstore::VolumeRowId durableId);
-    // Arms the existing bounded retry scheduler for a deferred reissue.
-    // Takes wakeMutex_ only, so it must be called outside mutex_.
-    void ArmScanReissue(ffprotocol::VolumeId ephemeralId, std::chrono::steady_clock::time_point due,
-                        bool reconciliation);
-    // scan-generation-integrity-and-residual-certification-closure D2/D3:
-    // arms one bounded (five-second) retry for a terminal that could not grant
-    // authority -- a coverage hole or a consumed retirement. The retry is what
-    // keeps missing coverage from waiting for the ordinary multi-minute poll /
-    // multi-hour reconciliation interval. Emits no request itself.
-    void ArmFailedScanRetry(ffprotocol::VolumeId ephemeralId, bool reconciliation);
-    // Drops the queued retry for a volume whose attempt just became
-    // authoritative: the coverage it was armed to repair is now proven
-    // complete, so the slot is consumed rather than issuing a redundant scan.
-    void ClearFailedScanRetry(ffprotocol::VolumeId ephemeralId);
+    // scan-generation-integrity-and-residual-certification-closure D2: the
+    // legal owner of one durable volume's retry intent. Exactly one applies at
+    // a time -- the in-flight attempt, the connection-scoped queue, the
+    // scheduler's in-hand dispatch, or the durable reconnect floor -- and every
+    // transition runs under both mutex_ and wakeMutex_ so no observer can see
+    // the intent unowned.
+    enum class RetryOwnership : uint8_t {
+        None,
+        ActiveAttempt,
+        EphemeralQueued,
+        SchedulerDispatching,
+        DurableFloor,
+    };
+    // Caller holds both mutex_ and wakeMutex_.
+    RetryOwnership RetryOwnerStateLocked(ffindexstore::VolumeRowId durableId) const;
+    // Caller holds both locks. Merges a bounded retry onto the durable floor,
+    // keeping the later deadline and the owed kind.
+    void MergeDurableFloorLocked(ffindexstore::VolumeRowId durableId, const FailedScanRetry& retry);
+    // Caller holds both locks. Moves a live session's retry intent (in-flight
+    // attempt, queued entry, or in-hand dispatch) onto the durable floor and
+    // clears the connection-scoped queue entry.
+    void TransferSessionRetryToFloorLocked(uint32_t ephemeralValue, const VolumeSession& session,
+                                           std::chrono::steady_clock::time_point at);
+    // Caller holds both locks. Installs the single next owner for a terminal
+    // that could not grant authority: the live queue while the connection is
+    // current, otherwise the durable floor. Never inserts a dead ephemeral id.
+    void InstallNonAuthoritativeRetryLocked(uint32_t ephemeralValue, ffindexstore::VolumeRowId durableId,
+                                            std::chrono::steady_clock::time_point due, bool reconciliation);
+    // Caller holds both locks. Claims the in-flight attempt for the session,
+    // consuming whichever other owner was installed for the volume.
+    void ClaimActiveAttemptLocked(uint32_t ephemeralValue, ffindexstore::VolumeRowId durableId,
+                                  bool reconciliation);
+    // Caller holds both locks. Clears every retry owner for the volume: the
+    // intent is satisfied (authoritative completion) or the engine is stopping.
+    void ClearRetryOwnerLocked(ffindexstore::VolumeRowId durableId, uint32_t ephemeralValue);
+    // Caller holds both locks. A retry admission whose submission failed
+    // (the connection generation was discarded) restores the single bounded
+    // retry owner at the five-second floor instead of leaving a claim with no
+    // legal submission or dropping the intent.
+    void RearmFailedAdmissionLocked(uint32_t ephemeralValue, ffindexstore::VolumeRowId durableId,
+                                    bool reconciliation);
     void RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter, bool force = false);
     // True when the volume's indexing is currently paused (globally or by
     // letter). Callers must hold mutex_.
@@ -231,6 +263,11 @@ private:
     // finite attempt cap, once per volume per five-second cadence, and without
     // spawning an unowned thread. Disconnect and Stop clear ephemeral entries.
     std::map<uint32_t, FailedScanRetry> failedScanRetries_;
+    // Guarded by mutex_ AND wakeMutex_ (all retry-owner transitions take the
+    // pair in that order). A due retry that has left the queue is still owned
+    // here until it is admitted or re-queued, so a disconnect can transfer it
+    // instead of dropping the local scheduler copy.
+    std::map<ffindexstore::VolumeRowId, FailedScanRetry> schedulerDispatchRetries_;
     uint64_t scanRetryGeneration_ = 0; // guarded by wakeMutex_
     // legacy-protocol-correctness-and-raw-volume-cancellation-closure D3/8.6:
     // per durable volume, a floor before the next scan reissue after a
@@ -242,6 +279,13 @@ private:
     // preserved instead of spinning reconnect -> rescan -> teardown. Guarded
     // by mutex_; decayed entries are erased when consulted.
     std::map<ffindexstore::VolumeRowId, FailedScanRetry> scanReissueFloors_;
+
+    // scan-generation-integrity-and-residual-certification-closure D3: the
+    // seam standing in for the window between the scheduler taking ownership
+    // of a due retry and adopting it. It must only run with neither mutex_
+    // nor wakeMutex_ held, so a test can disconnect exactly there and prove
+    // the intent still has an owner. Null in production.
+    std::function<void()> scanRetryDispatchSeam_;
 };
 
 } // namespace ffengine

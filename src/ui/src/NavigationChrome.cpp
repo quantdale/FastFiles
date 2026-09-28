@@ -1,5 +1,6 @@
 #include "NavigationChrome.h"
 #include "ffui/AddressBarFocus.h"
+#include "ffui/ChromeTabTraversal.h"
 #include "UITheme.h"
 
 #include <algorithm>
@@ -224,41 +225,34 @@ bool NavigationChrome::HandleTabNavigation(bool reverse) {
     const HWND focused = GetFocus();
     const bool focusIsShellSurface = focused == owner_ || focused == window_;
     const bool focusIsChromeControl = focused == addressEdit_ || IsChild(window_, focused);
-    if (!focusIsShellSurface && !focusIsChromeControl) return false;
-    if (focused == addressEdit_) return false;
+    if (!IsChromeTabTraversalEligible(window_ != nullptr, owner_ != nullptr, editing_, focusIsShellSurface,
+                                      focusIsChromeControl, focused == addressEdit_)) {
+        return false;
+    }
 
+    // scan-generation-integrity-and-residual-certification-closure D4: the
+    // candidate list is filtered exactly like the chrome's own visibility
+    // rules (disabled Back/Forward/Up and a hidden overflow affordance are
+    // not Tab stops), then the pure seam decides entry, adjacency, and the
+    // escape to the shell owner at either boundary.
     std::vector<HWND> focusable;
     focusable.reserve(8 + tabButtons_.size() + tabCloseButtons_.size());
-    const auto addIfFocusable = [&focusable](HWND control) {
-        if (control && IsWindowVisible(control) && IsWindowEnabled(control)) {
-            focusable.push_back(control);
-        }
-    };
-    addIfFocusable(back_);
-    addIfFocusable(forward_);
-    addIfFocusable(up_);
-    addIfFocusable(search_);
-    addIfFocusable(settings_);
-    addIfFocusable(newTab_);
+    AppendChromeTabStop(focusable, back_);
+    AppendChromeTabStop(focusable, forward_);
+    AppendChromeTabStop(focusable, up_);
+    AppendChromeTabStop(focusable, search_);
+    AppendChromeTabStop(focusable, settings_);
+    AppendChromeTabStop(focusable, newTab_);
     for (size_t index = 0; index < tabButtons_.size(); ++index) {
-        addIfFocusable(tabButtons_[index]);
-        if (index < tabCloseButtons_.size()) addIfFocusable(tabCloseButtons_[index]);
+        AppendChromeTabStop(focusable, tabButtons_[index]);
+        if (index < tabCloseButtons_.size()) AppendChromeTabStop(focusable, tabCloseButtons_[index]);
     }
-    addIfFocusable(overflow_);
-    if (focusable.empty()) return false;
+    AppendChromeTabStop(focusable, overflow_);
 
-    const auto current = std::find(focusable.begin(), focusable.end(), focused);
-    size_t nextIndex = 0;
-    if (current == focusable.end()) {
-        nextIndex = reverse ? focusable.size() - 1 : 0;
-    } else {
-        const size_t currentIndex = static_cast<size_t>(std::distance(focusable.begin(), current));
-        nextIndex = reverse
-            ? (currentIndex == 0 ? focusable.size() - 1 : currentIndex - 1)
-            : (currentIndex + 1 == focusable.size() ? 0 : currentIndex + 1);
-    }
-    SetFocus(focusable[nextIndex]);
-    return GetFocus() == focusable[nextIndex];
+    const ChromeTabTarget decision = NextChromeTabTarget(focusable, focused, owner_, reverse);
+    if (!decision.consume || decision.target == nullptr) return false;
+    SetFocus(decision.target);
+    return GetFocus() == decision.target;
 }
 
 void NavigationChrome::SetSearchActive(bool active) {

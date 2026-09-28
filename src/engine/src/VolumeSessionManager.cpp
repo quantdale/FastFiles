@@ -114,14 +114,17 @@ void VolumeSessionManager::SendSessionTeardown(ffprotocol::VolumeId ephemeralId,
 void VolumeSessionManager::ReloadConfiguration(std::vector<ffprotocol::VolumeSetting> volumes) {
     std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> toStop;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::scoped_lock lock(mutex_, wakeMutex_);
         configuredVolumes_ = std::move(volumes);
         // settings-and-appearance §9.2: a volume that was disabled (or
         // removed from the persisted selection) while a session was live
         // is torn down immediately -- no waiting for an engine restart.
         // The volume stays marked available (disabling is not
         // unavailability); only the session, its privileged-path work,
-        // and its published directories go away.
+        // and its published directories go away. D2: any retry intent the
+        // session owned moves to the durable floor first, so re-enabling the
+        // volume later cannot silently drop it.
+        const auto disabledAt = std::chrono::steady_clock::now();
         for (auto it = sessionsByEphemeralId_.begin(); it != sessionsByEphemeralId_.end();) {
             const wchar_t letter = static_cast<wchar_t>(towupper(it->second.driveLetter));
             const auto configured = std::find_if(configuredVolumes_.begin(), configuredVolumes_.end(), [letter](const auto& volume) {
@@ -137,6 +140,7 @@ void VolumeSessionManager::ReloadConfiguration(std::vector<ffprotocol::VolumeSet
                 continue;
             }
             toStop.emplace_back(ffprotocol::VolumeId{it->first}, it->second);
+            TransferSessionRetryToFloorLocked(it->first, it->second, disabledAt);
             it = sessionsByEphemeralId_.erase(it);
         }
     }
@@ -252,10 +256,14 @@ void VolumeSessionManager::Stop() {
         // Publish the stop while holding the scheduler's wait mutex. A notify
         // sent outside it can land between the scheduler's predicate re-check
         // and its wait_for entry, losing the wakeup for a full 10-minute poll
-        // interval -- an engine shutdown stall, not just a test hang.
-        std::lock_guard<std::mutex> wakeLock(wakeMutex_);
+        // interval -- an engine shutdown stall, not just a test hang. Shutdown
+        // is the one transition that may discard owed retry work, so every
+        // owner is cleared under the lock pair (D2).
+        std::scoped_lock lock(mutex_, wakeMutex_);
         wasRunning = running_.exchange(false);
         failedScanRetries_.clear();
+        schedulerDispatchRetries_.clear();
+        scanReissueFloors_.clear();
     }
     if (!wasRunning) {
         return;
@@ -292,39 +300,26 @@ void VolumeSessionManager::OnConnectionStateChanged(ConnectionState state) {
         // durable identity from a fresh EnumerateVolumes (task 7.1).
         std::vector<std::pair<ffindexstore::VolumeRowId, wchar_t>> abandonedPasses;
         {
-            // Pair session teardown with retry capture so a delivered
-            // ScanFailed cannot fall between the two snapshots. A retry for a
-            // finished attempt has no in-flight scan flag, but it is still
-            // durable work that must survive the loss of this ephemeral id.
+            // D2: every retry transition runs under the lock pair, so this
+            // snapshot can never observe the intent unowned. Each session's
+            // in-flight attempt, queued entry, or in-hand dispatch moves onto
+            // the durable floor before the connection-scoped ids are erased.
             std::scoped_lock lock(mutex_, wakeMutex_);
             const auto disconnectedAt = std::chrono::steady_clock::now();
             for (const auto& [ephemeralValue, session] : sessionsByEphemeralId_) {
                 abandonedPasses.emplace_back(session.durableId, session.driveLetter);
-                if (session.scanInProgress) {
-                    scanReissueFloors_[session.durableId] = {
-                        disconnectedAt + kScanFailureRetryDelay, session.reconciliationScan};
-                }
-                const auto retry = failedScanRetries_.find(ephemeralValue);
-                if (retry == failedScanRetries_.end()) continue;
-
-                auto retryDue = retry->second.due;
-                bool retryIsReconciliation = retry->second.reconciliation;
-                if (session.scanInProgress) {
-                    // The active attempt also became unreportable at
-                    // disconnect, so retain both five-second bounds.
-                    retryDue = (std::max)(retryDue, disconnectedAt + kScanFailureRetryDelay);
-                    retryIsReconciliation = session.reconciliationScan;
-                }
-                auto [floor, inserted] = scanReissueFloors_.try_emplace(
-                    session.durableId, FailedScanRetry{retryDue, retryIsReconciliation});
-                if (!inserted) {
-                    floor->second.due = (std::max)(floor->second.due, retryDue);
-                    floor->second.reconciliation = floor->second.reconciliation || retryIsReconciliation;
-                }
+                TransferSessionRetryToFloorLocked(ephemeralValue, session, disconnectedAt);
+            }
+            // An in-hand dispatch whose session vanished before this snapshot
+            // still owes its durable volume: keep it on the floor instead of
+            // dropping it with the connection-scoped state.
+            for (const auto& [durableId, retry] : schedulerDispatchRetries_) {
+                MergeDurableFloorLocked(durableId, retry);
             }
             sessionsByEphemeralId_.clear();
             lastSnapshotPublish_.clear();
             failedScanRetries_.clear();
+            schedulerDispatchRetries_.clear();
             ++scanRetryGeneration_;
         }
         wakeCv_.notify_one();
@@ -358,7 +353,9 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
     std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> unavailable;
 
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // D2: disappearance transfers any retry intent to the durable floor
+        // before the ephemeral id is erased, exactly like a disconnect.
+        std::scoped_lock lock(mutex_, wakeMutex_);
         std::vector<uint32_t> seenEphemeral;
         seenEphemeral.reserve(volumes.size());
 
@@ -410,6 +407,7 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
             if (std::find(seenEphemeral.begin(), seenEphemeral.end(), it->first) == seenEphemeral.end()) {
                 pipeline_.SetVolumeAvailable(it->second.durableId, false, NowAsFileTime());
                 unavailable.emplace_back(ffprotocol::VolumeId{it->first}, it->second);
+                TransferSessionRetryToFloorLocked(it->first, it->second, std::chrono::steady_clock::now());
                 it = sessionsByEphemeralId_.erase(it);
             } else {
                 ++it;
@@ -432,7 +430,7 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
 
 bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId, const VolumeSession& session) {
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::scoped_lock lock(mutex_, wakeMutex_);
         const std::wstring key(1, session.driveLetter);
         const auto configured = std::find_if(configuredVolumes_.begin(), configuredVolumes_.end(), [&key](const auto& volume) {
             return !volume.key.empty() && towupper(volume.key.front()) == key.front();
@@ -444,17 +442,11 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
     auto meta = pipeline_.GetVolumeMetadata(session.durableId);
     const bool scanComplete = meta && meta->scanComplete;
     std::optional<FailedScanRetry> queuedRetry;
-    {
-        std::lock_guard<std::mutex> wakeLock(wakeMutex_);
-        const auto retry = failedScanRetries_.find(ephemeralId.value);
-        if (retry != failedScanRetries_.end()) {
-            queuedRetry = retry->second;
-        }
-    }
     std::optional<FailedScanRetry> reissueFloor;
     bool startInitialScan = false;
     bool awaitingScanAttemptStarted = false;
     bool resetConnectionForAuthority = false;
+    bool retryOwnerChanged = false;
     const bool supportsScanAttemptStarted =
         ffprotocol::ProtocolSupportsScanAttemptStarted(connection_.NegotiatedVersion());
 
@@ -464,10 +456,17 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
     // unconditional full rescan (spec "Volume Reconnection Triggers
     // Resume-or-Reconcile, Not Blind Rescan").
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // D2: inspecting the queue/floor, taking the floor, and claiming the
+        // attempt are one transition under the lock pair, so a disconnect can
+        // never land between "no owner visible" and "owner installed".
+        std::scoped_lock lock(mutex_, wakeMutex_);
         auto it = sessionsByEphemeralId_.find(ephemeralId.value);
         if (it == sessionsByEphemeralId_.end() || it->second.durableId != session.durableId) {
             return false;
+        }
+        const auto queued = failedScanRetries_.find(ephemeralId.value);
+        if (queued != failedScanRetries_.end()) {
+            queuedRetry = queued->second;
         }
         if (it->second.awaitingScanAttemptStarted) {
             // A second local resume cannot be allowed to overtake the
@@ -477,7 +476,17 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
             return false;
         }
         reissueFloor = TakeScanReissueFloorLocked(session.durableId);
-        if (!reissueFloor && !queuedRetry && !scanComplete) {
+        if (reissueFloor) {
+            // D2: the durable floor's single retry intent is transferred onto
+            // this replacement connection's own retry slot in the same
+            // critical section that consumes the floor. The stored kind
+            // travels with it, so an interrupted reconciliation of an
+            // already-indexed volume is reattached as a reconciliation (D4)
+            // instead of waiting for the ordinary poll.
+            failedScanRetries_[ephemeralId.value] = {reissueFloor->due, reissueFloor->reconciliation};
+            ++scanRetryGeneration_;
+            retryOwnerChanged = true;
+        } else if (!queuedRetry && !scanComplete) {
             // scan-generation-integrity-and-residual-certification-closure
             // 3.4: a stopped worker can emit no terminal. A local counter
             // cannot then tell its replacement's only terminal apart from an
@@ -496,18 +505,20 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
                 }
             }
             if (!resetConnectionForAuthority) {
-                it->second.scanInProgress = true;
                 // The coverage hole remains recorded until the ordered
                 // service barrier proves that subsequent frames belong to the
                 // replacement, rather than an older worker still draining the
                 // shared pipe.
+                ClaimActiveAttemptLocked(ephemeralId.value, session.durableId, /*reconciliation=*/false);
                 if (!awaitingScanAttemptStarted) {
                     it->second.scanBatchFailed = false;
                 }
-                it->second.reconciliationScan = false;
                 startInitialScan = true;
             }
         }
+    }
+    if (retryOwnerChanged) {
+        wakeCv_.notify_one();
     }
     if (resetConnectionForAuthority) {
         // No pre-{2,3} stream marker can prove that the service joined the old
@@ -516,28 +527,11 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
         connection_.ResetForScanAuthority();
         return false;
     }
-    if (queuedRetry && !reissueFloor && !scanComplete) {
+    if (reissueFloor && !scanComplete) {
         // A pause/resume is not permission to bypass the five-second failure
-        // cadence. Keep the existing retry slot; this call may still reopen
-        // the journal below, and the scheduler will issue the scan at due time.
-        startInitialScan = false;
-    }
-    if (reissueFloor) {
-        // A previous scan for this durable volume ended in connection loss
-        // without a terminal. The durable five-second floor is transferred
-        // onto this replacement connection's own retry slot; the stored kind
-        // travels with it, so an interrupted reconciliation of an
-        // already-indexed volume is reattached as a reconciliation (D4)
-        // instead of waiting for the ordinary poll.
-        ArmScanReissue(ephemeralId, reissueFloor->due, reissueFloor->reconciliation);
-        if (!scanComplete) {
-            // The initial scan is deferred through that slot so the reissue
-            // honors the same five-second cadence.
-            return false;
-        }
-        // An already-indexed volume needed no initial scan; it still reopens
-        // the journal below while the scheduler issues the retried work from
-        // the transferred slot.
+        // cadence. The initial scan is deferred through the transferred slot
+        // so the reissue honors that floor.
+        return false;
     }
     if (startInitialScan) {
         RefreshProjectionScanState();
@@ -553,7 +547,8 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
             // WriteFrameOverlapped can fail after emitting a prefix of a
             // frame. Do not roll provisional state back into a connection
             // whose service may still process that prefix; clear this whole
-            // connection generation instead.
+            // connection generation instead. The in-flight claim travels to
+            // the durable floor if that reset ends the connection.
             connection_.ResetForScanAuthority();
             return false;
         }
@@ -622,51 +617,138 @@ std::optional<VolumeSessionManager::FailedScanRetry> VolumeSessionManager::TakeS
     return pending;
 }
 
-void VolumeSessionManager::ArmFailedScanRetry(ffprotocol::VolumeId ephemeralId, bool reconciliation) {
-    if (!running_.load() || !active_.load()) {
+VolumeSessionManager::RetryOwnership VolumeSessionManager::RetryOwnerStateLocked(
+    ffindexstore::VolumeRowId durableId) const {
+    if (schedulerDispatchRetries_.find(durableId) != schedulerDispatchRetries_.end()) {
+        return RetryOwnership::SchedulerDispatching;
+    }
+    if (scanReissueFloors_.find(durableId) != scanReissueFloors_.end()) {
+        return RetryOwnership::DurableFloor;
+    }
+    for (const auto& [ephemeralValue, session] : sessionsByEphemeralId_) {
+        if (session.durableId != durableId) {
+            continue;
+        }
+        if (session.scanInProgress) {
+            return RetryOwnership::ActiveAttempt;
+        }
+        if (failedScanRetries_.find(ephemeralValue) != failedScanRetries_.end()) {
+            return RetryOwnership::EphemeralQueued;
+        }
+    }
+    return RetryOwnership::None;
+}
+
+void VolumeSessionManager::MergeDurableFloorLocked(ffindexstore::VolumeRowId durableId,
+                                                   const FailedScanRetry& retry) {
+    auto [floor, inserted] = scanReissueFloors_.try_emplace(durableId, retry);
+    if (!inserted) {
+        floor->second.due = (std::max)(floor->second.due, retry.due);
+        floor->second.reconciliation = floor->second.reconciliation || retry.reconciliation;
+    }
+}
+
+void VolumeSessionManager::TransferSessionRetryToFloorLocked(uint32_t ephemeralValue,
+                                                             const VolumeSession& session,
+                                                             std::chrono::steady_clock::time_point at) {
+    std::optional<FailedScanRetry> pending;
+    const auto queued = failedScanRetries_.find(ephemeralValue);
+    if (queued != failedScanRetries_.end()) {
+        pending = queued->second;
+    }
+    if (session.scanInProgress) {
+        // The active attempt also became unreportable at this transition, so
+        // retain both five-second bounds (the later one) and the attempt's own
+        // owed kind.
+        FailedScanRetry active{at + kScanFailureRetryDelay, session.reconciliationScan};
+        if (pending) {
+            active.due = (std::max)(pending->due, active.due);
+        }
+        pending = active;
+    }
+    const auto dispatch = schedulerDispatchRetries_.find(session.durableId);
+    if (dispatch != schedulerDispatchRetries_.end()) {
+        if (pending) {
+            pending->due = (std::max)(pending->due, dispatch->second.due);
+        } else {
+            pending = dispatch->second;
+        }
+        schedulerDispatchRetries_.erase(dispatch);
+    }
+    if (pending) {
+        MergeDurableFloorLocked(session.durableId, *pending);
+    }
+    failedScanRetries_.erase(ephemeralValue);
+}
+
+void VolumeSessionManager::InstallNonAuthoritativeRetryLocked(uint32_t ephemeralValue,
+                                                              ffindexstore::VolumeRowId durableId,
+                                                              std::chrono::steady_clock::time_point due,
+                                                              bool reconciliation) {
+    // The single next owner is chosen inside the same critical section that
+    // closes the attempt, so a disconnect can never observe neither an
+    // in-flight scan nor a retry owner. A dead connection is never given an
+    // ephemeral entry -- its durable identity carries the floor instead.
+    schedulerDispatchRetries_.erase(durableId);
+    if (active_.load()) {
+        failedScanRetries_[ephemeralValue] = {due, reconciliation};
+        ++scanRetryGeneration_;
         return;
     }
-    {
-        std::lock_guard<std::mutex> lock(wakeMutex_);
-        // One slot per connection-scoped volume id: a repeated failure (or a
-        // consumed retirement) replaces the same entry rather than adding a
-        // second outstanding retry.
-        failedScanRetries_[ephemeralId.value] =
-            {std::chrono::steady_clock::now() + kScanFailureRetryDelay, reconciliation};
-        ++scanRetryGeneration_;
-    }
-    wakeCv_.notify_one();
+    MergeDurableFloorLocked(durableId, FailedScanRetry{due, reconciliation});
 }
 
-void VolumeSessionManager::ArmScanReissue(ffprotocol::VolumeId ephemeralId,
-                                          std::chrono::steady_clock::time_point due, bool reconciliation) {
-    if (!running_.load()) {
+void VolumeSessionManager::ClaimActiveAttemptLocked(uint32_t ephemeralValue,
+                                                    ffindexstore::VolumeRowId durableId,
+                                                    bool reconciliation) {
+    // Consume whichever other owner was installed for this volume: the
+    // in-flight attempt becomes the sole owner.
+    schedulerDispatchRetries_.erase(durableId);
+    failedScanRetries_.erase(ephemeralValue);
+    auto it = sessionsByEphemeralId_.find(ephemeralValue);
+    if (it == sessionsByEphemeralId_.end() || it->second.durableId != durableId) {
         return;
     }
-    {
-        std::lock_guard<std::mutex> lock(wakeMutex_);
-        failedScanRetries_[ephemeralId.value] = {due, reconciliation};
-        ++scanRetryGeneration_;
-    }
-    wakeCv_.notify_one();
+    it->second.scanInProgress = true;
+    it->second.reconciliationScan = reconciliation;
 }
 
-void VolumeSessionManager::ClearFailedScanRetry(ffprotocol::VolumeId ephemeralId) {
-    std::lock_guard<std::mutex> lock(wakeMutex_);
-    if (failedScanRetries_.erase(ephemeralId.value) != 0) {
-        ++scanRetryGeneration_;
-    }
+void VolumeSessionManager::ClearRetryOwnerLocked(ffindexstore::VolumeRowId durableId, uint32_t ephemeralValue) {
+    failedScanRetries_.erase(ephemeralValue);
+    schedulerDispatchRetries_.erase(durableId);
+    scanReissueFloors_.erase(durableId);
 }
 
-bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId) {
+void VolumeSessionManager::RearmFailedAdmissionLocked(uint32_t ephemeralValue,
+                                                      ffindexstore::VolumeRowId durableId,
+                                                      bool reconciliation) {
+    auto it = sessionsByEphemeralId_.find(ephemeralValue);
+    if (it == sessionsByEphemeralId_.end() || it->second.durableId != durableId) {
+        // The connection generation was already discarded, so the disconnect
+        // transfer owns the intent on the durable floor.
+        return;
+    }
+    it->second.scanInProgress = false;
+    it->second.reconciliationScan = false;
+    InstallNonAuthoritativeRetryLocked(ephemeralValue, durableId,
+                                       std::chrono::steady_clock::now() + kScanFailureRetryDelay,
+                                       reconciliation);
+}
+
+bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralId,
+                                                 ffindexstore::VolumeRowId durableId,
+                                                 bool respectOwnedRetry) {
     // index-durability-false-success-closure D4: a reconciliation pass is
     // finalized by the authoritative completion of the scan started here,
     // so starting one must respect the scan authority that already exists
     // for the volume rather than racing it.
     std::optional<FailedScanRetry> reissueFloor;
     bool resetConnectionForAuthority = false;
+    bool retryOwnerChanged = false;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // D2: the busy/deferral check, the floor transfer, and the claim are
+        // one transition under the lock pair.
+        std::scoped_lock lock(mutex_, wakeMutex_);
         auto it = sessionsByEphemeralId_.find(ephemeralId.value);
         if (it == sessionsByEphemeralId_.end() || it->second.durableId != durableId) {
             // Session vanished (volume list changed / teardown raced the
@@ -695,19 +777,31 @@ bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
             return false;
         }
         reissueFloor = TakeScanReissueFloorLocked(durableId);
-        if (!reissueFloor) {
+        if (reissueFloor) {
+            // D2: the floor's single retry intent moves onto this connection's
+            // own slot under the same critical section that consumed it.
+            failedScanRetries_[ephemeralId.value] = {reissueFloor->due, /*reconciliation=*/true};
+            ++scanRetryGeneration_;
+            retryOwnerChanged = true;
+        } else if (it->second.scanBatchFailed) {
             // Defensive only: the normal batch-failure terminal path clears
             // this flag before a deferred reconciliation can reach here. If a
             // caller ever observes a hole with no owning scan, a volume-only
             // terminal is no longer orderable, so discard the connection
             // instead of silently granting a reconciliation clean slate.
-            if (it->second.scanBatchFailed) {
-                resetConnectionForAuthority = true;
-            } else {
-                it->second.scanInProgress = true;
-                it->second.reconciliationScan = true;
-            }
+            resetConnectionForAuthority = true;
+        } else if (respectOwnedRetry && failedScanRetries_.find(ephemeralId.value) != failedScanRetries_.end()) {
+            // The ordinary interval sweep must not preempt an already-owned
+            // retry slot: the slot issues at its bounded due time and carries
+            // exactly one intent. A journal-gap or resume trigger may consume
+            // the slot atomically below because its own reason to scan is new.
+            return false;
+        } else {
+            ClaimActiveAttemptLocked(ephemeralId.value, durableId, /*reconciliation=*/true);
         }
+    }
+    if (retryOwnerChanged) {
+        wakeCv_.notify_one();
     }
     if (resetConnectionForAuthority) {
         connection_.ResetForScanAuthority();
@@ -715,10 +809,9 @@ bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
     }
     if (reissueFloor) {
         // A previous scan for this durable volume ended in connection loss
-        // without a terminal: defer through the bounded retry scheduler so the
-        // reissue honors the same five-second cadence a delivered ScanFailed
-        // would have used.
-        ArmScanReissue(ephemeralId, reissueFloor->due, /*reconciliation=*/true);
+        // without a terminal: the reissue was deferred through the bounded
+        // retry scheduler so it honors the same five-second cadence a
+        // delivered ScanFailed would have used.
         return false;
     }
     RefreshProjectionScanState();
@@ -734,7 +827,15 @@ bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
     }
     // A failed frame write is not proof that the service saw no request. The
     // connection reset drops the provisional reconciliation owner together
-    // with its connection-scoped volume id.
+    // with its connection-scoped volume id; restore the single bounded retry
+    // owner on the still-live session so the intent is not lost. The pass's
+    // own terminal handling (or the scheduler's abort) discards the partial
+    // seen-set.
+    {
+        std::scoped_lock lock(mutex_, wakeMutex_);
+        RearmFailedAdmissionLocked(ephemeralId.value, durableId, /*reconciliation=*/true);
+    }
+    wakeCv_.notify_one();
     connection_.ResetForScanAuthority();
     return false;
 }
@@ -836,8 +937,11 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
     bool deferred = false;
     bool paused = false;
     bool waitingForScanAttemptStarted = false;
+    bool retryOwnerChanged = false;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // D2: closing the attempt and installing its next retry owner are one
+        // transition under the lock pair.
+        std::scoped_lock lock(mutex_, wakeMutex_);
         auto it = sessionsByEphemeralId_.find(volumeId.value);
         if (it == sessionsByEphemeralId_.end()) {
             return;
@@ -872,7 +976,22 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
             anyScanInProgress = std::any_of(
                 sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
                 [](const auto& entry) { return entry.second.scanInProgress; });
+            if (batchFailed) {
+                // scan-generation-integrity-and-residual-certification-closure
+                // D2/D4: coverage that could not be authorized is retried from
+                // the last durably applied position (or as its own
+                // reconciliation) under the same critical section that closed
+                // the attempt, so a disconnect re-entering from the publication
+                // below cannot observe the intent unowned.
+                InstallNonAuthoritativeRetryLocked(volumeId.value, durableId,
+                                                   std::chrono::steady_clock::now() + kScanFailureRetryDelay,
+                                                   wasReconciliationScan);
+                retryOwnerChanged = true;
+            }
         }
+    }
+    if (retryOwnerChanged) {
+        wakeCv_.notify_one();
     }
 
     if (waitingForScanAttemptStarted) {
@@ -911,21 +1030,17 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
                                        : L"scan-complete-non-authoritative-batch-failed",
                                 0, 0);
         RepublishSnapshot(durableId, driveLetter, true);
-        if (batchFailed) {
-            // scan-generation-integrity-and-residual-certification-closure
-            // D2/D4: coverage that could not be authorized is retried from the
-            // last durably applied position (or as its own reconciliation),
-            // never left to the ordinary multi-minute poll or the multi-hour
-            // reconciliation interval.
-            ArmFailedScanRetry(volumeId, wasReconciliationScan);
-        }
         return;
     }
 
     pipeline_.MarkScanComplete(durableId);
-    // D2/D4: this attempt's coverage is authoritative, so any queued retry
-    // that was armed to repair an earlier hole or retirement is no longer owed.
-    ClearFailedScanRetry(volumeId);
+    // D2/D4: this attempt's coverage is authoritative, so every retry owner
+    // that was armed to repair an earlier hole or retirement is no longer
+    // owed (the intent is satisfied).
+    {
+        std::scoped_lock lock(mutex_, wakeMutex_);
+        ClearRetryOwnerLocked(durableId, volumeId.value);
+    }
     if (wasReconciliationScan) {
         if (pipeline_.IsReconciliationPassActive(durableId)) {
             pipeline_.FinishReconciliationPass(durableId);
@@ -964,8 +1079,13 @@ void VolumeSessionManager::OnScanFailed(ffprotocol::VolumeId volumeId) {
     bool anyScanInProgress = false;
     bool wasReconciliationScan = false;
     bool waitingForScanAttemptStarted = false;
+    bool retryOwnerChanged = false;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // D2: closing the attempt and installing its next owner are one
+        // transition under the lock pair. RepublishSnapshot below re-enters the
+        // manager through the publication callback, so the owner must already
+        // exist before the locks are released.
+        std::scoped_lock lock(mutex_, wakeMutex_);
         auto it = sessionsByEphemeralId_.find(volumeId.value);
         if (it == sessionsByEphemeralId_.end()) {
             return;
@@ -992,7 +1112,14 @@ void VolumeSessionManager::OnScanFailed(ffprotocol::VolumeId volumeId) {
             anyScanInProgress = std::any_of(
                 sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
                 [](const auto& entry) { return entry.second.scanInProgress; });
+            InstallNonAuthoritativeRetryLocked(volumeId.value, durableId,
+                                               std::chrono::steady_clock::now() + kScanFailureRetryDelay,
+                                               wasReconciliationScan);
+            retryOwnerChanged = true;
         }
+    }
+    if (retryOwnerChanged) {
+        wakeCv_.notify_one();
     }
 
     if (waitingForScanAttemptStarted) {
@@ -1011,7 +1138,6 @@ void VolumeSessionManager::OnScanFailed(ffprotocol::VolumeId volumeId) {
                             {}, std::wstring(1, driveLetter),
                             L"service-reported-scan-failure", 0, 0);
     RepublishSnapshot(durableId, driveLetter, true);
-    ArmFailedScanRetry(volumeId, wasReconciliationScan);
 }
 
 void VolumeSessionManager::OnScanAttemptStarted(ffprotocol::VolumeId volumeId) {
@@ -1312,75 +1438,124 @@ void VolumeSessionManager::ReconciliationSchedulerLoop() {
             continue;
         }
 
-        std::vector<std::pair<ffprotocol::VolumeId, bool>> failedRetries;
+        struct DueRetry {
+            ffprotocol::VolumeId ephemeralId;
+            ffindexstore::VolumeRowId durableId = 0;
+            bool reconciliation = false;
+        };
+        std::vector<DueRetry> failedRetries;
         {
-            std::lock_guard<std::mutex> wakeLock(wakeMutex_);
+            // D2: moving a due retry out of the queue and into the visible
+            // in-hand dispatch owner is one transition under the lock pair, so
+            // a disconnect in the D3 seam below can transfer it.
+            std::scoped_lock lock(mutex_, wakeMutex_);
             const auto now = std::chrono::steady_clock::now();
             for (auto it = failedScanRetries_.begin(); it != failedScanRetries_.end();) {
-                if (it->second.due <= now) {
-                    failedRetries.emplace_back(ffprotocol::VolumeId{it->first}, it->second.reconciliation);
-                    it = failedScanRetries_.erase(it);
-                } else {
+                if (it->second.due > now) {
                     ++it;
+                    continue;
                 }
+                const auto session = sessionsByEphemeralId_.find(it->first);
+                if (session == sessionsByEphemeralId_.end()) {
+                    // Every transition that erases a session transfers its
+                    // retry first; leave an unkeyable entry queued rather than
+                    // dispatching it against a dead ephemeral id.
+                    ++it;
+                    continue;
+                }
+                schedulerDispatchRetries_[session->second.durableId] = it->second;
+                failedRetries.push_back(DueRetry{ffprotocol::VolumeId{it->first}, session->second.durableId,
+                                                 it->second.reconciliation});
+                it = failedScanRetries_.erase(it);
             }
         }
-        for (const auto& [ephemeralId, reconciliation] : failedRetries) {
+        // D3: a due retry has left its queue; the dispatch seam runs with no
+        // manager lock held, before the retry is adopted.
+        if (scanRetryDispatchSeam_) {
+            scanRetryDispatchSeam_();
+        }
+        for (const auto& retry : failedRetries) {
             VolumeSession session;
-            bool retry = false;
             bool sessionAlive = false;
+            bool retryReady = false;
             {
-                std::lock_guard<std::mutex> lock(mutex_);
-                auto it = sessionsByEphemeralId_.find(ephemeralId.value);
-                if (it != sessionsByEphemeralId_.end()) {
-                    sessionAlive = true;
-                    if (!it->second.scanInProgress && !IsPausedLocked(it->second.driveLetter)) {
-                        session = it->second;
-                        retry = true;
-                    }
+                std::scoped_lock lock(mutex_, wakeMutex_);
+                const auto dispatch = schedulerDispatchRetries_.find(retry.durableId);
+                if (dispatch == schedulerDispatchRetries_.end()) {
+                    continue; // disconnect/disappearance already transferred it
+                }
+                const auto it = sessionsByEphemeralId_.find(retry.ephemeralId.value);
+                if (it == sessionsByEphemeralId_.end() || it->second.durableId != retry.durableId) {
+                    // The session vanished without a transfer (defensive):
+                    // keep the intent on the durable floor instead of dropping
+                    // it with the dead ephemeral id.
+                    MergeDurableFloorLocked(retry.durableId, dispatch->second);
+                    schedulerDispatchRetries_.erase(dispatch);
+                    continue;
+                }
+                sessionAlive = true;
+                if (!it->second.scanInProgress && !IsPausedLocked(it->second.driveLetter)) {
+                    session = it->second;
+                    retryReady = true;
                 }
             }
-            if (!retry) {
-                if (sessionAlive) {
-                    // scan-generation-integrity-and-residual-certification-
-                    // closure D4: a retry intent is never dropped because the
-                    // volume is paused or busy -- the single slot is re-armed at
-                    // the five-second cadence, so a paused volume's intent
-                    // survives the connection replacement and resumes with it.
-                    std::lock_guard<std::mutex> wakeLock(wakeMutex_);
-                    failedScanRetries_[ephemeralId.value] =
-                        {std::chrono::steady_clock::now() + kScanFailureRetryDelay, reconciliation};
-                    ++scanRetryGeneration_;
+            if (!sessionAlive) {
+                continue;
+            }
+            if (!retryReady) {
+                // Keep one non-issuing owner at the five-second cadence so a
+                // paused or busy volume's intent survives.
+                bool requeued = false;
+                {
+                    std::scoped_lock lock(mutex_, wakeMutex_);
+                    const auto dispatch = schedulerDispatchRetries_.find(retry.durableId);
+                    if (dispatch != schedulerDispatchRetries_.end()) {
+                        failedScanRetries_[retry.ephemeralId.value] =
+                            {std::chrono::steady_clock::now() + kScanFailureRetryDelay,
+                             dispatch->second.reconciliation};
+                        ++scanRetryGeneration_;
+                        schedulerDispatchRetries_.erase(dispatch);
+                        requeued = true;
+                    }
+                }
+                if (requeued) {
+                    wakeCv_.notify_one();
                 }
                 continue;
             }
-            bool issued = false;
-            if (reconciliation) {
-                issued = TriggerReconciliation(ephemeralId, session.durableId);
-            } else {
-                issued = StartOrResumeVolume(ephemeralId, session);
-            }
-            if (!issued) {
-                if (reconciliation) {
-                    pipeline_.AbortReconciliationPass(session.durableId);
-                }
-                bool sessionStillAlive = false;
-                {
-                    std::lock_guard<std::mutex> lock(mutex_);
-                    auto it = sessionsByEphemeralId_.find(ephemeralId.value);
-                    if (it != sessionsByEphemeralId_.end()) {
-                        sessionStillAlive = true;
-                        it->second.scanInProgress = false;
-                        it->second.reconciliationScan = false;
-                        it->second.scanBatchFailed = false;
+            const bool issued = retry.reconciliation
+                ? TriggerReconciliation(retry.ephemeralId, session.durableId)
+                : StartOrResumeVolume(retry.ephemeralId, session);
+            bool keptOwner = false;
+            {
+                std::scoped_lock lock(mutex_, wakeMutex_);
+                const auto dispatch = schedulerDispatchRetries_.find(retry.durableId);
+                if (dispatch != schedulerDispatchRetries_.end()) {
+                    const auto it = sessionsByEphemeralId_.find(retry.ephemeralId.value);
+                    const bool sameSession =
+                        it != sessionsByEphemeralId_.end() && it->second.durableId == retry.durableId;
+                    if (sameSession && it->second.scanInProgress) {
+                        // The admission claimed the in-flight attempt; it is
+                        // the owner now (defensive cleanup only).
+                        schedulerDispatchRetries_.erase(dispatch);
+                    } else if (sameSession) {
+                        failedScanRetries_[retry.ephemeralId.value] =
+                            {std::chrono::steady_clock::now() + kScanFailureRetryDelay,
+                             dispatch->second.reconciliation};
+                        ++scanRetryGeneration_;
+                        schedulerDispatchRetries_.erase(dispatch);
+                        keptOwner = true;
+                    } else {
+                        MergeDurableFloorLocked(retry.durableId, dispatch->second);
+                        schedulerDispatchRetries_.erase(dispatch);
                     }
                 }
-                if (sessionStillAlive) {
-                    std::lock_guard<std::mutex> wakeLock(wakeMutex_);
-                    failedScanRetries_[ephemeralId.value] =
-                        {std::chrono::steady_clock::now() + kScanFailureRetryDelay, reconciliation};
-                    ++scanRetryGeneration_;
-                }
+            }
+            if (keptOwner) {
+                wakeCv_.notify_one();
+            }
+            if (!issued && !keptOwner && retry.reconciliation) {
+                pipeline_.AbortReconciliationPass(retry.durableId);
             }
         }
 
@@ -1402,7 +1577,7 @@ void VolumeSessionManager::ReconciliationSchedulerLoop() {
             }
         }
         for (const auto& [ephemeralId, durableId] : due) {
-            TriggerReconciliation(ephemeralId, durableId);
+            TriggerReconciliation(ephemeralId, durableId, /*respectOwnedRetry=*/true);
         }
     }
 }
