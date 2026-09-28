@@ -6,6 +6,7 @@
 #include <string>
 
 #include "../TestSupport.h"
+#include "ScanAttemptBarrier.h"
 
 namespace {
 
@@ -146,10 +147,55 @@ void TestWorkerExceptionBoundaryPolicy() {
                   "intentional geometry-failure and enumeration cleanup remain explicit under the guard");
 }
 
+// scan-generation-integrity-and-residual-certification-closure 4.3: execute
+// both barrier outcomes. A negotiated peer whose bounded barrier write fails
+// must tear the connection down; a peer that did not negotiate the barrier
+// never has the write attempted. The production loop must act on TearDown
+// before it registers or starts the replacement worker, so deleting that
+// branch cannot pass the source binding.
+void TestScanAttemptBarrierDecisionIsExecutable() {
+    using ffindexsvc::ApplyScanAttemptBarrier;
+    using ffindexsvc::ScanAttemptBarrierDecision;
+
+    bool writeInvoked = false;
+    const auto notNegotiated = ApplyScanAttemptBarrier(false, [&] {
+        writeInvoked = true;
+        return true;
+    });
+    fftest::Check(notNegotiated == ScanAttemptBarrierDecision::Proceed,
+                  "a pre-2.3 peer proceeds without a barrier write");
+    fftest::Check(!writeInvoked, "the barrier writer is never invoked for a pre-2.3 peer");
+
+    const auto written = ApplyScanAttemptBarrier(true, [] { return true; });
+    fftest::Check(written == ScanAttemptBarrierDecision::Proceed,
+                  "a successful negotiated barrier write proceeds to the replacement worker");
+
+    const auto failed = ApplyScanAttemptBarrier(true, [] { return false; });
+    fftest::Check(failed == ScanAttemptBarrierDecision::TearDown,
+                  "a failed negotiated barrier write tears the connection down instead of starting a worker");
+
+    const auto root = FindRepositoryRoot();
+    fftest::Check(!root.empty(), "the barrier-order binding resolves the repository root");
+    if (!root.empty()) {
+        const std::string source = ReadText(root / "src" / "indexsvc" / "src" / "ServiceConnection.cpp");
+        const std::size_t gate = source.find("ApplyScanAttemptBarrier(");
+        const std::size_t tearDown = source.find("ScanAttemptBarrierDecision::TearDown", gate);
+        const std::size_t disconnect = source.find("disconnect = true;", tearDown);
+        const std::size_t breakStatement = source.find("break;", disconnect);
+        const std::size_t workerRegistration = source.find("activeScans.push_back", gate);
+        fftest::Check(gate != std::string::npos && tearDown != std::string::npos &&
+                          disconnect != std::string::npos && breakStatement != std::string::npos &&
+                          workerRegistration != std::string::npos && tearDown < disconnect &&
+                          disconnect < breakStatement && breakStatement < workerRegistration,
+                      "TearDown disconnects before the replacement worker is registered");
+    }
+}
+
 } // namespace
 
 int main() {
     TestWorkerExceptionBoundaryPolicy();
+    TestScanAttemptBarrierDecisionIsExecutable();
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());
         return 1;

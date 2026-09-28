@@ -230,7 +230,7 @@ bool NavigationChrome::HandleTabNavigation(bool reverse) {
         return false;
     }
 
-    // scan-generation-integrity-and-residual-certification-closure D4: the
+    // retry-ownership-and-focus-escape-closure D4: the
     // candidate list is filtered exactly like the chrome's own visibility
     // rules (disabled Back/Forward/Up and a hidden overflow affordance are
     // not Tab stops), then the pure seam decides entry, adjacency, and the

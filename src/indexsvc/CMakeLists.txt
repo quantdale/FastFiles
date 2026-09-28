@@ -54,6 +54,7 @@ set(FF_INDEXSVC_PRIVATE_HEADERS
   src/ConnectionRegistry.h
   src/DiagnosticsHardening.h
   src/DllHardening.h
+  src/ScanAttemptBarrier.h
   src/ScanWorkerBoundary.h
   src/ServiceWorkerLifecycle.h
   src/ServiceConnection.h

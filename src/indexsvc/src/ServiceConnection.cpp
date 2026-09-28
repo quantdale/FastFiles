@@ -18,6 +18,7 @@
 #include "CommandSurface.h"
 #include "DiagnosticsHardening.h"
 #include "ScanWorkerBoundary.h"
+#include "ScanAttemptBarrier.h"
 #include "ServiceWorkerLifecycle.h"
 #include "StalenessMonitor.h"
 #include "UsnJournalReader.h"
@@ -322,8 +323,13 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                 }
                 StopAndJoin(activeScans, request.volumeId.value); // supersede any prior scan of the same volume
 
-                if (ffprotocol::ProtocolSupportsScanAttemptStarted(negotiatedVersion)
-                    && !SendScanAttemptStarted(pipeHandle, writeMutex, request.volumeId, transportFailed.get())) {
+                if (ApplyScanAttemptBarrier(
+                        ffprotocol::ProtocolSupportsScanAttemptStarted(negotiatedVersion),
+                        [&] {
+                            return SendScanAttemptStarted(pipeHandle, writeMutex, request.volumeId,
+                                                          transportFailed.get());
+                        })
+                    == ScanAttemptBarrierDecision::TearDown) {
                     // A peer that negotiated the barrier cannot safely accept
                     // replacement output without it. A failed bounded write
                     // follows the normal transport teardown path instead of

@@ -144,7 +144,7 @@ target_include_directories(ffaddress_bar_focus_tests PRIVATE ../../src/ui/includ
 target_link_libraries(ffaddress_bar_focus_tests PRIVATE user32)
 add_test(NAME ffaddress_bar_focus_tests COMMAND ffaddress_bar_focus_tests)
 
-# scan-generation-integrity-and-residual-certification-closure D4:
+# retry-ownership-and-focus-escape-closure D4:
 # navigation-chrome Tab traversal seam (header-only, real-HWND contract test;
 # renderer-free) -- entry, adjacency, both escape boundaries, filtered
 # disabled/hidden stops, and address-edit eligibility.

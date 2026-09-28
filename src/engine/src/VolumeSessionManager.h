@@ -162,12 +162,10 @@ private:
     // tasks.md 7.6/D6: a from-scratch StartVolumeScan whose completion
     // (via IndexPipeline's reconciliation-pass tracking) self-corrects
     // missed events, rather than an unconditional full rescan discarding
-    // existing rows. `respectOwnedRetry` is set only by the ordinary
-    // interval sweep: a new coverage-gap trigger may atomically consume an
-    // owned retry slot, but the sweep must not preempt the slot's bounded
-    // five-second cadence.
-    bool TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId,
-                               bool respectOwnedRetry = false);
+    // existing rows. An already-owned retry slot always defers this call:
+    // the slot issues at its bounded due time and carries exactly one
+    // intent, so no caller may shorten the five-second cadence.
+    bool TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId);
     // Caller holds mutex_. Consumes and returns the pending reissue floor for a
     // volume whose previous scan ended in connection loss. The caller decides
     // whether an unexpired floor defers the reissue, whether an expired floor
@@ -175,7 +173,7 @@ private:
     // intent onto the replacement connection's own retry slot at the same
     // durable due time.
     std::optional<FailedScanRetry> TakeScanReissueFloorLocked(ffindexstore::VolumeRowId durableId);
-    // scan-generation-integrity-and-residual-certification-closure D2: the
+    // retry-ownership-and-focus-escape-closure D2: the
     // legal owner of one durable volume's retry intent. Exactly one applies at
     // a time -- the in-flight attempt, the connection-scoped queue, the
     // scheduler's in-hand dispatch, or the durable reconnect floor -- and every
@@ -280,7 +278,7 @@ private:
     // by mutex_; decayed entries are erased when consulted.
     std::map<ffindexstore::VolumeRowId, FailedScanRetry> scanReissueFloors_;
 
-    // scan-generation-integrity-and-residual-certification-closure D3: the
+    // retry-ownership-and-focus-escape-closure D3: the
     // seam standing in for the window between the scheduler taking ownership
     // of a due retry and adopting it. It must only run with neither mutex_
     // nor wakeMutex_ held, so a test can disconnect exactly there and prove

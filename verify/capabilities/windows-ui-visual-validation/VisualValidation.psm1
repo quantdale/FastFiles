@@ -853,7 +853,7 @@ function Invoke-VisualAction {
             $restoredTabs = @(Get-VisualTabStripState -Context $Context)
             $restoredOverflow = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1000)
 
-            # D4: forward and reverse Tab traversal must enter chrome and
+            # retry-ownership-and-focus-escape-closure D4: forward and reverse Tab traversal must enter chrome and
             # escape back to the shell content surface instead of cycling
             # among chrome controls. Normalize focus to content first with a
             # bounded forward pass, then prove reverse entry and both escapes.

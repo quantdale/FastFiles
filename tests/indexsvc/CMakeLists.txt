@@ -51,6 +51,7 @@ target_include_directories(ffservice_revalidation_policy_tests PRIVATE ${CMAKE_C
 add_test(NAME ffservice_revalidation_policy_tests COMMAND ffservice_revalidation_policy_tests)
 
 add_executable(ffservice_exception_boundary_policy_tests test_worker_exception_boundary_policy.cpp)
+target_include_directories(ffservice_exception_boundary_policy_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src)
 add_test(NAME ffservice_exception_boundary_policy_tests COMMAND ffservice_exception_boundary_policy_tests)
 
 # ntfs-observe certification-probe contract (FC-003/FC-004): synthetic

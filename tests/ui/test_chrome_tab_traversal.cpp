@@ -1,4 +1,4 @@
-// scan-generation-integrity-and-residual-certification-closure D4: headless
+// retry-ownership-and-focus-escape-closure D4: headless
 // coverage for the navigation-chrome Tab-traversal seam
 // (`ffui::IsChromeTabTraversalEligible`, `ffui::AppendChromeTabStop`,
 // `ffui::NextChromeTabTarget`), consumed by

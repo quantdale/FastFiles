@@ -35,7 +35,6 @@
 #include "ffprotocol/Records.h"
 #include "ffprotocol/Version.h"
 #include "IndexPipeline.h"
-#include "PrivilegedConnection.h"
 #include "ScanWorkerBoundary.h"
 #include "../TestSupport.h"
 #include "VolumeScanner.h"
@@ -47,6 +46,7 @@
 // test-only dispatcher remains independent of this translation unit's
 // private-access gate for the session manager.
 #define private public
+#include "PrivilegedConnection.h"
 #include "VolumeSessionManager.h"
 #undef private
 
@@ -129,6 +129,9 @@ public:
         manager_->sessionsByEphemeralId_.emplace(
             kEphemeralKey,
             ffengine::VolumeSessionManager::VolumeSession{durableId_, L'C', 0, false});
+        // The dispatcher only accepts frames from the current authenticated
+        // Active transport; this harness models a live connection.
+        connection_.state_ = ffengine::ConnectionState::Active;
     }
 
     ~EngineHarness() {

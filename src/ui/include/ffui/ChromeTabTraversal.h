@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <vector>
 
-// scan-generation-integrity-and-residual-certification-closure D4: pure,
+// retry-ownership-and-focus-escape-closure D4: pure,
 // headless seam for navigation-chrome Tab traversal. The shell is not a
 // dialog and its message loop never calls IsDialogMessage, so the chrome
 // must move focus itself. The reviewed defect is the chrome-only cycle: the

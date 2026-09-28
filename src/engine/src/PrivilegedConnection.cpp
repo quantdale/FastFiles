@@ -342,6 +342,17 @@ PrivilegedConnection::PipePtr PrivilegedConnection::ConnectVerifyAndHandshake() 
 void PrivilegedConnection::DispatchReceivedFrame(
     const ffipc::ReceivedFrame& frame, std::atomic<bool>& heartbeatAckPending, std::mutex& ackMutex,
     std::condition_variable& ackCv, std::atomic<bool>& protocolViolation) {
+    // Fail-closed transport-generation guard: only the current authenticated
+    // Active transport may deliver frames. A frame that arrives while the
+    // connection is unauthenticated (pre-handshake), stale (a replaced
+    // generation's reader still draining), or already torn down carries no
+    // scan authority, so it is rejected before any callback. In production the
+    // ActiveLoop joins its reader before SetState(Disconnected), so this guard
+    // never drops a live frame.
+    if (state_.load() != ConnectionState::Active) {
+        protocolViolation = true;
+        return;
+    }
     auto messageType = ffprotocol::ToMessageType(frame.header.messageType);
     if (!messageType) {
         protocolViolation = true;

@@ -121,7 +121,7 @@ void VolumeSessionManager::ReloadConfiguration(std::vector<ffprotocol::VolumeSet
         // is torn down immediately -- no waiting for an engine restart.
         // The volume stays marked available (disabling is not
         // unavailability); only the session, its privileged-path work,
-        // and its published directories go away. D2: any retry intent the
+        // and its published directories go away. retry-ownership-and-focus-escape-closure D2: any retry intent the
         // session owned moves to the durable floor first, so re-enabling the
         // volume later cannot silently drop it.
         const auto disabledAt = std::chrono::steady_clock::now();
@@ -300,7 +300,7 @@ void VolumeSessionManager::OnConnectionStateChanged(ConnectionState state) {
         // durable identity from a fresh EnumerateVolumes (task 7.1).
         std::vector<std::pair<ffindexstore::VolumeRowId, wchar_t>> abandonedPasses;
         {
-            // D2: every retry transition runs under the lock pair, so this
+            // retry-ownership-and-focus-escape-closure D2: every retry transition runs under the lock pair, so this
             // snapshot can never observe the intent unowned. Each session's
             // in-flight attempt, queued entry, or in-hand dispatch moves onto
             // the durable floor before the connection-scoped ids are erased.
@@ -353,7 +353,7 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
     std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> unavailable;
 
     {
-        // D2: disappearance transfers any retry intent to the durable floor
+        // retry-ownership-and-focus-escape-closure D2: disappearance transfers any retry intent to the durable floor
         // before the ephemeral id is erased, exactly like a disconnect.
         std::scoped_lock lock(mutex_, wakeMutex_);
         std::vector<uint32_t> seenEphemeral;
@@ -456,7 +456,7 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
     // unconditional full rescan (spec "Volume Reconnection Triggers
     // Resume-or-Reconcile, Not Blind Rescan").
     {
-        // D2: inspecting the queue/floor, taking the floor, and claiming the
+        // retry-ownership-and-focus-escape-closure D2: inspecting the queue/floor, taking the floor, and claiming the
         // attempt are one transition under the lock pair, so a disconnect can
         // never land between "no owner visible" and "owner installed".
         std::scoped_lock lock(mutex_, wakeMutex_);
@@ -477,7 +477,7 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
         }
         reissueFloor = TakeScanReissueFloorLocked(session.durableId);
         if (reissueFloor) {
-            // D2: the durable floor's single retry intent is transferred onto
+            // retry-ownership-and-focus-escape-closure D2: the durable floor's single retry intent is transferred onto
             // this replacement connection's own retry slot in the same
             // critical section that consumes the floor. The stored kind
             // travels with it, so an interrupted reconciliation of an
@@ -491,8 +491,13 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
             // 3.4: a stopped worker can emit no terminal. A local counter
             // cannot then tell its replacement's only terminal apart from an
             // old one. A {2,3}+ service supplies the ordered barrier; a
-            // staged peer without it gets a fresh connection-scoped id.
-            if (it->second.scanBatchFailed) {
+            // staged peer without it gets a fresh connection-scoped id. A
+            // retry-ownership-and-focus-escape-closure 3.3: a replacement that supersedes an attempt still in flight (a)
+            // pause/resume cycle) is exactly as ambiguous as one that
+            // superseded a coverage hole: the retired worker can still emit
+            // its only terminal into the shared stream.
+            const bool supersedesInFlight = it->second.scanInProgress;
+            if (it->second.scanBatchFailed || supersedesInFlight) {
                 if (!supportsScanAttemptStarted) {
                     resetConnectionForAuthority = true;
                 } else {
@@ -505,10 +510,10 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
                 }
             }
             if (!resetConnectionForAuthority) {
-                // The coverage hole remains recorded until the ordered
-                // service barrier proves that subsequent frames belong to the
-                // replacement, rather than an older worker still draining the
-                // shared pipe.
+                // The coverage hole, or the superseded attempt, remains
+                // non-authoritative until the ordered service barrier proves
+                // that subsequent frames belong to the replacement rather
+                // than an older worker still draining the shared pipe.
                 ClaimActiveAttemptLocked(ephemeralId.value, session.durableId, /*reconciliation=*/false);
                 if (!awaitingScanAttemptStarted) {
                     it->second.scanBatchFailed = false;
@@ -736,8 +741,7 @@ void VolumeSessionManager::RearmFailedAdmissionLocked(uint32_t ephemeralValue,
 }
 
 bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralId,
-                                                 ffindexstore::VolumeRowId durableId,
-                                                 bool respectOwnedRetry) {
+                                                 ffindexstore::VolumeRowId durableId) {
     // index-durability-false-success-closure D4: a reconciliation pass is
     // finalized by the authoritative completion of the scan started here,
     // so starting one must respect the scan authority that already exists
@@ -746,7 +750,7 @@ bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
     bool resetConnectionForAuthority = false;
     bool retryOwnerChanged = false;
     {
-        // D2: the busy/deferral check, the floor transfer, and the claim are
+        // retry-ownership-and-focus-escape-closure D2: the busy/deferral check, the floor transfer, and the claim are
         // one transition under the lock pair.
         std::scoped_lock lock(mutex_, wakeMutex_);
         auto it = sessionsByEphemeralId_.find(ephemeralId.value);
@@ -778,9 +782,11 @@ bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
         }
         reissueFloor = TakeScanReissueFloorLocked(durableId);
         if (reissueFloor) {
-            // D2: the floor's single retry intent moves onto this connection's
-            // own slot under the same critical section that consumed it.
-            failedScanRetries_[ephemeralId.value] = {reissueFloor->due, /*reconciliation=*/true};
+            // retry-ownership-and-focus-escape-closure D2: the floor's single retry intent moves onto this connection's
+            // own slot under the same critical section that consumed it. The
+            // owed kind travels with it -- an interrupted initial scan is not
+            // silently upgraded to a reconciliation, and the due time is kept.
+            failedScanRetries_[ephemeralId.value] = {reissueFloor->due, reissueFloor->reconciliation};
             ++scanRetryGeneration_;
             retryOwnerChanged = true;
         } else if (it->second.scanBatchFailed) {
@@ -790,11 +796,11 @@ bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
             // terminal is no longer orderable, so discard the connection
             // instead of silently granting a reconciliation clean slate.
             resetConnectionForAuthority = true;
-        } else if (respectOwnedRetry && failedScanRetries_.find(ephemeralId.value) != failedScanRetries_.end()) {
-            // The ordinary interval sweep must not preempt an already-owned
-            // retry slot: the slot issues at its bounded due time and carries
-            // exactly one intent. A journal-gap or resume trigger may consume
-            // the slot atomically below because its own reason to scan is new.
+        } else if (failedScanRetries_.find(ephemeralId.value) != failedScanRetries_.end()) {
+            // No caller may preempt an owned retry slot: the slot issues at its
+            // bounded due time and carries exactly one intent. Consuming it
+            // here would issue before the five-second floor and could change
+            // the owed work's kind.
             return false;
         } else {
             ClaimActiveAttemptLocked(ephemeralId.value, durableId, /*reconciliation=*/true);
@@ -939,7 +945,7 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
     bool waitingForScanAttemptStarted = false;
     bool retryOwnerChanged = false;
     {
-        // D2: closing the attempt and installing its next retry owner are one
+        // retry-ownership-and-focus-escape-closure D2: closing the attempt and installing its next retry owner are one
         // transition under the lock pair.
         std::scoped_lock lock(mutex_, wakeMutex_);
         auto it = sessionsByEphemeralId_.find(volumeId.value);
@@ -1081,7 +1087,7 @@ void VolumeSessionManager::OnScanFailed(ffprotocol::VolumeId volumeId) {
     bool waitingForScanAttemptStarted = false;
     bool retryOwnerChanged = false;
     {
-        // D2: closing the attempt and installing its next owner are one
+        // retry-ownership-and-focus-escape-closure D2: closing the attempt and installing its next owner are one
         // transition under the lock pair. RepublishSnapshot below re-enters the
         // manager through the publication callback, so the owner must already
         // exist before the locks are released.
@@ -1445,7 +1451,7 @@ void VolumeSessionManager::ReconciliationSchedulerLoop() {
         };
         std::vector<DueRetry> failedRetries;
         {
-            // D2: moving a due retry out of the queue and into the visible
+            // retry-ownership-and-focus-escape-closure D2: moving a due retry out of the queue and into the visible
             // in-hand dispatch owner is one transition under the lock pair, so
             // a disconnect in the D3 seam below can transfer it.
             std::scoped_lock lock(mutex_, wakeMutex_);
@@ -1469,7 +1475,7 @@ void VolumeSessionManager::ReconciliationSchedulerLoop() {
                 it = failedScanRetries_.erase(it);
             }
         }
-        // D3: a due retry has left its queue; the dispatch seam runs with no
+        // retry-ownership-and-focus-escape-closure D3: a due retry has left its queue; the dispatch seam runs with no
         // manager lock held, before the retry is adopted.
         if (scanRetryDispatchSeam_) {
             scanRetryDispatchSeam_();
@@ -1577,7 +1583,7 @@ void VolumeSessionManager::ReconciliationSchedulerLoop() {
             }
         }
         for (const auto& [ephemeralId, durableId] : due) {
-            TriggerReconciliation(ephemeralId, durableId, /*respectOwnedRetry=*/true);
+            TriggerReconciliation(ephemeralId, durableId);
         }
     }
 }
