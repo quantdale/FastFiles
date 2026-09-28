@@ -1488,6 +1488,30 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "retry-ownership-and-focus-escape-closure",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/retry-ownership-and-focus-escape-closure/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/retry-ownership-and-focus-escape-closure/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/retry-ownership-and-focus-escape-closure/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/retry-ownership-and-focus-escape-closure/evidence/explore-findings.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

@@ -1,6 +1,13 @@
 # Fast Files — Agent Workstate
 
-## Current resume checkpoint — scan-generation-integrity-and-residual-certification-closure review repair — 2026-09-29
+## Current resume checkpoint — retry-ownership-and-focus-escape-closure proposed — 2026-09-29
+
+- Propose-only. No product C++/UI/test-binary edits. Change: `openspec/changes/retry-ownership-and-focus-escape-closure/` (proposal, design, four spec deltas, tasks, `evidence/explore-findings.md`). Strict OpenSpec validation passed. Lifecycle entry is `active`. Predecessor scan-generation change stays `completed`; raw-volume tasks 5.4 and 2.3 stay unchecked.
+- Live reconciliation, not the stale checkpoint below: branch `feat/scan-generation-integrity-and-residual-certification-closure`, HEAD and origin tip `9c0ad128f7bfeeef5bc0d66a390c0a8786c024a1`, `origin/main` `1172c1a1e6aa9c1a726d52abdade0975b6979e4b`, 24 ahead / 0 behind, PR #10 open and unmerged. Local `main` is 3 ahead of `origin/main` and is not this branch. `.kilo/worktrees/scythe-cloud` at `0dc3356` was left untouched.
+- P1 and P2 are source-backed, not just review text. `OnScanFailed` clears `scanInProgress` before `ArmFailedScanRetry`; disconnect can snapshot neither owner. The scheduler can erase a due retry into a local vector. `HandleTabNavigation` wraps chrome and the shell does not use `IsDialogMessage`. Protocol 2.3 stays in place unless adversarial tests prove the barrier cannot express the invariant.
+- **NEXT EXACT ACTION:** apply `retry-ownership-and-focus-escape-closure` on this feature branch, red-first, starting at tasks 2.1 and 2.2. Do not merge, force-push, or treat `9c0ad128` as the post-fix candidate. Re-derive branch, HEAD, and PR state at resume.
+
+## Historical checkpoint — scan-generation-integrity-and-residual-certification-closure review repair — 2026-09-29
 
 - Review repair resumed on `feat/scan-generation-integrity-and-residual-certification-closure` at clean HEAD `218cab324412032ca7dae69fa17f58124b673b6c`; `origin/main=1172c1a1e6aa9c1a726d52abdade0975b6979e4b`. The prior candidate/handoff remains historical evidence only. The pre-existing `.kilo/worktrees/scythe-cloud` and installed `FastFilesIndexSvc` remain untouched.
 - The supplied Grok review confirmed a replacement-scan liveness gap: `StopAndJoin` can suppress the superseded worker terminal, so a replacement's only terminal could be consumed as the old attempt's retirement and leave scan ownership permanently busy. `TestReplacementOnlyCompletionAfterSupersedeIsAuthoritative` first reproduced that failure deterministically.
@@ -9,7 +16,7 @@
 - Focused builds passed for protocol, service command-surface/worker-policy, volume-session-manager, legacy binding, service, and engine targets. The seven affected CTest targets passed 7/7. A full Debug build succeeded and `ctest --preset debug` passed 123/123 in 287.13 seconds. Strict OpenSpec validation and the final `ffdoc_drift_tests` check passed; `git diff --check` is clean.
 - The OpenSpec task ledger is 29/29 checked with no open tasks. PR #10 remains under its explicit NO-MERGE HOLD. The historical hosted run is still the only authorized hosted check: do not manually dispatch or rerun workflows, modify billing/permissions, or merge while its external block persists. No production signing, trust-store, elevation, or raw-volume validation was attempted.
 - The reviewed repair is committed locally as the coherent scan-authority slice. Its full Debug and focused validation is recorded above; derive the live SHA and remote state at resume rather than relying on this checkpoint.
-- **NEXT EXACT ACTION:** fetch and reconcile the feature branch, push it without force, verify local/remote parity and a clean working tree, then stop. Do not dispatch or rerun hosted workflows; PR #10 remains on its no-merge hold.
+- Historical next action, already overtaken: the feature tip was later fetched at `9c0ad128` and is the PR #10 head. Do not follow this bullet. The current next action is the checkpoint above.
 
 ## Historical apply execution log — scan-generation-integrity-and-residual-certification-closure
 
