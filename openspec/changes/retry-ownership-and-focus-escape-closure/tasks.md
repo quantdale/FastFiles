@@ -48,6 +48,6 @@
 ## 8. Review, pull request, and external holds
 
 - [x] 8.1 After the fixes land, re-read the retry transitions, the barrier order, the focus cycle, the candidate identity, and the certification labels for a zero-owner or multi-owner window, a false completion, a chrome-only cycle, a stale artifact pass, or a hosted result mislabeled as local.
-- [ ] 8.2 Reply on each unresolved PR #10 thread with whether it reproduced, the regression test, the fixing commit, and the validation result. Resolve a thread only when that evidence addresses it.
-- [ ] 8.3 Push without force. Inspect hosted CI once. If the six required jobs fail before any step executes, record `HOSTED_CI = BLOCKED_EXTERNAL` and leave the NO-MERGE HOLD. Do not change billing, branch rules, signing, or trust stores.
-- [ ] 8.4 Update the handoff only after 7.2 through 7.6. State the raw-volume completion bound as `UNPROVEN`. Do not mark predecessor task 5.4 or 2.3 complete.
+- [x] 8.2 Reply on each unresolved PR #10 thread with whether it reproduced, the regression test, the fixing commit, and the validation result. Resolve a thread only when that evidence addresses it.
+- [x] 8.3 Push without force. Inspect hosted CI once. If the six required jobs fail before any step executes, record `HOSTED_CI = BLOCKED_EXTERNAL` and leave the NO-MERGE HOLD. Do not change billing, branch rules, signing, or trust stores.
+- [x] 8.4 Update the handoff only after 7.2 through 7.6. State the raw-volume completion bound as `UNPROVEN`. Do not mark predecessor task 5.4 or 2.3 complete.

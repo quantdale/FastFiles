@@ -123,3 +123,18 @@ host's 120 DPI / 125% scale was claimed.
 - The raw-volume synchronous `DeviceIoControl` completion bound stays `UNPROVEN`.
   `legacy-protocol-correctness-and-raw-volume-cancellation-closure` task 5.4 and
   `final-residual-hardening-and-hosted-ci-recovery` task 2.3 remain unchecked.
+
+## PR and hosted outcome
+
+- PR #10 review threads: both reproduced, replied with the regression test, fixing commit, and
+  validation result, and resolved after the fix landed. P1 = retry transfer atomic with
+  disconnect (`src/engine/src/VolumeSessionManager.cpp`); P2 = focus returned to the shell when
+  tabbing past chrome (`src/ui/src/NavigationChrome.cpp`).
+- Push: `9c0ad12..c68212d` without force; local HEAD and the feature remote tip both
+  `c68212ddac74eba0bd7239d65c950a2f39bf4f88`. `origin/main` is `1172c1a1`, 28 ahead / 0 behind.
+- Hosted CI for the pushed SHA: push run `36474313210` and its `pull_request` mirror
+  `36474317807` failed all six required jobs in about four seconds with zero executed steps
+  (`steps: 0`, each job starting under one second after the run began). That is the known
+  billing/spending-limit external block, so `HOSTED_CI = BLOCKED_EXTERNAL`. No billing, plan,
+  branch rule, signing, or trust-store configuration was changed, and PR #10 remains under its
+  NO-MERGE HOLD. Local parity remains labeled `LOCAL-PARITY-NOT-HOSTED-CI`.

@@ -1491,7 +1491,7 @@
     },
     {
       "name": "retry-ownership-and-focus-escape-closure",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1508,6 +1508,28 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/retry-ownership-and-focus-escape-closure/evidence/explore-findings.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/retry-ownership-and-focus-escape-closure/evidence/apply-and-validation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "f6393058c7d98ef7ababd3bd6f7f311b21f6ae7f"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "f3bbddfe70ae9afd336319f3c5ca11ddf88bb582"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "c68212ddac74eba0bd7239d65c950a2f39bf4f88"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "36474313210",
+          "sha": "c68212ddac74eba0bd7239d65c950a2f39bf4f88",
+          "record": "openspec/changes/retry-ownership-and-focus-escape-closure/evidence/apply-and-validation.md"
         }
       ],
       "supersededBy": null,
