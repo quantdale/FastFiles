@@ -47,13 +47,15 @@ Hosted run `36302493823` on the current `main` HEAD failed all six jobs before a
 
 **Trade-off:** A legitimate completion is delayed until the engine knows it belongs to the current attempt. That is accepted. Ordinary pause/resume and a clean successful scan still complete once that ordering holds.
 
-### D3. In-process retirement uses the closed command set first
+### D3. A negotiated scan-start barrier orders supersede output
 
-**Why:** The service already supersedes a scan by stopping the previous worker before starting another, and a stop observed before the terminal write emits no terminal. The engine does not see that join. The first implementation has to close the engine-side hole without a new message: do not clear the coverage hole when starting a replacement, and do not accept a terminal as the replacement's until the previous attempt is retired.
+**Why:** The post-close terminal-free-supersede reproducer showed that in-process retirement alone is insufficient. The service joins a stopped worker before launching its replacement, and a stopped worker can emit no terminal. The engine's local retirement counter then consumes the replacement's only volume-id-only terminal and leaves it permanently in flight. A successful client pipe write does not acknowledge that the service has joined the old worker, so the engine cannot safely accept the next terminal by local timing.
 
-**Alternatives:** Lead with an additive terminal message. Not selected. It is a fallback, not the design. If the reproducer from D1 shows that a volume-id-only terminal can still authorize the replacement after in-process retirement, stop and record that evidence before adding anything. The only legal extension is a new negotiated message. It must not be a longer `ScanComplete` or `ScanFailed`, and it must not carry a path or a handle.
+**Choice:** Protocol `{2,3}` adds the service-to-engine `ScanAttemptStarted` message with an exact-length `VolumeId` payload. For a replacement over a coverage hole, the engine marks the request provisional and rejects scan batches plus completion/failure terminals until it receives that message. The service writes it under the existing connection write mutex only after `StopAndJoin` has returned for the old worker and before it launches the replacement worker. Therefore all old-worker output is ordered before the barrier and all replacement-worker output is ordered after it. Once the barrier arrives, the existing exact-length `ScanComplete` and `ScanFailed` messages resume their normal authority; neither terminal is resized. A peer that did not negotiate the barrier resets the connection generation for this rare replacement path, so stale output loses its connection-scoped `VolumeId` instead of remaining ambiguous. A failed start write also resets that generation because a bounded pipe write can have emitted a partial request.
 
-**Trade-off:** The first patch might be insufficient if the pipe can still deliver an old success after the replacement is live. The combined regression in D5 is what keeps that from being called done. The fallback message is not pre-authorized.
+**Alternatives:** A local counter or timer. Rejected: neither labels or orders bytes already in the pipe. Accepting a terminal after an arbitrary timeout can make an old terminal authoritative. Always tear down the connection on every pause/resume remains rejected because it needlessly interrupts unrelated volumes. A new open-path or open-handle command remains forbidden by foundation D4.
+
+**Trade-off:** Same-version peers add one tiny reply frame for each start. A staged pre-{2,3} peer reconnects only for a pause that left a coverage hole. The raw-volume completion bound is unchanged: if `StopAndJoin` cannot return, neither the barrier nor the replacement can be produced.
 
 ### D4. Interrupted reconciliation is reattached by durable identity
 

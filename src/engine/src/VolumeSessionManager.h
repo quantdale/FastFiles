@@ -111,17 +111,12 @@ private:
         // is issued when that scan next completes authoritatively (D4),
         // never by racing a second BeginReconciliationPass against it.
         bool deferredReconciliation = false;
-        // scan-generation-integrity-and-residual-certification-closure D2/D3:
-        // how many superseded attempts may still have a terminal in flight
-        // for this connection-scoped volume id. A replacement scan issued
-        // over an unresolved coverage hole cannot hand that older attempt's
-        // terminal a clean authority slate -- ScanComplete/ScanFailed carry
-        // only the volume id, so the two attempts are indistinguishable on
-        // the wire and a local generation counter would not label bytes
-        // already in the pipe. While this is non-zero, each terminal read is
-        // consumed as an older attempt's retirement: it marks nothing,
-        // finalizes no reconciliation pass, and erases no coverage hole.
-        uint32_t scanUnretiredAttempts = 0;
+        // scan-generation-integrity-and-residual-certification-closure 3.4:
+        // a coverage-hole replacement is provisional until the {2,3}
+        // ScanAttemptStarted barrier arrives. Before that barrier, queued
+        // batches and terminals belong to the superseded worker or are
+        // otherwise unordered, so they receive no index authority.
+        bool awaitingScanAttemptStarted = false;
     };
 
     // A bounded retry deadline and its kind, shared by the delivered-failure
@@ -142,6 +137,9 @@ private:
     // -- the scan did not run to completion, so nothing derived from it is
     // authoritative: no MarkScanComplete, no pass finalization.
     void OnScanFailed(ffprotocol::VolumeId volumeId);
+    // The negotiated service-to-engine ordering barrier written after the
+    // old worker joins and before this replacement worker starts.
+    void OnScanAttemptStarted(ffprotocol::VolumeId volumeId);
     void OnJournalOpened(ffprotocol::VolumeId volumeId, uint64_t journalId, uint64_t currentUsn);
     void OnJournalBatch(ffprotocol::VolumeId volumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV2> records);
     // allocated-size-storage-accuracy 5.2: additive V3 journal records.

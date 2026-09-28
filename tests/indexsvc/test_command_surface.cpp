@@ -61,6 +61,8 @@ int main() {
     // surface is as nonsensical as a client completing one.
     Check(!IsAllowedClientRequest(static_cast<uint16_t>(MessageType::ScanFailed)),
           "allowlist: reply-only ScanFailed is rejected");
+    Check(!IsAllowedClientRequest(static_cast<uint16_t>(MessageType::ScanAttemptStarted)),
+          "allowlist: reply-only ScanAttemptStarted is rejected");
 
     // No generic escape hatches exist on the surface: unknown and
     // out-of-range wire values are rejected before any dispatch table is

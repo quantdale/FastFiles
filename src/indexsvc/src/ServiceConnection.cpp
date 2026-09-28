@@ -119,6 +119,21 @@ bool SendVolumeList(HANDLE pipeHandle) {
     return WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::VolumeList), payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
+// scan-generation-integrity-and-residual-certification-closure 3.4: this
+// reply-only marker is written only after StopAndJoin has drained the old
+// scan worker and before the replacement thread exists. Shared writeMutex
+// serialization makes it a stream-order barrier: old scan output precedes it;
+// replacement output follows it.
+bool SendScanAttemptStarted(HANDLE pipeHandle, std::mutex& writeMutex,
+                            ffprotocol::VolumeId volumeId,
+                            std::atomic<bool>* transportFailed) {
+    ffprotocol::ScanAttemptStartedPayload payload{volumeId};
+    std::lock_guard<std::mutex> lock(writeMutex);
+    return WriteFrameWithDeadline(pipeHandle,
+                                  static_cast<uint16_t>(MessageType::ScanAttemptStarted),
+                                  &payload, sizeof(payload), transportFailed);
+}
+
 // Returns std::nullopt (and does not reply -- the connection is closed by
 // the caller) if the Handshake payload itself is malformed, or if version
 // negotiation/authentication fails after having already sent the
@@ -306,6 +321,16 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                     break;
                 }
                 StopAndJoin(activeScans, request.volumeId.value); // supersede any prior scan of the same volume
+
+                if (ffprotocol::ProtocolSupportsScanAttemptStarted(negotiatedVersion)
+                    && !SendScanAttemptStarted(pipeHandle, writeMutex, request.volumeId, transportFailed.get())) {
+                    // A peer that negotiated the barrier cannot safely accept
+                    // replacement output without it. A failed bounded write
+                    // follows the normal transport teardown path instead of
+                    // launching an unacknowledged worker.
+                    disconnect = true;
+                    break;
+                }
 
                 ActiveWorker worker;
                 worker.volumeId = request.volumeId.value;

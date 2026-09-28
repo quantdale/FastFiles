@@ -43,9 +43,9 @@
 // The engine's production dispatch path and the session manager's callback
 // wiring are internal state. Like test_volume_session_manager.cpp, this test
 // translation unit opens the access gate only for its own compilation.
-// PrivilegedConnection.h is deliberately included above: its test-only
-// DispatchFrameForTesting inline member must be compiled with the real access
-// specifier so it references the production symbol.
+// PrivilegedConnection.h is deliberately included above so its public
+// test-only dispatcher remains independent of this translation unit's
+// private-access gate for the session manager.
 #define private public
 #include "VolumeSessionManager.h"
 #undef private

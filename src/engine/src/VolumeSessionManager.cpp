@@ -229,6 +229,7 @@ void VolumeSessionManager::Start() {
     });
     connection_.SetScanCompleteCallback([this](ffprotocol::VolumeId id) { OnScanComplete(id); });
     connection_.SetScanFailedCallback([this](ffprotocol::VolumeId id) { OnScanFailed(id); });
+    connection_.SetScanAttemptStartedCallback([this](ffprotocol::VolumeId id) { OnScanAttemptStarted(id); });
     connection_.SetJournalOpenedCallback(
         [this](ffprotocol::VolumeId id, uint64_t journalId, uint64_t currentUsn) { OnJournalOpened(id, journalId, currentUsn); });
     connection_.SetJournalBatchCallback([this](ffprotocol::VolumeId id, uint64_t latestUsn,
@@ -290,7 +291,6 @@ void VolumeSessionManager::OnConnectionStateChanged(ConnectionState state) {
         // means the next Active period starts clean and re-derives
         // durable identity from a fresh EnumerateVolumes (task 7.1).
         std::vector<std::pair<ffindexstore::VolumeRowId, wchar_t>> abandonedPasses;
-        std::vector<std::pair<ffindexstore::VolumeRowId, bool>> interruptedScans;
         {
             // Pair session teardown with retry capture so a delivered
             // ScanFailed cannot fall between the two snapshots. A retry for a
@@ -301,7 +301,6 @@ void VolumeSessionManager::OnConnectionStateChanged(ConnectionState state) {
             for (const auto& [ephemeralValue, session] : sessionsByEphemeralId_) {
                 abandonedPasses.emplace_back(session.durableId, session.driveLetter);
                 if (session.scanInProgress) {
-                    interruptedScans.emplace_back(session.durableId, session.reconciliationScan);
                     scanReissueFloors_[session.durableId] = {
                         disconnectedAt + kScanFailureRetryDelay, session.reconciliationScan};
                 }
@@ -454,6 +453,10 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
     }
     std::optional<FailedScanRetry> reissueFloor;
     bool startInitialScan = false;
+    bool awaitingScanAttemptStarted = false;
+    bool resetConnectionForAuthority = false;
+    const bool supportsScanAttemptStarted =
+        ffprotocol::ProtocolSupportsScanAttemptStarted(connection_.NegotiatedVersion());
 
     // tasks.md 6.3/D8: only (re)start the initial scan if it never
     // finished; once complete, the journal plus periodic reconciliation
@@ -466,31 +469,52 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
         if (it == sessionsByEphemeralId_.end() || it->second.durableId != session.durableId) {
             return false;
         }
+        if (it->second.awaitingScanAttemptStarted) {
+            // A second local resume cannot be allowed to overtake the
+            // outstanding barrier: ScanAttemptStarted carries only the
+            // connection-scoped volume id, so one provisional replacement at
+            // a time is what makes its stream ordering meaningful.
+            return false;
+        }
         reissueFloor = TakeScanReissueFloorLocked(session.durableId);
         if (!reissueFloor && !queuedRetry && !scanComplete) {
             // scan-generation-integrity-and-residual-certification-closure
-            // D2/D3: the attempt being replaced may still have written a
-            // terminal that is sitting in the pipe, and that terminal carries
-            // only the connection-scoped volume id. A replacement issued over
-            // an unresolved coverage hole must therefore not hand the older
-            // attempt's terminal a clean authority slate: the hole moves into
-            // scanUnretiredAttempts, whose next terminal read is consumed as
-            // that attempt's retirement and grants nothing.
+            // 3.4: a stopped worker can emit no terminal. A local counter
+            // cannot then tell its replacement's only terminal apart from an
+            // old one. A {2,3}+ service supplies the ordered barrier; a
+            // staged peer without it gets a fresh connection-scoped id.
             if (it->second.scanBatchFailed) {
-                ++it->second.scanUnretiredAttempts;
-                AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::VolumeStateTransition,
-                                        ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
-                                        {}, std::wstring(1, it->second.driveLetter),
-                                        L"scan-attempt-unretired-replacement-issued", 0, 0);
+                if (!supportsScanAttemptStarted) {
+                    resetConnectionForAuthority = true;
+                } else {
+                    it->second.awaitingScanAttemptStarted = true;
+                    awaitingScanAttemptStarted = true;
+                    AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                            ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
+                                            {}, std::wstring(1, it->second.driveLetter),
+                                            L"scan-attempt-started-barrier-pending", 0, 0);
+                }
             }
-            it->second.scanInProgress = true;
-            // index-durability-false-success-closure D2: every new scan starts
-            // with a clean per-attempt completion slate. An unresolved older
-            // attempt lives in scanUnretiredAttempts, never in this flag.
-            it->second.scanBatchFailed = false;
-            it->second.reconciliationScan = false;
-            startInitialScan = true;
+            if (!resetConnectionForAuthority) {
+                it->second.scanInProgress = true;
+                // The coverage hole remains recorded until the ordered
+                // service barrier proves that subsequent frames belong to the
+                // replacement, rather than an older worker still draining the
+                // shared pipe.
+                if (!awaitingScanAttemptStarted) {
+                    it->second.scanBatchFailed = false;
+                }
+                it->second.reconciliationScan = false;
+                startInitialScan = true;
+            }
         }
+    }
+    if (resetConnectionForAuthority) {
+        // No pre-{2,3} stream marker can prove that the service joined the old
+        // worker. Discarding the connection makes the old VolumeId unusable
+        // and lets the normal durable reissue-floor path retry safely.
+        connection_.ResetForScanAuthority();
+        return false;
     }
     if (queuedRetry && !reissueFloor && !scanComplete) {
         // A pause/resume is not permission to bypass the five-second failure
@@ -526,6 +550,11 @@ bool VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
         }
         if (!connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan), payload.data(),
                                      static_cast<uint32_t>(payload.size()))) {
+            // WriteFrameOverlapped can fail after emitting a prefix of a
+            // frame. Do not roll provisional state back into a connection
+            // whose service may still process that prefix; clear this whole
+            // connection generation instead.
+            connection_.ResetForScanAuthority();
             return false;
         }
     }
@@ -635,6 +664,7 @@ bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
     // so starting one must respect the scan authority that already exists
     // for the volume rather than racing it.
     std::optional<FailedScanRetry> reissueFloor;
+    bool resetConnectionForAuthority = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = sessionsByEphemeralId_.find(ephemeralId.value);
@@ -666,21 +696,22 @@ bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
         }
         reissueFloor = TakeScanReissueFloorLocked(durableId);
         if (!reissueFloor) {
-            // Defensive twin of StartOrResumeVolume's retirement path: an
-            // unresolved coverage hole is never handed to the replacement as
-            // a clean slate (unreachable while scanInProgress gates this
-            // path, kept so the invariant has one owner).
+            // Defensive only: the normal batch-failure terminal path clears
+            // this flag before a deferred reconciliation can reach here. If a
+            // caller ever observes a hole with no owning scan, a volume-only
+            // terminal is no longer orderable, so discard the connection
+            // instead of silently granting a reconciliation clean slate.
             if (it->second.scanBatchFailed) {
-                ++it->second.scanUnretiredAttempts;
-                AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::VolumeStateTransition,
-                                        ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
-                                        {}, std::wstring(1, it->second.driveLetter),
-                                        L"scan-attempt-unretired-reconciliation-issued", 0, 0);
+                resetConnectionForAuthority = true;
+            } else {
+                it->second.scanInProgress = true;
+                it->second.reconciliationScan = true;
             }
-            it->second.scanInProgress = true;
-            it->second.reconciliationScan = true;
-            it->second.scanBatchFailed = false;
         }
+    }
+    if (resetConnectionForAuthority) {
+        connection_.ResetForScanAuthority();
+        return false;
     }
     if (reissueFloor) {
         // A previous scan for this durable volume ended in connection loss
@@ -697,8 +728,15 @@ bool VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
     // indexing or interactive filesystem work (task 8.2).
     const auto payload = BuildStartScanPayload(connection_.NegotiatedVersion(), ephemeralId, {},
                                                 ffprotocol::kStartVolumeScanLowPriority);
-    return connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan), payload.data(),
-                                   static_cast<uint32_t>(payload.size()));
+    if (connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan), payload.data(),
+                                static_cast<uint32_t>(payload.size()))) {
+        return true;
+    }
+    // A failed frame write is not proof that the service saw no request. The
+    // connection reset drops the provisional reconciliation owner together
+    // with its connection-scoped volume id.
+    connection_.ResetForScanAuthority();
+    return false;
 }
 
 void VolumeSessionManager::OnScanBatch(
@@ -723,6 +761,7 @@ void VolumeSessionManager::ApplyScanBatch(ffprotocol::VolumeId volumeId, std::ve
     ffindexstore::VolumeRowId durableId = 0;
     wchar_t driveLetter = L'\0';
     bool droppedWhilePaused = false;
+    bool droppedBeforeScanAttemptStarted = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = sessionsByEphemeralId_.find(volumeId.value);
@@ -731,6 +770,14 @@ void VolumeSessionManager::ApplyScanBatch(ffprotocol::VolumeId volumeId, std::ve
         }
         durableId = it->second.durableId;
         driveLetter = it->second.driveLetter;
+        if (it->second.awaitingScanAttemptStarted) {
+            // scan-generation-integrity-and-residual-certification-closure
+            // 3.4: this frame was ordered before the service's replacement
+            // barrier, so it may be from the superseded worker. Keep the
+            // frozen cursor and the coverage hole until the barrier proves a
+            // new worker has started.
+            droppedBeforeScanAttemptStarted = true;
+        }
         // settings-and-appearance §9.1: while paused, batches are dropped
         // without applying and without advancing the stored cursor, so
         // resume re-issues the scan from the last-applied position.
@@ -741,16 +788,19 @@ void VolumeSessionManager::ApplyScanBatch(ffprotocol::VolumeId volumeId, std::ve
         // so a reconciliation pass would otherwise finalize a seen-set
         // missing this whole window and delete the still-valid rows it never
         // observed. Mark the in-flight scan non-authoritative instead.
-        if (IsPausedLocked(driveLetter)) {
+        if (!droppedBeforeScanAttemptStarted && IsPausedLocked(driveLetter)) {
             it->second.scanBatchFailed = true;
             droppedWhilePaused = true;
         }
     }
-    if (droppedWhilePaused) {
+    if (droppedBeforeScanAttemptStarted || droppedWhilePaused) {
         AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                 ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
                                 {}, std::wstring(1, driveLetter),
-                                L"scan-batch-dropped-paused-non-authoritative", 0, 0);
+                                droppedBeforeScanAttemptStarted
+                                    ? L"scan-batch-before-scan-attempt-started"
+                                    : L"scan-batch-dropped-paused-non-authoritative",
+                                0, 0);
         return;
     }
 
@@ -785,7 +835,7 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
     bool batchFailed = false;
     bool deferred = false;
     bool paused = false;
-    bool retiredOlderAttempt = false;
+    bool waitingForScanAttemptStarted = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = sessionsByEphemeralId_.find(volumeId.value);
@@ -794,25 +844,12 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
         }
         durableId = it->second.durableId;
         driveLetter = it->second.driveLetter;
-        if (it->second.scanUnretiredAttempts > 0) {
+        if (it->second.awaitingScanAttemptStarted) {
             // scan-generation-integrity-and-residual-certification-closure
-            // D2/D3: a replacement was issued over a coverage hole, so this
-            // terminal may belong to the superseded attempt and cannot be
-            // ordered after the replacement on the wire (it carries only the
-            // volume id). Consume it as that attempt's retirement: it marks
-            // nothing and finalizes no reconciliation pass. The retry armed
-            // below is what lets the replacement -- or a later attempt --
-            // still complete the volume.
-            --it->second.scanUnretiredAttempts;
-            retiredOlderAttempt = true;
-            // Keep the replacement's ownership state intact. The service
-            // joins a superseded worker before starting its replacement, so
-            // this terminal cannot release the replacement or its deferred
-            // reconciliation request.
-            wasReconciliationScan = it->second.reconciliationScan;
-            anyScanInProgress = std::any_of(
-                sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
-                [](const auto& entry) { return entry.second.scanInProgress; });
+            // 3.4: all frames before ScanAttemptStarted are still attributable
+            // to the superseded worker. The barrier is the first frame that
+            // may grant the replacement's volume-only terminal authority.
+            waitingForScanAttemptStarted = true;
         } else if (!it->second.scanInProgress) {
             // index-durability-false-success-closure D2: a completion for
             // a volume with no scan in flight (duplicate, or one that
@@ -838,18 +875,14 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
         }
     }
 
-    pipeline_.SetBulkScanActive(anyScanInProgress);
-
-    if (retiredOlderAttempt) {
+    if (waitingForScanAttemptStarted) {
         AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                 ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
                                 {}, std::wstring(1, driveLetter),
-                                L"scan-complete-consumed-as-retirement", 0, 0);
-        // Keep one bounded backstop retry. The scheduler defers it while the
-        // replacement remains in flight; a successful replacement clears it.
-        ArmFailedScanRetry(volumeId, wasReconciliationScan);
+                                L"scan-complete-before-scan-attempt-started", 0, 0);
         return;
     }
+    pipeline_.SetBulkScanActive(anyScanInProgress);
 
     if (paused || batchFailed) {
         // index-durability-false-success-closure D2/D5 (PA-001/PA-005):
@@ -930,7 +963,7 @@ void VolumeSessionManager::OnScanFailed(ffprotocol::VolumeId volumeId) {
     wchar_t driveLetter = L'\0';
     bool anyScanInProgress = false;
     bool wasReconciliationScan = false;
-    bool retiredOlderAttempt = false;
+    bool waitingForScanAttemptStarted = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = sessionsByEphemeralId_.find(volumeId.value);
@@ -939,20 +972,12 @@ void VolumeSessionManager::OnScanFailed(ffprotocol::VolumeId volumeId) {
         }
         durableId = it->second.durableId;
         driveLetter = it->second.driveLetter;
-        if (it->second.scanUnretiredAttempts > 0) {
+        if (it->second.awaitingScanAttemptStarted) {
             // scan-generation-integrity-and-residual-certification-closure
-            // D2/D3: same retirement rule as OnScanComplete -- a terminal that
-            // cannot be ordered after the replacement grants no authority, it
-            // only retires one superseded attempt.
-            --it->second.scanUnretiredAttempts;
-            retiredOlderAttempt = true;
-            // The service has already joined this superseded worker before it
-            // starts the replacement. Preserve the replacement's state and do
-            // not abort a reconciliation pass that now belongs to it.
-            wasReconciliationScan = it->second.reconciliationScan;
-            anyScanInProgress = std::any_of(
-                sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
-                [](const auto& entry) { return entry.second.scanInProgress; });
+            // 3.4: this failure can still belong to the worker that was
+            // superseded. Preserve the provisional replacement until the
+            // service's ordered start barrier arrives.
+            waitingForScanAttemptStarted = true;
         } else if (!it->second.scanInProgress) {
             AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                     ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
@@ -970,25 +995,48 @@ void VolumeSessionManager::OnScanFailed(ffprotocol::VolumeId volumeId) {
         }
     }
 
-    pipeline_.SetBulkScanActive(anyScanInProgress);
-    if (retiredOlderAttempt) {
+    if (waitingForScanAttemptStarted) {
         AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                 ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
                                 {}, std::wstring(1, driveLetter),
-                                L"scan-failed-consumed-as-retirement", 0, 0);
-        ArmFailedScanRetry(volumeId, wasReconciliationScan);
+                                L"scan-failed-before-scan-attempt-started", 0, 0);
         return;
     }
+    pipeline_.SetBulkScanActive(anyScanInProgress);
     if (pipeline_.IsReconciliationPassActive(durableId)) {
         pipeline_.AbortReconciliationPass(durableId);
     }
     AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::IndexingError,
                             ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
                             {}, std::wstring(1, driveLetter),
-                            retiredOlderAttempt ? L"scan-failed-consumed-as-retirement"
-                                                : L"service-reported-scan-failure", 0, 0);
+                            L"service-reported-scan-failure", 0, 0);
     RepublishSnapshot(durableId, driveLetter, true);
     ArmFailedScanRetry(volumeId, wasReconciliationScan);
+}
+
+void VolumeSessionManager::OnScanAttemptStarted(ffprotocol::VolumeId volumeId) {
+    wchar_t driveLetter = L'\0';
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessionsByEphemeralId_.find(volumeId.value);
+        if (it == sessionsByEphemeralId_.end()
+            || !it->second.scanInProgress
+            || !it->second.awaitingScanAttemptStarted) {
+            // Initial scans also receive the marker at {2,3}; only a
+            // coverage-hole replacement has provisional authority to release.
+            return;
+        }
+        driveLetter = it->second.driveLetter;
+        it->second.awaitingScanAttemptStarted = false;
+        // The replacement starts from the frozen durable cursor, so the old
+        // attempt's coverage hole no longer poisons frames ordered after this
+        // service-side stop-and-join barrier.
+        it->second.scanBatchFailed = false;
+    }
+    AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                            ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
+                            {}, std::wstring(1, driveLetter),
+                            L"scan-attempt-started-barrier-accepted", 0, 0);
 }
 
 void VolumeSessionManager::OnJournalOpened(ffprotocol::VolumeId volumeId, uint64_t journalId, uint64_t currentUsn) {
@@ -1316,19 +1364,23 @@ void VolumeSessionManager::ReconciliationSchedulerLoop() {
                 if (reconciliation) {
                     pipeline_.AbortReconciliationPass(session.durableId);
                 }
+                bool sessionStillAlive = false;
                 {
                     std::lock_guard<std::mutex> lock(mutex_);
                     auto it = sessionsByEphemeralId_.find(ephemeralId.value);
                     if (it != sessionsByEphemeralId_.end()) {
+                        sessionStillAlive = true;
                         it->second.scanInProgress = false;
                         it->second.reconciliationScan = false;
                         it->second.scanBatchFailed = false;
                     }
                 }
-                std::lock_guard<std::mutex> wakeLock(wakeMutex_);
-                failedScanRetries_[ephemeralId.value] =
-                    {std::chrono::steady_clock::now() + kScanFailureRetryDelay, reconciliation};
-                ++scanRetryGeneration_;
+                if (sessionStillAlive) {
+                    std::lock_guard<std::mutex> wakeLock(wakeMutex_);
+                    failedScanRetries_[ephemeralId.value] =
+                        {std::chrono::steady_clock::now() + kScanFailureRetryDelay, reconciliation};
+                    ++scanRetryGeneration_;
+                }
             }
         }
 

@@ -15,7 +15,9 @@ struct ProtocolVersion {
 // scan records (ScanRecordBatchV2) and V3 USN records (JournalRecordBatchV3)
 // that carry allocated size. Minor moved 2.1 -> 2.2 for
 // index-durability-false-success-closure: a {2,2} peer understands the
-// additive ScanFailed terminal message. Because major is the only
+// additive ScanFailed terminal message. Minor moved 2.2 -> 2.3 for
+// scan-generation-integrity-and-residual-certification-closure: a {2,3}
+// peer understands the additive ScanAttemptStarted ordering barrier. Because major is the only
 // compatibility gate and negotiation takes the per-component min, a 2.2 peer
 // talking to a 2.1-or-older peer keeps the legacy ScanComplete terminal on
 // every successful path and receives no terminal at all for a failed scan
@@ -24,7 +26,7 @@ struct ProtocolVersion {
 // connection instead of writing a false-success ScanComplete -- the same
 // shape as the service's SendJournalBatch major-1 branch, which omits a
 // reply-only type an older peer cannot parse.
-constexpr ProtocolVersion kCurrentProtocolVersion{2, 2};
+constexpr ProtocolVersion kCurrentProtocolVersion{2, 3};
 
 // Major must match, or be exactly one behind current, to absorb staged
 // enterprise rollouts across one release cycle (design.md D6). Minor is
@@ -45,6 +47,14 @@ constexpr bool ProtocolSupportsAllocatedSize(ProtocolVersion v) noexcept {
 // older negotiation keeps today's terminal byte-for-byte.
 constexpr bool ProtocolSupportsScanFailure(ProtocolVersion v) noexcept {
     return v.major > 2 || (v.major == 2 && v.minor >= 2);
+}
+
+// scan-generation-integrity-and-residual-certification-closure 3.4: true
+// when a peer can parse the service-to-engine scan-start ordering barrier.
+// The barrier is a distinct reply-only message, so a pre-{2,3} peer never
+// needs to reinterpret a completion or failure payload.
+constexpr bool ProtocolSupportsScanAttemptStarted(ProtocolVersion v) noexcept {
+    return v.major > 2 || (v.major == 2 && v.minor >= 3);
 }
 
 } // namespace ffprotocol

@@ -54,6 +54,10 @@ public:
     // sent by a {2,2}+ service instead of ScanComplete for scans that could
     // not run to completion.
     using ScanFailedCallback = std::function<void(ffprotocol::VolumeId)>;
+    // scan-generation-integrity-and-residual-certification-closure 3.4:
+    // a {2,3}+ service sends this ordering barrier after joining a superseded
+    // worker and before launching its replacement.
+    using ScanAttemptStartedCallback = std::function<void(ffprotocol::VolumeId)>;
     using JournalOpenedCallback = std::function<void(ffprotocol::VolumeId, uint64_t journalId, uint64_t currentUsn)>;
     using JournalBatchCallback =
         std::function<void(ffprotocol::VolumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV2> records)>;
@@ -79,6 +83,9 @@ public:
     void SetScanBatchV2Callback(ScanBatchV2Callback callback) { scanBatchV2Callback_ = std::move(callback); }
     void SetScanCompleteCallback(ScanCompleteCallback callback) { scanCompleteCallback_ = std::move(callback); }
     void SetScanFailedCallback(ScanFailedCallback callback) { scanFailedCallback_ = std::move(callback); }
+    void SetScanAttemptStartedCallback(ScanAttemptStartedCallback callback) {
+        scanAttemptStartedCallback_ = std::move(callback);
+    }
     void SetJournalOpenedCallback(JournalOpenedCallback callback) { journalOpenedCallback_ = std::move(callback); }
     void SetJournalBatchCallback(JournalBatchCallback callback) { journalBatchCallback_ = std::move(callback); }
     void SetJournalBatchV3Callback(JournalBatchV3Callback callback) { journalBatchV3Callback_ = std::move(callback); }
@@ -107,6 +114,13 @@ public:
     // background loop will not attempt to reconnect again until
     // RequestReconnect is called.
     void DropForIdle();
+    // scan-generation-integrity-and-residual-certification-closure 3.4:
+    // discard the current connection generation and immediately permit the
+    // lifecycle loop to reconnect. Used only when a staged peer cannot emit
+    // the negotiated scan-start ordering barrier, or after an uncertain
+    // failed scan-start write; connection-scoped terminals then lose all
+    // authority in VolumeSessionManager.
+    void ResetForScanAuthority();
     // Wakes the background loop immediately (skipping any remaining
     // backoff delay) to attempt reconnection -- called on UI launch or an
     // activity burst after an idle drop (task 4.10).
@@ -129,14 +143,7 @@ public:
     // the mixed-version reproducer can bind the service's real terminal
     // decision to the engine's real durable outcome without a live service.
     // Returns false when the frame was rejected as a protocol violation.
-    bool DispatchFrameForTesting(const ffipc::ReceivedFrame& frame) {
-        std::atomic<bool> heartbeatAckPending{false};
-        std::mutex ackMutex;
-        std::condition_variable ackCv;
-        std::atomic<bool> protocolViolation{false};
-        DispatchReceivedFrame(frame, heartbeatAckPending, ackMutex, ackCv, protocolViolation);
-        return !protocolViolation.load();
-    }
+    bool DispatchFrameForTesting(const ffipc::ReceivedFrame& frame);
 #endif
 
 private:
@@ -178,6 +185,7 @@ private:
     ScanBatchV2Callback scanBatchV2Callback_;
     ScanCompleteCallback scanCompleteCallback_;
     ScanFailedCallback scanFailedCallback_;
+    ScanAttemptStartedCallback scanAttemptStartedCallback_;
     JournalOpenedCallback journalOpenedCallback_;
     JournalBatchCallback journalBatchCallback_;
     JournalBatchV3Callback journalBatchV3Callback_;

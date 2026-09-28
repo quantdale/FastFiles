@@ -138,6 +138,19 @@ void PrivilegedConnection::DropForIdle() {
     WakeLoop();
 }
 
+void PrivilegedConnection::ResetForScanAuthority() {
+    // Do not park like DropForIdle(): this is a correctness recovery that
+    // needs a fresh connection-scoped VolumeId as soon as the Active reader
+    // has drained. The state callback clears the engine's old sessions before
+    // any queued terminal from this pipe can regain authority.
+    idleDropped_ = false;
+    if (shutdownEvent_ != nullptr) {
+        SetEvent(shutdownEvent_);
+    }
+    SetState(ConnectionState::Disconnected, UnavailableReason::None);
+    WakeLoop();
+}
+
 void PrivilegedConnection::RequestReconnect() {
     idleDropped_ = false;
     WakeLoop();
@@ -446,6 +459,22 @@ void PrivilegedConnection::DispatchReceivedFrame(
             break;
         }
 
+        case MessageType::ScanAttemptStarted: {
+            // scan-generation-integrity-and-residual-certification-closure
+            // 3.4: exact-length and reply-only. A longer payload is never an
+            // attempt discriminator extension; it is a protocol violation.
+            if (frame.payload.size() != sizeof(ffprotocol::ScanAttemptStartedPayload)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::ScanAttemptStartedPayload payload{};
+            std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+            if (scanAttemptStartedCallback_) {
+                scanAttemptStartedCallback_(payload.volumeId);
+            }
+            break;
+        }
+
         case MessageType::UsnJournalOpened: {
             if (frame.payload.size() != sizeof(ffprotocol::UsnJournalOpenedPayload)) {
                 protocolViolation = true;
@@ -554,6 +583,17 @@ void PrivilegedConnection::DispatchReceivedFrame(
             break;
     }
 }
+
+#ifdef FF_PRIVILEGED_CONNECTION_TESTING
+bool PrivilegedConnection::DispatchFrameForTesting(const ffipc::ReceivedFrame& frame) {
+    std::atomic<bool> heartbeatAckPending{false};
+    std::mutex ackMutex;
+    std::condition_variable ackCv;
+    std::atomic<bool> protocolViolation{false};
+    DispatchReceivedFrame(frame, heartbeatAckPending, ackMutex, ackCv, protocolViolation);
+    return !protocolViolation.load();
+}
+#endif
 
 void PrivilegedConnection::ActiveLoop(const PipePtr& pipe) {
     // State observers synchronously send their initial EnumerateVolumes

@@ -43,8 +43,8 @@ void TestUnrecognizedMessageTypeRejected() {
           "a real MessageType value round-trips");
 
     // Bounds around the closed command surface's current end
-    // (index-durability-false-success-closure's ScanFailed = 22): the last
-    // assigned value must round-trip, the next unassigned one must not.
+    // (ScanAttemptStarted = 23): the last assigned value must round-trip, the
+    // next unassigned one must not.
     Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalResumeInvalid)).has_value(),
           "JournalResumeInvalid (the journal-gap service->engine message) round-trips");
     Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV2)).has_value(),
@@ -55,13 +55,17 @@ void TestUnrecognizedMessageTypeRejected() {
           "JournalRecordBatchV3 (the USN V3 presence-mask format) round-trips");
     Check(ToMessageType(static_cast<uint16_t>(MessageType::ScanFailed)).has_value(),
           "ScanFailed (the terminal scan-failure message) round-trips");
-    Check(ToMessageType(static_cast<uint16_t>(MessageType::ScanFailed) + 1).has_value() == false,
-          "the first unassigned value past ScanFailed is rejected");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::ScanAttemptStarted)).has_value(),
+          "ScanAttemptStarted (the replacement ordering barrier) round-trips");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::ScanAttemptStarted) + 1).has_value() == false,
+          "the first unassigned value past ScanAttemptStarted is rejected");
     Check(sizeof(JournalResumeInvalidPayload) == sizeof(VolumeId),
           "JournalResumeInvalidPayload is exactly the fixed VolumeId payload the wire format promises");
     Check(sizeof(ScanFailedPayload) == sizeof(ScanCompletePayload) &&
               sizeof(ScanFailedPayload) == sizeof(VolumeId),
           "ScanFailed carries exactly the fixed VolumeId payload ScanComplete carries");
+    Check(sizeof(ScanAttemptStartedPayload) == sizeof(VolumeId),
+          "ScanAttemptStarted carries exactly its fixed VolumeId barrier payload");
     const volatile uint16_t failedType = static_cast<uint16_t>(MessageType::ScanFailed);
     const volatile uint16_t completeType = static_cast<uint16_t>(MessageType::ScanComplete);
     Check(failedType != completeType,
@@ -350,6 +354,21 @@ void TestUsnV3PresenceMaskRoundTripAndDowngradePolicy() {
     Check(!ProtocolSupportsScanFailure({1, 99}), "a major-1 peer never receives the ScanFailed terminal");
     Check(kCurrentProtocolVersion.major == 2 && kCurrentProtocolVersion.minor >= 2,
           "this build self-declares the ScanFailed capability it implements");
+
+    // scan-generation-integrity-and-residual-certification-closure 3.4:
+    // the replacement barrier is separately negotiated. It never resizes
+    // either existing terminal payload, so a staged {2,2} peer stays on the
+    // safe connection-reset fallback rather than parsing an unknown frame.
+    Check(ProtocolSupportsScanAttemptStarted({2, 3}),
+          "protocol {2,3} supports the ScanAttemptStarted ordering barrier");
+    Check(ProtocolSupportsScanAttemptStarted({3, 0}),
+          "a future major gates open for ScanAttemptStarted");
+    Check(!ProtocolSupportsScanAttemptStarted({2, 2}),
+          "protocol {2,2} does not receive the ScanAttemptStarted barrier");
+    Check(!ProtocolSupportsScanAttemptStarted({1, 99}),
+          "a major-1 peer never receives the ScanAttemptStarted barrier");
+    Check(kCurrentProtocolVersion.major == 2 && kCurrentProtocolVersion.minor >= 3,
+          "this build self-declares the ScanAttemptStarted capability it implements");
 }
 
 void TestVersionCompatibility() {

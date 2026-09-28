@@ -80,10 +80,30 @@ void TestWorkerExceptionBoundaryPolicy() {
     // Transition: worker spawn -> register-before-start, so an exception
     // between thread creation and registry insertion cannot orphan a writer
     // holding the pipe handle (joinable-guard survives via StopAndJoinAll).
-    const std::size_t scanPush = source.find("activeScans.push_back");
-    const std::size_t scanThread = source.find("std::thread", source.find("case MessageType::StartVolumeScan"));
+    const std::size_t startVolumeScan = source.find("case MessageType::StartVolumeScan");
+    const std::size_t scanPush = source.find("activeScans.push_back", startVolumeScan);
+    const std::size_t scanThread = source.find("std::thread", startVolumeScan);
     fftest::Check(scanPush != std::string::npos && scanThread != std::string::npos && scanPush < scanThread,
                   "scan worker is registered before its thread starts");
+
+    // scan-generation-integrity-and-residual-certification-closure 3.4:
+    // an old scan is joined before the service writes the ordering barrier,
+    // and the replacement is not registered or started until after that
+    // serialized reply. That is what makes VolumeId-only output on either
+    // side of the marker attributable to the old or replacement worker.
+    const std::size_t stopAndJoin = source.find("StopAndJoin(activeScans, request.volumeId.value)", startVolumeScan);
+    const std::size_t barrierCapability = source.find("ProtocolSupportsScanAttemptStarted(negotiatedVersion)", stopAndJoin);
+    const std::size_t barrierSend = source.find("SendScanAttemptStarted(", stopAndJoin);
+    const std::size_t barrierHelper = source.find("bool SendScanAttemptStarted(");
+    const std::size_t barrierLock = source.find("std::lock_guard<std::mutex> lock(writeMutex)", barrierHelper);
+    const std::size_t barrierWrite = source.find("WriteFrameWithDeadline", barrierLock);
+    fftest::Check(stopAndJoin != std::string::npos && barrierCapability != std::string::npos &&
+                      barrierSend != std::string::npos && scanPush != std::string::npos &&
+                      stopAndJoin < barrierCapability && barrierCapability <= barrierSend && barrierSend < scanPush,
+                  "scan-attempt barrier is negotiated and emitted after join before replacement registration");
+    fftest::Check(barrierHelper != std::string::npos && barrierLock != std::string::npos &&
+                      barrierWrite != std::string::npos && barrierHelper < barrierLock && barrierLock < barrierWrite,
+                  "scan-attempt barrier holds the shared service write mutex while framing its reply");
     const std::size_t journalPush = source.find("activeJournals.push_back");
     const std::size_t journalThread = source.find("std::thread", source.find("case MessageType::OpenUsnJournal"));
     fftest::Check(journalPush != std::string::npos && journalThread != std::string::npos && journalPush < journalThread,

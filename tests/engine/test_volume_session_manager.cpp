@@ -121,6 +121,19 @@ void AddSession(ffengine::VolumeSessionManager& manager, ffindexstore::VolumeRow
     manager.sessionsByEphemeralId_.emplace(7, ffengine::VolumeSessionManager::VolumeSession{volumeId, L'C', 0, false});
 }
 
+// Route the negotiated service-to-engine barrier through the production
+// PrivilegedConnection parser before it reaches VolumeSessionManager. This
+// keeps the scan-authority regressions bound to the exact reply frame and its
+// exact-length payload, rather than testing the manager callback in isolation.
+bool DispatchScanAttemptStarted(ffengine::PrivilegedConnection& connection, ffprotocol::VolumeId volumeId) {
+    ffprotocol::ScanAttemptStartedPayload payload{volumeId};
+    ffipc::ReceivedFrame frame{};
+    frame.header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::ScanAttemptStarted);
+    frame.payload.resize(sizeof(payload));
+    std::memcpy(frame.payload.data(), &payload, sizeof(payload));
+    return connection.DispatchFrameForTesting(frame);
+}
+
 ffprotocol::MftRecordV1 MakeMftRecord(uint64_t id, uint64_t parent, std::u16string name, uint32_t attrs, uint64_t size) {
     ffprotocol::MftRecordV1 r{};
     r.fixed.fileReferenceNumber = id;
@@ -1590,11 +1603,10 @@ uint64_t CurrentFileTimeForTest() {
 // reported by PR #9's review. An incomplete initial scan applies a batch,
 // indexing is paused, a later batch is dropped (a coverage hole), indexing is
 // resumed so replacement work is issued for the same connection-scoped volume
-// id, and the ORIGINAL attempt's completion is delivered before the
-// replacement finishes. ScanComplete carries only that volume id, so the
-// engine cannot order the terminal after the replacement: it must neither mark
-// the volume complete nor erase the coverage hole. The test's own phases are
-// the only evidence that distinguishes the two attempts.
+// id, and the ORIGINAL attempt's completion is delivered before the service's
+// ordered replacement barrier. The engine must reject that terminal, retain
+// the frozen cursor, and accept the replacement only after the negotiated
+// marker separates the two workers' output.
 void TestResumeDoesNotClearCoverageHoleForAnOlderCompletion() {
     using namespace std::chrono_literals;
     ffengine::IndexPipeline pipeline;
@@ -1612,6 +1624,8 @@ void TestResumeDoesNotClearCoverageHoleForAnOlderCompletion() {
     Check(capture != nullptr, "the resume/older-completion fixture creates a capture pipe");
     if (!capture) return;
     AttachCaptureServer(connection, *capture);
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 3;
     AddSession(manager, volumeId);
     ffprotocol::VolumeSetting setting;
     setting.key = L"C:";
@@ -1646,16 +1660,23 @@ void TestResumeDoesNotClearCoverageHoleForAnOlderCompletion() {
     const auto replacement = ReadCapturedScanStartWithTimeout(capture->client, 2s);
     Check(replacement && replacement->volumeId == 7,
           "resume issues replacement work on the same connection-scoped volume id");
+    Check(session.awaitingScanAttemptStarted,
+          "the coverage-hole replacement remains provisional until the service barrier arrives");
     DrainCapturedFrames(capture->client);
 
-    // Attempt 1's completion was already written to the pipe before the resume.
+    // Attempt 1's completion was already written to the pipe before the
+    // service joined it and emitted the replacement barrier.
     connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
     Check(!pipeline.GetVolumeMetadata(volumeId)->scanComplete,
           "the older completion never marks the volume complete");
     Check(!pipeline.IsReconciliationPassActive(volumeId),
           "the older completion finalizes no reconciliation pass");
-    Check(session.scanInProgress && session.scanUnretiredAttempts == 0,
-          "retiring attempt 1 leaves the replacement in flight with no older terminal outstanding");
+    Check(session.scanInProgress && session.awaitingScanAttemptStarted,
+          "the pre-barrier terminal leaves the replacement provisional and in flight");
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{7}),
+          "the exact ScanAttemptStarted frame is accepted by the production dispatcher");
+    Check(!session.awaitingScanAttemptStarted && !session.scanBatchFailed,
+          "the barrier releases only the replacement's frozen coverage authority");
 
     // The replacement now fails before covering the hole. Its own terminal
     // ends that attempt and arms the bounded retry from the durable cursor.
@@ -1693,6 +1714,193 @@ void TestResumeDoesNotClearCoverageHoleForAnOlderCompletion() {
     connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
     Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
           "the attempt that applied the missing coverage marks the volume complete");
+    manager.Stop();
+}
+
+// scan-generation-integrity-and-residual-certification-closure 10.2: a
+// superseded service worker observes its stop flag before writing a terminal.
+// The replacement therefore owns the only terminal that reaches the engine.
+// That terminal must complete the replacement after it applies the missing
+// cursor window; it cannot remain reserved forever for a terminal that the
+// service deliberately did not send.
+void TestReplacementOnlyCompletionAfterSupersedeIsAuthoritative() {
+    using namespace std::chrono_literals;
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_replacement_only_terminal.db")),
+          "pipeline opens for the replacement-only-terminal test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 9901;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    pipeline.SetVolumeAvailable(volumeId, true, 1);
+    pipeline.SetLastReconciliationTime(volumeId, CurrentFileTimeForTest());
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the replacement-only-terminal fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 3;
+    AddSession(manager, volumeId);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    manager.ReloadConfiguration({setting});
+    manager.active_ = true;
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true; // attempt 1: an incomplete initial scan
+
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{1, 2, 3},
+                                  {MakeMftRecord(5, 5, u"", 0x10, 0),
+                                   MakeMftRecord(100, 5, u"seed.txt", 0, 1)});
+    DrainCapturedFrames(capture->client);
+
+    manager.SetIndexingPaused(0, true);
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{4, 5, 6},
+                                  {MakeMftRecord(200, 5, u"missed-window", 0x10, 0)});
+    Check(session.scanBatchFailed,
+          "the paused batch records the initial attempt's missing coverage");
+    manager.SetIndexingPaused(0, false);
+    const auto replacement = ReadCapturedScanStartWithTimeout(capture->client, 2s);
+    Check(replacement && replacement->volumeId == 7,
+          "resume starts a replacement under the same connection-scoped volume id");
+    Check(replacement && replacement->cursor == std::vector<uint8_t>({1, 2, 3}),
+          "the replacement starts at the last durably applied cursor");
+    Check(session.awaitingScanAttemptStarted,
+          "a replacement that covers a paused window waits for the ordered service barrier");
+    DrainCapturedFrames(capture->client);
+
+    // The production service's StopAndJoin path can suppress attempt 1's
+    // terminal. Its ordering marker is therefore the sole proof that the
+    // subsequent work and only completion belong to the replacement.
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{7}),
+          "the service barrier releases the terminal-free replacement");
+    Check(!session.awaitingScanAttemptStarted,
+          "the terminal-free replacement becomes authoritative after the barrier");
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{4, 5, 6},
+                                  {MakeMftRecord(200, 5, u"missed-window", 0x10, 0)});
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+
+    Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "the replacement's only terminal completes the recovered initial scan");
+    Check(!session.scanInProgress,
+          "the replacement-only terminal releases the in-flight scan ownership");
+    Check(!session.awaitingScanAttemptStarted,
+          "no provisional barrier state remains after the replacement-only completion");
+    manager.Stop();
+}
+
+// scan-generation-integrity-and-residual-certification-closure 3.4: a staged
+// peer cannot serialize the ScanAttemptStarted barrier. A coverage-hole
+// replacement therefore discards the old connection-scoped VolumeId instead
+// of letting a pre-{2,3} terminal choose the new attempt's authority.
+void TestLegacyPeerCoverageHoleResetsConnectionAuthority() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_legacy_peer_scan_authority_reset.db")),
+          "pipeline opens for the legacy-peer authority-reset test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 9902;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    pipeline.SetVolumeAvailable(volumeId, true, 1);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    manager.ReloadConfiguration({setting});
+    manager.Start();
+    manager.active_ = true;
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 2;
+    bool resetObserved = false;
+    connection.onStateChange_ = [&manager, &resetObserved](ffengine::ConnectionState state,
+                                                            ffengine::UnavailableReason reason) {
+        if (state == ffengine::ConnectionState::Disconnected && reason == ffengine::UnavailableReason::None) {
+            resetObserved = true;
+        }
+        manager.OnConnectionStateChanged(state);
+    };
+
+    auto& stored = manager.sessionsByEphemeralId_.at(7);
+    stored.scanInProgress = true;
+    stored.scanBatchFailed = true;
+    manager.SetIndexingPaused(0, true);
+    manager.SetIndexingPaused(0, false);
+
+    Check(resetObserved, "a pre-{2,3} coverage-hole replacement resets before issuing an ambiguous request");
+    Check(manager.sessionsByEphemeralId_.empty(),
+          "the reset drops every connection-scoped scan authority before old terminals can arrive");
+    {
+        std::lock_guard<std::mutex> lock(manager.mutex_);
+        Check(manager.scanReissueFloors_.contains(volumeId),
+              "the reset retains one durable reissue floor for the interrupted scan");
+    }
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        Check(manager.failedScanRetries_.empty(),
+              "the discarded connection keeps no ephemeral retry slot behind");
+    }
+    manager.Stop();
+}
+
+// scan-generation-integrity-and-residual-certification-closure 3.4: a false
+// result from the bounded start write is not proof that the service ignored
+// the request. The engine must discard its provisional state and move the
+// retry to durable identity rather than leaving a scan permanently in flight.
+void TestFailedScanStartResetsProvisionalAuthority() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_failed_scan_start_authority_reset.db")),
+          "pipeline opens for the failed-start authority-reset test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 9903;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    pipeline.SetVolumeAvailable(volumeId, true, 1);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    manager.ReloadConfiguration({setting});
+    manager.Start();
+    manager.active_ = true;
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 3;
+    bool resetObserved = false;
+    connection.onStateChange_ = [&manager, &resetObserved](ffengine::ConnectionState state,
+                                                            ffengine::UnavailableReason reason) {
+        if (state == ffengine::ConnectionState::Disconnected && reason == ffengine::UnavailableReason::None) {
+            resetObserved = true;
+        }
+        manager.OnConnectionStateChanged(state);
+    };
+
+    auto& stored = manager.sessionsByEphemeralId_.at(7);
+    stored.scanInProgress = true;
+    stored.scanBatchFailed = true;
+    // No active pipe is installed. SendRequest therefore returns false after
+    // the manager has made the {2,3} replacement provisional.
+    manager.SetIndexingPaused(0, true);
+    manager.SetIndexingPaused(0, false);
+
+    Check(resetObserved, "a failed scan-start write resets the connection generation");
+    Check(manager.sessionsByEphemeralId_.empty(),
+          "a failed scan-start write leaves no provisional scan ownership behind");
+    {
+        std::lock_guard<std::mutex> lock(manager.mutex_);
+        Check(manager.scanReissueFloors_.contains(volumeId),
+              "the failed start moves recovery to a durable reissue floor");
+    }
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        Check(manager.failedScanRetries_.empty(),
+              "the failed start leaves no stale ephemeral retry slot behind");
+    }
     manager.Stop();
 }
 
@@ -1750,7 +1958,7 @@ void TestPausedReconciliationOlderCompletionAfterResumeDeletesNothing() {
     const auto resumeFrame = ReadCapturedMessageWithTimeout(capture->client, 2s);
     Check(resumeFrame && *resumeFrame == static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal),
           "resume of an already-indexed volume reopens the journal instead of issuing a replacement scan");
-    Check(!pipeline.IsReconciliationPassActive(volumeId) || !session.scanUnretiredAttempts,
+    Check(!pipeline.IsReconciliationPassActive(volumeId) || !session.awaitingScanAttemptStarted,
           "no replacement attempt was issued over the already-indexed pass's hole");
     DrainCapturedFrames(capture->client);
 
@@ -1807,6 +2015,8 @@ void TestRetiredTerminalCannotAuthorizeLaterReconciliation() {
     Check(capture != nullptr, "the reconciliation-ownership fixture creates a capture pipe");
     if (!capture) return;
     AttachCaptureServer(connection, *capture);
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 3;
     AddSession(manager, volumeId);
     ffprotocol::VolumeSetting setting;
     setting.key = L"C:";
@@ -1832,17 +2042,19 @@ void TestRetiredTerminalCannotAuthorizeLaterReconciliation() {
           "resume issues replacement work under the same connection-scoped volume id");
     Check(replacement && replacement->cursor == std::vector<uint8_t>({1, 2, 3}),
           "the replacement resumes from the last applied cursor");
-    Check(session.scanUnretiredAttempts == 1,
-          "the replacement retains exactly one unretired initial-scan attempt");
+    Check(session.awaitingScanAttemptStarted,
+          "the replacement retains no authority until the service orders its barrier");
     DrainCapturedFrames(capture->client);
 
-    // This terminal retires attempt 1. The replacement remains active and owns
-    // the volume even though its wire terminal has the same volume id.
+    // This terminal belongs to attempt 1. The replacement remains provisional
+    // until the service's ordered marker proves that attempt 1 is joined.
     connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
-    Check(session.scanUnretiredAttempts == 0,
-          "the original terminal retires exactly one superseded attempt");
-    Check(session.scanInProgress,
-          "retiring the older terminal preserves the replacement scan's in-flight ownership");
+    Check(session.awaitingScanAttemptStarted && session.scanInProgress,
+          "the original terminal cannot release or complete the provisional replacement");
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{7}),
+          "the ordered marker accepts the replacement after the old terminal");
+    Check(!session.awaitingScanAttemptStarted && session.scanInProgress,
+          "the barrier preserves replacement ownership while granting it authority");
 
     // A changed journal id requests reconciliation while the replacement still
     // covers the initial-scan hole. That request must wait for the replacement
@@ -1858,8 +2070,8 @@ void TestRetiredTerminalCannotAuthorizeLaterReconciliation() {
     // the existing row before it is allowed to finalize.
     connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{4, 5, 6},
                                   {MakeMftRecord(200, 5, u"paused-window", 0x10, 0)});
-    Check(session.scanUnretiredAttempts == 0 && session.scanInProgress,
-          "the replacement remains the active attempt after the older terminal retires");
+    Check(!session.awaitingScanAttemptStarted && session.scanInProgress,
+          "the replacement remains the active attempt after the ordered barrier");
     connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
     Check(pipeline.IsReconciliationPassActive(volumeId),
           "the deferred full reconciliation starts only after the replacement completes");
@@ -1913,7 +2125,7 @@ void TestReplacementCompletionStillMarksWithoutADroppedBatch() {
     manager.SetIndexingPaused(0, true); // no batch arrives while paused: no hole
     manager.SetIndexingPaused(0, false);
     Check(session.scanInProgress, "resume re-issues the unfinished scan");
-    Check(!session.scanUnretiredAttempts,
+    Check(!session.awaitingScanAttemptStarted,
           "a replacement over an attempt with no coverage hole is not ambiguous");
     DrainCapturedFrames(capture->client);
 
@@ -2322,6 +2534,8 @@ void TestCombinedPauseDisconnectReconnectStaleTerminalRecovers() {
     Check(capture != nullptr, "the combined regression creates a capture pipe");
     if (!capture) return;
     AttachCaptureServer(connection, *capture);
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 3;
     AddSession(manager, volumeId);
     ffprotocol::VolumeSetting setting;
     setting.key = L"C:";
@@ -2346,16 +2560,19 @@ void TestCombinedPauseDisconnectReconnectStaleTerminalRecovers() {
           "the pause drop records the coverage hole");
     manager.SetIndexingPaused(0, false);
     DrainCapturedFrames(capture->client);
+    Check(session.awaitingScanAttemptStarted,
+          "the combined regression holds the replacement behind its service barrier");
     connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
     Check(!pipeline.GetVolumeMetadata(volumeId)->scanComplete,
           "the retired attempt's stale terminal grants no completion");
     Check(HasDurableRow(pipeline, volumeId, L"seed.txt"),
           "the stale terminal deletes no durable row");
 
-    // Once attempt 1's terminal has retired, the service's joined replacement
-    // is the only scan that can produce the next terminal on this connection.
-    // Its complete coverage from the frozen cursor therefore authorizes the
-    // volume and clears the repair slot.
+    // The service's joined replacement becomes authoritative only after its
+    // marker. Its complete coverage from the frozen cursor then authorizes
+    // the volume and clears the repair slot.
+    Check(DispatchScanAttemptStarted(connection, ffprotocol::VolumeId{7}),
+          "the combined regression receives the ordered replacement barrier");
     connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{2},
                                   {MakeMftRecord(200, 5, u"paused-window", 0x10, 0)});
     connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
@@ -2462,6 +2679,9 @@ int main() {
     TestLegacyFailureReissueIsThrottledAfterConnectionLoss();
     TestPausedReconciliationDropIsNonAuthoritative();
     TestResumeDoesNotClearCoverageHoleForAnOlderCompletion();
+    TestReplacementOnlyCompletionAfterSupersedeIsAuthoritative();
+    TestLegacyPeerCoverageHoleResetsConnectionAuthority();
+    TestFailedScanStartResetsProvisionalAuthority();
     TestPausedReconciliationOlderCompletionAfterResumeDeletesNothing();
     TestRetiredTerminalCannotAuthorizeLaterReconciliation();
     TestReplacementCompletionStillMarksWithoutADroppedBatch();

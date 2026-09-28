@@ -58,6 +58,12 @@ enum class MessageType : uint16_t {
     // misread it, and completion and failure stay mutually exclusive signals
     // the engine can trust independently.
     ScanFailed = 22, // service -> engine, exactly once per scan that failed to complete
+    // scan-generation-integrity-and-residual-certification-closure 3.4:
+    // additive ordered barrier for a replacement scan. A {2,3}+ service
+    // writes this after joining a superseded worker and before starting its
+    // replacement, so the engine can separate old output from the
+    // replacement without resizing either terminal message.
+    ScanAttemptStarted = 23, // service -> engine, exact-length VolumeId payload
 };
 
 // Bounds-checked conversion: never index a jump table with an untrusted
@@ -190,6 +196,15 @@ struct ScanCompletePayload {
 // it with the identical exact-length check, so a truncated/extended frame is a
 // protocol violation exactly as ScanComplete already is.
 struct ScanFailedPayload {
+    VolumeId volumeId;
+};
+
+// scan-generation-integrity-and-residual-certification-closure 3.4: this is
+// deliberately a separate reply-only message, rather than an extension of
+// ScanComplete or ScanFailed. Its placement in the serialized service stream
+// is the authority barrier; the old terminal payloads stay byte-for-byte
+// compatible for peers that do not negotiate this capability.
+struct ScanAttemptStartedPayload {
     VolumeId volumeId;
 };
 

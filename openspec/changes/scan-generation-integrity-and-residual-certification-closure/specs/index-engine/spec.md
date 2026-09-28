@@ -22,6 +22,19 @@ The engine SHALL treat scan completion and scan failure as authority only for th
 - **THEN** the engine SHALL mark the volume scan complete
 - **AND** SHALL resume from the last durably applied position rather than discarding the volume's index
 
+#### Scenario: A terminal-free supersede admits the replacement after its barrier
+
+- **WHEN** an incomplete initial scan drops a batch while paused, the engine requests replacement work, the service stops the old worker before it writes a terminal, and the service then reports `ScanAttemptStarted`
+- **THEN** the engine SHALL reject every scan batch and terminal ordered before that barrier
+- **AND** SHALL accept the replacement's unchanged completion or failure terminal ordered after it
+- **AND** SHALL NOT leave the replacement marked in progress merely because the stopped worker emitted no terminal
+
+#### Scenario: A peer without the scan-start barrier loses ambiguous authority safely
+
+- **WHEN** a coverage-hole replacement is needed but the negotiated peer does not support `ScanAttemptStarted`
+- **THEN** the engine SHALL discard the connection-scoped session before it can accept a volume-id-only terminal for that replacement
+- **AND** SHALL reconnect and retry from the durable cursor under a new volume id
+
 #### Scenario: Disconnect cannot restore a stale terminal
 
 - **WHEN** the privileged connection leaves the active state and a completion or failure for the previous connection's volume id is delivered afterward
