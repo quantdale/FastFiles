@@ -1453,7 +1453,7 @@
     },
     {
       "name": "scan-generation-integrity-and-residual-certification-closure",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1474,6 +1474,16 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/scan-generation-integrity-and-residual-certification-closure/evidence/apply-baseline.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/scan-generation-integrity-and-residual-certification-closure/evidence/certification-residuals-and-handoff.md"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "36414059606",
+          "sha": "1f5c267b19b0ef80db5a6112308ea95dfa7e5dae",
+          "record": "openspec/changes/scan-generation-integrity-and-residual-certification-closure/evidence/certification-residuals-and-handoff.md"
         }
       ],
       "supersededBy": null,

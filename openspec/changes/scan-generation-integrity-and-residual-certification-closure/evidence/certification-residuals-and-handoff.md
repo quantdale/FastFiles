@@ -1,9 +1,10 @@
 # Certification residuals and handoff
 
-Status: local implementation and exact-candidate validation are complete;
-reviewable PR and one post-push hosted recheck remain. This report records the
-external and inherited limits that must remain visible at handoff; it does not
-claim hosted certification.
+Status: local implementation and exact-candidate validation are complete.
+Reviewable PR #10 is open with an explicit no-merge hold. The single post-push
+hosted recheck completed, but no hosted job reached a workflow step. This
+report records the external and inherited limits; it does not claim hosted
+certification.
 
 ## Raw-volume completion bound — UNPROVEN
 
@@ -32,10 +33,23 @@ protection and ruleset API reads returned HTTP 403 on the private free plan;
 the protection state therefore remains unknown. Neither fact grants permission
 to merge.
 
-Do not dispatch another copy of those jobs before the one authorized
-post-push recheck. Keep the feature branch reviewable with an explicit no-merge
-hold while the required hosted jobs cannot start. Local CI parity must be
-reported as local evidence, never as hosted CI.
+After the feature branch was pushed, reviewable PR
+[#10](https://github.com/quantdale/FastFiles/pull/10) was opened with a
+NO-MERGE HOLD. The one inspected post-push run was
+[`36414059606`](https://github.com/quantdale/FastFiles/actions/runs/36414059606),
+event `pull_request`, head `1f5c267b19b0ef80db5a6112308ea95dfa7e5dae`. All six
+required jobs (`debug`, `release-test`, `analyze`, `asan-protocol-ipc-lifecycle`,
+`repository-hygiene-and-contracts`, and
+`unsigned-release-candidate-qualification`) completed as failures before any
+step; each job reported an empty step list, so none of the hosted workflow ran.
+The queried post-push job records carried no additional failure summary. The
+apply-start run remains the recorded billing annotation; do not invent a more
+specific cause for this run. No workflow was manually dispatched or rerun.
+The pushed SHA is source-equivalent to the exact executable candidate below.
+
+Do not dispatch another copy of those jobs. Keep PR #10 reviewable with its
+explicit no-merge hold while the required hosted jobs cannot start. Local CI
+parity must be reported as local evidence, never as hosted CI.
 
 ## Interactive-environment limits
 
@@ -99,8 +113,9 @@ artifacts are included in this change.
 - Live 100%, 150%, and 200% DPI variants remain unavailable on this host.
 - Hosted CI run `36302493823` on apply-start SHA
   `1172c1a1e6aa9c1a726d52abdade0975b6979e4b` failed all six jobs before any
-  step due to account billing. Exactly one post-push check remains; keep its
-  result and the PR no-merge hold explicit.
+  step due to account billing. The single post-push check was run on the
+  source-equivalent pushed candidate and failed all six jobs before any step;
+  its result and the PR no-merge hold are explicit above.
 - Production signing pins, certificate provisioning, trust-store mutation,
   elevated service installation, and privileged live MFT/USN validation remain
   outside this closure. The synchronous raw-volume completion bound remains
