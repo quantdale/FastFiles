@@ -23,7 +23,7 @@
 
 ## 4. Performance baseline
 
-- [ ] 4.1 Inventory the existing informational benches and the advisory run-envelope capability. Record what each measures, the build type it requires, and which user-visible paths it does not measure.
+- [x] 4.1 Inventory the existing informational benches and the advisory run-envelope capability. Record what each measures, the build type it requires, and which user-visible paths it does not measure. — Evidence: `evidence/measurement-inventory.md`. Four informational benches (`ffengine_bench_large_index_scalability`, `ffengine_bench_secondary_filename_index`, `ffindexstore_bench_projection_memory`, `ffsearch_bench_literal_matcher`), none registered with CTest, plus the advisory `windows-performance-baselines` envelope. The first unmeasured user-visible path with a deterministic disposable fixture is the delivery of the first generation of a large index to the UI.
 - [ ] 4.2 Run the applicable existing benches on the certified non-debug build with warm-up and at least five measured repetitions. Record median and a tail. Store the record under this change's evidence, not under ignored run trees.
 - [ ] 4.3 Add a focused harness only for a user-visible path that 4.1 shows is unmeasured. Use disposable fixtures, warm-up, and at least five measured repetitions. Do not register it as a wall-clock pass/fail test.
 - [ ] 4.4 Choose the next successor from the baseline, or record that no measured path meets the importance bar. Do not add a production edit in this group.
