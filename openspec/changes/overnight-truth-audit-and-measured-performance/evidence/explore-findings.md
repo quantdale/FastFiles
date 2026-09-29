@@ -18,3 +18,40 @@ Propose-time ledger. These rows are the claims inspected before any product edit
 | Production signing, clean-host install, elevated live MFT/USN, and physical display variants are available on this host | Not retested. No trust-store or elevation action was taken. | `UNPROVEN` until the external-frontier inventory is rerun; not inherited as closed |
 
 No production source was edited during explore. No hosted workflow was dispatched. No billing, protection, signing, or trust-store setting was changed.
+
+---
+
+## Apply-start ledger extension — overnight truth audit (apply, session 1)
+
+Re-derived live at apply start (`git fetch origin`, `gh`, `git worktree list`).
+The propose-time rows above are preserved; this section does not replace a row with a
+later result without leaving the original classification visible.
+
+| Claim | Evidence | Status |
+| --- | --- | --- |
+| Apply is running on the dedicated overnight branch `feat/overnight-truth-performance-hardening-20260929` | `git branch --show-current`, `git status --short --branch` (tracking `origin/feat/overnight-truth-performance-hardening-20260929`) | `VERIFIED_CURRENT` |
+| The primary worktree is clean at apply start | `git status --porcelain` produced no output | `VERIFIED_CURRENT` |
+| Apply-start `HEAD` is `90339b9bc4b8e22324c05092e0c1e328acc65920`, one commit ahead of `origin/main` and zero behind | `git rev-parse HEAD` = `90339b9bc4b8e22324c05092e0c1e328acc65920`, `git rev-parse origin/main` = `ea3d64f7c144343ec6faf849143d3f545e6fab36`, `git rev-list --left-right --count origin/main...HEAD` = `0\t1` | `VERIFIED_CURRENT` |
+| `90339b9` is the propose-only commit: it touches only `docs/agent/WORKSTATE.md`, OpenSpec change files, and the change `.openspec.yaml`. No `src/`, `tests/`, `cmake/`, or `verify/` payload | `git show --stat 90339b9` | `VERIFIED_CURRENT` |
+| `90339b9` is a documentation-only tip relative to the implementation candidate | same `git show --stat`; the implementation tree on this branch equals `ea3d64f`'s executive tree | `VERIFIED_CURRENT` |
+| PR #10 is merged into `main` at `ea3d64f` and is not reversed by this change | `gh pr view 10` (`MERGED`, merge commit `ea3d64f7c144343ec6faf849143d3f545e6fab36`) | `VERIFIED_CURRENT` |
+| PR #11 is open for this change against `main` and is the reviewable overnight pull request | `gh pr list --state all`: number `11`, head `feat/overnight-truth-performance-hardening-20260929`, base `main`, state `OPEN`, merge commit `null` | `VERIFIED_CURRENT` |
+| No hosted run for the apply-start pushed SHA `90339b9b` executed a single step | Run `36595140981` (event `push`) and run `36595149447` (event `pull_request`) for `90339b9bc4b8e22324c05092e0c1e328acc65920`: each has six jobs, every job has `"steps": []`, all six conclusions `failure`, run window approximately five seconds | `VERIFIED_CURRENT` |
+| The zero-step hosted failure for `90339b9b` is the known account-payment / spending-limit block, not a product or test failure | Check-run annotation for the same commit, retrieved with `gh api /repos/quantdale/FastFiles/check-runs/<id>/annotations`: "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings" | `BLOCKED_EXTERNAL` (`HOSTED_CI`) |
+| No further hosted workflow will be dispatched to obtain a different label for the same known-unstartable workflow | This apply session dispatched no `workflow_dispatch` and no manual rerun; each later push is inspected once at task 6.4 | `VERIFIED_CURRENT` |
+| The detached auxiliary worktree at `.kilo/worktrees/scythe-cloud` is still on `0dc3356` and untouched | `git worktree list` | `VERIFIED_CURRENT` |
+| The last recorded executable candidate `6c40ab35793f1f9c03837f4b4dfa84b5964a032b` is not the apply-start tip and certifies nothing here | Ledger row above; `90339b9` has no implementation payload over that ancestor | `STALE` as current-head certification |
+| The historical `124/124` CTest, Analyze, ASan `6/6`, strict OpenSpec `88/88`, parity `11/0/0`, E2E `8/8`, and visual `20/20` results describe `6c40ab3` | `docs/agent/WORKSTATE.md` attributes them to `6c40ab35793f1f9c03837f4b4dfa84b5964a032b`; this apply session rebuilds and reruns them in section 3 | `UNPROVEN` for the apply-start tip |
+| The synchronous raw-volume `DeviceIoControl` finite completion bound is unproven | Ledger row above: `legacy-protocol-correctness-and-raw-volume-cancellation-closure` task 5.4 and `final-residual-hardening-and-hosted-ci-recovery` task 2.3 remain unchecked | `VERIFIED_WITH_LIMITATION` |
+
+**Commands used at apply start:** `git fetch origin`, `git status --short --branch`,
+`git rev-parse HEAD`, `git rev-parse origin/main`,
+`git rev-list --left-right --count origin/main...HEAD`, `git worktree list`,
+`git show --stat HEAD`, `gh pr list --state all`,
+`gh run view 36595140981 --json jobs`, `gh run view 36595149447 --json jobs`,
+`gh api /repos/quantdale/FastFiles/actions/runs/36595140981`,
+`gh api /repos/quantdale/FastFiles/commits/<sha>/check-runs`,
+`gh api /repos/quantdale/FastFiles/check-runs/<id>/annotations`.
+
+No production source was edited for this ledger entry. No billing, protection, signing,
+or trust-store setting was touched.
