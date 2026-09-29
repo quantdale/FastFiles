@@ -346,9 +346,11 @@ void PrivilegedConnection::DispatchReceivedFrame(
     // Active transport may deliver frames. A frame that arrives while the
     // connection is unauthenticated (pre-handshake), stale (a replaced
     // generation's reader still draining), or already torn down carries no
-    // scan authority, so it is rejected before any callback. In production the
-    // ActiveLoop joins its reader before SetState(Disconnected), so this guard
-    // never drops a live frame.
+    // scan authority, so it is rejected before any callback. ActiveLoop's
+    // normal exit joins its reader before SetState(Disconnected);
+    // ResetForScanAuthority deliberately flips the state before that join, so
+    // a frame still in flight during a reset belongs to the discarded
+    // generation and is dropped on purpose rather than applied.
     if (state_.load() != ConnectionState::Active) {
         protocolViolation = true;
         return;

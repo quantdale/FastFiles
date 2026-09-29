@@ -127,6 +127,14 @@ coverage, and two implementation gaps. Repairs landed in
 - Honest skips: the visual catalog records 20/20 scenarios while its coverage matrix reports
   live DPI variants and engine-served surfaces as `REQUIRED_BUT_UNAVAILABLE` (this host is
   120 DPI / 125% and the runner is not engine-backed); UIA keeps six recorded skip reasons.
+- Second review (`5c5176e`): the product repair held. Its handoff findings are fixed here:
+  `openspec/lifecycle.json` now names hosted push run `36490265081` for the full SHA
+  `5c5176e8553b25fbbe007c9b43e1225989b62686` and this file contains both, so project status
+  resolves the binding; the stale remote-tip statement is corrected; the two remaining new
+  citations (`ScanAttemptBarrier.h` and its test) were retargeted to
+  `retry-ownership-and-focus-escape-closure`; and the `DispatchReceivedFrame` guard comment now
+  states that `ResetForScanAuthority` flips the state before the reader join so a frame in that
+  window is intentionally dropped.
 
 ## Certification ladder (task 7)
 
@@ -175,11 +183,17 @@ host's 120 DPI / 125% scale was claimed.
   validation result, and resolved after the fix landed. P1 = retry transfer atomic with
   disconnect (`src/engine/src/VolumeSessionManager.cpp`); P2 = focus returned to the shell when
   tabbing past chrome (`src/ui/src/NavigationChrome.cpp`).
-- Push: `9c0ad12..c68212d` without force; local HEAD and the feature remote tip both
-  `c68212ddac74eba0bd7239d65c950a2f39bf4f88`. `origin/main` is `1172c1a1`, 28 ahead / 0 behind.
-- Hosted CI for the pushed SHA: push run `36474313210` and its `pull_request` mirror
-  `36474317807` failed all six required jobs in about four seconds with zero executed steps
-  (`steps: 0`, each job starting under one second after the run began). That is the known
-  billing/spending-limit external block, so `HOSTED_CI = BLOCKED_EXTERNAL`. No billing, plan,
-  branch rule, signing, or trust-store configuration was changed, and PR #10 remains under its
-  NO-MERGE HOLD. Local parity remains labeled `LOCAL-PARITY-NOT-HOSTED-CI`.
+- Review-repair push (the tip this record's hosted binding names): `5c5176e8553b25fbbe007c9b43e1225989b62686`
+  (`91f85cf..5c5176e`), without force; local HEAD and the feature remote tip were that SHA,
+  `origin/main` `1172c1a1`, 28 ahead / 0 behind. Earlier handoff pushes were
+  `c68212ddac74eba0bd7239d65c950a2f39bf4f88` and `91f85cf3769b97859f2ceafb5340fbcb4c6affc4`.
+- Hosted CI, push run `36490265081` for `5c5176e8553b25fbbe007c9b43e1225989b62686` (and its
+  `pull_request` mirror `36490270571`): all six required jobs failed with zero executed steps in
+  about five seconds, the known billing/spending-limit external block, so
+  `HOSTED_CI = BLOCKED_EXTERNAL`. The earlier push runs `36474313210`/`36474317807` (for
+  `c68212d`) and `36474839438`/`36474845702` (for `91f85cf`) failed the same way. The bindings
+  in `openspec/lifecycle.json` name the run id and full SHA recorded here; each later push is
+  inspected once and its live status is reported in the session response rather than edited
+  into this file. No billing, plan, branch rule, signing, or trust-store configuration was
+  changed, and PR #10 remains under its NO-MERGE HOLD. Local parity remains labeled
+  `LOCAL-PARITY-NOT-HOSTED-CI`.

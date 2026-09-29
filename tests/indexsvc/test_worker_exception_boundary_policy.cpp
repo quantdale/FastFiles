@@ -147,7 +147,7 @@ void TestWorkerExceptionBoundaryPolicy() {
                   "intentional geometry-failure and enumeration cleanup remain explicit under the guard");
 }
 
-// scan-generation-integrity-and-residual-certification-closure 4.3: execute
+// retry-ownership-and-focus-escape-closure 4.3: execute
 // both barrier outcomes. A negotiated peer whose bounded barrier write fails
 // must tear the connection down; a peer that did not negotiate the barrier
 // never has the write attempted. The production loop must act on TearDown

@@ -1,6 +1,6 @@
 #pragma once
 
-// scan-generation-integrity-and-residual-certification-closure 4.2/4.3: the
+// retry-ownership-and-focus-escape-closure 4.2/4.3: the
 // scan-start barrier decision, isolated from the service connection loop so
 // its success and failure branches are directly executable in a focused test.
 // The barrier is written only after the superseded worker has been joined and

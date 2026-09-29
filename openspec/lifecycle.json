@@ -1527,8 +1527,8 @@
         },
         {
           "kind": "hosted-run",
-          "runId": "36474839438",
-          "sha": "91f85cf3769b97859f2ceafb5340fbcb4c6affc4",
+          "runId": "36490265081",
+          "sha": "5c5176e8553b25fbbe007c9b43e1225989b62686",
           "record": "openspec/changes/retry-ownership-and-focus-escape-closure/evidence/apply-and-validation.md"
         }
       ],
