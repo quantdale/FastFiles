@@ -1534,6 +1534,36 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "overnight-truth-audit-and-measured-performance",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/overnight-truth-audit-and-measured-performance/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/overnight-truth-audit-and-measured-performance/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/overnight-truth-audit-and-measured-performance/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/overnight-truth-audit-and-measured-performance/evidence/explore-findings.md"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "36588334920",
+          "sha": "ea3d64f7c144343ec6faf849143d3f545e6fab36",
+          "record": "openspec/changes/overnight-truth-audit-and-measured-performance/evidence/explore-findings.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }
