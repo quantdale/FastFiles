@@ -1,0 +1,16 @@
+{
+  "schema": "fastfiles-large-index-scalability-v2",
+  "machine": {
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13500HX",
+    "logical_cores": 20,
+    "ram_bytes": 34065997824,
+    "windows_version": "10.0.26200",
+    "compiler": "MSVC 1950.195035725",
+    "build_configuration": "Release",
+    "database_storage": "temporary directory (drive/model not collected)"
+  },
+  "snapshot_maximum_payload_bytes": 268435456,
+  "snapshot_capacity_estimate_rows": 2200468,
+  "snapshot_largest_published_probe_rows": 1980421,
+  "indexed_search_result_cap": 4096
+}

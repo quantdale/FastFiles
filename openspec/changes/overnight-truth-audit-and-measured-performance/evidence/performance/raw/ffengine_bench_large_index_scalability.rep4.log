@@ -1,0 +1,22 @@
+FastFiles large-index scalability benchmark (1 dataset scales)
+Building 100000 synthetic entries...
+  selective          median 0.56 ms, results 1
+  moderate           median 29.69 ms, results 4096
+  broad              median 94.91 ms, results 4096
+  no_match           median 0.70 ms, results 0
+  prefix             median 26.85 ms, results 4096
+  extension          median 84.87 ms, results 4096
+  worst_substring    median 67.04 ms, results 4096
+  forced eviction: estimated 41745068 -> 1618044 bytes
+  selective          COLD 110.01 ms, results 1, coldRows 100000, stream 109.15 ms
+  moderate           COLD 424.70 ms, results 4096, coldRows 100000, stream 421.25 ms
+  broad              COLD 1007.01 ms, results 4096, coldRows 100000, stream 1003.06 ms
+  no_match           COLD 97.76 ms, results 0, coldRows 100000, stream 96.25 ms
+  prefix             COLD 397.50 ms, results 4096, coldRows 100000, stream 394.14 ms
+  extension          COLD 1001.59 ms, results 4096, coldRows 100000, stream 998.97 ms
+  worst_substring    COLD 709.06 ms, results 4096, coldRows 100000, stream 705.98 ms
+  sustained-write broad fallback 5227.42 ms, results 4096, restarts 4, rows 100004
+Completed 100000; database 7.0 MB, generation 0.7 s, rebuild 0.3 s
+Wrote D:\Documents\tryPython\FastFiles\build\_bench_run.json
+Largest published snapshot probe: 1980421 rows (theoretical capacity estimate 2200468 rows, maximum payload 268435456 bytes)
+

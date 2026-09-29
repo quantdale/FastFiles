@@ -1,0 +1,9 @@
+FastFiles first-generation publish benchmark (200000 synthetic entries, b449d95352460218820a79eb38486eed0c0592eb)
+fixture SQLite generation 1707.57 ms; 5 warm-up and 5 measured repetitions
+directories published 3126; files published 199999; last generation 11
+  export            median 43.980 ms  p90 52.142 ms  max 57.060 ms
+  publish+broadcast median 43.235 ms  p90 45.525 ms  max 46.798 ms
+  pipe receive      median 0.006 ms  p90 0.008 ms  max 0.008 ms
+  client parse      median 16.154 ms  p90 17.950 ms  max 18.522 ms
+  TOTAL             median 104.103 ms  p90 113.013 ms  max 115.483 ms
+Wrote D:\Documents\tryPython\FastFiles\build\_bench_fg_run.json\n
