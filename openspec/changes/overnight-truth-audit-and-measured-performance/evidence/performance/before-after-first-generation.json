@@ -1,0 +1,86 @@
+{
+ "schema": "fastfiles-before-after-first-generation-v1",
+ "claim": "The user-visible metric used to judge the successor candidate: how long the engine takes to get a large index to a real subscribed UI client holding a parsed, usable generation.",
+ "method": "Same machine, same release-test build, 200,000 synthetic entries across 3,126 directories, five measured processes, warm-up plus five measured repetitions, median of run medians plus p90 and max.",
+ "baseline_clean_shipped_tree": {
+  "source_sha": "e2a573c284cdbb3399cf99cf1d1d9cec9ee17748",
+  "tree": "clean (no product source differs from origin/main ea3d64f)",
+  "machine_state": "idle host in the post-apply review session",
+  "rows": {
+   "export": {
+    "median_of_run_medians_ms": 55.658,
+    "run_medians_ms": [
+     56.373,
+     53.93,
+     55.658,
+     54.845,
+     60.458
+    ],
+    "tail_p90_of_runs_ms": 59.745,
+    "max_of_run_maxes_ms": 70.306
+   },
+   "publish+broadcast": {
+    "median_of_run_medians_ms": 54.879,
+    "run_medians_ms": [
+     48.839,
+     52.573,
+     57.732,
+     59.065,
+     54.879
+    ],
+    "tail_p90_of_runs_ms": 60.765,
+    "max_of_run_maxes_ms": 71.555
+   },
+   "pipe receive": {
+    "median_of_run_medians_ms": 0.007,
+    "run_medians_ms": [
+     0.007,
+     0.006,
+     0.006,
+     0.01,
+     0.009
+    ],
+    "tail_p90_of_runs_ms": 0.008,
+    "max_of_run_maxes_ms": 0.014
+   },
+   "client parse": {
+    "median_of_run_medians_ms": 18.99,
+    "run_medians_ms": [
+     20.333,
+     18.204,
+     18.99,
+     19.593,
+     17.77
+    ],
+    "tail_p90_of_runs_ms": 21.253,
+    "max_of_run_maxes_ms": 24.043
+   },
+   "TOTAL": {
+    "median_of_run_medians_ms": 127.679,
+    "run_medians_ms": [
+     126.215,
+     127.679,
+     126.437,
+     132.248,
+     136.857
+    ],
+    "tail_p90_of_runs_ms": 138.031,
+    "max_of_run_maxes_ms": 149.581
+   }
+  },
+  "row_count": 5
+ },
+ "apply_session_candidate_run": {
+  "source_sha": "e2a573c284cdbb3399cf99cf1d1d9cec9ee17748",
+  "tree": "dirty working tree",
+  "rows": {
+   "export": 44.636,
+   "publish+broadcast": 45.126,
+   "pipe receive": 0.006,
+   "client parse": 17.704,
+   "TOTAL": 106.703
+  },
+  "note": "The raw logs persisted by the apply session carry five reps whose own header line embeds b449d95352460218820a79eb38486eed0c0592eb, not the implementation SHA, and whose TOTAL medians span 104.103 to 148.927 ms. A 3.7 percent regression is inside that spread, so the apply session regression verdict was noise-bounded."
+ },
+ "verdict": "The clean shipped-tree baseline is 127.679 ms TOTAL, which is HIGHER than both apply session values because the two runs were taken under different machine load. The two rows are therefore not directly comparable and are recorded side by side rather than blended. Future successors should compare against this 127.679 ms clean baseline on an idle host."
+}

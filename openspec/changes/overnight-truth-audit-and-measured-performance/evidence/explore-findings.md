@@ -55,3 +55,36 @@ later result without leaving the original classification visible.
 
 No production source was edited for this ledger entry. No billing, protection, signing,
 or trust-store setting was touched.
+
+---
+
+## Review correction — post-apply audit (apply session 1 reviewed)
+
+The apply finished and was then audited against the live tree. Four material defects were found
+and fixed. Nothing was silently rewritten; the corrections are recorded here and in the affected
+records.
+
+| Defect found in the apply result | Classification | Correction |
+| --- | --- | --- |
+| `openspec/lifecycle.json` left the change `active` while all 28 tasks were checked, so `Get-ProjectStatusLifecycleModel` returned `FAIL` with `openspec-lifecycle-active-without-open-tasks`, and `verify/status/Get-ProjectStatus.ps1` printed `OpenSpec lifecycle model: FAIL`. The handoff had reported that gate PASS. | Defective completion claim | Set `state` to `completed`. The model now returns `PASS` with zero errors and the frontier `PASS`, verified live. |
+| `benchmark-baseline.json` was the **candidate** (dirty worktree) run published as the baseline, and it carried no source SHA. `ffengine_bench_first_generation_publish`'s own raw logs embed `b449d95352460218820a79eb38486eed0c0592eb` in the header, and the JSON's `TOTAL` of 106.703 equals the apply session's "after" row. | Mislabeled evidence | Renamed to `candidate-run-mislabeled-as-baseline.json` and preserved, not deleted. The real baseline was re-measured from the clean shipped tree on an idle host and recorded as `baseline-shipped-tree.json` with `source_sha` `e2a573c284cdbb3399cf99cf1d1d9cec9ee17748`. |
+| `successor-candidate-and-revert.md` cited `performance/before-after-literal-matcher.json` and `performance/before-after-first-generation.json`, which did not exist, and only one of the two runs behind its before/after table was committed, under the misleading name `benchmark-baseline.json` with no source SHA. | Missing evidence | Both files now exist. The review recovered the apply session's pre-edit run from the ignored build tree, where it had been left uncommitted as `build/_bench_baseline_pre.json`, and committed it as `apply-session-before-run.json`; its 14 rows match the prose before column. The post-edit run is committed as `apply-session-after-run.json`. The misnamed baseline is preserved renamed as `candidate-run-mislabeled-as-baseline.json`. |
+| Task 6.3 claimed `git diff --check` passed, but `git diff ea3d64f..HEAD --check` reported 20 `new blank line at EOF` errors on the committed `evidence/performance/raw/*.log` files. Task 4.2 had lost its identifier and scope text in an apply-session edit, leaving a checked line reading `- [x] with warm-up and at least five measured repetitions…`. | False gate claim and document corruption | All 20 files normalized; the check is clean. Task 4.2's identifier, scope, and an evidence note were restored, and the numbering 4.1–4.4 is contiguous again. Task 6.3 now carries the missing evidence note. |
+
+Separately, the apply session's claim that the 3.7 percent first-generation regression was
+"consistent, not noise" is withdrawn: its own persisted raw logs span 104.103 to 148.927 ms. The
+candidate remains correctly reverted, on the stronger and honest ground that no user-visible
+improvement was demonstrated.
+
+No product source changed in this correction. No workflow was dispatched. No billing, branch-rule,
+protection, signing, or trust-store setting was touched.
+
+### Correction of the correction
+
+The review's own initial finding that the apply session's before column was unbacked was too harsh
+and is withdrawn here. The apply session's pre-edit run was recoverable from the ignored build tree
+as `build/_bench_baseline_pre.json` and is now committed as
+`evidence/performance/apply-session-before-run.json`; all 14 rows match the prose table. The apply
+session's real defect was committing only the post-edit run under the name
+`benchmark-baseline.json` with no source SHA, which this review corrected by re-measuring the clean
+shipped tree on an idle host (127.679 ms TOTAL) and by committing both of its runs as evidence.

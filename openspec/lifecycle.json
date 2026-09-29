@@ -1449,7 +1449,27 @@
         }
       ],
       "supersededBy": null,
-      "taskOverrides": []
+      "taskOverrides": [
+        {
+          "task": "5.4",
+          "disposition": "external",
+          "categories": [
+            "elevated",
+            "clean-host"
+          ],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/legacy-protocol-correctness-and-raw-volume-cancellation-closure/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/overnight-truth-audit-and-measured-performance/evidence/explore-findings.md"
+            }
+          ]
+        }
+      ]
     },
     {
       "name": "scan-generation-integrity-and-residual-certification-closure",
@@ -1537,7 +1557,7 @@
     },
     {
       "name": "overnight-truth-audit-and-measured-performance",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",

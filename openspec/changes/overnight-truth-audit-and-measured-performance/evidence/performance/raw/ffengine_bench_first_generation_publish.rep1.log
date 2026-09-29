@@ -1,9 +1,9 @@
-FastFiles first-generation publish benchmark (200000 synthetic entries, b449d95352460218820a79eb38486eed0c0592eb)
-fixture SQLite generation 1804.28 ms; 5 warm-up and 5 measured repetitions
+FastFiles first-generation publish benchmark (200000 synthetic entries, e2a573c284cdbb3399cf99cf1d1d9cec9ee17748)
+fixture SQLite generation 2197.96 ms; 5 warm-up and 5 measured repetitions
 directories published 3126; files published 199999; last generation 11
-  export            median 45.774 ms  p90 55.675 ms  max 57.923 ms
-  publish+broadcast median 46.308 ms  p90 48.468 ms  max 49.059 ms
-  pipe receive      median 0.006 ms  p90 0.008 ms  max 0.009 ms
-  client parse      median 17.704 ms  p90 19.007 ms  max 19.815 ms
-  TOTAL             median 109.207 ms  p90 120.451 ms  max 121.311 ms
-Wrote D:\Documents\tryPython\FastFiles\build\_bench_fg_run.json\n
+  export            median 56.373 ms  p90 56.904 ms  max 57.117 ms
+  publish+broadcast median 48.839 ms  p90 64.548 ms  max 71.555 ms
+  pipe receive      median 0.007 ms  p90 0.008 ms  max 0.009 ms
+  client parse      median 20.333 ms  p90 21.262 ms  max 21.793 ms
+  TOTAL             median 126.215 ms  p90 140.561 ms  max 147.102 ms
+Wrote first-generation-publish.json\n

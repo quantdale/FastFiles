@@ -1,81 +1,80 @@
 CASE failed (1000000 names)
-  current_api    median 26.983 ms p90 27.838 ms max 27.838 ms matches 0 PASS
-  current_direct median 9.110 ms p90 11.655 ms max 11.655 ms matches 0 PASS
-  first_last     median 9.314 ms p90 11.439 ms max 11.439 ms matches 0 PASS
-  bmh            median 9.655 ms p90 9.909 ms max 9.909 ms matches 0 PASS
+  current_api    median 30.142 ms p90 31.227 ms max 31.227 ms matches 0 PASS
+  current_direct median 15.794 ms p90 17.765 ms max 17.765 ms matches 0 PASS
+  first_last     median 10.096 ms p90 12.950 ms max 12.950 ms matches 0 PASS
+  bmh            median 8.284 ms p90 9.115 ms max 9.115 ms matches 0 PASS
 CASE early (1000000 names)
-  current_api    median 25.868 ms p90 27.699 ms max 27.699 ms matches 295312 PASS
-  current_direct median 11.464 ms p90 16.371 ms max 16.371 ms matches 295312 PASS
-  first_last     median 12.373 ms p90 13.025 ms max 13.025 ms matches 295312 PASS
-  bmh            median 10.361 ms p90 10.471 ms max 10.471 ms matches 295312 PASS
+  current_api    median 27.472 ms p90 29.019 ms max 29.019 ms matches 295312 PASS
+  current_direct median 14.678 ms p90 16.309 ms max 16.309 ms matches 295312 PASS
+  first_last     median 15.609 ms p90 17.771 ms max 17.771 ms matches 295312 PASS
+  bmh            median 17.976 ms p90 19.869 ms max 19.869 ms matches 295312 PASS
 CASE late (1000000 names)
-  current_api    median 29.690 ms p90 35.354 ms max 35.354 ms matches 299 PASS
-  current_direct median 13.681 ms p90 17.354 ms max 17.354 ms matches 299 PASS
-  first_last     median 11.844 ms p90 18.618 ms max 18.618 ms matches 299 PASS
-  bmh            median 12.710 ms p90 14.606 ms max 14.606 ms matches 299 PASS
+  current_api    median 30.877 ms p90 33.623 ms max 33.623 ms matches 299 PASS
+  current_direct median 16.055 ms p90 20.446 ms max 20.446 ms matches 299 PASS
+  first_last     median 16.114 ms p90 19.136 ms max 19.136 ms matches 299 PASS
+  bmh            median 14.710 ms p90 14.991 ms max 14.991 ms matches 299 PASS
 CASE single (1000000 names)
-  current_api    median 22.741 ms p90 23.627 ms max 23.627 ms matches 787500 PASS
-  current_direct median 12.501 ms p90 21.140 ms max 21.140 ms matches 787500 PASS
-  first_last     median 12.360 ms p90 15.218 ms max 15.218 ms matches 787500 PASS
-  bmh            median 25.136 ms p90 27.920 ms max 27.920 ms matches 787500 PASS
+  current_api    median 26.148 ms p90 27.720 ms max 27.720 ms matches 787500 PASS
+  current_direct median 14.105 ms p90 17.919 ms max 17.919 ms matches 787500 PASS
+  first_last     median 16.362 ms p90 17.251 ms max 17.251 ms matches 787500 PASS
+  bmh            median 28.946 ms p90 30.766 ms max 30.766 ms matches 787500 PASS
 CASE short_2 (1000000 names)
-  current_api    median 21.459 ms p90 23.987 ms max 23.987 ms matches 98438 PASS
-  current_direct median 17.339 ms p90 18.096 ms max 18.096 ms matches 98438 PASS
-  first_last     median 11.726 ms p90 15.774 ms max 15.774 ms matches 98438 PASS
-  bmh            median 17.765 ms p90 19.170 ms max 19.170 ms matches 98438 PASS
+  current_api    median 26.742 ms p90 32.092 ms max 32.092 ms matches 98438 PASS
+  current_direct median 18.201 ms p90 22.872 ms max 22.872 ms matches 98438 PASS
+  first_last     median 12.737 ms p90 15.796 ms max 15.796 ms matches 98438 PASS
+  bmh            median 21.596 ms p90 24.529 ms max 24.529 ms matches 98438 PASS
 CASE short_3 (1000000 names)
-  current_api    median 22.787 ms p90 26.084 ms max 26.084 ms matches 295314 PASS
-  current_direct median 12.970 ms p90 14.763 ms max 14.763 ms matches 295314 PASS
-  first_last     median 14.386 ms p90 15.453 ms max 15.453 ms matches 295314 PASS
-  bmh            median 14.670 ms p90 15.761 ms max 15.761 ms matches 295314 PASS
+  current_api    median 25.918 ms p90 27.463 ms max 27.463 ms matches 295314 PASS
+  current_direct median 12.246 ms p90 17.150 ms max 17.150 ms matches 295314 PASS
+  first_last     median 18.061 ms p90 21.087 ms max 21.087 ms matches 295314 PASS
+  bmh            median 17.159 ms p90 20.543 ms max 20.543 ms matches 295314 PASS
 CASE short_4 (1000000 names)
-  current_api    median 31.226 ms p90 32.271 ms max 32.271 ms matches 98438 PASS
-  current_direct median 14.437 ms p90 16.291 ms max 16.291 ms matches 98438 PASS
-  first_last     median 12.406 ms p90 13.023 ms max 13.023 ms matches 98438 PASS
-  bmh            median 12.291 ms p90 14.037 ms max 14.037 ms matches 98438 PASS
+  current_api    median 33.240 ms p90 34.659 ms max 34.659 ms matches 98438 PASS
+  current_direct median 18.552 ms p90 23.059 ms max 23.059 ms matches 98438 PASS
+  first_last     median 16.801 ms p90 18.244 ms max 18.244 ms matches 98438 PASS
+  bmh            median 12.845 ms p90 13.608 ms max 13.608 ms matches 98438 PASS
 CASE short (1000000 names)
-  current_api    median 29.145 ms p90 29.914 ms max 29.914 ms matches 98438 PASS
-  current_direct median 18.700 ms p90 25.030 ms max 25.030 ms matches 98438 PASS
-  first_last     median 12.342 ms p90 13.172 ms max 13.172 ms matches 98438 PASS
-  bmh            median 12.293 ms p90 12.561 ms max 12.561 ms matches 98438 PASS
+  current_api    median 31.726 ms p90 34.057 ms max 34.057 ms matches 98438 PASS
+  current_direct median 17.165 ms p90 23.141 ms max 23.141 ms matches 98438 PASS
+  first_last     median 12.828 ms p90 16.683 ms max 16.683 ms matches 98438 PASS
+  bmh            median 15.158 ms p90 23.790 ms max 23.790 ms matches 98438 PASS
 CASE medium (1000000 names)
-  current_api    median 26.817 ms p90 28.510 ms max 28.510 ms matches 196876 PASS
-  current_direct median 13.412 ms p90 16.675 ms max 16.675 ms matches 196876 PASS
-  first_last     median 14.330 ms p90 16.568 ms max 16.568 ms matches 196876 PASS
-  bmh            median 11.447 ms p90 12.552 ms max 12.552 ms matches 196876 PASS
+  current_api    median 28.761 ms p90 30.802 ms max 30.802 ms matches 196876 PASS
+  current_direct median 14.154 ms p90 14.752 ms max 14.752 ms matches 196876 PASS
+  first_last     median 15.184 ms p90 20.644 ms max 20.644 ms matches 196876 PASS
+  bmh            median 10.519 ms p90 13.134 ms max 13.134 ms matches 196876 PASS
 CASE long (1000000 names)
-  current_api    median 21.351 ms p90 22.817 ms max 22.817 ms matches 1 PASS
-  current_direct median 7.958 ms p90 8.011 ms max 8.011 ms matches 1 PASS
-  first_last     median 7.942 ms p90 8.547 ms max 8.547 ms matches 1 PASS
-  bmh            median 9.256 ms p90 10.957 ms max 10.957 ms matches 1 PASS
+  current_api    median 21.087 ms p90 22.277 ms max 22.277 ms matches 1 PASS
+  current_direct median 9.378 ms p90 10.380 ms max 10.380 ms matches 1 PASS
+  first_last     median 8.065 ms p90 10.089 ms max 10.089 ms matches 1 PASS
+  bmh            median 8.215 ms p90 10.489 ms max 10.489 ms matches 1 PASS
 CASE too_long (1000000 names)
-  current_api    median 7.890 ms p90 8.685 ms max 8.685 ms matches 0 PASS
-  current_direct median 2.720 ms p90 2.762 ms max 2.762 ms matches 0 PASS
-  first_last     median 2.490 ms p90 3.154 ms max 3.154 ms matches 0 PASS
-  bmh            median 2.902 ms p90 3.069 ms max 3.069 ms matches 0 PASS
+  current_api    median 7.658 ms p90 9.153 ms max 9.153 ms matches 0 PASS
+  current_direct median 2.936 ms p90 3.494 ms max 3.494 ms matches 0 PASS
+  first_last     median 2.802 ms p90 2.820 ms max 2.820 ms matches 0 PASS
+  bmh            median 2.825 ms p90 3.230 ms max 3.230 ms matches 0 PASS
 CASE common_prefix (1000000 names)
-  current_api    median 31.745 ms p90 34.274 ms max 34.274 ms matches 0 PASS
-  current_direct median 11.126 ms p90 11.484 ms max 11.484 ms matches 0 PASS
-  first_last     median 31.444 ms p90 32.356 ms max 32.356 ms matches 0 PASS
-  bmh            median 8.850 ms p90 13.950 ms max 13.950 ms matches 0 PASS
+  current_api    median 34.836 ms p90 36.318 ms max 36.318 ms matches 0 PASS
+  current_direct median 10.445 ms p90 11.072 ms max 11.072 ms matches 0 PASS
+  first_last     median 30.878 ms p90 43.013 ms max 43.013 ms matches 0 PASS
+  bmh            median 8.460 ms p90 9.325 ms max 9.325 ms matches 0 PASS
 CASE mixed_case_hit (1000000 names)
-  current_api    median 33.049 ms p90 33.432 ms max 33.432 ms matches 200000 PASS
-  current_direct median 121.858 ms p90 130.635 ms max 130.635 ms matches 200000 PASS
-  first_last     median 127.982 ms p90 140.562 ms max 140.562 ms matches 200000 PASS
-  bmh            median 122.632 ms p90 132.738 ms max 132.738 ms matches 200000 PASS
+  current_api    median 26.568 ms p90 31.344 ms max 31.344 ms matches 200000 PASS
+  current_direct median 141.219 ms p90 161.417 ms max 161.417 ms matches 200000 PASS
+  first_last     median 124.571 ms p90 133.874 ms max 133.874 ms matches 200000 PASS
+  bmh            median 130.911 ms p90 140.510 ms max 140.510 ms matches 200000 PASS
 CASE mixed_case_miss (1000000 names)
-  current_api    median 23.724 ms p90 24.573 ms max 24.573 ms matches 0 PASS
-  current_direct median 127.279 ms p90 138.903 ms max 138.903 ms matches 0 PASS
-  first_last     median 131.502 ms p90 132.717 ms max 132.717 ms matches 0 PASS
-  bmh            median 130.341 ms p90 137.049 ms max 137.049 ms matches 0 PASS
+  current_api    median 26.752 ms p90 35.354 ms max 35.354 ms matches 0 PASS
+  current_direct median 142.652 ms p90 165.164 ms max 165.164 ms matches 0 PASS
+  first_last     median 146.912 ms p90 159.439 ms max 159.439 ms matches 0 PASS
+  bmh            median 139.636 ms p90 152.782 ms max 152.782 ms matches 0 PASS
 CASE unicode (1000000 names)
-  current_api    median 40.117 ms p90 44.982 ms max 44.982 ms matches 250000 PASS
-  current_direct median 63.112 ms p90 67.608 ms max 67.608 ms matches 250000 PASS
-  first_last     median 67.288 ms p90 68.775 ms max 68.775 ms matches 250000 PASS
-  bmh            median 61.584 ms p90 64.589 ms max 64.589 ms matches 250000 PASS
+  current_api    median 44.572 ms p90 54.281 ms max 54.281 ms matches 250000 PASS
+  current_direct median 71.195 ms p90 85.297 ms max 85.297 ms matches 250000 PASS
+  first_last     median 75.208 ms p90 81.760 ms max 81.760 ms matches 250000 PASS
+  bmh            median 67.081 ms p90 73.303 ms max 73.303 ms matches 250000 PASS
 CASE unicode_mixed (1000000 names)
-  current_api    median 25.577 ms p90 27.123 ms max 27.123 ms matches 250000 PASS
-  current_direct median 92.023 ms p90 100.198 ms max 100.198 ms matches 250000 PASS
-  first_last     median 90.462 ms p90 94.319 ms max 94.319 ms matches 250000 PASS
-  bmh            median 93.257 ms p90 94.435 ms max 94.435 ms matches 250000 PASS
-
+  current_api    median 25.678 ms p90 26.191 ms max 26.191 ms matches 250000 PASS
+  current_direct median 98.105 ms p90 102.462 ms max 102.462 ms matches 250000 PASS
+  first_last     median 103.717 ms p90 105.064 ms max 105.064 ms matches 250000 PASS
+  bmh            median 108.896 ms p90 110.286 ms max 110.286 ms matches 250000 PASS

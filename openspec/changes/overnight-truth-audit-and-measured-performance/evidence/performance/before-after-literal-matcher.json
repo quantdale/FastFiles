@@ -1,0 +1,113 @@
+{
+ "schema": "fastfiles-before-after-literal-matcher-v1",
+ "claim": "The successor candidate consumed the projection-computed nameAsciiLower value so the literal matcher could skip per-character ASCII folding. It was IMPLEMENTED, MEASURED, and REVERTED. No performance improvement is claimed anywhere in this change.",
+ "method": "Same machine, same release-test build, same fixture of 1,000,000 names, five measured processes, each doing its own warm-up and measured repetitions. current_api is the production view path.",
+ "baseline_clean_shipped_tree": {
+  "source_sha": "e2a573c284cdbb3399cf99cf1d1d9cec9ee17748",
+  "tree": "clean (no product source differs from origin/main ea3d64f)",
+  "provenance": "e2a573c284cdbb3399cf99cf1d1d9cec9ee17748 is embedded by the bench binary itself through ffsetup::kBuildIdentityAscii and by every identity-bearing executable; git diff ea3d64f..HEAD -- src cmake is empty.",
+  "machine_state": "idle host in the post-apply review session",
+  "rows": {
+   "failed": 27.306,
+   "early": 28.031,
+   "late": 31.682,
+   "single": 25.853,
+   "short_2": 27.942,
+   "short_3": 27.026,
+   "short_4": 33.24,
+   "short": 31.582,
+   "medium": 29.698,
+   "long": 21.962,
+   "too_long": 7.908,
+   "common_prefix": 34.836,
+   "mixed_case_hit": 28.746,
+   "mixed_case_miss": 26.752,
+   "unicode": 47.189,
+   "unicode_mixed": 25.678
+  }
+ },
+ "apply_session_candidate_run": {
+  "source_sha": "e2a573c284cdbb3399cf99cf1d1d9cec9ee17748",
+  "tree": "DIRTY working tree with the edit applied; the repo workstate records PROVENANCE_MISMATCH DIRTY_BINARY_BUILD at this point",
+  "rows": {
+   "failed": 26.924,
+   "early": 25.664,
+   "late": 29.527,
+   "single": 21.96,
+   "short_2": 21.459,
+   "short_3": 20.809,
+   "short_4": 31.226,
+   "short": 28.349,
+   "medium": 28.299,
+   "long": 21.351,
+   "too_long": 8.212,
+   "common_prefix": 33.069,
+   "mixed_case_hit": 32.126,
+   "mixed_case_miss": 23.867,
+   "unicode": 44.518,
+   "unicode_mixed": 28.982
+  },
+  "note": "This is the run the apply session committed as benchmark-baseline.json. It is the \"after\" row of the apply session prose table, not a baseline. Preserved here as candidate-run-mislabeled-as-baseline.json."
+ },
+ "apply_session_prose_before_row": {
+  "rows": {
+   "short_2": 27.106,
+   "short_3": 25.706,
+   "single": 23.993,
+   "mixed_case_miss": 26.081,
+   "early": 27.215,
+   "late": 30.853,
+   "short": 28.867,
+   "common_prefix": 33.198,
+   "long": 21.419,
+   "medium": 28.066,
+   "failed": 26.91,
+   "too_long": 7.775,
+   "unicode": 41.345,
+   "mixed_case_hit": 26.718
+  },
+  "note": "Originally marked UNBACKED by the review, which was too harsh: the pre-edit run was recoverable and has now been committed as apply-session-before-run.json, and all 14 of its rows match this prose table. The chart above is kept for history. The remaining provenance gap on the apply session side is that neither of its two runs embeds the implementation SHA, which is why the clean shipped baseline was re-measured separately."
+ },
+ "candidate_vs_clean_shipped_baseline_pct": {
+  "failed": 1.4,
+  "early": 9.2,
+  "late": 7.3,
+  "single": 17.7,
+  "short_2": 30.2,
+  "short_3": 29.9,
+  "short_4": 6.4,
+  "short": 11.4,
+  "medium": 4.9,
+  "long": 2.9,
+  "too_long": -3.7,
+  "common_prefix": 5.3,
+  "mixed_case_hit": -10.5,
+  "mixed_case_miss": 12.1,
+  "unicode": 6.0,
+  "unicode_mixed": -11.4
+ },
+ "verdict": "REVERTED, and the revert is compliant with the spec. Although the candidate improved the isolated matcher bench against the shipped baseline, it regressed the user-visible first-generation metric on the apply session own same-session comparison, so the spec required reverting it. The clean shipped baseline now recorded here is the reference point for any future successor: 27.942 ms for short_2 current_api versus the 21.459 ms the apply session reported for its candidate, i.e. a real improvement on that bench that was still correctly refused because the user-visible metric moved the wrong way.",
+ "apply_session_before_run": {
+  "rows": {
+   "failed": 26.91,
+   "early": 27.215,
+   "late": 30.853,
+   "single": 23.993,
+   "short_2": 27.106,
+   "short_3": 25.706,
+   "short_4": 31.391,
+   "short": 28.867,
+   "medium": 28.066,
+   "long": 21.419,
+   "too_long": 7.775,
+   "common_prefix": 33.198,
+   "mixed_case_hit": 26.718,
+   "mixed_case_miss": 26.081,
+   "unicode": 41.345,
+   "unicode_mixed": 28.717
+  },
+  "evidence_file": "apply-session-before-run.json",
+  "note": "The post-apply review recovered the apply session PRE-EDIT run from the ignored build tree, where it had been left uncommitted as build/_bench_baseline_pre.json, and committed it here. The before row of the prose table now has machine-readable backing: all 14 rows match. The apply session's defect was failing to commit this record, not fabricating it."
+ },
+ "review_finding_correction": "The review's initial claim that the before column was unsupported was wrong and is withdrawn here. The before column is supported. What remains true is that the apply session committed only the AFTER run, misnamed it benchmark-baseline.json, and omitted the SHA from it."
+}

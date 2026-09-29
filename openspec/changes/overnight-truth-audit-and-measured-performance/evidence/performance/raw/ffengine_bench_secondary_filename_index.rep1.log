@@ -1,2 +1,4 @@
 Secondary filename index benchmark: 100000 entries
-
+Secondary filename index benchmark: 500000 entries
+Secondary filename index benchmark: 1000000 entries
+Secondary filename index benchmark: 2000000 entries

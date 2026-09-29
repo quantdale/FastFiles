@@ -1,0 +1,74 @@
+{
+ "schema": "fastfiles-first-generation-publish-v1",
+ "purpose": "user-visible first-generation delivery; informational, not a CTest gate",
+ "build_identity": "b449d95352460218820a79eb38486eed0c0592eb",
+ "build_worktree_state": "dirty",
+ "entries": 200000,
+ "directory_fixture_build_ms": 1707.57,
+ "warmup": 5,
+ "measured": 5,
+ "directories_published": 3126,
+ "files_published_last_repetition": 199999,
+ "last_generation_id": 11,
+ "export_ms": {
+  "median": 43.9797,
+  "p90": 52.1422,
+  "max": 57.0603,
+  "samples": [
+   44.7651,
+   57.0603,
+   38.4876,
+   43.9797,
+   39.1859
+  ]
+ },
+ "publication_ms": {
+  "median": 43.2351,
+  "p90": 45.5249,
+  "max": 46.7977,
+  "samples": [
+   43.1779,
+   42.9184,
+   43.2351,
+   46.7977,
+   43.6156
+  ]
+ },
+ "client_receive_ms": {
+  "median": 0.0058,
+  "p90": 0.00772,
+  "max": 0.0084,
+  "samples": [
+   0.0058,
+   0.0054,
+   0.0054,
+   0.0084,
+   0.0067
+  ]
+ },
+ "client_parse_ms": {
+  "median": 16.1541,
+  "p90": 17.9499,
+  "max": 18.5221,
+  "samples": [
+   16.1541,
+   15.4994,
+   15.3288,
+   18.5221,
+   17.0916
+  ]
+ },
+ "total_ms": {
+  "median": 104.103,
+  "p90": 113.013,
+  "max": 115.483,
+  "samples": [
+   104.103,
+   115.483,
+   97.0569,
+   109.308,
+   99.8998
+  ]
+ },
+ "provenance_review": "Apply-session first-generation run recovered from the ignored build tree as build/_bench_fg_run.json. Its own build_identity field records b449d95352460218820a79eb38486eed0c0592eb, not the implementation SHA e2a573c, so the apply-session first-generation numbers are from a different build identity than the implementation candidate."
+}

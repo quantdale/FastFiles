@@ -19,4 +19,3 @@ Building 100000 synthetic entries...
 Completed 100000; database 7.0 MB, generation 0.6 s, rebuild 0.4 s
 Wrote D:\Documents\tryPython\FastFiles\build\_bench_run.json
 Largest published snapshot probe: 1980421 rows (theoretical capacity estimate 2200468 rows, maximum payload 268435456 bytes)
-

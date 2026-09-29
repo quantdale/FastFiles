@@ -1,7 +1,6 @@
 Entries: 5000000
 Unique names: 11
 Name arena size (chars): 79
-RSS before: 4184 KB, after: 1611464 KB, delta: 1607280 KB
+RSS before: 4172 KB, after: 1611500 KB, delta: 1607328 KB
 Approx bytes/entry (process RSS delta): 329.2
-Naive full-path-per-entry estimate: 476.8 MB; actual projection: 1569.6 MB (0.3x smaller)
-
+Naive full-path-per-entry estimate: 476.8 MB; actual projection: 1569.7 MB (0.3x smaller)

@@ -1,0 +1,871 @@
+{
+ "schema": "fastfiles-overnight-performance-baseline-v2",
+ "execution": {
+  "repetitions": 5,
+  "build_preset": "release-test",
+  "build_type": "RelWithDebInfo (FASTFILES_RELEASE_TEST_BUILD=ON)",
+  "source_sha": "e2a573c284cdbb3399cf99cf1d1d9cec9ee17748",
+  "source_sha_provenance": "e2a573c284cdbb3399cf99cf1d1d9cec9ee17748 is embedded by ffengine_bench_first_generation_publish itself in its output header, and by ffsetup::kBuildIdentityAscii in every identity-bearing executable; git diff ea3d64f..HEAD -- src cmake is empty, so no product source differs from origin/main.",
+  "product_source_changed": false,
+  "machine_state": "idle host, no other benchmark or build running, measured in the post-apply review session",
+  "note": "non-debug certified build; the debug preset is /Od + /RTC1 and its timings are not product numbers"
+ },
+ "runs": {
+  "ffsearch_bench_literal_matcher": {
+   "aggregate": {
+    "failed.current_api": {
+     "median_of_run_medians_ms": 27.306,
+     "run_medians_ms": [
+      30.142,
+      27.065,
+      28.312,
+      27.306,
+      25.648
+     ],
+     "tail_p90_of_runs_ms": 28.312,
+     "max_of_run_maxes_ms": 30.142
+    },
+    "failed.current_direct": {
+     "median_of_run_medians_ms": 9.407,
+     "run_medians_ms": [
+      15.794,
+      9.227,
+      11.912,
+      9.357,
+      9.407
+     ],
+     "tail_p90_of_runs_ms": 11.912,
+     "max_of_run_maxes_ms": 15.794
+    },
+    "failed.first_last": {
+     "median_of_run_medians_ms": 10.096,
+     "run_medians_ms": [
+      10.096,
+      11.087,
+      14.089,
+      9.491,
+      8.161
+     ],
+     "tail_p90_of_runs_ms": 11.087,
+     "max_of_run_maxes_ms": 14.089
+    },
+    "failed.bmh": {
+     "median_of_run_medians_ms": 8.284,
+     "run_medians_ms": [
+      8.284,
+      8.115,
+      16.38,
+      9.262,
+      7.75
+     ],
+     "tail_p90_of_runs_ms": 9.262,
+     "max_of_run_maxes_ms": 16.38
+    },
+    "early.current_api": {
+     "median_of_run_medians_ms": 28.031,
+     "run_medians_ms": [
+      27.472,
+      28.283,
+      29.368,
+      28.031,
+      27.082
+     ],
+     "tail_p90_of_runs_ms": 28.283,
+     "max_of_run_maxes_ms": 29.368
+    },
+    "early.current_direct": {
+     "median_of_run_medians_ms": 12.635,
+     "run_medians_ms": [
+      14.678,
+      11.953,
+      12.746,
+      12.635,
+      10.932
+     ],
+     "tail_p90_of_runs_ms": 12.746,
+     "max_of_run_maxes_ms": 14.678
+    },
+    "early.first_last": {
+     "median_of_run_medians_ms": 15.609,
+     "run_medians_ms": [
+      15.609,
+      16.6,
+      15.264,
+      16.244,
+      12.179
+     ],
+     "tail_p90_of_runs_ms": 16.244,
+     "max_of_run_maxes_ms": 16.6
+    },
+    "early.bmh": {
+     "median_of_run_medians_ms": 11.361,
+     "run_medians_ms": [
+      17.976,
+      11.012,
+      11.322,
+      14.124,
+      11.361
+     ],
+     "tail_p90_of_runs_ms": 14.124,
+     "max_of_run_maxes_ms": 17.976
+    },
+    "late.current_api": {
+     "median_of_run_medians_ms": 31.682,
+     "run_medians_ms": [
+      30.877,
+      31.682,
+      31.761,
+      36.395,
+      28.915
+     ],
+     "tail_p90_of_runs_ms": 31.761,
+     "max_of_run_maxes_ms": 36.395
+    },
+    "late.current_direct": {
+     "median_of_run_medians_ms": 15.294,
+     "run_medians_ms": [
+      16.055,
+      14.79,
+      15.78,
+      15.294,
+      12.968
+     ],
+     "tail_p90_of_runs_ms": 15.78,
+     "max_of_run_maxes_ms": 16.055
+    },
+    "late.first_last": {
+     "median_of_run_medians_ms": 13.542,
+     "run_medians_ms": [
+      16.114,
+      13.542,
+      12.553,
+      13.933,
+      11.612
+     ],
+     "tail_p90_of_runs_ms": 13.933,
+     "max_of_run_maxes_ms": 16.114
+    },
+    "late.bmh": {
+     "median_of_run_medians_ms": 14.71,
+     "run_medians_ms": [
+      14.71,
+      14.89,
+      14.357,
+      14.78,
+      13.416
+     ],
+     "tail_p90_of_runs_ms": 14.78,
+     "max_of_run_maxes_ms": 14.89
+    },
+    "single.current_api": {
+     "median_of_run_medians_ms": 25.853,
+     "run_medians_ms": [
+      26.148,
+      23.975,
+      25.853,
+      26.665,
+      23.415
+     ],
+     "tail_p90_of_runs_ms": 26.148,
+     "max_of_run_maxes_ms": 26.665
+    },
+    "single.current_direct": {
+     "median_of_run_medians_ms": 12.936,
+     "run_medians_ms": [
+      14.105,
+      12.34,
+      13.285,
+      12.936,
+      11.972
+     ],
+     "tail_p90_of_runs_ms": 13.285,
+     "max_of_run_maxes_ms": 14.105
+    },
+    "single.first_last": {
+     "median_of_run_medians_ms": 13.092,
+     "run_medians_ms": [
+      16.362,
+      13.092,
+      14.565,
+      12.713,
+      12.843
+     ],
+     "tail_p90_of_runs_ms": 14.565,
+     "max_of_run_maxes_ms": 16.362
+    },
+    "single.bmh": {
+     "median_of_run_medians_ms": 25.28,
+     "run_medians_ms": [
+      28.946,
+      24.826,
+      29.108,
+      25.28,
+      24.397
+     ],
+     "tail_p90_of_runs_ms": 28.946,
+     "max_of_run_maxes_ms": 29.108
+    },
+    "short_2.current_api": {
+     "median_of_run_medians_ms": 27.942,
+     "run_medians_ms": [
+      26.742,
+      30.684,
+      32.926,
+      27.942,
+      26.954
+     ],
+     "tail_p90_of_runs_ms": 30.684,
+     "max_of_run_maxes_ms": 32.926
+    },
+    "short_2.current_direct": {
+     "median_of_run_medians_ms": 15.675,
+     "run_medians_ms": [
+      18.201,
+      15.675,
+      16.26,
+      15.332,
+      14.415
+     ],
+     "tail_p90_of_runs_ms": 16.26,
+     "max_of_run_maxes_ms": 18.201
+    },
+    "short_2.first_last": {
+     "median_of_run_medians_ms": 13.556,
+     "run_medians_ms": [
+      12.737,
+      12.537,
+      15.078,
+      13.556,
+      14.492
+     ],
+     "tail_p90_of_runs_ms": 14.492,
+     "max_of_run_maxes_ms": 15.078
+    },
+    "short_2.bmh": {
+     "median_of_run_medians_ms": 19.199,
+     "run_medians_ms": [
+      21.596,
+      19.199,
+      18.665,
+      22.063,
+      17.57
+     ],
+     "tail_p90_of_runs_ms": 21.596,
+     "max_of_run_maxes_ms": 22.063
+    },
+    "short_3.current_api": {
+     "median_of_run_medians_ms": 27.026,
+     "run_medians_ms": [
+      25.918,
+      38.56,
+      27.85,
+      27.026,
+      24.346
+     ],
+     "tail_p90_of_runs_ms": 27.85,
+     "max_of_run_maxes_ms": 38.56
+    },
+    "short_3.current_direct": {
+     "median_of_run_medians_ms": 11.689,
+     "run_medians_ms": [
+      12.246,
+      16.924,
+      11.689,
+      11.245,
+      11.112
+     ],
+     "tail_p90_of_runs_ms": 12.246,
+     "max_of_run_maxes_ms": 16.924
+    },
+    "short_3.first_last": {
+     "median_of_run_medians_ms": 17.433,
+     "run_medians_ms": [
+      18.061,
+      27.683,
+      17.433,
+      15.497,
+      14.008
+     ],
+     "tail_p90_of_runs_ms": 18.061,
+     "max_of_run_maxes_ms": 27.683
+    },
+    "short_3.bmh": {
+     "median_of_run_medians_ms": 16.739,
+     "run_medians_ms": [
+      17.159,
+      24.428,
+      16.739,
+      16.397,
+      14.382
+     ],
+     "tail_p90_of_runs_ms": 17.159,
+     "max_of_run_maxes_ms": 24.428
+    },
+    "short_4.current_api": {
+     "median_of_run_medians_ms": 33.24,
+     "run_medians_ms": [
+      33.24,
+      38.582,
+      34.913,
+      30.888,
+      29.154
+     ],
+     "tail_p90_of_runs_ms": 34.913,
+     "max_of_run_maxes_ms": 38.582
+    },
+    "short_4.current_direct": {
+     "median_of_run_medians_ms": 18.552,
+     "run_medians_ms": [
+      18.552,
+      21.471,
+      19.154,
+      15.1,
+      14.067
+     ],
+     "tail_p90_of_runs_ms": 19.154,
+     "max_of_run_maxes_ms": 21.471
+    },
+    "short_4.first_last": {
+     "median_of_run_medians_ms": 13.984,
+     "run_medians_ms": [
+      16.801,
+      13.984,
+      16.686,
+      12.305,
+      12.248
+     ],
+     "tail_p90_of_runs_ms": 16.686,
+     "max_of_run_maxes_ms": 16.801
+    },
+    "short_4.bmh": {
+     "median_of_run_medians_ms": 13.523,
+     "run_medians_ms": [
+      12.845,
+      13.244,
+      13.837,
+      13.523,
+      14.829
+     ],
+     "tail_p90_of_runs_ms": 13.837,
+     "max_of_run_maxes_ms": 14.829
+    },
+    "short.current_api": {
+     "median_of_run_medians_ms": 31.582,
+     "run_medians_ms": [
+      31.726,
+      31.409,
+      32.376,
+      31.582,
+      30.295
+     ],
+     "tail_p90_of_runs_ms": 31.726,
+     "max_of_run_maxes_ms": 32.376
+    },
+    "short.current_direct": {
+     "median_of_run_medians_ms": 17.165,
+     "run_medians_ms": [
+      17.165,
+      20.587,
+      18.046,
+      16.862,
+      15.312
+     ],
+     "tail_p90_of_runs_ms": 18.046,
+     "max_of_run_maxes_ms": 20.587
+    },
+    "short.first_last": {
+     "median_of_run_medians_ms": 14.363,
+     "run_medians_ms": [
+      12.828,
+      14.651,
+      17.069,
+      14.363,
+      12.998
+     ],
+     "tail_p90_of_runs_ms": 14.651,
+     "max_of_run_maxes_ms": 17.069
+    },
+    "short.bmh": {
+     "median_of_run_medians_ms": 15.158,
+     "run_medians_ms": [
+      15.158,
+      14.166,
+      16.892,
+      15.939,
+      11.768
+     ],
+     "tail_p90_of_runs_ms": 15.939,
+     "max_of_run_maxes_ms": 16.892
+    },
+    "medium.current_api": {
+     "median_of_run_medians_ms": 29.698,
+     "run_medians_ms": [
+      28.761,
+      29.698,
+      30.214,
+      29.709,
+      26.78
+     ],
+     "tail_p90_of_runs_ms": 29.709,
+     "max_of_run_maxes_ms": 30.214
+    },
+    "medium.current_direct": {
+     "median_of_run_medians_ms": 14.154,
+     "run_medians_ms": [
+      14.154,
+      22.379,
+      16.904,
+      14.059,
+      13.549
+     ],
+     "tail_p90_of_runs_ms": 16.904,
+     "max_of_run_maxes_ms": 22.379
+    },
+    "medium.first_last": {
+     "median_of_run_medians_ms": 15.213,
+     "run_medians_ms": [
+      15.184,
+      17.499,
+      15.213,
+      18.741,
+      12.548
+     ],
+     "tail_p90_of_runs_ms": 17.499,
+     "max_of_run_maxes_ms": 18.741
+    },
+    "medium.bmh": {
+     "median_of_run_medians_ms": 11.156,
+     "run_medians_ms": [
+      10.519,
+      18.705,
+      13.235,
+      11.156,
+      10.288
+     ],
+     "tail_p90_of_runs_ms": 13.235,
+     "max_of_run_maxes_ms": 18.705
+    },
+    "long.current_api": {
+     "median_of_run_medians_ms": 21.962,
+     "run_medians_ms": [
+      21.087,
+      25.296,
+      22.649,
+      21.962,
+      20.726
+     ],
+     "tail_p90_of_runs_ms": 22.649,
+     "max_of_run_maxes_ms": 25.296
+    },
+    "long.current_direct": {
+     "median_of_run_medians_ms": 8.686,
+     "run_medians_ms": [
+      9.378,
+      8.652,
+      10.381,
+      8.686,
+      8.046
+     ],
+     "tail_p90_of_runs_ms": 9.378,
+     "max_of_run_maxes_ms": 10.381
+    },
+    "long.first_last": {
+     "median_of_run_medians_ms": 8.712,
+     "run_medians_ms": [
+      8.065,
+      8.331,
+      9.578,
+      8.712,
+      9.36
+     ],
+     "tail_p90_of_runs_ms": 9.36,
+     "max_of_run_maxes_ms": 9.578
+    },
+    "long.bmh": {
+     "median_of_run_medians_ms": 8.215,
+     "run_medians_ms": [
+      8.215,
+      7.986,
+      12.36,
+      7.239,
+      9.416
+     ],
+     "tail_p90_of_runs_ms": 9.416,
+     "max_of_run_maxes_ms": 12.36
+    },
+    "too_long.current_api": {
+     "median_of_run_medians_ms": 7.908,
+     "run_medians_ms": [
+      7.658,
+      7.929,
+      8.748,
+      7.908,
+      7.721
+     ],
+     "tail_p90_of_runs_ms": 7.929,
+     "max_of_run_maxes_ms": 8.748
+    },
+    "too_long.current_direct": {
+     "median_of_run_medians_ms": 3.352,
+     "run_medians_ms": [
+      2.936,
+      3.293,
+      3.632,
+      3.478,
+      3.352
+     ],
+     "tail_p90_of_runs_ms": 3.478,
+     "max_of_run_maxes_ms": 3.632
+    },
+    "too_long.first_last": {
+     "median_of_run_medians_ms": 2.802,
+     "run_medians_ms": [
+      2.802,
+      2.79,
+      3.151,
+      3.833,
+      2.674
+     ],
+     "tail_p90_of_runs_ms": 3.151,
+     "max_of_run_maxes_ms": 3.833
+    },
+    "too_long.bmh": {
+     "median_of_run_medians_ms": 3.123,
+     "run_medians_ms": [
+      2.825,
+      3.888,
+      3.123,
+      2.614,
+      3.491
+     ],
+     "tail_p90_of_runs_ms": 3.491,
+     "max_of_run_maxes_ms": 3.888
+    },
+    "common_prefix.current_api": {
+     "median_of_run_medians_ms": 34.836,
+     "run_medians_ms": [
+      34.836,
+      36.356,
+      38.893,
+      31.374,
+      33.187
+     ],
+     "tail_p90_of_runs_ms": 36.356,
+     "max_of_run_maxes_ms": 38.893
+    },
+    "common_prefix.current_direct": {
+     "median_of_run_medians_ms": 10.862,
+     "run_medians_ms": [
+      10.445,
+      10.862,
+      15.783,
+      11.774,
+      10.07
+     ],
+     "tail_p90_of_runs_ms": 11.774,
+     "max_of_run_maxes_ms": 15.783
+    },
+    "common_prefix.first_last": {
+     "median_of_run_medians_ms": 36.641,
+     "run_medians_ms": [
+      30.878,
+      36.641,
+      40.54,
+      37.754,
+      31.257
+     ],
+     "tail_p90_of_runs_ms": 37.754,
+     "max_of_run_maxes_ms": 40.54
+    },
+    "common_prefix.bmh": {
+     "median_of_run_medians_ms": 9.511,
+     "run_medians_ms": [
+      8.46,
+      12.254,
+      10.476,
+      9.511,
+      8.151
+     ],
+     "tail_p90_of_runs_ms": 10.476,
+     "max_of_run_maxes_ms": 12.254
+    },
+    "mixed_case_hit.current_api": {
+     "median_of_run_medians_ms": 28.746,
+     "run_medians_ms": [
+      26.568,
+      28.746,
+      32.754,
+      28.026,
+      29.206
+     ],
+     "tail_p90_of_runs_ms": 29.206,
+     "max_of_run_maxes_ms": 32.754
+    },
+    "mixed_case_hit.current_direct": {
+     "median_of_run_medians_ms": 141.219,
+     "run_medians_ms": [
+      141.219,
+      142.775,
+      146.997,
+      124.384,
+      126.211
+     ],
+     "tail_p90_of_runs_ms": 142.775,
+     "max_of_run_maxes_ms": 146.997
+    },
+    "mixed_case_hit.first_last": {
+     "median_of_run_medians_ms": 135.522,
+     "run_medians_ms": [
+      124.571,
+      143.459,
+      151.395,
+      130.819,
+      135.522
+     ],
+     "tail_p90_of_runs_ms": 143.459,
+     "max_of_run_maxes_ms": 151.395
+    },
+    "mixed_case_hit.bmh": {
+     "median_of_run_medians_ms": 134.87,
+     "run_medians_ms": [
+      130.911,
+      145.372,
+      157.08,
+      134.87,
+      130.092
+     ],
+     "tail_p90_of_runs_ms": 145.372,
+     "max_of_run_maxes_ms": 157.08
+    },
+    "mixed_case_miss.current_api": {
+     "median_of_run_medians_ms": 26.752,
+     "run_medians_ms": [
+      26.752,
+      30.54,
+      29.019,
+      25.609,
+      26.261
+     ],
+     "tail_p90_of_runs_ms": 29.019,
+     "max_of_run_maxes_ms": 30.54
+    },
+    "mixed_case_miss.current_direct": {
+     "median_of_run_medians_ms": 142.652,
+     "run_medians_ms": [
+      142.652,
+      141.91,
+      152.541,
+      123.297,
+      149.563
+     ],
+     "tail_p90_of_runs_ms": 149.563,
+     "max_of_run_maxes_ms": 152.541
+    },
+    "mixed_case_miss.first_last": {
+     "median_of_run_medians_ms": 146.912,
+     "run_medians_ms": [
+      146.912,
+      156.364,
+      143.9,
+      123.362,
+      159.988
+     ],
+     "tail_p90_of_runs_ms": 156.364,
+     "max_of_run_maxes_ms": 159.988
+    },
+    "mixed_case_miss.bmh": {
+     "median_of_run_medians_ms": 151.208,
+     "run_medians_ms": [
+      139.636,
+      164.84,
+      163.689,
+      122.303,
+      151.208
+     ],
+     "tail_p90_of_runs_ms": 163.689,
+     "max_of_run_maxes_ms": 164.84
+    },
+    "unicode.current_api": {
+     "median_of_run_medians_ms": 47.189,
+     "run_medians_ms": [
+      44.572,
+      49.515,
+      51.779,
+      39.451,
+      47.189
+     ],
+     "tail_p90_of_runs_ms": 49.515,
+     "max_of_run_maxes_ms": 51.779
+    },
+    "unicode.current_direct": {
+     "median_of_run_medians_ms": 68.543,
+     "run_medians_ms": [
+      71.195,
+      72.532,
+      68.543,
+      61.552,
+      66.176
+     ],
+     "tail_p90_of_runs_ms": 71.195,
+     "max_of_run_maxes_ms": 72.532
+    },
+    "unicode.first_last": {
+     "median_of_run_medians_ms": 72.802,
+     "run_medians_ms": [
+      75.208,
+      84.819,
+      72.802,
+      61.158,
+      60.318
+     ],
+     "tail_p90_of_runs_ms": 75.208,
+     "max_of_run_maxes_ms": 84.819
+    },
+    "unicode.bmh": {
+     "median_of_run_medians_ms": 67.081,
+     "run_medians_ms": [
+      67.081,
+      76.829,
+      71.533,
+      60.532,
+      61.615
+     ],
+     "tail_p90_of_runs_ms": 71.533,
+     "max_of_run_maxes_ms": 76.829
+    },
+    "unicode_mixed.current_api": {
+     "median_of_run_medians_ms": 25.678,
+     "run_medians_ms": [
+      25.678,
+      35.942,
+      31.551,
+      24.268,
+      25.578
+     ],
+     "tail_p90_of_runs_ms": 31.551,
+     "max_of_run_maxes_ms": 35.942
+    },
+    "unicode_mixed.current_direct": {
+     "median_of_run_medians_ms": 100.151,
+     "run_medians_ms": [
+      98.105,
+      121.282,
+      100.151,
+      93.446,
+      109.086
+     ],
+     "tail_p90_of_runs_ms": 109.086,
+     "max_of_run_maxes_ms": 121.282
+    },
+    "unicode_mixed.first_last": {
+     "median_of_run_medians_ms": 103.717,
+     "run_medians_ms": [
+      103.717,
+      127.668,
+      115.104,
+      92.722,
+      103.243
+     ],
+     "tail_p90_of_runs_ms": 115.104,
+     "max_of_run_maxes_ms": 127.668
+    },
+    "unicode_mixed.bmh": {
+     "median_of_run_medians_ms": 102.905,
+     "run_medians_ms": [
+      108.896,
+      132.22,
+      102.905,
+      89.001,
+      95.816
+     ],
+     "tail_p90_of_runs_ms": 108.896,
+     "max_of_run_maxes_ms": 132.22
+    }
+   },
+   "exe": "build/release-test/tests/search/ffsearch_bench_literal_matcher.exe",
+   "args": []
+  },
+  "ffengine_bench_first_generation_publish": {
+   "aggregate": {
+    "export": {
+     "median_of_run_medians_ms": 55.658,
+     "run_medians_ms": [
+      56.373,
+      53.93,
+      55.658,
+      54.845,
+      60.458
+     ],
+     "tail_p90_of_runs_ms": 59.745,
+     "max_of_run_maxes_ms": 70.306
+    },
+    "publish+broadcast": {
+     "median_of_run_medians_ms": 54.879,
+     "run_medians_ms": [
+      48.839,
+      52.573,
+      57.732,
+      59.065,
+      54.879
+     ],
+     "tail_p90_of_runs_ms": 60.765,
+     "max_of_run_maxes_ms": 71.555
+    },
+    "pipe receive": {
+     "median_of_run_medians_ms": 0.007,
+     "run_medians_ms": [
+      0.007,
+      0.006,
+      0.006,
+      0.01,
+      0.009
+     ],
+     "tail_p90_of_runs_ms": 0.008,
+     "max_of_run_maxes_ms": 0.014
+    },
+    "client parse": {
+     "median_of_run_medians_ms": 18.99,
+     "run_medians_ms": [
+      20.333,
+      18.204,
+      18.99,
+      19.593,
+      17.77
+     ],
+     "tail_p90_of_runs_ms": 21.253,
+     "max_of_run_maxes_ms": 24.043
+    },
+    "TOTAL": {
+     "median_of_run_medians_ms": 127.679,
+     "run_medians_ms": [
+      126.215,
+      127.679,
+      126.437,
+      132.248,
+      136.857
+     ],
+     "tail_p90_of_runs_ms": 138.031,
+     "max_of_run_maxes_ms": 149.581
+    }
+   },
+   "exe": "build/release-test/tests/engine/ffengine_bench_first_generation_publish.exe",
+   "args": []
+  },
+  "ffindexstore_bench_projection_memory": {
+   "aggregate": {
+    "bytes_per_entry_at_5000000": {
+     "median_of_run_medians": 329.2,
+     "run_medians_ms": [
+      329.2,
+      329.2,
+      329.3,
+      329.3,
+      329.2
+     ]
+    }
+   },
+   "exe": "build/release-test/tests/indexstore/ffindexstore_bench_projection_memory.exe",
+   "args": []
+  }
+ }
+}
