@@ -1145,10 +1145,23 @@ function Invoke-UiVisualValidationCapability {
         foreach ($scenario in $catalog) {
             $fixtureId = [string]$scenario.Fixture
             if ([string]::IsNullOrWhiteSpace($fixtureId)) { $fixtureId = 'none' }
+            # The catalog's Pane field is a semantic scenario label (single,
+            # dual, dual-left, dual-right, dialog). Add-VisualScenarioResult
+            # and Capture-VisualWindow accept only the pane-mode enum, so the
+            # label is normalized here. A dual-pane scenario is still a dual
+            # window; the active pane is asserted semantically by the
+            # scenario's own action result.
+            $paneMode = switch ([string]$scenario.Pane) {
+                'dual' { 'dual' }
+                'dual-left' { 'dual' }
+                'dual-right' { 'dual' }
+                'dialog' { 'dialog' }
+                default { 'single' }
+            }
             [void]$log.Add("scenario=$($scenario.Id) expected=$($scenario.Expected)")
             $block = if ($scenario.ContainsKey('Block')) { [string]$scenario.Block } else { $null }
             if ($block) {
-                $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $scenario.Pane -DpiScale ([int]$scenario.Dpi) -Status 'BLOCKED_ENVIRONMENT' -Reason $block -AssertionEvidence ([pscustomobject]@{ available = $false })
+                $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $paneMode -DpiScale ([int]$scenario.Dpi) -Status 'BLOCKED_ENVIRONMENT' -Reason $block -AssertionEvidence ([pscustomobject]@{ available = $false })
                 [void]$subResults.Add([pscustomobject]@{ id = $scenario.Id; status = 'SKIPPED'; reason = 'blocked-environment'; detail = $block })
                 continue
             }
@@ -1168,21 +1181,29 @@ function Invoke-UiVisualValidationCapability {
                 if (-not $sizeResult.Pass) { throw "geometry precondition failed: $($sizeResult.Reason)" }
                 $result = Invoke-VisualAction -Context $context -Scenario $scenario -Fixtures $fixtures
                 if (-not $result.Pass) {
-                    $status = if ($result.Status) { [string]$result.Status } else { 'FAIL' }
-                    if ($status -eq 'FAIL') { $overall = 'FAIL' }
-                    $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $scenario.Pane -DpiScale ([int]$scenario.Dpi) -Status $status -Reason $result.Reason -AssertionEvidence $result.Evidence
-                    [void]$subResults.Add([pscustomobject]@{ id = $scenario.Id; status = $status; reason = $result.Reason; detail = $result.Evidence })
+                    # The scenario record and the visual manifest legitimately
+                    # use the BLOCKED_* vocabulary. The capability runner's
+                    # child-result envelope accepts only PASS/FAIL/SKIPPED, so
+                    # an environment-blocked scenario is reported as SKIPPED
+                    # with its blocking reason and underlying status kept in
+                    # the detail, never as a fabricated pass.
+                    $recordStatus = if ($result.Status) { [string]$result.Status } else { 'FAIL' }
+                    if ($recordStatus -eq 'FAIL') { $overall = 'FAIL' }
+                    $childStatus = if ($recordStatus -eq 'FAIL') { 'FAIL' } else { 'SKIPPED' }
+                    $childDetail = if ($recordStatus -eq 'FAIL') { $result.Evidence } else { "$recordStatus`: $($result.Reason)" }
+                    $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $paneMode -DpiScale ([int]$scenario.Dpi) -Status $recordStatus -Reason $result.Reason -AssertionEvidence $result.Evidence
+                    [void]$subResults.Add([pscustomobject]@{ id = $scenario.Id; status = $childStatus; reason = $result.Reason; detail = $childDetail })
                 } else {
                     $intentionalDuplicateReason = if ($scenario.ContainsKey('DuplicateReason')) { [string]$scenario.DuplicateReason } else { $result.DuplicateReason }
                     $expectedDuplicateOf = if ($scenario.ContainsKey('ExpectedDuplicateOf')) { [string]$scenario.ExpectedDuplicateOf } else { $result.ExpectedDuplicateOf }
                     $capture = Capture-VisualWindow -Run $run -Element $context.Main -ScenarioId $scenario.Id -AssertionPass $true -IntentionalDuplicateReason $intentionalDuplicateReason -ExpectedDuplicateOf $expectedDuplicateOf -PrivacyTheme ([string]$scenario.Theme) -PrivacyRectangles @($result.PrivacyRectangles)
-                    $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $scenario.Pane -DpiScalePercent ([int]$scenario.Dpi) -ObservedDpi ([int]$capture.Bounds.Dpi) -Status 'PASS' -AssertionPass $true -AssertionEvidence ([pscustomobject]@{ action = $result.Evidence; geometry = $sizeResult.Evidence; capture = $capture.Bounds }) -ScreenshotPath $capture.Path -ImageHash $capture.Hash -DuplicateOf $capture.DuplicateOf -DuplicateReason $capture.DuplicateReason -PrivacyRedactions @($capture.PrivacyRedactions)
+                    $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $paneMode -DpiScalePercent ([int]$scenario.Dpi) -ObservedDpi ([int]$capture.Bounds.Dpi) -Status 'PASS' -AssertionPass $true -AssertionEvidence ([pscustomobject]@{ action = $result.Evidence; geometry = $sizeResult.Evidence; capture = $capture.Bounds }) -ScreenshotPath $capture.Path -ImageHash $capture.Hash -DuplicateOf $capture.DuplicateOf -DuplicateReason $capture.DuplicateReason -PrivacyRedactions @($capture.PrivacyRedactions)
                     [void]$subResults.Add([pscustomobject]@{ id = $scenario.Id; status = 'PASS'; reason = $null; detail = $result.Evidence })
                 }
             } catch {
                 $reason = $_.Exception.Message
                 $overall = 'FAIL'
-                $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $scenario.Pane -DpiScale ([int]$scenario.Dpi) -Status 'FAIL' -Reason $reason -AssertionEvidence ([pscustomobject]@{ action = $result; geometry = $null })
+                $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $paneMode -DpiScale ([int]$scenario.Dpi) -Status 'FAIL' -Reason $reason -AssertionEvidence ([pscustomobject]@{ action = $result; geometry = $null })
                 [void]$subResults.Add([pscustomobject]@{ id = $scenario.Id; status = 'FAIL'; reason = $reason; detail = $null })
             } finally {
                 Stop-VisualContext -Context $context
