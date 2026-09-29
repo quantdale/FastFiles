@@ -254,6 +254,24 @@ add_executable(ffengine_bench_secondary_filename_index
 )
 target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
 
+# overnight-truth-audit-and-measured-performance task 4.3: informational only.
+# Measures the user-visible first-generation delivery path (bounded indexed
+# directory export -> UiServer publication -> real pipe -> client snapshot
+# parse) that the existing benches do not cover. Intentionally not registered
+# with CTest: a wall-clock gate on a pipe/UI snapshot publication would be a
+# flake factory.
+add_executable(ffengine_bench_first_generation_publish
+  bench_first_generation_publish.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/UiServer.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/DirectoryWatcher.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/DegradedModeEnumerator.cpp
+)
+target_include_directories(ffengine_bench_first_generation_publish PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_bench_first_generation_publish PRIVATE ffindexstore ffprotocol ffsearch ffsetup ffipc psapi Rpcrt4 Shell32 Ole32)
+
 set_tests_properties(ffengine_legacy_scan_failure_binding_tests PROPERTIES TIMEOUT 180)
 set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_idle_manager_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_active_path_resilience_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)
