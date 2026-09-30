@@ -1,0 +1,243 @@
+{
+ "schema": "fastfiles-first-generation-campaign-v1",
+ "entries": 200000,
+ "warmup": 5,
+ "measured": 5,
+ "processes": 7,
+ "executable": "D:\\Documents\\tryPython\\FastFiles\\build\\release-test\\tests\\engine\\ffengine_bench_first_generation_publish.exe",
+ "runs_meta": [
+  {
+   "repetition": 1,
+   "exit_code": 0,
+   "wall_seconds": 4.715
+  },
+  {
+   "repetition": 2,
+   "exit_code": 0,
+   "wall_seconds": 5.148
+  },
+  {
+   "repetition": 3,
+   "exit_code": 0,
+   "wall_seconds": 4.967
+  },
+  {
+   "repetition": 4,
+   "exit_code": 0,
+   "wall_seconds": 4.956
+  },
+  {
+   "repetition": 5,
+   "exit_code": 0,
+   "wall_seconds": 4.672
+  },
+  {
+   "repetition": 6,
+   "exit_code": 0,
+   "wall_seconds": 4.695
+  },
+  {
+   "repetition": 7,
+   "exit_code": 0,
+   "wall_seconds": 4.857
+  }
+ ],
+ "rows": {
+  "export": {
+   "median_of_run_medians_ms": 54.102,
+   "run_medians_ms": [
+    61.353,
+    52.966,
+    48.265,
+    52.264,
+    54.102,
+    54.757,
+    57.93
+   ],
+   "tail_p90_of_runs_ms": 60.532,
+   "max_of_run_maxes_ms": 81.083
+  },
+  "publish+broadcast": {
+   "median_of_run_medians_ms": 53.609,
+   "run_medians_ms": [
+    53.609,
+    53.76,
+    46.352,
+    61.933,
+    51.678,
+    48.87,
+    55.077
+   ],
+   "tail_p90_of_runs_ms": 60.628,
+   "max_of_run_maxes_ms": 67.544
+  },
+  "TOTAL": {
+   "median_of_run_medians_ms": 129.329,
+   "run_medians_ms": [
+    130.169,
+    124.494,
+    112.837,
+    137.996,
+    129.329,
+    122.654,
+    133.283
+   ],
+   "tail_p90_of_runs_ms": 142.816,
+   "max_of_run_maxes_ms": 168.596
+  },
+  "_directories_published": 3126,
+  "_files_published": 199999,
+  "_last_generation": 11
+ },
+ "per_run": {
+  "1": {
+   "_directories_published": 3126,
+   "_files_published": 199999,
+   "_last_generation": 11,
+   "export": {
+    "median_ms": 61.353,
+    "p90_ms": 78.211,
+    "max_ms": 81.083
+   },
+   "publish+broadcast": {
+    "median_ms": 53.609,
+    "p90_ms": 61.751,
+    "max_ms": 62.859
+   },
+   "TOTAL": {
+    "median_ms": 130.169,
+    "p90_ms": 164.065,
+    "max_ms": 168.596
+   }
+  },
+  "2": {
+   "_directories_published": 3126,
+   "_files_published": 199999,
+   "_last_generation": 11,
+   "export": {
+    "median_ms": 52.966,
+    "p90_ms": 60.532,
+    "max_ms": 62.579
+   },
+   "publish+broadcast": {
+    "median_ms": 53.76,
+    "p90_ms": 56.2,
+    "max_ms": 57.267
+   },
+   "TOTAL": {
+    "median_ms": 124.494,
+    "p90_ms": 133.106,
+    "max_ms": 134.681
+   }
+  },
+  "3": {
+   "_directories_published": 3126,
+   "_files_published": 199999,
+   "_last_generation": 11,
+   "export": {
+    "median_ms": 48.265,
+    "p90_ms": 59.778,
+    "max_ms": 66.231
+   },
+   "publish+broadcast": {
+    "median_ms": 46.352,
+    "p90_ms": 60.628,
+    "max_ms": 67.544
+   },
+   "TOTAL": {
+    "median_ms": 112.837,
+    "p90_ms": 140.332,
+    "max_ms": 154.128
+   }
+  },
+  "4": {
+   "_directories_published": 3126,
+   "_files_published": 199999,
+   "_last_generation": 11,
+   "export": {
+    "median_ms": 52.264,
+    "p90_ms": 63.745,
+    "max_ms": 71.29
+   },
+   "publish+broadcast": {
+    "median_ms": 61.933,
+    "p90_ms": 65.576,
+    "max_ms": 65.834
+   },
+   "TOTAL": {
+    "median_ms": 137.996,
+    "p90_ms": 151.097,
+    "max_ms": 159.784
+   }
+  },
+  "5": {
+   "_directories_published": 3126,
+   "_files_published": 199999,
+   "_last_generation": 11,
+   "export": {
+    "median_ms": 54.102,
+    "p90_ms": 72.5,
+    "max_ms": 80.277
+   },
+   "publish+broadcast": {
+    "median_ms": 51.678,
+    "p90_ms": 58.58,
+    "max_ms": 59.762
+   },
+   "TOTAL": {
+    "median_ms": 129.329,
+    "p90_ms": 152.982,
+    "max_ms": 166.807
+   }
+  },
+  "6": {
+   "_directories_published": 3126,
+   "_files_published": 199999,
+   "_last_generation": 11,
+   "export": {
+    "median_ms": 54.757,
+    "p90_ms": 56.644,
+    "max_ms": 57.704
+   },
+   "publish+broadcast": {
+    "median_ms": 48.87,
+    "p90_ms": 54.23,
+    "max_ms": 54.448
+   },
+   "TOTAL": {
+    "median_ms": 122.654,
+    "p90_ms": 130.133,
+    "max_ms": 130.76
+   }
+  },
+  "7": {
+   "_directories_published": 3126,
+   "_files_published": 199999,
+   "_last_generation": 11,
+   "export": {
+    "median_ms": 57.93,
+    "p90_ms": 59.771,
+    "max_ms": 60.907
+   },
+   "publish+broadcast": {
+    "median_ms": 55.077,
+    "p90_ms": 62.933,
+    "max_ms": 65.222
+   },
+   "TOTAL": {
+    "median_ms": 133.283,
+    "p90_ms": 142.816,
+    "max_ms": 146.178
+   }
+  }
+ },
+ "raw_logs": [
+  "D:\\Documents\\tryPython\\FastFiles\\build\\perf-baseline\\fg.rep1.log",
+  "D:\\Documents\\tryPython\\FastFiles\\build\\perf-baseline\\fg.rep2.log",
+  "D:\\Documents\\tryPython\\FastFiles\\build\\perf-baseline\\fg.rep3.log",
+  "D:\\Documents\\tryPython\\FastFiles\\build\\perf-baseline\\fg.rep4.log",
+  "D:\\Documents\\tryPython\\FastFiles\\build\\perf-baseline\\fg.rep5.log",
+  "D:\\Documents\\tryPython\\FastFiles\\build\\perf-baseline\\fg.rep6.log",
+  "D:\\Documents\\tryPython\\FastFiles\\build\\perf-baseline\\fg.rep7.log"
+ ]
+}

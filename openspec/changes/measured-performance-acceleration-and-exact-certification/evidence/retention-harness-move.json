@@ -1,0 +1,33 @@
+{
+ "schema": "fastfiles-optimization-retention-record-v1",
+ "optimization": "Benchmark harness: hand the exported snapshot map to UiServer::MergeIndexDirectories by move, matching every production call site.",
+ "target": "First-generation directory delivery (publish+broadcast row)",
+ "baseline_sha": "3323fcb1e1c2a79a57386a6482e932b3189655e8",
+ "candidate_sha": "3323fcb1e1c2a79a57386a6482e932b3189655e8 (identical product source; only tests/ changed)",
+ "benchmark": "ffengine_bench_first_generation_publish, 200,000 synthetic entries / 3,126 directories / 199,999 files",
+ "method": "Interleaved randomized order in one session, 5 processes per arm, 5 warm-up + 5 measured repetitions; same release-test preset; same machine; same session.",
+ "before": {
+   "TOTAL_median_ms": 105.831,
+   "TOTAL_run_medians_ms": [105.831, 115.487, 110.747, 101.808, 100.296],
+   "TOTAL_spread_pct": 14.354,
+   "publish_median_ms": null
+ },
+ "after": {
+   "TOTAL_median_ms": 91.742,
+   "TOTAL_run_medians_ms": [90.73, 89.56, 95.844, 91.742, 94.555],
+   "TOTAL_spread_pct": 6.85,
+   "export_median_ms": 42.463,
+   "publish_median_ms": 28.631
+ },
+ "delta": {
+   "TOTAL_median_ms": -14.089,
+   "TOTAL_median_pct": -13.31,
+   "TOTAL_spread_reduction_pct": 52.3
+ },
+ "noise_spread": "before spread 14.35% of median; after 6.85%; the delta (-13.31%) exceeds the before arm's full natural spread.",
+ "correctness_checks": "Product source is byte-identical to baseline (git diff is empty for src/ and cmake/); the change only removes a deep copy the product never performs. Published directories, published files, and the last generation id are unchanged between arms.",
+ "memory_impact": "One fewer live 200,000-entry std::map copy simultaneously resident; lower peak RSS during publication.",
+ "cpu_impact": "Fewer allocations, copies, and destructor runs (~200k per repetition).",
+ "decision": "KEEP",
+ "note": "This result is a measurement-fidelity repair, not a product speedup: it removes spurious work the harness asked for and production never does. It is reported separately from genuine product performance change. It also materially tightened the noise band for all later comparisons."
+}

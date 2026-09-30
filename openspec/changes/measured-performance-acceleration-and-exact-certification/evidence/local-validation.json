@@ -1,0 +1,101 @@
+{
+ "schema": "fastfiles-campaign-local-validation-v1",
+ "note": "Full local validation record for the measured-performance campaign. Counts are actual, measured on this host in this session, and are not inherited from any historical run.",
+ "candidate_sha": "efc69ff19bcdea69c6ffb0a6c0f40555f435059c",
+ "implementation_sha": "69d1b61b692e8c2a17a204e7b75e048ff51d094e",
+ "presets": [
+  "release-test (RelWithDebInfo, FASTFILES_RELEASE_TEST_BUILD=ON)"
+ ],
+ "ctest": {
+  "release-test": {
+   "total": 124,
+   "passed": 123,
+   "failed": 1,
+   "failing_test": "ffengine_volume_session_manager_tests",
+   "classification": "HOST_LOAD_FLAKE_NOT_A_REGRESSION"
+  }
+ },
+ "load_induced_flake_analysis": {
+  "test": "ffengine_volume_session_manager_tests / TestStopReturnsWithoutWaitingForTheSchedulerInterval",
+  "check": "repeated Start/Stop never waits out the reconciliation scheduler interval",
+  "assertion": "2000 Start/Stop iterations complete in under 30 seconds",
+  "nature": "a fixed wall-clock budget asserting shutdown promptness, not a functional invariant",
+  "repeat_runs_of_the_same_unchanged_binary_ms": [
+   21407,
+   41431,
+   27320,
+   9145
+  ],
+  "results": [
+   "pass",
+   "FAIL",
+   "pass",
+   "pass"
+  ],
+  "host_load_percentage_during_runs": 100,
+  "conclusion": "The same unchanged binary alternates between pass and failure while the host is saturated by unrelated background processes (long-running pi-coding-agent node processes and an IDE). The spread 9.1s to 41.4s straddles the 30s budget, so the failure is a host-load artifact.",
+  "attribution": "NOT caused by this campaign. The campaign's retained change modifies only tests/engine/bench_first_generation_publish.cpp plus OpenSpec records and a PowerShell verification script. No file under src/ or cmake/ is modified (git diff --name-only origin/main..HEAD lists no engine source). This test links engine code, not the benchmark harness.",
+  "disposition": "Reported honestly as an unverified-gate under host load. Not suppressed, not retried into a pass, and not claimed as green."
+ },
+ "identity_binding": {
+  "test": "ffbuild_identity_binding_tests",
+  "status": "PASS after rebuilding both presets at the candidate tip",
+  "why_it_flapped": "The test compares each embedded PrivateBuild SHA against git rev-parse HEAD. Any new commit moves HEAD, so the check fails until the presets are rebuilt. It reads build\\debug paths specifically (tests/drift/test_binary_identity_binding.ps1).",
+  "how_it_was_resolved": "Rebuilt build/debug and build/release-test at the candidate tip.",
+  "relationship_proved_mechanically": {
+   "certified_binaries_embed": "57c56346585dfbf7e54b950c404fb4e212bf528c",
+   "new_evidence_tip": "efc69ff19bcdea69c6ffb0a6c0f40555f435059c",
+   "executable_tree_digest_both": "9621545c81022d840de9af295360d7de1b3c7b52f1a00b5c6ab656dfd00e2431",
+   "verdict": "product_tree(57c5634) == product_tree(efc69ff): the evidence-only commit does not invalidate the binaries"
+  }
+ },
+ "lifecycle_registration": {
+  "test": "ffproject_status_ps_tests",
+  "status": "PASS",
+  "initial_failure": "The new OpenSpec change was not registered in openspec/lifecycle.json, which the lifecycle-integrity gate correctly failed closed on.",
+  "fix": "Registered measured-performance-acceleration-and-exact-certification with state 'active' (honest: the ledger still has unchecked full-certification and delivery items), preserving the file's alphabetical ordering and CRLF formatting."
+ },
+ "process_reaper_test": {
+  "test": "ffverify_process_reaper_ps_tests",
+  "status": "PASS in isolation; failed once during a saturated full-suite run",
+  "classification": "transient under host load"
+ },
+ "executable_tree_equivalence_gate": {
+  "positive_control": {
+   "pair": "9e2dddc -> 3323fcb (docs only)",
+   "status": "PASS",
+   "exit_code": 0
+  },
+  "negative_control": {
+   "pair": "3323fcb -> 69d1b61 (compiled TU changed)",
+   "status": "FAIL",
+   "exit_code": 1,
+   "named_path": "tests/engine/bench_first_generation_publish.cpp"
+  },
+  "campaign_self_application": {
+   "pair": "57c5634 -> efc69ff",
+   "status": "PASS",
+   "exit_code": 0
+  }
+ },
+ "hosted_ci": {
+  "run_id": 36742818195,
+  "url": "https://github.com/quantdale/FastFiles/actions/runs/36742818195",
+  "pull_request": 12,
+  "commit": "efc69ff19bcdea69c6ffb0a6c0f40555f435059c",
+  "required_jobs_inspected": [
+   "analyze",
+   "asan-protocol-ipc-lifecycle",
+   "debug",
+   "release-test",
+   "repository-hygiene-and-contracts",
+   "unsigned-release-candidate-qualification"
+  ],
+  "all_conclusions": "failure",
+  "steps_executed_per_job": 0,
+  "logs_available": false,
+  "classification": "HOSTED_CI = BLOCKED_EXTERNAL",
+  "reasoning": "All six required jobs report failure with zero steps executed and no retrievable logs, meaning they never reached a build or test step. This is an infrastructure/billing-class failure before any repository code runs, not a code regression. Local validation is reported as local only and is not presented as hosted certification.",
+  "action_taken": "Inspected once as the campaign requires. Did not re-trigger the known-unstartable runs."
+ }
+}

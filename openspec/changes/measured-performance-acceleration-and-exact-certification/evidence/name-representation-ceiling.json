@@ -1,0 +1,25 @@
+{
+  "schema": "fastfiles-per-name-representation-ceiling-v1",
+  "method": "Interleaved randomized A/B, each repetition pinned to one logical core at high priority, idle-gated (<=25% load), 5 warm-up + 5 measured repetitions, 5 processes per arm, release-test preset, 200,000 entries / 3,126 directories / 199,999 files.",
+  "baseline_exe": "build/ab/arm_fixed.exe (harness-fixed, all names full-length 'entry_<n>.ext')",
+  "candidate_exe": "build/ab/arm_sso.exe (same code path, name is the bare 3-4 char extension)",
+  "rows": {
+    "export_ms":         {"before": 41.049, "after": 31.875, "delta_pct": -22.35},
+    "publication_ms":    {"before": 27.875, "after": 18.417, "delta_pct": -33.93},
+    "client_receive_ms": {"before": 0.006,  "after": 0.006,  "delta_pct": -1.72},
+    "client_parse_ms":   {"before": 19.913, "after": 13.058, "delta_pct": -34.43},
+    "total_ms":          {"before": 91.027, "after": 66.097, "delta_pct": -27.39}
+  },
+  "spreads": {
+    "baseline_total_spread_pct": 5.5,
+    "candidate_total_spread_pct": 3.6,
+    "same_binary_control_delta_pct": 2.52,
+    "note": "The 27.4% delta is far outside the ~5% arm spreads and the 2.5% same-binary control, so it is a real and large effect, not noise."
+  },
+  "critical_caveat_conflated_mechanisms": "This probe does NOT isolate per-entry heap allocation. Shortening the name simultaneously (a) removes the per-entry std::wstring heap allocation, AND (b) shrinks the serialized payload by ~13 bytes per entry (~2.6 MB total), which reduces the shared-memory page-fault count in CreateGenerationMapping/serializeWrite and the bytes copied by the client parse. A separate probe that removed names entirely (SnapshotDirectoryEntry::name.clear()) gave TOTAL 66.651 ms -- essentially the same as this SSO probe's 66.097 ms -- so the two mechanisms are of comparable magnitude and this measurement cannot separate them.",
+  "consequence": "27.39% is therefore an UPPER BOUND on the combined effect of a name-representation change. It is NOT a defensible prediction for a small-string-optimized SnapshotDirectoryEntry::name alone, because that change removes only mechanism (a) and leaves the payload byte-identical.",
+  "isolated_allocation_upper_bound_note": "From the SSO probe, the allocation-only share is at most the export improvement attributable to allocation; the publication and parse improvements are payload-size effects a small-string type would NOT reproduce. The defensible conclusion is that a small-string type would recover a real but smaller, unquantified fraction of this 27.4%.",
+  "decision": "Not implemented this session.",
+  "reason": "Implementing it requires replacing std::wstring with a small-string type in ffprotocol::SnapshotDirectoryEntry, a wire-format struct consumed by src/protocol, src/engine, src/ui and four test targets. Two conversions (std::wstring and std::wstring_view) on such a type create genuine overload-ambiguity risk at every call site, and the campaign's own rule is that correctness outranks speed. Additionally the achievable gain was not quantified in isolation, so an invasive change could not be justified as 'at least 10%' on defensible evidence alone.",
+  "next_candidate": "A small-string-optimized SnapshotDirectoryEntry::name (inline capacity >= 16 wchar_t, byte-identical wire format) is the single highest-value remaining candidate. It must be measured with a probe that isolates allocation from payload size before being retained: for example, keep every name at its full length while making the storage non-allocating."
+}

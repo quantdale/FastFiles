@@ -1,0 +1,40 @@
+{
+  "schema": "fastfiles-first-generation-substage-profile-v1",
+  "build_preset": "release-test (RelWithDebInfo, FASTFILES_RELEASE_TEST_BUILD=ON)",
+  "source_sha": "3323fcb1e1c2a79a57386a6482e932b3189655e8",
+  "tree": "clean at measurement; profile scopes added and later reverted",
+  "fixture": {"entries": 200000, "directories": 3126, "files": 199999,
+              "warmup": 5, "measured": 5, "processes": 7},
+  "instrumentation_note": "Each scope is a QueryPerformanceCounter pair, so per-call overhead (~60-80 ns) is counted twice in every child-counted row. Absolute substage totals for the 200000-iteration rows are inflated by that overhead; the RANKING is unaffected. Aggregate rows (export total, publish total) were measured with the same process and were cross-checked against the un-instrumented benchmark.",
+  "export_substage_totals_ms_per_repetition": {
+    "forEachEntryBody (whole callback, includes all of the below)": 78.4,
+    "childNameToWString (200000 calls)": 37.9,
+    "childEntryBuild (200000 calls)": 52.9,
+    "mapInsertPlusEvict (3126 calls)": 2.5,
+    "reconstructPath (3126 calls)": 5.9,
+    "toWString(pathResult) (3126 calls)": 0.28,
+    "stripVolumeRootName (3125 calls)": 0.68,
+    "fullPathConcat (3125 calls)": 0.51,
+    "childIndices (3126 calls)": 0.6
+  },
+  "publish_substage_totals_ms_per_repetition": {
+    "MergeIndexDirectories_total (includes the by-value parameter copy)": 25.3,
+    "merge::incomingVolumes": 0.12,
+    "merge::mergeIntoDirectories": 4.6,
+    "EnforceIndexedWorkingSet": 1.0,
+    "RepublishAndBroadcastGeneration": 20.6,
+    "snapshotPublish (Publish)": 20.6,
+    "SerializedSnapshotSize": 2.0,
+    "CreateFileMappingW": 0.07,
+    "MapViewOfFile": 0.007,
+    "serializeWrite(incl pagefaults)": 10.4,
+    "unmapPrev+closePrev": 3.4,
+    "broadcast": 0.02
+  },
+  "unaccounted_publish_time_ms": {
+    "note": "MergeIndexDirectories_total (25.3) includes its by-value std::map parameter copy, which is NOT inside any instrumented scope. The difference between the instrumented function total and the measured publication row is the parameter copy.",
+    "benchmark_pass_by_value_ms": 28.6,
+    "verdict": "harness defect, not product cost: every production call site passes a prvalue or std::move, so no copy exists in the product path"
+  },
+  "conclusion": "Export is dominated by per-entry std::wstring construction (childNameToWString) inside childEntryBuild. Publication's dominant real cost is SerializedSnapshotSize + serializeWrite + previous-mapping teardown."
+}
