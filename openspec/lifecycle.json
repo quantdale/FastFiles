@@ -234,6 +234,26 @@
       "taskOverrides": []
     },
     {
+      "name": "measured-performance-acceleration-and-exact-certification",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/measured-performance-acceleration-and-exact-certification/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/measured-performance-acceleration-and-exact-certification/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/measured-performance-acceleration-and-exact-certification/specs/measured-performance-and-exact-certification/spec.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
       "name": "nonblocking-indexed-read-plane",
       "state": "completed",
       "evidence": [
