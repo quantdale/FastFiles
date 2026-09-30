@@ -258,3 +258,41 @@ Commits on the overnight branch for this apply:
 - The projection's 329.2 bytes/entry, and the ~16–17 ms client snapshot parse. Neither has a same-method
   before/after showing the targeted metric is the constraint, so editing either would be a speculative edit the
   spec forbids. **Termination condition for section 5: remaining ideas speculative or harmful.**
+
+---
+
+## Post-merge re-certification of `main`
+
+`main` was advanced `ea3d64f..9e2dddc` as a non-forced fast-forward on 2026-09-30 and PR #11 was
+auto-closed as merged; the merged feature branch was deleted on both sides after. Full evidence:
+`evidence/post-merge-main-recertification.md`.
+
+Re-verified on the merged tip, all local:
+
+| Gate | Result |
+| --- | --- |
+| Local CI parity (`Invoke-CiParity.ps1`) | **11 PASS / 0 FAIL / 0 SKIP** |
+| Debug and release-test CTest | PASS |
+| Analyze build | PASS |
+| ASan slice | PASS |
+| Strict OpenSpec `--all --strict` | **89 passed, 0 failed** |
+| Hygiene: status, contracts, visual, exact-tree, release candidate | PASS |
+| End-to-end (`dev.ps1 test-e2e`) | **8 passed / 0 failed / 0 skipped**, `boundToHead=true` |
+| UIA core | **16 passed / 0 skipped / 0 failed** |
+| UIA full | **23 passed / 6 skipped / 0 failed** |
+| Visual catalog | **26 captures passed / 27 skipped-blocked / 0 failed** |
+
+Build identity is verified at the merged SHA: the debug, release-test, and analyze presets each embed
+`9e2dddc` across all five identity-bearing executables, `ffbuild_identity_binding_tests` passes, and
+E2E provenance reports `buildIdentity = 9e2dddc4bb4857ab932dd63c5bf1da8f3caa10d7`,
+`boundToHead = true`, `worktreeState = clean`.
+
+**Chronological correction.** The enterprise-shape matrix values that appear earlier in this file
+(124/124, 4/4, 6/6, 89/89, 8/8, 22-23/6/0) were measured by the apply session at the *feature-branch*
+tip and its predecessor, not on the merged `main`. The table above supersedes them for `main` itself.
+The 20/20 and 6/6 figures are historical for `6c40ab3` and remain so; this campaign measured 26
+captures on the merged tip.
+
+The first `UiaScenario=all` run failed one search scenario and did not reproduce — core passed 16/16,
+the scenario passed 3/3 alone, and the full run then passed 23/6/0 on the same binaries. That
+failure is retained in the record as an observed result rather than discarded.
