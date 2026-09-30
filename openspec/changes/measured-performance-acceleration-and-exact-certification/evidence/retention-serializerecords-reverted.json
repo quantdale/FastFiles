@@ -1,0 +1,32 @@
+{
+ "schema": "fastfiles-optimization-retention-record-v1",
+ "optimization": "Snapshot serialization: emit the per-directory and per-entry fixed wire records as one packed memcpy instead of one bounds-checked call per field (~400,000 memcpy calls instead of ~3,200,000 at 200,000 entries).",
+ "target": "First-generation delivery (publish row); SerializedSnapshotSize + SerializeSnapshotTo",
+ "baseline_sha": "69d1b61b692e8c2a17a204e7b75e048ff51d094e",
+ "candidate_sha": "69d1b61b692e8c2a17a204e7b75e048ff51d094e",
+ "benchmark": "ffengine_bench_first_generation_publish, 200,000 entries / 3,126 directories",
+ "method": "Interleaved randomized A/B in one session, 5 processes per arm, 5 warm-up + 5 measured repetitions, release-test preset, identical product SHA in both arms.",
+ "before": {
+   "TOTAL_median_ms": 91.528,
+   "TOTAL_run_medians_ms": [106.086, 91.528, 107.829, 89.804, 85.848],
+   "TOTAL_spread_pct": 24.016,
+   "publish_median_ms": 28.38
+ },
+ "after": {
+   "TOTAL_median_ms": 102.411,
+   "TOTAL_run_medians_ms": [90.801, 107.019, 104.145, 102.411, 92.653],
+   "TOTAL_spread_pct": 15.836,
+   "publish_median_ms": 30.387
+ },
+ "delta": {
+   "TOTAL_median_ms": 10.883,
+   "TOTAL_median_pct": 11.89
+ },
+ "noise_spread": "Both arms show 16-24% spread across run medians. The apparent 11.9% candidate regression is inside the union of both arms' spreads, and the candidate's own spread is the tighter of the two. Machine load during this session was high and non-stationary (multiple long-running node/IDE processes saturated the CPU), so the direction of this delta is not trustworthy.",
+ "correctness_checks": "The change was verified byte-exact before measurement: a new test pinned the packed-record layout against a hand-emitted reference buffer, SerializedSnapshotSize against the emitted byte count, negative int64 volume ids, all seven id pairs, timestamps, and the size/allocation trio. ffprotocol_tests passed with zero failures before reversion. This was a correctness-quality change, not a quantity-of-work reduction in the measured path.",
+ "memory_impact": "None: the writer already wrote directly into caller-owned storage; packing the record removed call overhead, not allocations.",
+ "cpu_impact": "Neutral-to-worse under measurement noise.",
+ "decision": "REVERT",
+ "reason": "The measured delta is smaller than the observed natural variation, so per section 1 (measure before modifying) and section 13 (statistical discipline) it cannot be claimed as a win. It also does not attack the dominant cost: profiling showed the first-generation path is dominated by per-entry std::wstring heap allocation and pointer chasing over the 200,000-entry projection, not by serialization call count. Under non-stationary host load the measurement cannot resolve a <1 ms effect. Reverted to keep the tree honest; retained as evidence that serialization call overhead is not the bottleneck.",
+ "note": "Two real non-blocking defects were found and repaired in the same file while investigating and are retained: a dead uint32_t-vs-size_t comparison in Reader::ReadWString that static analysis flagged as always-false."
+}

@@ -1,0 +1,264 @@
+{
+ "label": "pin_harnessmove",
+ "entries": 200000,
+ "load_threshold": 25,
+ "affinity": "0x1 (single logical core)",
+ "priority": "high",
+ "baseline_exe": "build\\ab\\arm_orig.exe",
+ "candidate_exe": "build\\ab\\arm_fixed.exe",
+ "order": [
+  "baseline",
+  "baseline",
+  "candidate",
+  "baseline",
+  "candidate",
+  "baseline",
+  "candidate",
+  "candidate",
+  "baseline",
+  "candidate",
+  "candidate",
+  "baseline"
+ ],
+ "runs": [
+  {
+   "rep": 1,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 20,
+   "total": 101.802
+  },
+  {
+   "rep": 2,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 25,
+   "total": 98.6725
+  },
+  {
+   "rep": 3,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 22,
+   "total": 88.4661
+  },
+  {
+   "rep": 4,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 6,
+   "total": 100.72
+  },
+  {
+   "rep": 5,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 1,
+   "total": 88.3398
+  },
+  {
+   "rep": 6,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 12,
+   "total": 97.3809
+  },
+  {
+   "rep": 7,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 6,
+   "total": 84.5673
+  },
+  {
+   "rep": 8,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 18,
+   "total": 89.4193
+  },
+  {
+   "rep": 9,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 24,
+   "total": 98.4327
+  },
+  {
+   "rep": 10,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 22,
+   "total": 87.6621
+  },
+  {
+   "rep": 11,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 25,
+   "total": 89.014
+  },
+  {
+   "rep": 12,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 21,
+   "total": 104.883
+  }
+ ],
+ "method": "interleaved randomized order, idle-gated, each repetition pinned to one logical core at high priority, 5 warm-up + 5 measured reps",
+ "baseline": {
+  "export_ms": {
+   "median_of_run_medians": 41.5611,
+   "run_medians": [
+    42.2886,
+    40.7846,
+    42.0926,
+    41.0297,
+    40.4449,
+    44.8117
+   ],
+   "spread_pct": 10.507,
+   "p90_of_runs": 45.1429,
+   "max_of_runs": 58.7705,
+   "processes": 6
+  },
+  "publication_ms": {
+   "median_of_run_medians": 41.7002,
+   "run_medians": [
+    43.49,
+    40.9809,
+    41.6299,
+    41.7706,
+    42.4913,
+    41.4973
+   ],
+   "spread_pct": 6.017,
+   "p90_of_runs": 44.1375,
+   "max_of_runs": 47.8439,
+   "processes": 6
+  },
+  "client_receive_ms": {
+   "median_of_run_medians": 0.006,
+   "run_medians": [
+    0.006,
+    0.0059,
+    0.0061,
+    0.0064,
+    0.006,
+    0.0054
+   ],
+   "spread_pct": 16.667,
+   "p90_of_runs": 0.0071,
+   "max_of_runs": 0.0189,
+   "processes": 6
+  },
+  "client_parse_ms": {
+   "median_of_run_medians": 15.9578,
+   "run_medians": [
+    15.7954,
+    16.0094,
+    16.4527,
+    15.375,
+    15.9061,
+    16.2227
+   ],
+   "spread_pct": 6.753,
+   "p90_of_runs": 16.7236,
+   "max_of_runs": 17.333,
+   "processes": 6
+  },
+  "total_ms": {
+   "median_of_run_medians": 99.6962,
+   "run_medians": [
+    101.802,
+    98.6725,
+    100.72,
+    97.3809,
+    98.4327,
+    104.883
+   ],
+   "spread_pct": 7.525,
+   "p90_of_runs": 104.869,
+   "max_of_runs": 115.973,
+   "processes": 6
+  }
+ },
+ "candidate": {
+  "export_ms": {
+   "median_of_run_medians": 41.0493,
+   "run_medians": [
+    41.3969,
+    42.541,
+    38.0264,
+    40.9873,
+    40.7114,
+    41.1113
+   ],
+   "spread_pct": 10.998,
+   "p90_of_runs": 44.1788,
+   "max_of_runs": 50.7238,
+   "processes": 6
+  },
+  "publication_ms": {
+   "median_of_run_medians": 27.3281,
+   "run_medians": [
+    27.8599,
+    26.3899,
+    26.9979,
+    28.1999,
+    26.12,
+    27.6582
+   ],
+   "spread_pct": 7.611,
+   "p90_of_runs": 28.7833,
+   "max_of_runs": 35.5408,
+   "processes": 6
+  },
+  "client_receive_ms": {
+   "median_of_run_medians": 0.0056,
+   "run_medians": [
+    0.0057,
+    0.0061,
+    0.0057,
+    0.0053,
+    0.0054,
+    0.0055
+   ],
+   "spread_pct": 14.286,
+   "p90_of_runs": 0.0064,
+   "max_of_runs": 0.0093,
+   "processes": 6
+  },
+  "client_parse_ms": {
+   "median_of_run_medians": 19.4498,
+   "run_medians": [
+    19.8513,
+    19.447,
+    19.6361,
+    19.3553,
+    19.4526,
+    19.4457
+   ],
+   "spread_pct": 2.55,
+   "p90_of_runs": 20.4406,
+   "max_of_runs": 25.7371,
+   "processes": 6
+  },
+  "total_ms": {
+   "median_of_run_medians": 88.403,
+   "run_medians": [
+    88.4661,
+    88.3398,
+    84.5673,
+    89.4193,
+    87.6621,
+    89.014
+   ],
+   "spread_pct": 5.489,
+   "p90_of_runs": 93.6859,
+   "max_of_runs": 100.026,
+   "processes": 6
+  }
+ }
+}

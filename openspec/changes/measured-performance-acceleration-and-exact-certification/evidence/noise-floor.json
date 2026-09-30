@@ -1,0 +1,24 @@
+{
+ "schema": "fastfiles-noise-floor-v1",
+ "executable": "arm_fixed.exe",
+ "rounds": 10,
+ "load_threshold": 20,
+ "entries": 200000,
+ "total_ms_run_medians": [
+  104.75,
+  89.1242,
+  88.3085,
+  88.6054,
+  93.2196,
+  99.5366,
+  101.175,
+  110.406,
+  135.004,
+  138.52
+ ],
+ "median": 100.3558,
+ "min": 88.3085,
+ "max": 138.52,
+ "run_to_run_spread_pct": 50.033,
+ "conclusion": "The same unchanged binary differs by 50.0% from run to run on this host, so no A/B delta smaller than roughly that magnitude is attributable to a code change."
+}

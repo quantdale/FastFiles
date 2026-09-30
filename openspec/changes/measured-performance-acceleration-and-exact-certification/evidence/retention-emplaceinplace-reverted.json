@@ -1,0 +1,33 @@
+{
+ "schema": "fastfiles-optimization-retention-record-v1",
+ "optimization": "Build snapshot rows in place in already-reserved vector storage (ExportDirectorySnapshotBounded's child loop, and ParseSnapshot's entry loop) instead of on the stack and then moving them in.",
+ "target": "First-generation delivery (export row and client parse row)",
+ "baseline_sha": "69d1b61b692e8c2a17a204e7b75e048ff51d094e",
+ "candidate_sha": "69d1b61b692e8c2a17a204e7b75e048ff51d094e (identical SHA in both arms)",
+ "benchmark": "ffengine_bench_first_generation_publish, 200,000 entries / 3,126 directories / 199,999 files",
+ "method": "Interleaved randomized idle-gated A/B in one session, 6 processes per arm, 5 warm-up + 5 measured repetitions, release-test preset.",
+ "before": {
+   "export_median_ms": 41.984,
+   "publish_median_ms": 28.352,
+   "TOTAL_median_ms": 96.9915,
+   "TOTAL_spread_pct": 15.243
+ },
+ "after": {
+   "export_median_ms": 41.9515,
+   "publish_median_ms": 29.343,
+   "TOTAL_median_ms": 92.8145,
+   "TOTAL_spread_pct": 11.802
+ },
+ "delta": {
+   "export_pct": -0.08,
+   "publish_pct": 3.5,
+   "TOTAL_pct": -4.31
+ },
+ "noise_spread": "Decisive evidence that the effect is below the noise floor: the SAME baseline binary was re-measured in two different idle-gated sessions and produced TOTAL median-of-run-medians of 91.799 ms and 96.992 ms -- a 5.7% difference with no code change whatsoever. The candidate's apparent -4.31% is inside that baseline-only run-to-run variation. Export moved -0.08% (no signal at all) while publish moved +3.5% against the change's intent.",
+ "correctness_checks": "ffprotocol_tests passed with zero failures and the full release-test CTest suite passed 124/124 with the change in place. No semantic change: identical field values, identical reject-whole-batch discipline.",
+ "memory_impact": "None (no allocations added or removed).",
+ "cpu_impact": "Unresolvable under noise.",
+ "decision": "REVERT",
+ "reason": "The targeted rows did not improve: export -0.08% and publish +3.5%. The one favorable row (TOTAL -4.31%) cannot be attributed to the change because the unchanged baseline binary alone varies by 5.7% between sessions on this host. Retaining a change whose measured effect is indistinguishable from a no-op run of the same binary is exactly what section 13 forbids, so it was reverted.",
+ "note": "Both call sites already reserve exact capacity, so the reserved storage was present on both sides and only the redundant 112-byte row move was removed. That move was evidently cheap relative to the real dominant cost identified by profiling: per-entry std::wstring heap allocation in the 200,000-row projection-to-snapshot conversion."
+}

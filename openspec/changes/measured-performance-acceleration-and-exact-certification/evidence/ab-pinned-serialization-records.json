@@ -1,0 +1,264 @@
+{
+ "label": "pin_serial",
+ "entries": 200000,
+ "load_threshold": 25,
+ "affinity": "0x1 (single logical core)",
+ "priority": "high",
+ "baseline_exe": "build\\ab\\arm_fixed.exe",
+ "candidate_exe": "build\\ab\\arm_serial.exe",
+ "order": [
+  "baseline",
+  "baseline",
+  "candidate",
+  "baseline",
+  "candidate",
+  "baseline",
+  "candidate",
+  "candidate",
+  "baseline",
+  "candidate",
+  "candidate",
+  "baseline"
+ ],
+ "runs": [
+  {
+   "rep": 1,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 15,
+   "total": 85.4191
+  },
+  {
+   "rep": 2,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 23,
+   "total": 90.6836
+  },
+  {
+   "rep": 3,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 25,
+   "total": 87.8843
+  },
+  {
+   "rep": 4,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 13,
+   "total": 85.6039
+  },
+  {
+   "rep": 5,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 21,
+   "total": 83.8633
+  },
+  {
+   "rep": 6,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 18,
+   "total": 86.645
+  },
+  {
+   "rep": 7,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 24,
+   "total": 84.6335
+  },
+  {
+   "rep": 8,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 8,
+   "total": 89.6709
+  },
+  {
+   "rep": 9,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 12,
+   "total": 97.9339
+  },
+  {
+   "rep": 10,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 7,
+   "total": 86.1967
+  },
+  {
+   "rep": 11,
+   "arm": "candidate",
+   "exit": 0,
+   "load": 7,
+   "total": 93.0428
+  },
+  {
+   "rep": 12,
+   "arm": "baseline",
+   "exit": 0,
+   "load": 21,
+   "total": 89.1782
+  }
+ ],
+ "method": "interleaved randomized order, idle-gated, each repetition pinned to one logical core at high priority, 5 warm-up + 5 measured reps",
+ "baseline": {
+  "export_ms": {
+   "median_of_run_medians": 39.8499,
+   "run_medians": [
+    38.3752,
+    39.8468,
+    39.2112,
+    39.8529,
+    46.5347,
+    41.5157
+   ],
+   "spread_pct": 20.476,
+   "p90_of_runs": 41.8222,
+   "max_of_runs": 59.2049,
+   "processes": 6
+  },
+  "publication_ms": {
+   "median_of_run_medians": 27.466,
+   "run_medians": [
+    26.7424,
+    27.3244,
+    26.0336,
+    27.6076,
+    29.5593,
+    28.0822
+   ],
+   "spread_pct": 12.837,
+   "p90_of_runs": 30.2627,
+   "max_of_runs": 36.803,
+   "processes": 6
+  },
+  "client_receive_ms": {
+   "median_of_run_medians": 0.0059,
+   "run_medians": [
+    0.0055,
+    0.0066,
+    0.0065,
+    0.0056,
+    0.0051,
+    0.0062
+   ],
+   "spread_pct": 25.424,
+   "p90_of_runs": 0.0073,
+   "max_of_runs": 0.0092,
+   "processes": 6
+  },
+  "client_parse_ms": {
+   "median_of_run_medians": 19.7082,
+   "run_medians": [
+    19.2333,
+    23.6066,
+    19.5544,
+    19.3713,
+    19.8621,
+    19.9689
+   ],
+   "spread_pct": 22.19,
+   "p90_of_runs": 21.7221,
+   "max_of_runs": 24.4847,
+   "processes": 6
+  },
+  "total_ms": {
+   "median_of_run_medians": 87.9116,
+   "run_medians": [
+    85.4191,
+    90.6836,
+    85.6039,
+    86.645,
+    97.9339,
+    89.1782
+   ],
+   "spread_pct": 14.236,
+   "p90_of_runs": 91.9949,
+   "max_of_runs": 115.875,
+   "processes": 6
+  }
+ },
+ "candidate": {
+  "export_ms": {
+   "median_of_run_medians": 40.8417,
+   "run_medians": [
+    41.2775,
+    40.4058,
+    38.6626,
+    44.041,
+    40.3572,
+    43.079
+   ],
+   "spread_pct": 13.169,
+   "p90_of_runs": 41.6369,
+   "max_of_runs": 48.0403,
+   "processes": 6
+  },
+  "publication_ms": {
+   "median_of_run_medians": 26.2173,
+   "run_medians": [
+    27.4327,
+    25.6531,
+    25.4814,
+    25.8452,
+    26.5894,
+    27.4362
+   ],
+   "spread_pct": 7.456,
+   "p90_of_runs": 27.952,
+   "max_of_runs": 30.8758,
+   "processes": 6
+  },
+  "client_receive_ms": {
+   "median_of_run_medians": 0.0055,
+   "run_medians": [
+    0.0056,
+    0.0061,
+    0.0054,
+    0.0055,
+    0.0055,
+    0.0062
+   ],
+   "spread_pct": 14.414,
+   "p90_of_runs": 0.0066,
+   "max_of_runs": 0.0092,
+   "processes": 6
+  },
+  "client_parse_ms": {
+   "median_of_run_medians": 19.7183,
+   "run_medians": [
+    19.3024,
+    19.6274,
+    21.644,
+    19.1826,
+    19.8091,
+    20.4855
+   ],
+   "spread_pct": 12.483,
+   "p90_of_runs": 20.5606,
+   "max_of_runs": 24.2612,
+   "processes": 6
+  },
+  "total_ms": {
+   "median_of_run_medians": 87.0405,
+   "run_medians": [
+    87.8843,
+    83.8633,
+    84.6335,
+    89.6709,
+    86.1967,
+    93.0428
+   ],
+   "spread_pct": 10.546,
+   "p90_of_runs": 90.0287,
+   "max_of_runs": 93.8372,
+   "processes": 6
+  }
+ }
+}

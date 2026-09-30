@@ -1,0 +1,9 @@
+{
+  "schema": "fastfiles-optimization-retention-record-v1",
+ "optimization": "Snapshot row construction in reserved vector storage.",
+ "decision": "REVERT",
+ "reason": "Measured inside the noise floor; the unchanged baseline binary itself differed by 5.7% between two idle-gated sessions, so no attribution was possible.",
+ "files": ["src/engine/src/IndexPipeline.cpp", "src/protocol/src/SnapshotFormat.cpp"],
+ "reverted_sha": "69d1b61b692e8c2a17a204e7b75e048ff51d094e",
+ "evidence": "build/ab/idle_emplaceplusparse.json; build/ab/idle_emplaceinplace.json; build/ab/retention_emplaceinplace_reverted.json"
+}

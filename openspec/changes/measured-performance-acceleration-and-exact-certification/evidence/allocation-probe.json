@@ -1,0 +1,39 @@
+{
+  "schema": "fastfiles-export-allocation-probe-v1",
+  "build_preset": "release-test (RelWithDebInfo, FASTFILES_RELEASE_TEST_BUILD=ON)",
+  "source_sha": "3323fcb1e1c2a79a57386a6482e932b3189655e8",
+  "fixture": {"entries": 200000, "directories": 3126, "files": 199999,
+              "warmup": 5, "measured": 5},
+  "probe_1_no_name_at_all": {
+    "change": "snapshotEntry.name.clear() instead of the projection arena name (unmodified export path)",
+    "export_ms": 26.291,
+    "publication_ms": 27.156,
+    "client_parse_ms": 13.194,
+    "total_ms": 66.651
+  },
+  "probe_2_sso_sized_names": {
+    "change": "FileName() returns a 4-5 char extension instead of 'entry_<n>.ext' (full unmodified export/serialize/parse path, same entry and directory count)",
+    "note": "isolates per-entry std::wstring heap allocation from copy/parse work",
+    "export_ms": 32.713,
+    "publication_ms": 27.674,
+    "client_parse_ms": 14.584,
+    "total_ms": 73.71
+  },
+  "baseline": {
+    "source_sha": "3323fcb1e1c2a79a57386a6482e932b3189655e8",
+    "tree": "clean, exact head",
+    "export_ms": 54.102,
+    "publication_ms": 53.609,
+    "client_receive_ms": 0.007,
+    "client_parse_ms": 20.505,
+    "total_ms": 129.329,
+    "processes": 7,
+    "run_medians_total": [130.169, 124.494, 112.837, 137.996, 129.329, 122.654, 133.283]
+  },
+  "interpretation": {
+    "export_saving_from_removing_name_work_ms": 27.811,
+    "total_saving_from_removing_name_work_ms": 62.678,
+    "percent_of_total": 48.5,
+    "conclusion": "Roughly half of the measured first-generation total is spent materializing per-entry std::wstring names out of the projection's interned name arena (SnapshotDirectoryEntry::name is a std::wstring; every Projection-name lookup allocates once when the name exceeds MSVC's 16-byte small-string buffer, which 'entry_<n>.ext' does for n >= 5 digits)."
+  }
+}

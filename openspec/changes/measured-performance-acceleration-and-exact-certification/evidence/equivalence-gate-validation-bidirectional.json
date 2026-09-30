@@ -1,0 +1,42 @@
+{
+  "schema": "fastfiles-executable-tree-equivalence-validation-v1",
+  "purpose": "Prove the certification gate is mechanically trustworthy in BOTH directions before relying on it to separate implementation from evidence commits.",
+  "gate": "verify/qualification/Test-ExecutableTreeEquivalence.ps1",
+  "method": "Run the gate against two real commit pairs from this repository: one documentation-only pair that MUST certify, and one pair containing a real compiled-source change that MUST NOT certify.",
+  "results": [
+    {
+      "case": "positive-control (docs-only pair, certification MUST carry forward)",
+      "implementationSha": "9e2dddc4bb4857ab932dd63c5bf1da8f3caa10d7",
+      "evidenceSha": "3323fcb1e1c2a79a57386a6482e932b3189655e8",
+      "what_changed_between_them": "docs/agent/WORKSTATE.md and two evidence markdown files only",
+      "digest_implementation": "24b5d16adfbde48fa4adb0f4b89b2bfe43802abc43bb11cb07a48d4b887f90c7",
+      "digest_evidence": "24b5d16adfbde48fa4adb0f4b89b2bfe43802abc43bb11cb07a48d4b887f90c7",
+      "status": "PASS",
+      "process_exit_code": 0,
+      "paths_covered": 228,
+      "translation_units": 302,
+      "build_inputs": 30
+    },
+    {
+      "case": "negative-control (compiled source changed, certification MUST NOT carry forward)",
+      "implementationSha": "3323fcb1e1c2a79a57386a6482e932b3189655e8",
+      "evidenceSha": "69d1b61b692e8c2a17a204e7b75e048ff51d094e",
+      "what_changed_between_them": "tests/engine/bench_first_generation_publish.cpp (a derived translation unit compiled into ffengine_bench_first_generation_publish)",
+      "digest_implementation": "24b5d16adfbde48fa4adb0f4b89b2bfe43802abc43bb11cb07a48d4b887f90c7",
+      "digest_evidence": "9621545c81022d840de9af295360d7de1b3c7b52f1a00b5c6ab656dfd00e2431",
+      "status": "FAIL",
+      "process_exit_code": 1,
+      "paths_with_changed_content": ["tests/engine/bench_first_generation_publish.cpp"],
+      "attribution_note": "The gate named precisely the one file that differs, with no false positives and no missed differences."
+    }
+  ],
+  "defect_found_and_fixed_during_validation": {
+    "severity": "high (a false PASS in a certification gate)",
+    "what": "The first implementation hashed only the executable-impacting PATH SET, not file content. Two revisions with the same file layout therefore always produced an identical digest.",
+    "how_it_was_caught": "Adversarial negative test. The negative control (3323fcb -> 69d1b61) reported PASS despite a real 12-line change to a compiled translation unit.",
+    "fix": "The digest now hashes '<path>\\0<git blob object id>'. A blob id is a content hash, so any content change under an unchanged path moves the digest. A new pathsWithChangedContent field reports the differing files explicitly.",
+    "post_fix_behaviour": "Negative control FAILS with exit code 1 and names the exact changed file; positive control still PASSES with exit code 0.",
+    "lesson": "A certification gate that has only been shown to pass is not a certification gate. The negative control is what makes this result trustworthy."
+  },
+  "why_this_matters": "The campaign brief (section 10) requires that a certification record can describe a certified binary without pretending the evidence commit itself was rebuilt. That is only sound if the equality check is capable of failing. It now demonstrably is."
+}
