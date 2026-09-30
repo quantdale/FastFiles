@@ -246,3 +246,97 @@ This campaign's honest result is therefore: **the measurement was made truthful
 and provable, one measurement-fidelity defect was fixed, two product
 candidates were rejected on evidence, and the single large product opportunity
 is quantified but not yet safely implementable.**
+
+---
+
+# CORRECTION (appended after adversarial review of this session)
+
+The sections above overstate the equivalence gate. They are corrected here;
+nothing above is deleted, because the record of what was claimed is itself
+evidence.
+
+## What was overstated
+
+Two claims were written before they were proven:
+
+1. *"The executable-impacting set is derived, never hand-listed: translation
+   units from `compile_commands.json`, **the recursive `#include` closure** over
+   that database's own `-I` roots, and every CMake manifest that can affect a
+   compiled output."*
+2. *"Coverage is then verified and fails closed."*
+
+## What was actually true at the time
+
+The recursive `#include` closure contributed **zero** headers. The gate covered
+228 paths, fully accounted for by 203 unique translation units plus 30 build
+inputs. 123 distinct quoted includes from `src/` translation units never entered
+the set.
+
+**A change to `src/protocol/include/ffprotocol/SnapshotFormat.h` — a wire-format
+header included by product code across the protocol, engine, and UI — was
+invisible to the gate.** Two synthetic commits differing only in that header
+were reported equivalent with exit code 0.
+
+## Root cause (quantified)
+
+CMake/MSVC emits the include flag **glued** to the path (`-ID:\Documents\...`),
+and my regex required whitespace after `-I`:
+
+| compile-database entries | matched by the old regex |
+|---:|---:|
+| glued `-I<path>` | 0 (of 297) |
+| spaced `-I <path>` | 6 |
+
+So `includeDirs` stayed empty and `Resolve-Include` resolved nothing. Two further
+defects sat behind it: include roots were absolute while tracked paths are
+repo-relative (never comparable), and unresolved quoted includes were silently
+skipped rather than treated as a coverage failure.
+
+## Why the earlier validation missed it
+
+Both controls exercised `.cpp` files. Neither exercised a header:
+
+| control | changed | result then | correct? |
+|---|---|---|---|
+| `3323fcb -> 69d1b61` | a compiled `.cpp` TU | FAIL | yes |
+| `57c5634 -> 3422284` | docs only | PASS | yes |
+| **header-only** | a `.h` | **not tested** | — |
+
+I validated "in both directions" and still missed the third case. This is the
+same lesson recorded in the original commit message — *a gate that has only been
+shown to pass is not a gate* — applied to the gate itself.
+
+## Fixes applied
+
+1. Include flags matched in **glued and spaced** form, `/I` and `-I`.
+2. Include roots normalised to repository-relative so they compare equal to
+   tracked paths.
+3. Quoted includes resolve relative to the including file first (tests use
+   `../TestSupport.h`).
+4. **An unresolved QUOTED include is now a coverage failure.** Angle includes may
+   name SDK/STL headers outside the repository and are still permitted.
+5. Generated build outputs (`build/**`) are recognised as covered by their
+   generator module instead of being counted missing.
+
+## Re-validation (all three controls)
+
+| control | changed | expected | result | exit |
+|---|---|---|---|---|
+| `9e2dddc -> 3323fcb` | docs only | PASS | **PASS** | 0 |
+| `3323fcb -> 69d1b61` | compiled `.cpp` TU | FAIL | **FAIL** | 1 |
+| synthetic header-only | `SnapshotFormat.h` | FAIL | **FAIL** | 1 |
+
+Paths covered rose **228 -> 241**, confirming the closure now contributes
+headers. The header-only failure names the exact file:
+`src/protocol/include/ffprotocol/SnapshotFormat.h`.
+
+## Honest status after the fix
+
+The gate now covers translation units, headers (transitively, fail-closed), and
+build inputs. What it still does **not** cover is the full input set a compiler
+uses: preprocessor definitions, toolset version, flags, and third-party
+artifacts outside the repository. The brief's requirement to not hard-code a
+simplistic path list is now met for *source* inputs; the equivalence relation
+is exactly `product_tree(X) == product_tree(Y)` over derived source inputs, and
+the model is explicit that a FAIL means certification must not be carried
+forward.

@@ -143,21 +143,40 @@ function Test-ExecutableManifestIsExecutable {
 }
 
 function Resolve-Include {
-    param([string] $IncludeName, [string[]] $IncludeDirs, [string[]] $Known)
-    # Ordinary quoted/angle includes resolve against the recorded -I roots.
-    $candidateRoots = @($IncludeDirs | ForEach-Object { $_.Trim('/') })
-    foreach ($root in $candidateRoots) {
-        if ([string]::IsNullOrWhiteSpace($root)) { continue }
-        $candidates = @("$($root.TrimEnd('/'))/$($IncludeName.TrimStart('/'))", "$($root.TrimEnd('/'))/$($IncludeName.TrimStart('/').TrimStart('./'))")
-        foreach ($c in $candidates) {
-            $norm = $c.Replace([string][char]92, '/').TrimStart('./')
-            if ($Known -contains $norm) { return $norm }
+    param(
+        [string] $IncludeName,
+        [string[]] $IncludeDirs,
+        [string[]] $Known,
+        [string] $FromFile,
+        [string] $RepoRootResolved
+    )
+    $bs = [string][char]92
+    $name = $IncludeName.Replace($bs, '/')
+
+    # 1. A quoted include may be relative to the including file (tests use
+    #    "../TestSupport.h"). Resolve exactly as the compiler does, first.
+    if ($name -match '^\.\.?/') {
+        $fromDir = (Split-Path $FromFile -Parent).Replace($bs, '/')
+        $base = if ([string]::IsNullOrWhiteSpace($fromDir)) { $RepoRootResolved } else { $RepoRootResolved + '/' + $fromDir }
+        try { $combined = [IO.Path]::GetFullPath((Join-Path $base $name)).Replace($bs, '/') } catch { $combined = $null }
+        if ($combined -and $combined.StartsWith($RepoRootResolved + '/')) {
+            $rel = $combined.Substring($RepoRootResolved.Length + 1)
+            if ($Known -contains $rel) { return $rel }
+            if ($rel -match '(?i)^build/') { return 'GENERATED:' + $rel }
         }
     }
-    # A build-relative include (the compile database records an absolute
-    # directory) is treated as repository-relative.
-    $repoRelative = $IncludeName.Replace([string][char]92, '/').TrimStart('./')
-    if ($Known -contains $repoRelative) { return $repoRelative }
+
+    # 2. Against every recorded include root. The caller normalises roots to
+    #    repository-relative form so they compare equal to the tracked paths.
+    foreach ($root in $IncludeDirs) {
+        if ([string]::IsNullOrWhiteSpace($root)) { continue }
+        $candidate = $root.TrimEnd('/') + '/' + $name.TrimStart('/')
+        if ($Known -contains $candidate) { return $candidate }
+        if ($candidate -match '(?i)^build/') { return 'GENERATED:' + $candidate }
+    }
+
+    # 3. Bare repository-relative fallback.
+    if ($Known -contains $name) { return $name }
     return $null
 }
 
@@ -205,8 +224,15 @@ try {
         [void]$translationUnits.Add($repoRel)
         # The -I flags are the authoritative include roots for this TU.
         $command = [string]$entry.command
-        foreach ($m in [regex]::Matches($command, '(?i)(?:^|\s)-I\s+"?([^"\s]+)"?')) {
-            [void]$includeDirs.Add($m.Groups[1].Value.Replace([string][char]92, '/'))
+        # MSVC/CMake emits the include flag GLUED to the path (-ID:\...), and
+        # may use /I as well as -I. Matching only the spaced form silently
+        # collects zero roots, which empties the header closure entirely.
+        foreach ($m in [regex]::Matches($command, '(?i)(?:^|\s)[/-]I\s*"?([^"\s]+)"?')) {
+            $root = $m.Groups[1].Value.Replace('\', '/')
+            if ($root.StartsWith($repoRootResolved + '/')) {
+                $root = $root.Substring($repoRootResolved.Length + 1)
+            }
+            if ($root -and -not $root.StartsWith('/')) { [void]$includeDirs.Add($root) }
         }
     }
 
@@ -223,6 +249,10 @@ try {
         throw "Derived translation units are absent from one of the commits: $($missingFromBoth -join ', ')"
     }
 
+    # Declared before the closure loop so an unresolved project include is a
+    # coverage failure the moment it is seen, not something the verification
+    # step later discovers is missing.
+    $coverageFailures = [System.Collections.Generic.List[string]]::new()
     # --- Derivation step 2: recursive header closure over the include roots ---
     $pending = [System.Collections.Generic.Queue[string]]::new()
     foreach ($tu in $translationUnits) { $pending.Enqueue($tu) }
@@ -239,10 +269,22 @@ try {
             continue
         }
         foreach ($m in $includeMatcher.Matches($text)) {
-            $name = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+            $isQuoted = $m.Groups[1].Success
+            $name = if ($isQuoted) { $m.Groups[1].Value } else { $m.Groups[2].Value }
             if ([string]::IsNullOrWhiteSpace($name)) { continue }
-            $resolved = Resolve-Include -IncludeName $name -IncludeDirs @($includeDirs) -Known $implementationPaths
-            if ($null -eq $resolved) { continue }
+            $resolved = Resolve-Include -IncludeName $name -IncludeDirs @($includeDirs) `
+                -Known $implementationPaths -FromFile $current -RepoRootResolved $repoRootResolved
+            if ($resolved -like 'GENERATED:*') { continue }   # build output, covered by its generator module
+            if ($null -eq $resolved) {
+                # Angle includes may legitimately name SDK/STL headers outside
+                # the repository. A QUOTED include is a project header and must
+                # resolve: silently skipping it is exactly how the closure came
+                # to cover zero headers while reporting full coverage.
+                if ($isQuoted) {
+                    [void]$coverageFailures.Add("unresolved-quoted-include: " + $current + " -> " + $name)
+                }
+                continue
+            }
             if ($executableImpacting.Add($resolved)) { $pending.Enqueue($resolved) }
         }
     }
@@ -274,7 +316,6 @@ try {
     foreach ($p in $buildInputs) { [void]$executableImpacting.Add($p) }
 
     # --- Verification step: prove the derivation is complete ---
-    $coverageFailures = [System.Collections.Generic.List[string]]::new()
     if ($translationUnits.Count -lt 1) { [void]$coverageFailures.Add('no-translation-units-derived') }
     # A CMakeLists.txt is executable-impacting only when it can affect a
     # compiled product output: the build system's own files, the product trees
