@@ -87,11 +87,33 @@
 
 ## 7. Certification workflow
 
-- [ ] 7.1 Implement the canonical executable-impacting input set and the
+- [x] 7.1 Implement the canonical executable-impacting input set and the
   `implementation_sha` / `certified_binary_sha` / `evidence_sha` /
-  `repository_tip_sha` equivalence check.
-- [ ] 7.2 Add a deterministic gate that verifies the relationship mechanically.
-- [ ] 7.3 Prove the equivalence holds for the campaign's own evidence commits.
+  `repository_tip_sha` equivalence check. The set is DERIVED, never
+  hand-listed: translation units from `compile_commands.json`, the recursive
+  `#include` closure over the `-I` roots that database records, and every
+  CMake manifest that can affect a compiled output.
+- [x] 7.2 Add a deterministic gate that verifies the relationship mechanically
+  and fails closed. The digest hashes `<path>\0<git blob id>`, so it is
+  content-sensitive. Validated in BOTH directions against real commits:
+  positive control `9e2dddc -> 3323fcb` (docs only) PASSes with exit 0;
+  negative control `3323fcb -> 69d1b61` (a compiled TU changed) FAILs with
+  exit 1 and names exactly `tests/engine/bench_first_generation_publish.cpp`.
+- [x] 7.3 Prove the equivalence holds for the campaign's own evidence commits.
+  `product_tree(69d1b61b692e) == product_tree(f55ccfe6444c)`, both digest
+  `9621545c81022d840de9af295360d7de1b3c7b52f1a00b5c6ab656dfd00e2431`.
+  This is the exact loop the campaign exists to break: the binary is
+  certified at `69d1b61`, evidence lands at `f55ccfe`, and the equality is
+  proved rather than asserted.
+
+### Defect found and fixed while validating the gate
+
+- [x] 7.4 An earlier draft hashed only the executable-impacting PATH SET, not
+  content, so any two revisions with the same file layout produced an identical
+  digest. The adversarial negative test caught it declaring PASS across a real
+  12-line change to a compiled translation unit. Fixed by hashing each path
+  with its git blob id, and by reporting `pathsWithChangedContent` explicitly.
+  A certification gate that has only been shown to pass is not a gate.
 
 ## 8. Final validation, review, delivery
 
