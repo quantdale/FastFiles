@@ -419,7 +419,17 @@ int wmain(int argc, wchar_t** argv) {
         }
 
         const auto publishStart = Clock::now();
-        bench.server->MergeIndexDirectories(directories);
+        // MergeIndexDirectories takes the snapshot map by value. Every
+        // production call site (Main.cpp, VolumeSessionManager's
+        // snapshot-ready callback) hands it a prvalue or std::move, so the
+        // real path transfers ownership instead of deep-copying 200,000
+        // SnapshotDirectoryEntry objects and their strings. Pass by move here
+        // so this benchmark measures the product path rather than a copy the
+        // product never performs (measured: ~26 ms of spurious work at 200,000
+        // entries). The exported map is not read again after this call -- the
+        // published file count is taken from the frame the client actually
+        // received.
+        bench.server->MergeIndexDirectories(std::move(directories));
         run.publicationMs = ElapsedMs(publishStart);
 
         const auto receiveStart = Clock::now();
