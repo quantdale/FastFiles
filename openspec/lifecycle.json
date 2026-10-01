@@ -278,6 +278,34 @@
       "taskOverrides": []
     },
     {
+      "name": "performance-closure-and-multisurface-acceleration",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/specs/performance-closure-and-multisurface-acceleration/spec.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/evidence/explore-findings.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
       "name": "phase8-release-readiness-convergence",
       "state": "external-evidence-only",
       "evidence": [

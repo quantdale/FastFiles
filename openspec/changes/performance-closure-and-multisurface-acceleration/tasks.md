@@ -1,0 +1,88 @@
+# Tasks
+
+## 1. Re-derive the live tip
+
+- [ ] 1.1 Re-derive branch, HEAD, `origin/main`, ahead/behind, worktrees, status, OpenSpec lifecycle, PR #12, and the latest hosted run. Record the result in `evidence/explore-findings.md` or a successor ledger if the propose-time snapshot is no longer current. Do not treat `bdd7d7b` or run `36786432149` as permanent truth.
+- [ ] 1.2 Confirm implementation commits land on `feat/performance-closure-and-multisurface-acceleration-20261001`, created from the actual main tip. Do not reuse `feat/measured-performance-acceleration-20260930` as open development state, force-push, or rewrite history.
+- [ ] 1.3 Leave `.kilo/worktrees/scythe-cloud` at `0dc3356` untouched. Do not read `verify/runs/`, `verify/baselines/`, or `verify/.signing/`.
+
+## 2. Close predecessor certification debt
+
+- [ ] 2.1 Identify and stop only campaign-owned or safely disposable processes that distort measurement. Do not kill arbitrary user work. Wait for the established benchmark idle gate.
+- [ ] 2.2 Rerun full release-test CTest on that idle host. Keep the existing 30-second assertion in `TestStopReturnsWithoutWaitingForTheSchedulerInterval`. Do not raise it, skip it, or retry until a pass appears. Use at most three idle runs to distinguish a stable pass from a stable failure. If any idle run exceeds 30 seconds, investigate the product or test before any optimization.
+- [ ] 2.3 Rerun full Debug CTest where the current certification ladder requires it, and record actual passed, failed, and skipped totals.
+- [ ] 2.4 Run Analyze warning-clean on the pre-optimization candidate and record the result. Do not inherit a historical Analyze pass.
+- [ ] 2.5 Run the authoritative ASan slice from `verify/Invoke-CiParity.ps1`: `ffprotocol_fuzz_tests`, `ffipc_framing_tests`, `ffipc_listener_lifecycle_tests`, and `ffvolumescanner_terminal_tests`. Record the exact total.
+- [ ] 2.6 Run E2E, UIA core, UIA full, visual catalog, and focused many-tabs/focus coverage on the same pre-optimization candidate. Record pass, fail, skip, and classification. Do not inherit historical UIA or visual numbers.
+- [ ] 2.7 Check predecessor tasks 6.3 and 6.4 only after 2.2–2.6 have current evidence, or leave them unchecked and record an honest unverified reason. Mark `measured-performance-acceleration-and-exact-certification` completed only when its open tasks are closed or explicitly external. Do not set `supersededBy` as a substitute for that closure.
+
+## 3. Repair stale evidence
+
+- [ ] 3.1 Add a successor interpretation record for `allocation-probe.json`. Label the short-name probe `CONFLATED ALLOCATION + PAYLOAD-SIZE EXPERIMENT`. Preserve every original measured value. Do not edit the historical numeric fields into agreement with the later report.
+- [ ] 3.2 Add a current equivalence validation artifact that preserves the historical 228-path, `.cpp`-only negative record as historical. The current record must include a documentation-only pass, a compiled `.cpp` failure that names the source, a header-only failure that names the header, an unresolved quoted-include failure, a CMake-manifest failure, and the claim boundary from design D4.
+- [ ] 3.3 Run those controls against the current gate. Synthetic commits stay in a temporary worktree and must not remain on the feature branch. An unresolved quoted project include must fail closed.
+- [ ] 3.4 Document that a passing gate proves git-controlled executable-impacting source and build-input equivalence, not reproducible binaries. Add compile-command hashing only if a control shows the current digest would falsely certify a command-line difference that matters to this campaign.
+
+## 4. Quiet-host baseline
+
+- [ ] 4.1 Rebuild `release-test` from a clean pre-optimization tree and verify embedded identity before the baseline.
+- [ ] 4.2 Measure the first-generation path with the production-faithful move, idle gate, single-core pin, high priority, and enough process-level samples. Record source SHA, tree state, preset, fixture, warm-up, repetitions, and stage medians. Do not reuse 88.403 ms or 129.329 ms as the before row.
+- [ ] 4.3 Measure the same-binary noise floor in that same session. Later retention decisions use this floor, not the historical 5–7% figure.
+
+## 5. Allocation isolation
+
+- [ ] 5.1 Add a benchmark-only isolation arm that keeps 200,000 entries, the same names, the same name lengths, the same serialized byte count, the same directory count, the same file count, and the same generation identity. Do not change the production wire format to obtain the measurement.
+- [ ] 5.2 Measure control, export-allocation-eliminated, and full-path-eliminated arms under the D5 protocol. Add the parse-eliminated arm if the full-path result cannot otherwise say which side to change. Record payload bytes, latencies, and allocation count or `unmeasured`.
+- [ ] 5.3 Decide outcome A, B, or C from design D6. A byte-count mismatch invalidates the run. A gain inside the fresh noise floor is outcome C.
+
+## 6. Name-path decision
+
+- [ ] 6.1 If outcome A, implement the smallest production change that captures the measured side, preferring direct serialization from interned or generation-owned names over a custom small-string class. Keep snapshot format version 3 unless the measured design cannot represent the same bytes, in which case incompatible peers must fail closed.
+- [ ] 6.2 If a pooled or zero-copy representation is retained, prove backing storage outlives readers across generation replacement, disconnect, teardown, and concurrent readers. ASan and focused lifetime tests must pass. Revert an unsafe speedup.
+- [ ] 6.3 Prove Unicode, mixed-case, maximum-length names, copy, move, comparison, and exact fixture output equivalence for any retained name change. Confirm no material search or unjustified memory regression.
+- [ ] 6.4 Retain the change only when the real first-generation path improves by at least 10% with margin over the fresh noise floor, or reject it with the before, after, noise, and payload evidence. Outcome B does not add an inline-string type; a separate payload-reduction arm is optional and uses the same retain-or-revert rule. Outcome C leaves production name code unchanged.
+- [ ] 6.5 Do not repeat packed serialization or in-place row construction unless a new profile shows a different dominant cost.
+
+## 7. Broad search
+
+- [ ] 7.1 After the name decision, freshly benchmark selective, moderate, broad, no-result, exact, short-prefix, mixed-case, Unicode, high-limit, and cancellation or replacement queries on the current candidate. Do not use the historical ~95 ms figure as the before row.
+- [ ] 7.2 Profile candidate acquisition, normalized-field access, matching, result construction, sorting, top-N selection, and publication. Record whether the existing filename index is on the measured broad path.
+- [ ] 7.3 Implement at most the evidence-backed candidate. Do not revive the fold-free matcher unless this profile shows an end-to-end broad-search win.
+- [ ] 7.4 Retain only a material broad-query reduction, preferably at least 10% or a meaningful absolute drop, without a material selective, Unicode, mixed-case, cancellation, or memory regression. Otherwise revert and record the rejection.
+
+## 8. Projection memory
+
+- [ ] 8.1 Remeasure projection memory on the current candidate. Decompose rows, names, normalized names, arena overhead, vector capacity, maps, secondary indexes, identifiers, path structures, allocation overhead, and padding using working-set or allocation evidence, not `sizeof` alone.
+- [ ] 8.2 Classify duplication across SQLite, the projection, `NamePool`, the filename index, the snapshot export, the UI generation, and search results as intentional, transient, or accidental.
+- [ ] 8.3 Retain a memory change only when it saves a material fraction at realistic scale, preferably at least 10%, without materially worsening search, navigation, indexing, startup, or reconciliation. Removing a useful index that makes search materially slower is not by itself a win. Otherwise reject and record the tradeoff.
+
+## 9. User-visible behavior and the search flake
+
+- [ ] 9.1 After any retained engine or search change, check navigation-to-ready, search-input-to-visible-results, tab-switch-to-ready, Home-to-ready, and large-directory-to-ready where practical. Do not turn those checks into a brittle wall-clock gate. If a check cannot be run, say so.
+- [ ] 9.2 Attempt to reproduce `search-deep-result-navigation` (`alpha` not accepted, observed empty on AutomationId 7101) with repeated focused trials and an aggregate run.
+- [ ] 9.3 Investigate readiness, UIA cache staleness, focus transfer, text and value patterns, foreground state, control recreation, typing versus direct value set, and event synchronization. Instrument the harness only as far as that distinction requires.
+- [ ] 9.4 Fix a deterministic harness defect in the harness, or a deterministic product race in the product. If the matrix does not reproduce it, record `UNREPRODUCED / OBSERVED FLAKE` and keep the historical failure.
+
+## 10. Adversarial review
+
+- [ ] 10.1 Reviewer A tries to prove each claimed speedup is noise, using the fresh same-binary floor and payload-identity precondition.
+- [ ] 10.2 Reviewer B attacks name ownership, dangling views, generation replacement, disconnect, and teardown.
+- [ ] 10.3 Reviewer C challenges Unicode, mixed case, result limits, sorting, and cancellation.
+- [ ] 10.4 Reviewer D checks whether a memory win hides a latency or CPU regression.
+- [ ] 10.5 Reviewer E attacks the equivalence gate with `.cpp`, header, nested-header, CMake, unresolved-include, and added or deleted source inputs.
+- [ ] 10.6 Reviewer F compares tasks, lifecycle, workstate, GitHub, PR state, tests, and benchmark records. Fix every material reproduced finding.
+
+## 11. Final certification
+
+- [ ] 11.1 Commit the last retained production edit, or the last rejection if none is retained. Record `IMPLEMENTATION_SHA`. Rebuild cleanly so identity-bearing binaries embed that SHA.
+- [ ] 11.2 Run Debug CTest, release-test CTest, Analyze, the authoritative ASan slice, strict OpenSpec, provenance, governance, project status, doc drift, repository hygiene, release-candidate qualification, and local CI parity. Use actual registered totals. No historical reuse.
+- [ ] 11.3 Rerun E2E, UIA core, UIA full, visual catalog, and the performance matrix on that implementation candidate. Record honest skips separately from passes.
+- [ ] 11.4 If evidence commits move the tip, run the corrected equivalence gate between `IMPLEMENTATION_SHA` and the evidence tip. Record implementation SHA, binary-embedded SHA, evidence SHA, digest, and verdict. Do not open another certify-then-document loop after that relationship is proved.
+- [ ] 11.5 Update `docs/agent/WORKSTATE.md` from live reconciliation. Supersede the stale `main = 9e2dddc` and "no local action" checkpoint. Preserve it as history. Do not embed the SHA of the workstate commit itself.
+
+## 12. Reviewable handoff
+
+- [ ] 12.1 Write the final report with sections A–M from the campaign brief: repository truth, certification counts, flake result, equivalence controls, allocation isolation, name decision, search decision, memory decision, user-visible effect, reverted ideas, SHA relationship, hosted CI, and remaining work.
+- [ ] 12.2 Push the feature branch without force. Open one reviewable pull request. Do not merge it. Set `MERGE_ELIGIBLE` to YES or NO with exact reasons.
+- [ ] 12.3 Inspect hosted CI once for the final candidate or evidence tip. If jobs fail before any step, classify `HOSTED_CI = BLOCKED_EXTERNAL` and do not rerun or change billing. If jobs execute and fail for a repository reason, fix that failure.
+- [ ] 12.4 Leave production signing, clean-host install, elevated MFT/USN, the raw-volume completion bound, the physical display matrix, and guest/provider work external. Do not check predecessor tasks 5.4 or 2.3. Continue only if another measured, material, locally executable candidate is already concrete; do not invent speculative work to extend the campaign.
