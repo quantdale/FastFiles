@@ -83,3 +83,7 @@ Those are apply measurements. The proposal routes them; it does not pre-answer t
 Successor change: `performance-closure-and-multisurface-acceleration`.
 Predecessor stays `active` until its own open tasks are closed or explicitly unverified.
 No product source change belongs in the propose commit.
+
+## Apply-time correction — 2026-10-01 planning repair
+
+The "Proposal consequence" line above ("Predecessor stays `active` until its own open tasks are closed or explicitly unverified") is the propose-time wording and is preserved as history. The reviewed planning repair superseded it: a locally executable failed or unrun gate remains open and blocks production optimization; only current successful local results or an evidenced, genuinely external classification close the predecessor's debt. The corrected contract lives in the change's `proposal.md`, `specs/performance-closure-and-multisurface-acceleration/spec.md`, `design.md`, and `tasks.md` (task 2.7), repaired and re-reviewed before any production optimization per `APPLY_PROMPT.md` section 2.

@@ -8,14 +8,14 @@ Close the unfinished measured-performance certification truthfully, then keep a 
 
 ### Requirement: Predecessor certification debt is closed before product optimization
 
-The campaign SHALL NOT change production file-manager behavior until the predecessor campaign's open certification tasks have been rerun on the candidate under test, or have been recorded as unverified with the exact command, count, and reason.
+The campaign SHALL NOT change production file-manager behavior until the predecessor campaign's open certification tasks have current successful results on the candidate under test, or an evidenced, genuinely external classification with the exact command, count, and reason. A locally executable gate that has failed or has not been run remains open: it blocks production optimization, and recording its failed result does not close it. Investigation and necessary defect repair may proceed while such a gate is open; a performance change that bypasses the gate may not. The predecessor change MAY be marked completed only after its open debt is closed or honestly external, its stale evidence is corrected, repository truth is reconciled, and current-state validation is recorded.
 
 The rerun SHALL use the existing assertions. The campaign MUST NOT raise a fixed wall-clock limit, convert a failing lifecycle test to a skip, or repeat a run until a pass appears.
 
 #### Scenario: Quiet-host certification precedes optimization
 
 - **WHEN** the successor campaign begins product-performance work
-- **THEN** the predecessor's open analysis, sanitizer, end-to-end, accessibility, and visual tasks have a current result recorded against the candidate
+- **THEN** the predecessor's open analysis, sanitizer, end-to-end, accessibility, and visual tasks have current passing results recorded against the candidate, or an evidenced genuinely-external classification
 - **AND** a load-sensitive lifecycle test has been rerun on a host that meets the established idle gate, or its idle-host failure is recorded as a real defect under investigation
 
 #### Scenario: A wall-clock assertion is not relaxed to obtain green
@@ -92,9 +92,16 @@ Both arms SHALL be compared with the campaign's idle-gated, core-pinned, high-pr
 - **THEN** no production name-representation change is retained from that experiment
 - **AND** the rejection records the before, after, noise floor, and payload byte counts
 
+#### Scenario: Outcome B triggers a mandatory measured payload investigation
+
+- **WHEN** the isolated experiment shows payload size accounts for most of the historical gain
+- **THEN** the campaign investigates a separate wire-format or payload-reduction candidate and records a measured retention or rejection decision, or a concrete blocker
+- **AND** the investigation is not dropped as optional
+- **AND** no inline-string class is added and no format change is retained without evidence
+
 ### Requirement: A production performance change is retained only when it beats noise
 
-The campaign SHALL retain a production change only when the targeted user-visible metric improves beyond the freshly measured same-binary variation, the output remains equivalent for the same fixture, and the change does not introduce a material regression in correctness, common selective search, or memory unless the regression is explicitly justified by a larger measured user-visible win.
+The campaign SHALL retain a production change only when the targeted user-visible metric improves beyond the freshly measured same-binary variation, the output remains equivalent for the same fixture, the change introduces no correctness regression, and the change introduces no material regression in common selective search. Correctness and common selective-search protections are unconditional: no measured win, however large, may justify a correctness regression or a material common-selective-search regression. Only a specifically justified, measured memory tradeoff may use an exception to the general regression rule, and that tradeoff must still satisfy the memory surface's acceptance rule.
 
 A strong success target for the real first-generation path is at least a 10 percent improvement with a clear margin above same-binary variation. That target MUST NOT be replaced by a historical upper bound from a conflated probe. A candidate inside the noise floor SHALL be reverted and recorded.
 
@@ -116,6 +123,8 @@ Packed snapshot serialization and in-place row construction MUST NOT be repeated
 
 If a retained name optimization avoids per-entry owning strings by referencing pooled or mapped storage, that storage SHALL outlive every reader. Publication of a replacement generation, client disconnect, and teardown MUST NOT leave a reader with a dangling name view. Concurrent readers MUST NOT observe freed storage. The campaign SHALL prove those bounds with sanitizer and focused lifetime tests before retaining the optimization.
 
+Teardown and resource retention SHALL also be bounded. The focused lifetime tests MUST cover stalled readers, repeated generation replacement, client disconnect, publisher teardown, and concurrent readers. Shutdown MUST NOT wait indefinitely for a reader, and the engine MUST NOT retain every old generation. The existing ownership contract in `src/engine/src/SnapshotPublisher.h` — the engine keeps only the current mapping while a client that still holds an independently-held mapping can finish reading it safely — MUST be preserved. These guarantees do not authorize claiming that the separate privileged raw-I/O completion bound is solved.
+
 A name representation SHALL accept Unicode names, mixed-case comparison, and pathological maximum-length names. It MUST NOT change wire-format compatibility unless the measured design requires it and both peers reject an incompatible snapshot rather than parsing it as a different layout.
 
 #### Scenario: Generation replacement does not dangle a reader
@@ -130,6 +139,12 @@ A name representation SHALL accept Unicode names, mixed-case comparison, and pat
 - **THEN** export, publication, and parse preserve that name
 - **AND** search comparison remains case-correct for mixed-case and non-ASCII names
 
+#### Scenario: Teardown is bounded and old generations are not retained
+
+- **WHEN** a stalled reader holds an old generation while generations are repeatedly replaced, or the publisher shuts down or a client disconnects
+- **THEN** teardown completes without waiting indefinitely for the reader and the engine does not retain every replaced generation
+- **AND** a stalled or concurrent reader observes valid storage or a defined unavailable result, never freed storage
+
 ### Requirement: Broad search is freshly profiled before a matcher change
 
 After the name-path candidate is retained or rejected, the campaign SHALL measure selective, moderate, broad, no-result, exact, short-prefix, mixed-case, Unicode, high-limit, and cancellation or replacement queries on the current candidate. It MUST profile candidate acquisition, normalized-field access, matching, result construction, sorting, top-N selection, and publication before selecting a search optimization.
@@ -140,7 +155,7 @@ A broad-search change SHALL be retained only when broad-query latency has a mate
 
 - **WHEN** a search candidate reduces broad-query latency
 - **AND** common selective-query latency regresses materially
-- **THEN** the candidate is not retained unless the tradeoff is explicitly rejected by the acceptance rule
+- **THEN** the candidate is not retained, regardless of the broad-query speedup
 - **AND** the selective before and after are recorded
 
 #### Scenario: Cancellation remains bounded
@@ -194,7 +209,7 @@ A deterministic harness defect SHALL be fixed in the harness. A deterministic pr
 
 After the last retained production edit, the campaign SHALL establish an implementation revision, rebuild cleanly, and run the local certification ladder against that revision using actual registered totals. Historical pass counts MUST NOT be reused.
 
-If a later evidence revision differs from the implementation revision, the campaign SHALL run the corrected equivalence gate and record the implementation revision, the binary-embedded revision, the evidence revision, the executable-impacting digest, and the verdict. The campaign MUST NOT create an unbounded certify-then-document loop. A final report MAY name a certified implementation revision and a separate evidence tip when that relationship is mechanically established.
+If a later evidence revision differs from the implementation revision, the campaign SHALL run the corrected equivalence gate and record the implementation revision, the binary-embedded revision, the evidence revision, the repository tip revision, the executable-impacting digest, and the verdict. The gate SHALL run after the final tracked documentation, task, and report commit so the checked relationship ends at the actual final tracked tip; any subsequent tracked commit, including a checkbox, report, or workstate edit, requires another gate run. The campaign MUST NOT write a tracked annotation merely to embed the final gate invocation: the final live tip and verdict belong in a generated artifact, the pull request body, or the session response outside the checked commit. The campaign MUST NOT create an unbounded certify-then-document loop. A final report MAY name a certified implementation revision and a separate evidence tip when that relationship is mechanically established.
 
 Local validation MUST NOT be reported as hosted certification. Hosted CI for the final candidate or evidence tip SHALL be inspected once. If jobs fail before executing any step, the classification SHALL be externally blocked, and the campaign MUST NOT repeatedly rerun them or change billing. External signing, clean-host, elevated volume, physical-display, and guest boundaries MUST remain open when their evidence is absent.
 

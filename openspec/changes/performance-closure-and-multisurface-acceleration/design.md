@@ -32,7 +32,7 @@ The first-generation benchmark must keep measuring that production path. A bench
 
 **Goals:**
 
-- Make the predecessor's open certification results current, or explicitly unverified, before any production edit.
+- Make the predecessor's open certification results currently passing, or honestly external with evidence, before any production edit. A locally executable failed or unrun gate stays open and blocks production optimization; investigation and necessary defect repair may still proceed.
 - Make the equivalence and allocation records match what the code and later report already concluded.
 - Answer the allocation question with payload held constant, then keep or reject each concrete successor from a fresh profile.
 
@@ -125,13 +125,13 @@ Prefer, in order:
 
 Do not start with "replace `std::wstring` with a custom SSO class." Avoid a wire-format version bump. Snapshot format version stays 3, and `IsSnapshotFormatCompatible` still fails closed on a mismatch, unless the measured design cannot represent the same bytes. Both peers ship together; there is no cross-version reader to preserve beyond that fail-closed check. Foundation D1–D6 are unchanged: no new command, no open-path primitive, no `$DATA` forwarding.
 
-**Outcome B, the conflated gain disappears once payload size is constant:** do not add an inline-string type. A separate payload-reduction candidate is allowed inside this change only as another measured arm, with the same retain/revert rule. It is not a required product edit.
+**Outcome B, the conflated gain disappears once payload size is constant:** do not add an inline-string type. When payload size accounts for most of the historical gain, the campaign investigates a separate wire-format/payload-reduction candidate as its own measured arm, with the same retain/revert rule, and records a measured retention/rejection decision or a concrete blocker. That investigation is mandatory and MUST NOT be dropped as optional, but it does not force a product edit: a documented, evidence-backed rejection or a concrete recorded blocker satisfies it, and no format change is retained without evidence.
 
 **Outcome C, isolated gain inside noise:** reject the representation change and continue to broad search.
 
-**Lifetime, if any non-owning or pooled view is retained:** backing storage outlives readers; generation replacement either keeps the old storage alive until readers finish or returns a defined unavailable result; disconnect and teardown do not leave a view; concurrent readers do not observe freed storage. Prove it with ASan and focused lifetime tests. An unsafe zero-copy result is reverted even if it is faster.
+**Lifetime, if any non-owning or pooled view is retained:** backing storage outlives readers; generation replacement either keeps the old storage alive until readers finish or returns a defined unavailable result; disconnect and teardown do not leave a view; concurrent readers do not observe freed storage. Prove it with ASan and focused lifetime tests. Bounded teardown and resource retention are part of the same proof: cover stalled readers, repeated generation replacement, disconnect, publisher teardown, and concurrent readers; shutdown must not wait indefinitely for a reader, and the engine must not retain every old generation. The current-mapping / independently-held-client-mapping contract in `src/engine/src/SnapshotPublisher.h` is preserved, not weakened. None of this claims the separate privileged raw-I/O completion bound is solved. An unsafe zero-copy result is reverted even if it is faster.
 
-**Acceptance if a production change is kept:** same method, same payload semantics, exact output equivalence for the fixture, no correctness regression, no material search regression, and no memory regression unless explicitly justified. The strong target is at least 10% on the real first-generation path, with margin over the fresh same-binary spread. The 27.39% ceiling is not the expected result.
+**Acceptance if a production change is kept:** same method, same payload semantics, exact output equivalence for the fixture, no correctness regression, and no material common selective-search regression — both unconditional, not tradeable for any measured win. Only a specifically justified, measured memory tradeoff may use the general exception, and it must still satisfy the memory acceptance rule. The strong target is at least 10% on the real first-generation path, with margin over the fresh same-binary spread; 10% is a strong target, not an accidental hard floor — retention requires a meaningful real-path gain clearly above the fresh same-binary noise floor. The 27.39% ceiling is not the expected result.
 
 **Trade-off:** The campaign can reject the largest historical opportunity. That rejection is a successful outcome.
 
@@ -189,7 +189,7 @@ Retain a search change only for a material broad-query reduction, preferably at 
 - [Isolation arm accidentally shortens names or changes byte count] -> The run is invalid. Do not interpret it as outcome A, B, or C.
 - [Zero-copy parse is faster and use-after-free] -> ASan failure reverts it. Speed does not override lifetime.
 - [Equivalence synthetic commits escape onto the pushed branch] -> Controls run in a temporary worktree and the feature branch history is inspected before push.
-- [Two active changes confuse the frontier] -> The predecessor entry stays active only while 6.3/6.4 are open. This change's first apply slice closes or explicitly unverifies them and only then marks the predecessor completed, with evidence.
+- [Two active changes confuse the frontier] -> The predecessor entry stays active only while 6.3/6.4 are open. This change's first apply slice closes them with current passing results or classifies them honestly external with evidence, and only then marks the predecessor completed — after stale evidence is corrected, repository truth is reconciled, and current-state validation is recorded. A locally executable failed or unrun gate stays open and blocks production optimization; recording its failed result does not close it.
 - [A memory win deletes a useful filename index] -> The search before/after is part of the retention rule, not a follow-up.
 - [Hosted jobs start executing on a later push and fail for a repository reason] -> Fix the repository failure. Do not classify an executed failure as the old zero-step block.
 
@@ -200,7 +200,7 @@ Retain a search change only for a material broad-query reduction, preferably at 
 3. Evidence corrections land before production edits, in their own commit.
 4. The allocation experiment lands before any name-representation production commit.
 5. Each retained optimization is its own commit. Each rejection is an evidence commit with the candidate absent from the tree.
-6. After the implementation SHA, rebuild and certify. Evidence commits after that SHA require a passing equivalence result and then stop.
+6. After the implementation SHA, rebuild and certify. Commit the remaining evidence, task updates, the final report, and WORKSTATE, then run the equivalence gate from the implementation SHA to the actual final tracked tip; any later tracked commit, even a checkbox or workstate edit, requires another run, and the final live tip/verdict is recorded outside the checked commit (generated artifact, PR body, or session response).
 7. Push the feature branch without force, open one PR, inspect hosted CI once, and do not merge.
 8. Rollback of a retained optimization is `git revert` of that slice, not a reset. A failed measurement is reverted before the next candidate.
 

@@ -4,10 +4,10 @@
 
 ## What Changes
 
-- Finish the predecessor's open certification debt on a quiet host before any production optimization. Do not raise the 30-second Start/Stop assertion, convert it to a skip, or retry it until a lucky pass appears.
+- Finish the predecessor's open certification debt on a quiet host before any production optimization. Do not raise the 30-second Start/Stop assertion, convert it to a skip, or retry it until a lucky pass appears. A locally executable failed or unrun gate stays open and blocks production optimization; recording its failed result does not close it. Investigation and necessary defect repair may proceed; a performance change that bypasses the gate may not.
 - Correct stale machine-readable evidence without rewriting measured numbers. Mark the short-name probe as a conflated allocation-plus-payload experiment, and replace the pre-fix equivalence record with a versioned current validation that preserves the historical row.
 - Re-prove `Test-ExecutableTreeEquivalence.ps1` with documentation, compiled `.cpp`, header-only, unresolved quoted-include, and CMake controls. The claim is git-controlled executable-impacting source and build-input equivalence, not a reproducible binary.
-- Run a benchmark-only allocation-isolation experiment that keeps names, name lengths, serialized bytes, counts, and generation identity constant. Enter a production name-representation design only if that isolated gain clearly exceeds the freshly measured noise floor.
+- Run a benchmark-only allocation-isolation experiment that keeps names, name lengths, serialized bytes, counts, and generation identity constant. Enter a production name-representation design only if that isolated gain clearly exceeds the freshly measured noise floor. If payload size accounts for most of the historical gain, investigate a separate wire-format/payload-reduction candidate and record a measured retention/rejection decision or a concrete blocker — that investigation is not optional, adds no inline-string class, and forces no format change without evidence. Any retained pooled or zero-copy name representation must also prove bounded teardown and resource retention (stalled readers, repeated generation replacement, disconnect, teardown, concurrent readers) under the existing `SnapshotPublisher` current-mapping ownership contract.
 - After that decision, freshly profile broad search and projection memory. Retain a change only when it improves the targeted metric without a material regression; otherwise record an evidence-backed rejection. Do not repeat packed serialization, in-place row construction, or the fold-free matcher without new end-to-end evidence.
 - Attempt the `search-deep-result-navigation` flake with a defensible trial matrix. Fix a deterministic harness or product defect; otherwise keep `UNREPRODUCED / OBSERVED FLAKE`.
 - Land the work on `feat/performance-closure-and-multisurface-acceleration-20261001` and, at apply time, a reviewable pull request. Do not merge it from this campaign.
@@ -33,7 +33,7 @@
 ## Goals
 
 - A reader can distinguish the merged-but-unfinished predecessor from this successor, with live SHA, PR, hosted-run, and open-task evidence named.
-- Certification debt is closed with current counts, or left explicitly unverified. Stale evidence is corrected without fabricating agreement between numbers.
+- Certification debt is closed with current counts, or left honestly external with evidence. Stale evidence is corrected without fabricating agreement between numbers. A locally executable failed or unrun gate remains open.
 - At least one real product-performance improvement is retained, or each concrete high-value candidate is measured and legitimately rejected.
 - The final pull request is reviewable and not auto-merged.
 
