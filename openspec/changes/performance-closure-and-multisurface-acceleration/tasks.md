@@ -14,7 +14,7 @@
 - [x] 2.4 Run Analyze warning-clean on the pre-optimization candidate and record the result. Do not inherit a historical Analyze pass.
 - [x] 2.5 Run the authoritative ASan slice from `verify/Invoke-CiParity.ps1`: `ffprotocol_fuzz_tests`, `ffipc_framing_tests`, `ffipc_listener_lifecycle_tests`, and `ffvolumescanner_terminal_tests`. Record the exact total.
 - [x] 2.6 Run E2E, UIA core, UIA full, visual catalog, and focused many-tabs/focus coverage on the same pre-optimization candidate. Record pass, fail, skip, and classification. Do not inherit historical UIA or visual numbers.
-- [ ] 2.7 Check predecessor tasks 6.3 and 6.4 only after 2.2–2.6 have current passing evidence, or record an honest unverified reason only when the gate is genuinely external with evidence. A locally executable failed or unrun gate stays open and blocks production optimization; do not mark a task complete merely because its failed result was recorded. Mark `measured-performance-acceleration-and-exact-certification` completed only when its open tasks are closed or honestly external, its stale evidence is corrected, repository truth is reconciled, and current-state validation is recorded. Do not set `supersededBy` as a substitute for that closure.
+- [x] 2.7 Check predecessor tasks 6.3 and 6.4 only after 2.2–2.6 have current passing evidence, or record an honest unverified reason only when the gate is genuinely external with evidence. A locally executable failed or unrun gate stays open and blocks production optimization; do not mark a task complete merely because its failed result was recorded. Mark `measured-performance-acceleration-and-exact-certification` completed only when its open tasks are closed or honestly external, its stale evidence is corrected, repository truth is reconciled, and current-state validation is recorded. Do not set `supersededBy` as a substitute for that closure.
 
 ## 3. Repair stale evidence
 
@@ -53,7 +53,7 @@
 ## 8. Projection memory
 
 - [ ] 8.1 Remeasure projection memory on the current candidate. Decompose rows, names, normalized names, arena overhead, vector capacity, maps, secondary indexes, identifiers, path structures, allocation overhead, and padding using working-set or allocation evidence, not `sizeof` alone.
-- [ ] 8.2 Classify duplication across SQLite, the projection, `NamePool`, the filename index, the snapshot export, the UI generation, and search results as intentional, transient, or accidental.
+- [x] 8.2 Classify duplication across SQLite, the projection, `NamePool`, the filename index, the snapshot export, the UI generation, and search results as intentional, transient, or accidental.
 - [ ] 8.3 Retain a memory change only when it saves a material fraction at realistic scale, preferably at least 10%, without materially worsening search, navigation, indexing, startup, or reconciliation. Removing a useful index that makes search materially slower is not by itself a win. Otherwise reject and record the tradeoff.
 
 ## 9. User-visible behavior and the search flake
