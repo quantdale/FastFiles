@@ -2,9 +2,9 @@
 
 ## 1. Re-derive the live tip
 
-- [ ] 1.1 Re-derive branch, HEAD, `origin/main`, ahead/behind, worktrees, status, OpenSpec lifecycle, PR #12, and the latest hosted run. Record the result in `evidence/explore-findings.md` or a successor ledger if the propose-time snapshot is no longer current. Do not treat `bdd7d7b` or run `36786432149` as permanent truth.
-- [ ] 1.2 Confirm implementation commits land on `feat/performance-closure-and-multisurface-acceleration-20261001`, created from the actual main tip. Do not reuse `feat/measured-performance-acceleration-20260930` as open development state, force-push, or rewrite history.
-- [ ] 1.3 Leave `.kilo/worktrees/scythe-cloud` at `0dc3356` untouched. Do not read `verify/runs/`, `verify/baselines/`, or `verify/.signing/`.
+- [x] 1.1 Re-derive branch, HEAD, `origin/main`, ahead/behind, worktrees, status, OpenSpec lifecycle, PR #12, and the latest hosted run. Record the result in `evidence/explore-findings.md` or a successor ledger if the propose-time snapshot is no longer current. Do not treat `bdd7d7b` or run `36786432149` as permanent truth.
+- [x] 1.2 Confirm implementation commits land on `feat/performance-closure-and-multisurface-acceleration-20261001`, created from the actual main tip. Do not reuse `feat/measured-performance-acceleration-20260930` as open development state, force-push, or rewrite history.
+- [x] 1.3 Leave `.kilo/worktrees/scythe-cloud` at `0dc3356` untouched. Do not read `verify/runs/`, `verify/baselines/`, or `verify/.signing/`.
 
 ## 2. Close predecessor certification debt
 
@@ -18,10 +18,10 @@
 
 ## 3. Repair stale evidence
 
-- [ ] 3.1 Add a successor interpretation record for `allocation-probe.json`. Label the short-name probe `CONFLATED ALLOCATION + PAYLOAD-SIZE EXPERIMENT`. Preserve every original measured value. Do not edit the historical numeric fields into agreement with the later report.
-- [ ] 3.2 Add a current equivalence validation artifact that preserves the historical 228-path, `.cpp`-only negative record as historical. The current record must include a documentation-only pass, a compiled `.cpp` failure that names the source, a header-only failure that names the header, an unresolved quoted-include failure, a CMake-manifest failure, and the claim boundary from design D4.
-- [ ] 3.3 Run those controls against the current gate. Synthetic commits stay in a temporary worktree and must not remain on the feature branch. An unresolved quoted project include must fail closed.
-- [ ] 3.4 Document that a passing gate proves git-controlled executable-impacting source and build-input equivalence, not reproducible binaries. Add compile-command hashing only if a control shows the current digest would falsely certify a command-line difference that matters to this campaign.
+- [x] 3.1 Add a successor interpretation record for `allocation-probe.json`. Label the short-name probe `CONFLATED ALLOCATION + PAYLOAD-SIZE EXPERIMENT`. Preserve every original measured value. Do not edit the historical numeric fields into agreement with the later report.
+- [x] 3.2 Add a current equivalence validation artifact that preserves the historical 228-path, `.cpp`-only negative record as historical. The current record must include a documentation-only pass, a compiled `.cpp` failure that names the source, a header-only failure that names the header, an unresolved quoted-include failure, a CMake-manifest failure, and the claim boundary from design D4.
+- [x] 3.3 Run those controls against the current gate. Synthetic commits stay in a temporary worktree and must not remain on the feature branch. An unresolved quoted project include must fail closed.
+- [x] 3.4 Document that a passing gate proves git-controlled executable-impacting source and build-input equivalence, not reproducible binaries. Add compile-command hashing only if a control shows the current digest would falsely certify a command-line difference that matters to this campaign.
 
 ## 4. Quiet-host baseline
 

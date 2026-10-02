@@ -1,0 +1,56 @@
+{
+  "schema": "fastfiles-allocation-probe-interpretation-v2",
+  "kind": "successor-interpretation-record",
+  "date": "2026-10-02",
+  "supersedes_interpretation_of": "openspec/changes/measured-performance-acceleration-and-exact-certification/evidence/allocation-probe.json",
+  "historical_file_edited": false,
+  "preservation_rule": "Every original measured value below is reproduced verbatim as a citation. The historical file is byte-identical and remains the authoritative record of what was measured. No numeric field is edited into agreement with any later report.",
+  "correction": {
+    "false_claim_in_historical_record": "probe_2_sso_sized_names.note: 'isolates per-entry std::wstring heap allocation from copy/parse work'",
+    "why_false": "The short-name probe simultaneously (1) removed per-entry std::wstring heap allocation, (2) shortened the serialized payload by roughly 2.6 MB, (3) reduced shared-memory/page-fault work in CreateGenerationMapping/serializeWrite, and (4) reduced bytes copied on client parse. probe_1_no_name_at_all (66.651 ms total) is essentially as fast as probe_2 (73.71 ms total), so the two mechanisms are comparable in magnitude and this probe cannot separate them.",
+    "also_false": "interpretation.conclusion ('Roughly half of the measured first-generation total is spent materializing per-entry std::wstring names') is an over-attribution: the 62.678 ms figure combines allocation removal with payload/page-fault/parse reduction and cannot be assigned to name materialization alone.",
+    "correct_label": "CONFLATED ALLOCATION + PAYLOAD-SIZE EXPERIMENT",
+    "applies_to": ["probe_2_sso_sized_names", "probe_1_no_name_at_all"]
+  },
+  "cited_original_values_verbatim": {
+    "probe_1_no_name_at_all": {
+      "change": "snapshotEntry.name.clear() instead of the projection arena name (unmodified export path)",
+      "export_ms": 26.291,
+      "publication_ms": 27.156,
+      "client_parse_ms": 13.194,
+      "total_ms": 66.651
+    },
+    "probe_2_sso_sized_names": {
+      "change": "FileName() returns a 4-5 char extension instead of 'entry_<n>.ext' (full unmodified export/serialize/parse path, same entry and directory count)",
+      "export_ms": 32.713,
+      "publication_ms": 27.674,
+      "client_parse_ms": 14.584,
+      "total_ms": 73.71
+    },
+    "baseline": {
+      "source_sha": "3323fcb1e1c2a79a57386a6482e932b3189655e8",
+      "export_ms": 54.102,
+      "publication_ms": 53.609,
+      "client_receive_ms": 0.007,
+      "client_parse_ms": 20.505,
+      "total_ms": 129.329,
+      "processes": 7
+    },
+    "interpretation_verbatim": {
+      "export_saving_from_removing_name_work_ms": 27.811,
+      "total_saving_from_removing_name_work_ms": 62.678,
+      "percent_of_total": 48.5
+    }
+  },
+  "later_pinned_measurement_reference": {
+    "record": "openspec/changes/measured-performance-acceleration-and-exact-certification/evidence/ab-pinned-name-representation-ceiling.json",
+    "label": "pin_sso",
+    "method": "interleaved randomized order, idle-gated, each repetition pinned to one logical core at high priority, 5 warm-up + 5 measured reps",
+    "baseline_total_median_of_run_medians_ms": 91.0274,
+    "candidate_total_median_of_run_medians_ms": 66.097,
+    "reported_ceiling_pct": 27.39,
+    "status": "upper bound on the COMBINED effect (allocation removal + payload-size reduction), NOT an allocation-only speedup and NOT an expected retained gain for any production name representation",
+    "note": "These numbers belong to a different run than allocation-probe.json (pinned, after the harness move repair). The two runs are not averaged and not reconciled numerically; they measure different conditions. Both are preserved as measured."
+  },
+  "campaign_consequence": "The allocation-only question is answered by this change's tasks 5.1-5.3 (constant-payload isolation experiment), not by this record. Per spec requirement 'Allocation cost is isolated before a name-representation change', a gain inside the fresh same-binary noise floor is outcome C and no production name-representation change may be retained from the conflated probe."
+}

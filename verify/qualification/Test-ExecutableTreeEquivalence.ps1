@@ -92,7 +92,14 @@ function Get-BlobText {
         $proc = Start-Process -FilePath 'git' -ArgumentList @('-C', $RepoRoot, 'cat-file', '-p', "$($Revision):$($Path)") `
             -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         if ($proc.ExitCode -ne 0) { return $null }
-        return @(Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue)
+        # -Raw returns the blob as ONE string. Returning a per-line array here
+        # silently broke the include closure once: [regex]::Matches coerces a
+        # string[] argument by joining with spaces, which destroys the (?m)^
+        # line anchors, so only a file's very first line could ever match an
+        # #include and nested headers were silently excluded from the digest.
+        $text = Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue
+        if ($null -eq $text) { return '' }
+        return [string]$text
     } finally {
         Remove-Item -LiteralPath $stdout -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $stderr -Force -ErrorAction SilentlyContinue
@@ -148,21 +155,31 @@ function Resolve-Include {
         [string[]] $IncludeDirs,
         [string[]] $Known,
         [string] $FromFile,
-        [string] $RepoRootResolved
+        [string] $RepoRootResolved,
+        [bool] $IsQuoted = $true
     )
     $bs = [string][char]92
     $name = $IncludeName.Replace($bs, '/')
 
-    # 1. A quoted include may be relative to the including file (tests use
-    #    "../TestSupport.h"). Resolve exactly as the compiler does, first.
-    if ($name -match '^\.\.?/') {
+    # 1. A quoted include resolves relative to the including file's own
+    #    directory FIRST (MSVC searches the includer's directory for any
+    #    quoted name, not only for './'-prefixed ones — e.g. SnapshotFormat.h
+    #    includes "WindowsPath.h" from its own ffprotocol/ directory). Angle
+    #    includes skip this step exactly like the compiler.
+    if ($IsQuoted -or $name -match '^\.\.?/') {
         $fromDir = (Split-Path $FromFile -Parent).Replace($bs, '/')
         $base = if ([string]::IsNullOrWhiteSpace($fromDir)) { $RepoRootResolved } else { $RepoRootResolved + '/' + $fromDir }
         try { $combined = [IO.Path]::GetFullPath((Join-Path $base $name)).Replace($bs, '/') } catch { $combined = $null }
         if ($combined -and $combined.StartsWith($RepoRootResolved + '/')) {
             $rel = $combined.Substring($RepoRootResolved.Length + 1)
             if ($Known -contains $rel) { return $rel }
-            if ($rel -match '(?i)^build/') { return 'GENERATED:' + $rel }
+            if ($rel -match '(?i)^build/') {
+                # Build output is outside the git-controlled claim, but only
+                # when it actually EXISTS. Returning GENERATED for a name that
+                # resolves to nothing lets an unresolved quoted include hide
+                # behind the build-output escape and never fail closed.
+                if (Test-Path -LiteralPath $combined -PathType Leaf) { return 'GENERATED:' + $rel }
+            }
         }
     }
 
@@ -172,7 +189,11 @@ function Resolve-Include {
         if ([string]::IsNullOrWhiteSpace($root)) { continue }
         $candidate = $root.TrimEnd('/') + '/' + $name.TrimStart('/')
         if ($Known -contains $candidate) { return $candidate }
-        if ($candidate -match '(?i)^build/') { return 'GENERATED:' + $candidate }
+        if ($candidate -match '(?i)^build/') {
+            $candidateFull = if ([IO.Path]::IsPathRooted($candidate)) { $candidate } else { $RepoRootResolved + '/' + $candidate }
+            try { $candidateFull = [IO.Path]::GetFullPath($candidateFull) } catch { $candidateFull = $null }
+            if ($candidateFull -and (Test-Path -LiteralPath $candidateFull -PathType Leaf)) { return 'GENERATED:' + $candidate }
+        }
     }
 
     # 3. Bare repository-relative fallback.
@@ -229,6 +250,10 @@ try {
         # collects zero roots, which empties the header closure entirely.
         foreach ($m in [regex]::Matches($command, '(?i)(?:^|\s)[/-]I\s*"?([^"\s]+)"?')) {
             $root = $m.Groups[1].Value.Replace('\', '/')
+            # Canonicalise before comparison: MSVC emits roots like
+            # 'D:\...\tests\ui\..', and a literal 'tests/ui/..' never matches
+            # the normalised tracked path 'tests/TestSupport.h'.
+            try { $root = [IO.Path]::GetFullPath($root).Replace('\', '/') } catch { }
             if ($root.StartsWith($repoRootResolved + '/')) {
                 $root = $root.Substring($repoRootResolved.Length + 1)
             }
@@ -253,6 +278,7 @@ try {
     # coverage failure the moment it is seen, not something the verification
     # step later discovers is missing.
     $coverageFailures = [System.Collections.Generic.List[string]]::new()
+    $coverageNotes = [System.Collections.Generic.List[string]]::new()
     # --- Derivation step 2: recursive header closure over the include roots ---
     $pending = [System.Collections.Generic.Queue[string]]::new()
     foreach ($tu in $translationUnits) { $pending.Enqueue($tu) }
@@ -273,15 +299,23 @@ try {
             $name = if ($isQuoted) { $m.Groups[1].Value } else { $m.Groups[2].Value }
             if ([string]::IsNullOrWhiteSpace($name)) { continue }
             $resolved = Resolve-Include -IncludeName $name -IncludeDirs @($includeDirs) `
-                -Known $implementationPaths -FromFile $current -RepoRootResolved $repoRootResolved
+                -Known $implementationPaths -FromFile $current -RepoRootResolved $repoRootResolved -IsQuoted $isQuoted
             if ($resolved -like 'GENERATED:*') { continue }   # build output, covered by its generator module
             if ($null -eq $resolved) {
                 # Angle includes may legitimately name SDK/STL headers outside
                 # the repository. A QUOTED include is a project header and must
                 # resolve: silently skipping it is exactly how the closure came
-                # to cover zero headers while reporting full coverage.
+                # to cover zero headers while reporting full coverage. Vendored
+                # amalgamations are the one recorded exception: third_party
+                # amalgamation sources carry platform-conditional quoted
+                # includes (mingw.h, tclsqlite.h, ...) that name toolchain
+                # files outside this repository and are not compiled here.
                 if ($isQuoted) {
-                    [void]$coverageFailures.Add("unresolved-quoted-include: " + $current + " -> " + $name)
+                    if ($current -match '(?i)^third_party/') {
+                        [void]$coverageNotes.Add("unresolved-vendored-quoted-include: " + $current + " -> " + $name)
+                    } else {
+                        [void]$coverageFailures.Add("unresolved-quoted-include: " + $current + " -> " + $name)
+                    }
                 }
                 continue
             }
@@ -398,6 +432,7 @@ try {
             method = 'compile_commands.json translation units + recursive #include closure over recorded -I roots + CMake/version build inputs'
             coverageVerified = $coverageFailures.Count -eq 0
             coverageFailures = @($coverageFailures)
+            coverageNotes = @($coverageNotes)
         }
         capabilityVerification = @($steps | ForEach-Object { [pscustomobject]@{ capabilityId = $_.capabilityId; status = $_.status; reason = $_.reason; detail = $_.detail } })
         statement = if ($equivalent) {
