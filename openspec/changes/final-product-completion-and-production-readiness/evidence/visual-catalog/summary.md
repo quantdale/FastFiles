@@ -1,11 +1,11 @@
 # FastFiles deterministic visual capture
 
-- Application SHA-256: 4fd2e2f37e9f70d33f3491ac61c7dab408cc8ac4bf16c9ad308e18048f6c8240
-- Commit: 9231d4bcb77914198a45c410197e847d6c7ced19
-- Tree: 1b4e59b9745e5ce2e966f885f4415caa72885e0d
+- Application SHA-256: f3c7800f3f2983f8d2a2cbd582122a1aa1ca0623635ba4be9f5dd5ac5bb51b41
+- Commit: 8c8aa0babe97d0fcb35bebd3e5311a03756c3655
+- Tree: f02274f75f492f268026965d1e93cbc0ee5d7bcf
 - Provenance: exact-committed-tree | worktree=clean | exactTreeBound=True
-- Started (UTC): 2026-09-24T17:47:30.9767076Z
-- Finished (UTC): 2026-09-24T17:49:13.0495593Z
+- Started (UTC): 2026-10-02T16:02:49.3908654Z
+- Finished (UTC): 2026-10-02T16:04:58.1348685Z
 
 | Scenario | Theme | Width | Pane | DPI | Status | Assertion | Image | Reason |
 | --- | --- | ---: | --- | ---: | --- | --- | --- | --- |
@@ -25,3 +25,7 @@
 | command-palette | Light | 1280 | single | 120 | PASS | PASS | command-palette.png |  |
 | home-narrow | Light | 800 | single | 120 | PASS | PASS | home-narrow.png |  |
 | home-dark | Dark | 1280 | single | 120 | PASS | PASS | home-dark.png |  |
+| gallery-light | Light | 1280 | single | 120 | PASS | PASS | gallery-light.png |  |
+| gallery-dark | Dark | 1280 | single | 120 | PASS | PASS | gallery-dark.png |  |
+| gallery-narrow | Light | 800 | single | 120 | PASS | PASS | gallery-narrow.png |  |
+| gallery-wide | Light | 1600 | single | 120 | PASS | PASS | gallery-wide.png |  |
