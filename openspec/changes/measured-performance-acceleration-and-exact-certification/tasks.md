@@ -82,8 +82,8 @@
   double-counted the name-length prefix at 82 bytes instead of 78), which
   validated its value. The production change it was written for was reverted, so
   the format-pinning test is retained standalone as a regression guard.
-- [ ] 6.3 Re-run the authoritative ASan slice and Analyze for the final candidate.
-- [ ] 6.4 E2E, UIA core, UIA full, visual catalog for the final candidate.
+- [x] 6.3 Re-run the authoritative ASan slice and Analyze for the final candidate. (Closed 2026-10-02 by performance-closure-and-multisurface-acceleration task 2.7 on candidate 8c8aa0b: ASan slice 4/4 passed, Analyze warning-clean. Evidence: `openspec/changes/performance-closure-and-multisurface-acceleration/evidence/certification-debt-phase-a.md`.)
+- [x] 6.4 E2E, UIA core, UIA full, visual catalog for the final candidate. (Closed 2026-10-02 by performance-closure-and-multisurface-acceleration task 2.7 on candidate 8c8aa0b: E2E 8/0/0 boundToHead=true, UIA core 16/0/0, UIA full 23 passed/6 skipped/0 failed, visual catalog 20/20. The one aggregate search-input flake reproduction is retained and classified UNREPRODUCED / OBSERVED FLAKE. Same evidence file as 6.3.)
 
 ## 7. Certification workflow
 

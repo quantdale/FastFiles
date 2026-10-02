@@ -2191,9 +2191,16 @@ function Set-UiaSearchQuery {
         }
     }
     $target = $combo
+    # performance-closure-and-multisurface-acceleration 9.3: bounded failure
+    # diagnostics. These discriminate the observed empty-query flake's causes
+    # (focus transfer, control recreation, native vs UIA read-back, foreground
+    # state) when the scenario fails; they do not alter the test's behavior.
+    $comboHwndAtStart = [IntPtr]::Zero
+    try { $comboHwndAtStart = [IntPtr]$combo.Current.NativeWindowHandle } catch { }
+    $editFound = $false
     try {
         $edit = Find-UiaElement -Driver $Driver -ClassName 'Edit' -FromElement $combo -TimeoutMs 600
-        if ($edit) { $target = $edit }
+        if ($edit) { $target = $edit; $editFound = $true }
     } catch { }
     $null = Set-UiaForeground -Driver $Driver -Element $Main
     Start-Sleep -Milliseconds 250
@@ -2206,18 +2213,22 @@ function Set-UiaSearchQuery {
     $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}a'
     $null = Send-UiaText -Driver $Driver -Text $Query
     $observed = $null
+    $observedNative = $null
+    $observedUiA = $null
     $deadline = [DateTime]::UtcNow.AddMilliseconds(3500)
     $retried = $false
     while ([DateTime]::UtcNow -lt $deadline) {
         $hwnd = [IntPtr]::Zero
         try { $hwnd = [IntPtr]$combo.Current.NativeWindowHandle } catch { }
         if ($hwnd -ne [IntPtr]::Zero) {
-            try { $observed = [FfNativeWindowInfo]::TitleOf($hwnd) } catch { }
+            try { $observedNative = [FfNativeWindowInfo]::TitleOf($hwnd) } catch { }
+            $observed = $observedNative
         }
         if (-not $observed) {
             $combo = Get-UiaSearchQueryCombo -Driver $Driver -Main $Main -ProcessId $ProcessId -TimeoutMs 400
             if ($combo) {
-                try { $observed = [string](Get-UiaElementTextValue -Driver $Driver -Element $combo) } catch { }
+                try { $observedUiA = [string](Get-UiaElementTextValue -Driver $Driver -Element $combo) } catch { }
+                if ($observedUiA) { $observed = $observedUiA }
             }
         }
         if ($observed -eq $Query) {
@@ -2232,9 +2243,13 @@ function Set-UiaSearchQuery {
         }
         Start-Sleep -Milliseconds 100
     }
+    $comboHwndAtEnd = [IntPtr]::Zero
+    try { $comboHwndAtEnd = [IntPtr]$combo.Current.NativeWindowHandle } catch { }
     return [pscustomobject]@{
         Pass = $false
-        Detail = "search query '$Query' was not accepted on AutomationId 7101; observed='$observed'"
+        Detail = "search query '$Query' was not accepted on AutomationId 7101; observed='$observed'" +
+            " [diag: editFound=$editFound comboHwndAtStart=$comboHwndAtStart comboHwndAtEnd=$comboHwndAtEnd" +
+            " nativeReadback='$observedNative' uiaReadback='$observedUiA' retried=$retried]"
     }
 }
 

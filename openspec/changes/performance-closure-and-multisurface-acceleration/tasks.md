@@ -8,12 +8,12 @@
 
 ## 2. Close predecessor certification debt
 
-- [ ] 2.1 Identify and stop only campaign-owned or safely disposable processes that distort measurement. Do not kill arbitrary user work. Wait for the established benchmark idle gate.
-- [ ] 2.2 Rerun full release-test CTest on that idle host. Keep the existing 30-second assertion in `TestStopReturnsWithoutWaitingForTheSchedulerInterval`. Do not raise it, skip it, or retry until a pass appears. Use at most three idle runs to distinguish a stable pass from a stable failure. If any idle run exceeds 30 seconds, investigate the product or test before any optimization.
-- [ ] 2.3 Rerun full Debug CTest where the current certification ladder requires it, and record actual passed, failed, and skipped totals.
-- [ ] 2.4 Run Analyze warning-clean on the pre-optimization candidate and record the result. Do not inherit a historical Analyze pass.
-- [ ] 2.5 Run the authoritative ASan slice from `verify/Invoke-CiParity.ps1`: `ffprotocol_fuzz_tests`, `ffipc_framing_tests`, `ffipc_listener_lifecycle_tests`, and `ffvolumescanner_terminal_tests`. Record the exact total.
-- [ ] 2.6 Run E2E, UIA core, UIA full, visual catalog, and focused many-tabs/focus coverage on the same pre-optimization candidate. Record pass, fail, skip, and classification. Do not inherit historical UIA or visual numbers.
+- [x] 2.1 Identify and stop only campaign-owned or safely disposable processes that distort measurement. Do not kill arbitrary user work. Wait for the established benchmark idle gate.
+- [x] 2.2 Rerun full release-test CTest on that idle host. Keep the existing 30-second assertion in `TestStopReturnsWithoutWaitingForTheSchedulerInterval`. Do not raise it, skip it, or retry until a pass appears. Use at most three idle runs to distinguish a stable pass from a stable failure. If any idle run exceeds 30 seconds, investigate the product or test before any optimization.
+- [x] 2.3 Rerun full Debug CTest where the current certification ladder requires it, and record actual passed, failed, and skipped totals.
+- [x] 2.4 Run Analyze warning-clean on the pre-optimization candidate and record the result. Do not inherit a historical Analyze pass.
+- [x] 2.5 Run the authoritative ASan slice from `verify/Invoke-CiParity.ps1`: `ffprotocol_fuzz_tests`, `ffipc_framing_tests`, `ffipc_listener_lifecycle_tests`, and `ffvolumescanner_terminal_tests`. Record the exact total.
+- [x] 2.6 Run E2E, UIA core, UIA full, visual catalog, and focused many-tabs/focus coverage on the same pre-optimization candidate. Record pass, fail, skip, and classification. Do not inherit historical UIA or visual numbers.
 - [ ] 2.7 Check predecessor tasks 6.3 and 6.4 only after 2.2–2.6 have current passing evidence, or record an honest unverified reason only when the gate is genuinely external with evidence. A locally executable failed or unrun gate stays open and blocks production optimization; do not mark a task complete merely because its failed result was recorded. Mark `measured-performance-acceleration-and-exact-certification` completed only when its open tasks are closed or honestly external, its stale evidence is corrected, repository truth is reconciled, and current-state validation is recorded. Do not set `supersededBy` as a substitute for that closure.
 
 ## 3. Repair stale evidence
@@ -59,9 +59,9 @@
 ## 9. User-visible behavior and the search flake
 
 - [ ] 9.1 After any retained engine or search change, check navigation-to-ready, search-input-to-visible-results, tab-switch-to-ready, Home-to-ready, and large-directory-to-ready where practical. Do not turn those checks into a brittle wall-clock gate. If a check cannot be run, say so.
-- [ ] 9.2 Attempt to reproduce `search-deep-result-navigation` (`alpha` not accepted, observed empty on AutomationId 7101) with repeated focused trials and an aggregate run.
-- [ ] 9.3 Investigate readiness, UIA cache staleness, focus transfer, text and value patterns, foreground state, control recreation, typing versus direct value set, and event synchronization. Instrument the harness only as far as that distinction requires.
-- [ ] 9.4 Fix a deterministic harness defect in the harness, or a deterministic product race in the product. If the matrix does not reproduce it, record `UNREPRODUCED / OBSERVED FLAKE` and keep the historical failure.
+- [x] 9.2 Attempt to reproduce `search-deep-result-navigation` (`alpha` not accepted, observed empty on AutomationId 7101) with repeated focused trials and an aggregate run.
+- [x] 9.3 Investigate readiness, UIA cache staleness, focus transfer, text and value patterns, foreground state, control recreation, typing versus direct value set, and event synchronization. Instrument the harness only as far as that distinction requires.
+- [x] 9.4 Fix a deterministic harness defect in the harness, or a deterministic product race in the product. If the matrix does not reproduce it, record `UNREPRODUCED / OBSERVED FLAKE` and keep the historical failure.
 
 ## 10. Adversarial review
 
