@@ -31,7 +31,7 @@
 
 ## 5. Allocation isolation
 
-- [ ] 5.1 Add a benchmark-only isolation arm that keeps 200,000 entries, the same names, the same name lengths, the same serialized byte count, the same directory count, the same file count, and the same generation identity. Do not change the production wire format to obtain the measurement.
+- [x] 5.1 Add a benchmark-only isolation arm that keeps 200,000 entries, the same names, the same name lengths, the same serialized byte count, the same directory count, the same file count, and the same generation identity. Do not change the production wire format to obtain the measurement.
 - [ ] 5.2 Measure control, export-allocation-eliminated, and full-path-eliminated arms under the D5 protocol. Add the parse-eliminated arm if the full-path result cannot otherwise say which side to change. Record payload bytes, latencies, and allocation count or `unmeasured`.
 - [ ] 5.3 Decide outcome A, B, or C from design D6. A byte-count mismatch invalidates the run. A gain inside the fresh noise floor is outcome C.
 

@@ -272,6 +272,15 @@ add_executable(ffengine_bench_first_generation_publish
 target_include_directories(ffengine_bench_first_generation_publish PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_bench_first_generation_publish PRIVATE ffindexstore ffprotocol ffsearch ffsetup ffipc psapi Rpcrt4 Shell32 Ole32)
 
+# performance-closure-and-multisurface-acceleration 5.1: benchmark-only
+# allocation-isolation arm (design.md D5). Wall-clock bench, deliberately NOT
+# registered with CTest, and it links only the production protocol serializer
+# so the treatment arms can prove byte-identical payloads without touching any
+# production source or the wire format.
+add_executable(ffengine_bench_allocation_isolation
+  bench_allocation_isolation.cpp)
+target_link_libraries(ffengine_bench_allocation_isolation PRIVATE ffprotocol)
+
 set_tests_properties(ffengine_legacy_scan_failure_binding_tests PROPERTIES TIMEOUT 180)
 set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_idle_manager_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_active_path_resilience_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)
