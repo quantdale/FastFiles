@@ -144,6 +144,21 @@ target_link_libraries(ffengine_ui_server_lifecycle_tests PRIVATE ffprotocol ffip
 target_compile_definitions(ffengine_ui_server_lifecycle_tests PRIVATE FF_SNAPSHOT_PUBLISHER_TESTING=1)
 add_test(NAME ffengine_ui_server_lifecycle_tests COMMAND ffengine_ui_server_lifecycle_tests)
 
+
+# performance-closure-and-multisurface-acceleration 6.2/6.3: pooled-name
+# lifetime proofs (repeated generation replacement, bounded teardown,
+# concurrent readers, copy/move beside live readers) and engine-level exact
+# fixture output equivalence between the pooled and owning exports.
+add_executable(ffengine_pooled_snapshot_lifetime_tests
+  test_pooled_snapshot_lifetime.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+)
+target_include_directories(ffengine_pooled_snapshot_lifetime_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_pooled_snapshot_lifetime_tests PRIVATE ffindexstore ffprotocol ffsearch ffsetup Rpcrt4 Shell32 Ole32)
+add_test(NAME ffengine_pooled_snapshot_lifetime_tests COMMAND ffengine_pooled_snapshot_lifetime_tests)
+
 add_executable(ffengine_snapshot_publisher_tests
   test_snapshot_publisher.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp

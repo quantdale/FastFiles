@@ -72,6 +72,8 @@ public:
     // (shared layout implementation) without per-entry owning strings.
     uint64_t Publish(const ffprotocol::PooledCaseInsensitiveSnapshotMap& directories,
                      PublishTimings* timings = nullptr);
+    uint64_t Publish(const ffprotocol::PooledSnapshotMap& directories,
+                     PublishTimings* timings = nullptr);
 
     // Stable prefix sent in SubscribeAck. The generation suffix is appended
     // by CurrentSectionName() and is intentionally not part of this value.
