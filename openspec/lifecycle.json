@@ -279,7 +279,7 @@
     },
     {
       "name": "performance-closure-and-multisurface-acceleration",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -300,6 +300,10 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/performance-closure-and-multisurface-acceleration/evidence/explore-findings.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/evidence/final-report.md"
         }
       ],
       "supersededBy": null,

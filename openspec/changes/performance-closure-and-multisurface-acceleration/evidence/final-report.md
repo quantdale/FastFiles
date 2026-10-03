@@ -18,9 +18,12 @@ outside this checked commit, per the reordered 11.6 rule.
 - Certified binary identity: every preset was rebuilt at the final tip
   before the ladder; identity binding/freshness tests pass inside the
   parity CTest legs.
-- OpenSpec lifecycle: this change `active` (unmerged by design);
-  predecessor `measured-performance-acceleration-and-exact-certification`
-  `completed` with its 6.3/6.4 closed by current evidence (task 2.7).
+- OpenSpec lifecycle: this change `completed` (all 51 tasks checked; the
+  lifecycle model requires an active change to have open tasks, and this
+  campaign's work is done) — **not archived and not merged**: PR #13 remains
+  open for human review by design. Predecessor
+  `measured-performance-acceleration-and-exact-certification` `completed`
+  with its 6.3/6.4 closed by current evidence (task 2.7).
 - Worktree: clean at every certification run; the two owned temporary
   control worktrees/branches are removed before the push.
 
