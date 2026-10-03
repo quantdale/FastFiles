@@ -25,15 +25,15 @@
 
 ## 4. Quiet-host baseline
 
-- [ ] 4.1 Rebuild `release-test` from a clean pre-optimization tree and verify embedded identity before the baseline.
-- [ ] 4.2 Measure the first-generation path with the production-faithful move, idle gate, single-core pin, high priority, and enough process-level samples. Record source SHA, tree state, preset, fixture, warm-up, repetitions, and stage medians. Do not reuse 88.403 ms or 129.329 ms as the before row.
-- [ ] 4.3 Measure the same-binary noise floor in that same session. Later retention decisions use this floor, not the historical 5–7% figure.
+- [x] 4.1 Rebuild `release-test` from a clean pre-optimization tree and verify embedded identity before the baseline.
+- [x] 4.2 Measure the first-generation path with the production-faithful move, idle gate, single-core pin, high priority, and enough process-level samples. Record source SHA, tree state, preset, fixture, warm-up, repetitions, and stage medians. Do not reuse 88.403 ms or 129.329 ms as the before row.
+- [x] 4.3 Measure the same-binary noise floor in that same session. Later retention decisions use this floor, not the historical 5–7% figure.
 
 ## 5. Allocation isolation
 
 - [x] 5.1 Add a benchmark-only isolation arm that keeps 200,000 entries, the same names, the same name lengths, the same serialized byte count, the same directory count, the same file count, and the same generation identity. Do not change the production wire format to obtain the measurement.
-- [ ] 5.2 Measure control, export-allocation-eliminated, and full-path-eliminated arms under the D5 protocol. Add the parse-eliminated arm if the full-path result cannot otherwise say which side to change. Record payload bytes, latencies, and allocation count or `unmeasured`.
-- [ ] 5.3 Decide outcome A, B, or C from design D6. A byte-count mismatch invalidates the run. A gain inside the fresh noise floor is outcome C.
+- [x] 5.2 Measure control, export-allocation-eliminated, and full-path-eliminated arms under the D5 protocol. Add the parse-eliminated arm if the full-path result cannot otherwise say which side to change. Record payload bytes, latencies, and allocation count or `unmeasured`.
+- [x] 5.3 Decide outcome A, B, or C from design D6. A byte-count mismatch invalidates the run. A gain inside the fresh noise floor is outcome C.
 
 ## 6. Name-path decision
 

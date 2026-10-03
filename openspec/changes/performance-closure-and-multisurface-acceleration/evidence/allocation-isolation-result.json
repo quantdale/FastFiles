@@ -1,0 +1,317 @@
+{
+ "schema": "fastfiles-allocation-isolation-result-v1",
+ "date": "2026-10-03",
+ "source_sha": "e43a599 (release-test binaries; identity binding+freshness PASS; tree clean)",
+ "protocol": "interleaved randomized order, idle-gated, each repetition pinned to one logical core at high priority, 5 warm-up + 5 measured reps",
+ "fixture_identity": {
+  "payload_bytes": 23163092,
+  "directories": 3126,
+  "child_entries": 199999,
+  "byte_identity": "MECHANICALLY VERIFIED: every run of every arm self-validates its serialized bytes against the production SerializeSnapshotTo output by full memcmp and fails the process (exit 3) on any mismatch; all 30 processes exited 0. Names, name lengths, counts, and generation token constant by construction."
+ },
+ "arms": {
+  "control": {
+   "build_median": 25.6739,
+   "serialize_median": 14.1588,
+   "parse_median": 21.3643,
+   "total_median": 62.2876,
+   "total_spread_pct": 22.51
+  },
+  "export-eliminated": {
+   "build_median": 10.2619,
+   "serialize_median": 6.1503,
+   "parse_median": 18.6161,
+   "total_median": 35.1236,
+   "total_spread_pct": 21.186
+  },
+  "parse-eliminated": {
+   "build_median": 24.6778,
+   "serialize_median": 13.0006,
+   "parse_median": 15.7929,
+   "total_median": 53.8944,
+   "total_spread_pct": 30.927
+  },
+  "full-eliminated": {
+   "build_median": 11.3685,
+   "serialize_median": 6.0788,
+   "parse_median": 17.4592,
+   "total_median": 36.3876,
+   "total_spread_pct": 31.778
+  }
+ },
+ "same_binary_noise": {
+  "session1_total_spread_pct": {
+   "baseline": 33.193,
+   "candidate": 34.718,
+   "between_arm_gap_pct": 12.44,
+   "verdict": "unusably noisy (user-loaded host); recorded as-is"
+  },
+  "session2_total_spread_pct": {
+   "baseline": 13.389,
+   "candidate": 25.454,
+   "between_arm_gap_pct": 0.01,
+   "verdict": "valid session: identical binaries agree to 0.01% in arm medians; the spread is run-to-run variation under residual user load (tight clusters ~4-5% with one load-correlated outlier per arm)"
+  },
+  "floor_used_for_decision": "~13-25% same-binary run-to-run total spread (session 2, most generous reading); historical 5-7% is reference only"
+ },
+ "decision": {
+  "verdict": "OUTCOME A for the export/build+serialize side; OUTCOME C for the parse side",
+  "export_side": "control total median 62.29 ms (n=12, spread 22.5%) vs export-eliminated 35.12 ms (n=6, spread 21.2%): -43.6% with NON-OVERLAPPING distributions (worst treatment run 40.1 ms beats best control run 53.4 ms by 25%). Stage split: build 25.67 -> 10.26 ms (-60%), serialize 14.16 -> 6.15 ms (-56%). This is a constant-payload, allocation-only representation effect (owning per-entry wstrings + scattered map nodes vs one contiguous offset/length pool) and it clearly exceeds the fresh same-binary noise floor. Not outcome B: payload size is byte-identical by construction, so the historical conflated gain is NOT what is measured here.",
+  "parse_side": "parse-eliminated total 53.89 ms (n=6) vs control 62.29 ms (n=12): -13.5% with heavily OVERLAPPING distributions (49.4-66.1 vs 53.4-67.4). Parse stage 15.79 vs 21.36 ms (-26%) sits inside the same-binary stage spreads (31-45%). Inside the noise floor -> outcome C: production parse/UI representation stays unchanged.",
+  "consequence": "Enter design D6 outcome A: smallest production change capturing the measured export side (per-entry owning strings eliminated while building the bytes), preferring direct serialization from interned or generation-owned names. Snapshot format stays version 3 (bytes already proven identical)."
+ },
+ "arms_data": {
+  "control": {
+   "payload_bytes": 23163092,
+   "directories": 3126,
+   "child_entries": 199999,
+   "build_ms": {
+    "median_of_run_medians": 25.6739,
+    "run_medians": [
+     24.723,
+     27.211,
+     25.867,
+     23.9207,
+     25.4807,
+     22.8289,
+     25.9108,
+     21.9862,
+     26.9713,
+     24.3234,
+     27.3564,
+     29.8992
+    ],
+    "spread_pct": 30.821,
+    "processes": 12
+   },
+   "serialize_ms": {
+    "median_of_run_medians": 14.1588,
+    "run_medians": [
+     15.8882,
+     16.3772,
+     14.3986,
+     11.942,
+     12.3933,
+     12.1831,
+     11.4186,
+     12.2559,
+     14.1112,
+     16.7943,
+     16.3006,
+     14.2064
+    ],
+    "spread_pct": 37.967,
+    "processes": 12
+   },
+   "parse_ms": {
+    "median_of_run_medians": 21.3643,
+    "run_medians": [
+     25.4196,
+     21.4638,
+     21.2648,
+     19.7459,
+     19.8828,
+     21.5429,
+     22.9244,
+     18.8135,
+     19.1959,
+     21.7826,
+     21.1511,
+     22.6363
+    ],
+    "spread_pct": 30.921,
+    "processes": 12
+   },
+   "total_ms": {
+    "median_of_run_medians": 62.2876,
+    "run_medians": [
+     67.42,
+     63.7716,
+     60.3814,
+     56.0574,
+     58.5225,
+     55.6901,
+     64.9158,
+     53.3993,
+     60.8037,
+     66.0162,
+     64.8081,
+     66.3365
+    ],
+    "spread_pct": 22.51,
+    "processes": 12
+   }
+  },
+  "export-eliminated": {
+   "payload_bytes": 23163092,
+   "directories": 3126,
+   "child_entries": 199999,
+   "build_ms": {
+    "median_of_run_medians": 10.2619,
+    "run_medians": [
+     9.441,
+     10.504,
+     9.6434,
+     12.9084,
+     10.0199,
+     13.1819
+    ],
+    "spread_pct": 36.454,
+    "processes": 6
+   },
+   "serialize_ms": {
+    "median_of_run_medians": 6.1503,
+    "run_medians": [
+     5.7221,
+     6.4168,
+     5.3086,
+     5.8838,
+     6.7312,
+     6.7957
+    ],
+    "spread_pct": 24.179,
+    "processes": 6
+   },
+   "parse_ms": {
+    "median_of_run_medians": 18.6161,
+    "run_medians": [
+     16.7639,
+     19.1408,
+     16.6931,
+     19.2346,
+     18.0915,
+     20.2914
+    ],
+    "spread_pct": 19.329,
+    "processes": 6
+   },
+   "total_ms": {
+    "median_of_run_medians": 35.1236,
+    "run_medians": [
+     32.7187,
+     35.6898,
+     32.6841,
+     37.2425,
+     34.5575,
+     40.1254
+    ],
+    "spread_pct": 21.186,
+    "processes": 6
+   }
+  },
+  "parse-eliminated": {
+   "payload_bytes": 23163092,
+   "directories": 3126,
+   "child_entries": 199999,
+   "build_ms": {
+    "median_of_run_medians": 24.6778,
+    "run_medians": [
+     22.8319,
+     27.1631,
+     22.5443,
+     23.6309,
+     27.8749,
+     25.7248
+    ],
+    "spread_pct": 21.601,
+    "processes": 6
+   },
+   "serialize_ms": {
+    "median_of_run_medians": 13.0006,
+    "run_medians": [
+     13.2174,
+     12.993,
+     12.4146,
+     12.9532,
+     16.0732,
+     13.0081
+    ],
+    "spread_pct": 28.142,
+    "processes": 6
+   },
+   "parse_ms": {
+    "median_of_run_medians": 15.7929,
+    "run_medians": [
+     15.1171,
+     16.126,
+     15.0742,
+     15.4597,
+     22.1313,
+     16.4337
+    ],
+    "spread_pct": 44.685,
+    "processes": 6
+   },
+   "total_ms": {
+    "median_of_run_medians": 53.8944,
+    "run_medians": [
+     51.0889,
+     56.9106,
+     49.4073,
+     53.3397,
+     66.0754,
+     54.4491
+    ],
+    "spread_pct": 30.927,
+    "processes": 6
+   }
+  },
+  "full-eliminated": {
+   "payload_bytes": 23163092,
+   "directories": 3126,
+   "child_entries": 199999,
+   "build_ms": {
+    "median_of_run_medians": 11.3685,
+    "run_medians": [
+     11.3352,
+     12.154,
+     10.0938,
+     12.6773,
+     11.4019,
+     11.2248
+    ],
+    "spread_pct": 22.725,
+    "processes": 6
+   },
+   "serialize_ms": {
+    "median_of_run_medians": 6.0788,
+    "run_medians": [
+     6.0323,
+     6.9323,
+     5.8676,
+     5.739,
+     6.1252,
+     6.416
+    ],
+    "spread_pct": 19.631,
+    "processes": 6
+   },
+   "parse_ms": {
+    "median_of_run_medians": 17.4592,
+    "run_medians": [
+     17.9026,
+     21.7561,
+     14.0339,
+     20.964,
+     16.821,
+     17.0157
+    ],
+    "spread_pct": 44.23,
+    "processes": 6
+   },
+   "total_ms": {
+    "median_of_run_medians": 36.3876,
+    "run_medians": [
+     35.6553,
+     40.8455,
+     29.2822,
+     39.4783,
+     34.3618,
+     37.12
+    ],
+    "spread_pct": 31.778,
+    "processes": 6
+   }
+  }
+ }
+}

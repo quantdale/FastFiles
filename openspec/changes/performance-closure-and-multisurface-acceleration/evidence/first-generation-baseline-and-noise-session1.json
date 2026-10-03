@@ -1,0 +1,282 @@
+{
+ "schema": "fastfiles-first-generation-baseline-and-noise-v1",
+ "date": "2026-10-02/03",
+ "source_sha": "0936b1e (binaries embedded identity verified: ffbuild_identity binding+freshness PASS)",
+ "tree_state": "clean at session start",
+ "preset": "release-test (RelWithDebInfo, FASTFILES_RELEASE_TEST_BUILD=ON)",
+ "fixture": {
+  "entries": 200000,
+  "warmup_per_process": 5,
+  "measured_per_process": 5
+ },
+ "method": "interleaved randomized order, idle-gated, each repetition pinned to one logical core at high priority, 5 warm-up + 5 measured reps",
+ "affinity": "0x1 (single logical core)",
+ "priority": "high",
+ "load_threshold": 25,
+ "processes_per_arm": 6,
+ "arm_order": [
+  "baseline",
+  "baseline",
+  "candidate",
+  "baseline",
+  "candidate",
+  "baseline",
+  "candidate",
+  "candidate",
+  "baseline",
+  "candidate",
+  "candidate",
+  "baseline"
+ ],
+ "per_run": [
+  {
+   "rep": 1,
+   "arm": "baseline",
+   "exit": 0,
+   "load_at_start": 17,
+   "total_ms": 113.142
+  },
+  {
+   "rep": 2,
+   "arm": "baseline",
+   "exit": 0,
+   "load_at_start": 20,
+   "total_ms": 154.334
+  },
+  {
+   "rep": 3,
+   "arm": "candidate",
+   "exit": 0,
+   "load_at_start": 25,
+   "total_ms": 104.55
+  },
+  {
+   "rep": 4,
+   "arm": "baseline",
+   "exit": 0,
+   "load_at_start": 17,
+   "total_ms": 123.794
+  },
+  {
+   "rep": 5,
+   "arm": "candidate",
+   "exit": 0,
+   "load_at_start": 6,
+   "total_ms": 104.104
+  },
+  {
+   "rep": 6,
+   "arm": "baseline",
+   "exit": 0,
+   "load_at_start": 17,
+   "total_ms": 128.677
+  },
+  {
+   "rep": 7,
+   "arm": "candidate",
+   "exit": 0,
+   "load_at_start": 25,
+   "total_ms": 120.663
+  },
+  {
+   "rep": 8,
+   "arm": "candidate",
+   "exit": 0,
+   "load_at_start": 21,
+   "total_ms": 142.503
+  },
+  {
+   "rep": 9,
+   "arm": "baseline",
+   "exit": 0,
+   "load_at_start": 14,
+   "total_ms": 112.433
+  },
+  {
+   "rep": 10,
+   "arm": "candidate",
+   "exit": 0,
+   "load_at_start": 12,
+   "total_ms": 105.844
+  },
+  {
+   "rep": 11,
+   "arm": "candidate",
+   "exit": 0,
+   "load_at_start": 17,
+   "total_ms": 115.358
+  },
+  {
+   "rep": 12,
+   "arm": "baseline",
+   "exit": 0,
+   "load_at_start": 21,
+   "total_ms": 137.573
+  }
+ ],
+ "note": "baseline and candidate arms ran the IDENTICAL executable (same-binary session); the between-arm gap and the within-arm spreads ARE the noise floor.",
+ "production_faithful_move": true,
+ "baseline": {
+  "export_ms": {
+   "median_of_run_medians": 56.0923,
+   "run_medians": [
+    54.2117,
+    87.1627,
+    52.5858,
+    57.8246,
+    54.36,
+    59.1058
+   ],
+   "spread_pct": 61.643,
+   "p90_of_runs": 60.8299,
+   "max_of_runs": 138.965,
+   "processes": 6
+  },
+  "publication_ms": {
+   "median_of_run_medians": 39.9003,
+   "run_medians": [
+    35.9981,
+    39.3309,
+    40.4697,
+    41.5649,
+    36.9668,
+    46.5367
+   ],
+   "spread_pct": 26.412,
+   "p90_of_runs": 48.5012,
+   "max_of_runs": 125.839,
+   "processes": 6
+  },
+  "client_receive_ms": {
+   "median_of_run_medians": 0.0076,
+   "run_medians": [
+    0.0065,
+    0.0088,
+    0.0077,
+    0.0074,
+    0.0067,
+    0.0109
+   ],
+   "spread_pct": 58.278,
+   "p90_of_runs": 0.0109,
+   "max_of_runs": 0.0263,
+   "processes": 6
+  },
+  "client_parse_ms": {
+   "median_of_run_medians": 23.6745,
+   "run_medians": [
+    20.6854,
+    28.4989,
+    23.9118,
+    23.4371,
+    21.264,
+    30.1938
+   ],
+   "spread_pct": 40.163,
+   "p90_of_runs": 30.7376,
+   "max_of_runs": 58.5764,
+   "processes": 6
+  },
+  "total_ms": {
+   "median_of_run_medians": 126.2355,
+   "run_medians": [
+    113.142,
+    154.334,
+    123.794,
+    128.677,
+    112.433,
+    137.573
+   ],
+   "spread_pct": 33.193,
+   "p90_of_runs": 138.8995,
+   "max_of_runs": 307.293,
+   "processes": 6
+  }
+ },
+ "candidate": {
+  "export_ms": {
+   "median_of_run_medians": 53.8892,
+   "run_medians": [
+    48.7837,
+    51.2821,
+    54.888,
+    68.0235,
+    52.8904,
+    54.9565
+   ],
+   "spread_pct": 35.703,
+   "p90_of_runs": 61.7728,
+   "max_of_runs": 90.0854,
+   "processes": 6
+  },
+  "publication_ms": {
+   "median_of_run_medians": 33.9604,
+   "run_medians": [
+    30.1417,
+    32.2812,
+    35.4883,
+    49.3228,
+    33.794,
+    34.1268
+   ],
+   "spread_pct": 56.481,
+   "p90_of_runs": 37.4069,
+   "max_of_runs": 69.5714,
+   "processes": 6
+  },
+  "client_receive_ms": {
+   "median_of_run_medians": 0.0065,
+   "run_medians": [
+    0.0061,
+    0.0064,
+    0.0061,
+    0.008,
+    0.0066,
+    0.0065
+   ],
+   "spread_pct": 29.457,
+   "p90_of_runs": 0.0073,
+   "max_of_runs": 0.0088,
+   "processes": 6
+  },
+  "client_parse_ms": {
+   "median_of_run_medians": 22.487,
+   "run_medians": [
+    20.3759,
+    23.4175,
+    23.2379,
+    29.3523,
+    21.3546,
+    21.7361
+   ],
+   "spread_pct": 39.918,
+   "p90_of_runs": 27.4805,
+   "max_of_runs": 32.7657,
+   "processes": 6
+  },
+  "total_ms": {
+   "median_of_run_medians": 110.601,
+   "run_medians": [
+    104.55,
+    104.104,
+    120.663,
+    142.503,
+    105.844,
+    115.358
+   ],
+   "spread_pct": 34.718,
+   "p90_of_runs": 124.0005,
+   "max_of_runs": 176.563,
+   "processes": 6
+  }
+ },
+ "noise_floor": {
+  "within_arm_total_spread_pct": {
+   "baseline": 33.193,
+   "candidate": 34.718
+  },
+  "between_arm_total_median_gap_pct": 12.385,
+  "verdict": "UNUSABLY NOISY SESSION: identical binaries differ by 12.4% in arm medians and each arm spreads 33-35%. The load gate (median<=25) passed at every start but the host ran heavy user work between samples (per-run totals range 104-154 ms; the historical pinned spread was 5-7%). Retention decisions must NOT use this floor as the meaningful-gain threshold; a second same-binary session is queued for a quieter window and the D5 matrix session carries its own duplicated control arm for an in-session floor.",
+  "historical_reference_spread_pct": "5-7 (prior campaign, quieter host; reference only per design Goals)"
+ }
+}
