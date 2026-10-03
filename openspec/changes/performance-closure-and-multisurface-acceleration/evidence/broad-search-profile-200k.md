@@ -129,6 +129,32 @@ direction that gated adds and view-matched adds reproduce the reference
 bounded set exactly, and that unbounded requests never admit rows out; full
 Debug CTest 127/127; ASan focused suites pass.
 
+### Measurement scope and caveats (review-A findings A2-a/A2-b)
+
+- The two arms do NOT deliver identical result sets for capped classes: the
+  comparator fix changes which rows survive the cap, so broad `wire_bytes`
+  differ (1,027,980 pre -> 916,816 post) and the post arm materializes 19,573
+  matches against the pre arm's 59,062 (the pre arm pushed every match into
+  the worst-N heap; the post arm prunes before materialization). The
+  comparison is therefore old-behavior vs new-behavior, not a like-for-like
+  faster render of the same rows. The magnitude is not explained by the byte
+  delta: the cold durable path (untouched by the admission gate) is flat
+  (broad 1,740 -> 1,723 ms; extension 2,226 -> 2,225 ms).
+- Protocol deviations recorded honestly: the runs alternated pre-then-post
+  per round (no randomization or counterbalancing), the host load was 23-30
+  (the campaign's <=25 idle gate was not enforced for this bench), and no
+  same-binary control was run in that session. The bench reports
+  `build_configuration: Release` from its `NDEBUG` branch; the binary is the
+  release-test preset (RelWithDebInfo with FASTFILES_RELEASE_TEST_BUILD=ON),
+  which defines NDEBUG -- the label is a formatting artifact, not a different
+  preset. `bench_large_index_scalability` embeds no build identity, so the
+  pre/post attribution to `2230376` and the 7.3 slice rests on the recorded
+  commit order, not on an embedded SHA.
+- A same-binary same-class repeat for the scan-floor classes is recorded in
+  the v3 addendum below when run; the +1.2..+2.7% deltas there were inside
+  run-to-run variation but were not backed by an in-session floor in this
+  table (review-D finding 4).
+
 ### Measured effect (3 interleaved rounds per arm, per-class medians)
 
 | class | pre (2230376) | post (7.3) | delta |

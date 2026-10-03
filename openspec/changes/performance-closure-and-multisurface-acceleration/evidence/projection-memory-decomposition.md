@@ -41,7 +41,13 @@ bytes, ~1.98M snapshot rows across the bounded export cap):
 | after UI parse (owning map) | 58,359,808 | +266,240 |
 
 Observations: the engine-side export map is the large transient consumer
-(~51.7 MB at this probe size); the published mapping is shared (not private);
+(~51.7 MB at this probe size). The probe measures the OWNING export map
+(`MakeSnapshot`/`ExportDirectorySnapshot`/owning `Publish`) -- the reference
+representation the retained production path no longer builds (production uses
+`ExportDirectorySnapshotBoundedPooled` + the pooled publish). These export/UI
+rows therefore describe the owning reference path, not the pooled model; the
+pooled model removes the per-entry owning copies entirely and is not separately
+weighed here (review-D finding 2). The published mapping is shared (not private);
 the probe's UI parse delta is small because the probe process parses into a
 map that shares the mapped view's page cache at this scale (the production UI
 parse cost is separately measured by the first-generation bench's
@@ -71,7 +77,7 @@ Long-lived copies of the same logical names/rows, per the code:
 | `Projection::NamePool` | interned UTF-16 arena (offset/length) | shared with rows | **intentional** — already deduplicates name text; the name string exists ONCE here |
 | filename trigram postings + non-ASCII list | `unordered_map<u64, vector<u32>>` | engine lifetime, rebuilt on invalidation | **intentional for speed** — the secondary accelerator; per 8.3 it is not removable if it slows common selective search |
 | LRU `lastAccess_` metadata | per-entry key+timestamp hash map | engine lifetime | **intentional for bounded memory** — drives eviction; not a name copy |
-| export map (`std::map<wstring, SnapshotDirectory>`) | owning path keys + owning `wstring` names | transient (one publication) | **transient** — exists only between `ExportDirectorySnapshotBounded` and `MergeIndexDirectories`; copies every name out of the arena |
+| export map (`std::map<wstring, SnapshotDirectory>`) | owning path keys + owning `wstring` names | transient (one publication) | **transient** — exists only between `ExportDirectorySnapshotBounded` and `MergeIndexDirectories`; copies every name out of the arena. NOTE: this row describes the pre-6.1 reference path; the retained production path builds the pooled export (`ExportDirectorySnapshotBoundedPooled` + `PooledCaseInsensitiveSnapshotMap`) with no per-entry owning copies |
 | serialized snapshot section | length-prefixed bytes in mapped memory | one per generation (current mapping only) | **transient/shared** — intentionally the zero-IPC read plane |
 | UI parse map (`ParseSnapshot` result) | owning path keys + owning names | per parsed generation in the client | **transient** — second owning copy of every name |
 | search results | per-query row references/ids | query-scoped | **transient** — ids and small result sets, not name copies |
@@ -107,9 +113,15 @@ that are actually summed): 404.4 MB = **404.4 bytes/row** at 1M rows.
 a ~104 bytes/row floor (20% of resident); the estimator's remaining ~300
 bytes/row cover the id/parent maps, the interned name arena, the filename
 trigram postings + non-ASCII list, and LRU metadata. The measured-minus-
-estimator residual is **+116.1 MB (~22% of resident)**: allocator overhead,
-fragmentation, padding, and vector-capacity slack beyond the estimator's
-accounting. The 200k measurement (549 bytes/row measured) shows allocation
+estimator residual is **+116.1 MB (~22% of resident)**, and it is UNPROVEN as
+"fragmentation": the estimator already sums capacities (entries, free list,
+non-ASCII list, posting vectors, flat-hash and name-pool usage), so the residual
+is un-estimated node/heap overhead (the two `std::unordered_map` members are
+counted at flat size, and their per-node overhead is not modelled) plus any
+retained-after-free growth. A single post-rebuild snapshot cannot separate a leak
+from fragmentation; the allocation-instrumented/repeat-rebuild pass scoped at
+lines 55-60 above was not produced (review-D finding 3). The number is retained as
+an honest unseparated residual, not attributed to fragmentation. The 200k measurement (549 bytes/row measured) shows allocation
 efficiency improving slightly with scale; both numbers are measured, and
 neither is a `sizeof` estimate.
 

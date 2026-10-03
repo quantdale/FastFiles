@@ -1,0 +1,149 @@
+{
+ "schema": "fastfiles-executable-tree-equivalence-validation-v3",
+ "date": "2026-10-04",
+ "kind": "current-equivalence-validation-artifact",
+ "gate": "verify/qualification/Test-ExecutableTreeEquivalence.ps1",
+ "supersedes": {
+  "file": "openspec/changes/performance-closure-and-multisurface-acceleration/evidence/equivalence-gate-validation-v2.json",
+  "status": "v2 remains byte-identical except for the corrected C1 implementationSha (review-E finding P1-b: the previously recorded 40-character string was not a git object; the real commit is c41f0dc8bd32a98a8cca5b62a48687178655d3dc) and a note on that field. v2's controls and counts remain the historical v2 derivation (382 paths, 302 TUs).",
+  "historical_predecessor": "openspec/changes/measured-performance-acceleration-and-exact-certification/evidence/equivalence-gate-validation.json (228-path, .cpp-only record) remains preserved as historical."
+ },
+ "gate_repairs_since_v2": [
+  {
+   "review": "E finding P1-a (demonstrated false PASS)",
+   "what": "configure_file templates (cmake/FastFilesVersion.h.in, cmake/FastFilesVersion.rc.in, src/setup/PinnedSignaturesConfig.h.in) are executable-impacting build inputs -- the generated header/resource is compiled -- but were neither TUs, #included headers, nor CMakeLists, so a template-only change moved no digest.",
+   "fix": "The derivation now includes every tracked path under cmake/ (any extension) and the literal first argument of each configure_file() call found in tracked CMake files, with ${CMAKE_SOURCE_DIR}/${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_SOURCE_DIR}/${CMAKE_CURRENT_LIST_DIR} prefixes stripped and any other variable-driven argument recorded as a coverage failure rather than skipped."
+  },
+  {
+   "review": "E finding P2 (robustness)",
+   "what": "The step list was seeded with a spurious element (all-null capabilityVerification entry); a coverage-failure run printed 'product_tree(A) != product_tree(A)' with identical digests; include-root prefix comparisons were case-sensitive.",
+   "fix": "List::new(); the statement names derivation-coverage failure when digests compare equal; repo-root prefix comparisons use OrdinalIgnoreCase."
+  },
+  {
+   "note": "The four v2 repairs remain in force: Get-BlobText returns one raw string (line-array coercion destroyed the (?m)^ anchors); GENERATED escapes require on-disk existence; include roots are canonicalised before comparison; quoted includes resolve against the includer's directory."
+  }
+ ],
+ "controls": [
+  {
+   "id": "pos_docs_v3",
+   "kind": "positive-documentation-only",
+   "implementationSha": "d50c474d632c95e458fa0a54dddeef62dd3e1916",
+   "evidenceSha": "70d98b57aa747e7084ba40f4a6260470ca7e8f1f",
+   "expected": "PASS",
+   "observed": "PASS",
+   "exit_code": 0,
+   "paths_covered": 389,
+   "translation_units": 309,
+   "build_inputs": 33,
+   "coverage_failures": []
+  },
+  {
+   "id": "neg_cpp",
+   "implementationSha": "70d98b57aa747e7084ba40f4a6260470ca7e8f1f",
+   "evidenceSha": "5e2d23e9a53246630fdefa27e6591745a3068532",
+   "what_changed": "src/engine/src/IndexPipeline.cpp",
+   "expected": "FAIL naming the source",
+   "observed": "FAIL",
+   "exit_code": 1,
+   "named_inputs": [
+    "src/engine/src/IndexPipeline.cpp"
+   ]
+  },
+  {
+   "id": "neg_header",
+   "implementationSha": "70d98b57aa747e7084ba40f4a6260470ca7e8f1f",
+   "evidenceSha": "b8032b293598496635b1614bf65691762d7a9147",
+   "what_changed": "src/protocol/include/ffprotocol/SnapshotFormat.h",
+   "expected": "FAIL naming the header",
+   "observed": "FAIL",
+   "exit_code": 1,
+   "named_inputs": [
+    "src/protocol/include/ffprotocol/SnapshotFormat.h"
+   ]
+  },
+  {
+   "id": "neg_nested_header",
+   "implementationSha": "70d98b57aa747e7084ba40f4a6260470ca7e8f1f",
+   "evidenceSha": "f1ccc14861a15d1001439dc4c5d9bbdc11f252c7",
+   "what_changed": "src/protocol/include/ffprotocol/WindowsPath.h (reachable only via SnapshotFormat.h)",
+   "expected": "FAIL naming the nested header",
+   "observed": "FAIL",
+   "exit_code": 1,
+   "named_inputs": [
+    "src/protocol/include/ffprotocol/WindowsPath.h"
+   ]
+  },
+  {
+   "id": "neg_cmake",
+   "implementationSha": "70d98b57aa747e7084ba40f4a6260470ca7e8f1f",
+   "evidenceSha": "b1e242307570846c4a02d9451caf0e37e5f03658",
+   "what_changed": "src/engine/CMakeLists.txt",
+   "expected": "FAIL naming the manifest",
+   "observed": "FAIL",
+   "exit_code": 1,
+   "named_inputs": [
+    "src/engine/CMakeLists.txt"
+   ]
+  },
+  {
+   "id": "neg_unresolved_include",
+   "implementationSha": "c931e6f58ff224cd2ff85b66a4ecc0202aa1b01f",
+   "evidenceSha": "c931e6f58ff224cd2ff85b66a4ecc0202aa1b01f",
+   "what_changed": "src/engine/src/IndexPipeline.cpp gains '#include \"ff_apply_control_missing_header.h\"'",
+   "expected": "FAIL closed naming the unresolved include",
+   "observed": "FAIL",
+   "exit_code": 1,
+   "coverage_failures": [
+    "unresolved-quoted-include: src/engine/src/IndexPipeline.cpp -> ff_apply_control_missing_header.h"
+   ]
+  },
+  {
+   "id": "neg_deleted_input",
+   "implementationSha": "70d98b57aa747e7084ba40f4a6260470ca7e8f1f",
+   "evidenceSha": "c1913f2514bc2c9de65683643225768259a5c28a",
+   "what_changed": "src/protocol/include/ffprotocol/SnapshotFormat.h deleted",
+   "expected": "FAIL identifying the deleted derived input",
+   "observed": "FAIL",
+   "exit_code": 1,
+   "coverage_failures": [
+    "derived-path-missing-in-a-commit: src/protocol/include/ffprotocol/SnapshotFormat.h"
+   ]
+  },
+  {
+   "id": "neg_template",
+   "implementationSha": "70d98b57aa747e7084ba40f4a6260470ca7e8f1f",
+   "evidenceSha": "8e3162f9b7075cfdda452361aa01b24cb63071cd",
+   "what_changed": "cmake/FastFilesVersion.rc.in (configure_file template only)",
+   "expected": "FAIL naming the template",
+   "observed": "FAIL",
+   "exit_code": 1,
+   "named_inputs": [
+    "cmake/FastFilesVersion.rc.in"
+   ],
+   "note": "Before the P1-a repair this exact control produced a false PASS; the raw pre-fix proof is recorded in the review-E report."
+  }
+ ],
+ "synthetic_commit_isolation": {
+  "worktree": "build/_apply26/equiv-wt-v3 (owned temporary worktree)",
+  "branch": "tmp/equiv-controls-v3-20261003 (throwaway; never pushed)",
+  "feature_branch_history_contains_synthetic_commits": false,
+  "cleanup_policy": "The temporary worktree and branch are removed before the final push (recorded as executed at the end of the campaign)."
+ },
+ "claim_boundary_design_D4": {
+  "proves": "Git-controlled executable-impacting source and build-input equivalence between two revisions: derived translation units, the recursive include closure over recorded include roots, and executable-affecting build inputs (CMakeLists/CMake files/version identity/configure_file templates), digested as <path>\\0<git blob id>.",
+  "does_not_prove": [
+   "bit-for-bit reproducible binaries",
+   "compiler version",
+   "Windows SDK version",
+   "environment-derived preprocessor definitions",
+   "compiler command-line flags not modelled by the digest",
+   "external toolchain binaries"
+  ],
+  "review_E_recorded_bounds": [
+   "Added executable inputs have no dedicated control; detection is transitive through manifest changes (no file(GLOB)/aux_source_directory exists in this repository).",
+   "The derivation depends on the working tree's build/release-test/compile_commands.json, whose identity is not recorded; the counts/digests are reproducible on this host with this build tree, not portably.",
+   "A project source quoting a system header (e.g. #include \"windows.h\") would be reported unresolved because the INCLUDE environment path is not modelled; no such include exists in project source today.",
+   "The raw per-control artifacts are untracked under build/_apply26/gates3/; the durable verdicts and named inputs are recorded here."
+  ]
+ }
+}

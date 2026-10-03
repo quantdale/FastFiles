@@ -1,139 +1,151 @@
 {
-  "schema": "fastfiles-executable-tree-equivalence-validation-v2",
-  "date": "2026-10-02",
-  "kind": "current-equivalence-validation-artifact",
-  "gate": "verify/qualification/Test-ExecutableTreeEquivalence.ps1",
-  "preserves_historical_record": {
-    "file": "openspec/changes/measured-performance-acceleration-and-exact-certification/evidence/equivalence-gate-validation.json",
-    "status": "historical, byte-identical, not edited",
-    "summary": "The historical record proves a 228-path derivation with a documentation-only positive control (9e2dddc -> 3323fcb) and a single compiled-.cpp negative control (3323fcb -> 69d1b61 naming tests/engine/bench_first_generation_publish.cpp). It predates the header-closure coverage fix and contains no header-only, unresolved-include, or CMake negative row. Its path count and control set remain identifiable as historical and are NOT the current validation.",
-    "current_note": "This v2 record is the current validation. The historical 228-path row is not edited into agreement with the numbers below (382 paths); they are different derivations at different times."
+ "schema": "fastfiles-executable-tree-equivalence-validation-v2",
+ "date": "2026-10-02",
+ "kind": "current-equivalence-validation-artifact",
+ "gate": "verify/qualification/Test-ExecutableTreeEquivalence.ps1",
+ "preserves_historical_record": {
+  "file": "openspec/changes/measured-performance-acceleration-and-exact-certification/evidence/equivalence-gate-validation.json",
+  "status": "historical, byte-identical, not edited",
+  "summary": "The historical record proves a 228-path derivation with a documentation-only positive control (9e2dddc -> 3323fcb) and a single compiled-.cpp negative control (3323fcb -> 69d1b61 naming tests/engine/bench_first_generation_publish.cpp). It predates the header-closure coverage fix and contains no header-only, unresolved-include, or CMake negative row. Its path count and control set remain identifiable as historical and are NOT the current validation.",
+  "current_note": "This v2 record is the current validation. The historical 228-path row is not edited into agreement with the numbers below (382 paths); they are different derivations at different times."
+ },
+ "synthetic_commit_isolation": {
+  "worktree": "build/_apply26/equiv-wt (owned temporary worktree, untracked)",
+  "branch": "tmp/equiv-controls-20261002 (throwaway; never pushed)",
+  "feature_branch_history_contains_synthetic_commits": false,
+  "cleanup_policy": "The temporary worktree and branch are removed before the final push; only the feature branch is pushed. A reviewer can recreate each control from the exact mutations recorded below."
+ },
+ "gate_defects_found_and_fixed_by_this_validation": [
+  {
+   "severity": "high (silent closure truncation \u2014 false coverage completeness)",
+   "what": "Get-BlobText returned a per-line string array; [regex]::Matches coerces a string[] argument by joining with spaces, destroying the (?m)^ line anchors. The include closure therefore matched at most one include per file (a file's very first line) and silently excluded every nested header.",
+   "how_caught": "Control 6 (nested-header mutation of src/protocol/include/ffprotocol/WindowsPath.h) initially reported PASS with identical digests; a debug run proved 0 include matches for non-first lines.",
+   "fix": "Get-BlobText returns the blob as one raw string.",
+   "post_fix": "Derived coverage rose 241 -> 382 executable-impacting paths; the nested-header control now FAILs and names WindowsPath.h."
   },
-  "synthetic_commit_isolation": {
-    "worktree": "build/_apply26/equiv-wt (owned temporary worktree, untracked)",
-    "branch": "tmp/equiv-controls-20261002 (throwaway; never pushed)",
-    "feature_branch_history_contains_synthetic_commits": false,
-    "cleanup_policy": "The temporary worktree and branch are removed before the final push; only the feature branch is pushed. A reviewer can recreate each control from the exact mutations recorded below."
+  {
+   "severity": "high (fail-closed bypass \u2014 false PASS)",
+   "what": "Resolve-Include returned 'GENERATED:<build path>' for ANY include name that matched a build-tree include root without checking that the artifact exists, so an unresolved quoted project include (e.g. ff_apply_control_missing_header.h) hid behind the build-output escape and the gate reported coverage proven.",
+   "how_caught": "Control 4 (unresolved quoted include in src/engine/src/IndexPipeline.cpp) reported PASS even after the closure fix; a debug run showed resolution to 'GENERATED:build/release-test/generated/ff_apply_control_missing_header.h' for a file that does not exist.",
+   "fix": "A GENERATED verdict now requires the candidate to exist on disk as a leaf file; nonexistent candidates fall through to the fail-closed path.",
+   "post_fix": "Control 4 now FAILs closed with 'unresolved-quoted-include: src/engine/src/IndexPipeline.cpp -> ff_apply_control_missing_header.h'."
   },
-  "gate_defects_found_and_fixed_by_this_validation": [
-    {
-      "severity": "high (silent closure truncation — false coverage completeness)",
-      "what": "Get-BlobText returned a per-line string array; [regex]::Matches coerces a string[] argument by joining with spaces, destroying the (?m)^ line anchors. The include closure therefore matched at most one include per file (a file's very first line) and silently excluded every nested header.",
-      "how_caught": "Control 6 (nested-header mutation of src/protocol/include/ffprotocol/WindowsPath.h) initially reported PASS with identical digests; a debug run proved 0 include matches for non-first lines.",
-      "fix": "Get-BlobText returns the blob as one raw string.",
-      "post_fix": "Derived coverage rose 241 -> 382 executable-impacting paths; the nested-header control now FAILs and names WindowsPath.h."
-    },
-    {
-      "severity": "high (fail-closed bypass — false PASS)",
-      "what": "Resolve-Include returned 'GENERATED:<build path>' for ANY include name that matched a build-tree include root without checking that the artifact exists, so an unresolved quoted project include (e.g. ff_apply_control_missing_header.h) hid behind the build-output escape and the gate reported coverage proven.",
-      "how_caught": "Control 4 (unresolved quoted include in src/engine/src/IndexPipeline.cpp) reported PASS even after the closure fix; a debug run showed resolution to 'GENERATED:build/release-test/generated/ff_apply_control_missing_header.h' for a file that does not exist.",
-      "fix": "A GENERATED verdict now requires the candidate to exist on disk as a leaf file; nonexistent candidates fall through to the fail-closed path.",
-      "post_fix": "Control 4 now FAILs closed with 'unresolved-quoted-include: src/engine/src/IndexPipeline.cpp -> ff_apply_control_missing_header.h'."
-    },
-    {
-      "severity": "medium (under-coverage of real compile roots)",
-      "what": "MSVC emits include roots containing '..' segments (e.g. 'D:\\...\\tests\\ui\\..'); the derivation stored them un-canonicalised ('tests/ui/..'), which never matched normalised tracked paths, so includes resolved by those roots (tests/TestSupport.h) appeared unresolved.",
-      "how_caught": "After the fail-closed fix, the positive control itself FAILed listing 'tests/ui/test_home_interaction.cpp -> TestSupport.h'.",
-      "fix": "Include roots are canonicalised with GetFullPath before normalisation to repository-relative form.",
-      "post_fix": "TestSupport.h resolves; the positive control passes again."
-    },
-    {
-      "severity": "medium (compiler semantics gap)",
-      "what": "Resolve-Include resolved a quoted include against the including file's own directory only when the name began with './' or '../', but MSVC searches the includer's directory for EVERY quoted name ('#include \"WindowsPath.h\"' inside ffprotocol/). Bare quoted names were checked only against include roots and the repository root.",
-      "how_caught": "Control 6's initial PASS showed WindowsPath.h (included by SnapshotFormat.h from its own directory) outside the derived set.",
-      "fix": "Quoted includes now resolve against the including file's directory first, exactly like the compiler; angle includes skip that step.",
-      "post_fix": "WindowsPath.h enters the closure and its mutation moves the digest."
-    }
+  {
+   "severity": "medium (under-coverage of real compile roots)",
+   "what": "MSVC emits include roots containing '..' segments (e.g. 'D:\\...\\tests\\ui\\..'); the derivation stored them un-canonicalised ('tests/ui/..'), which never matched normalised tracked paths, so includes resolved by those roots (tests/TestSupport.h) appeared unresolved.",
+   "how_caught": "After the fail-closed fix, the positive control itself FAILed listing 'tests/ui/test_home_interaction.cpp -> TestSupport.h'.",
+   "fix": "Include roots are canonicalised with GetFullPath before normalisation to repository-relative form.",
+   "post_fix": "TestSupport.h resolves; the positive control passes again."
+  },
+  {
+   "severity": "medium (compiler semantics gap)",
+   "what": "Resolve-Include resolved a quoted include against the including file's own directory only when the name began with './' or '../', but MSVC searches the includer's directory for EVERY quoted name ('#include \"WindowsPath.h\"' inside ffprotocol/). Bare quoted names were checked only against include roots and the repository root.",
+   "how_caught": "Control 6's initial PASS showed WindowsPath.h (included by SnapshotFormat.h from its own directory) outside the derived set.",
+   "fix": "Quoted includes now resolve against the including file's directory first, exactly like the compiler; angle includes skip that step.",
+   "post_fix": "WindowsPath.h enters the closure and its mutation moves the digest."
+  }
+ ],
+ "controls": [
+  {
+   "id": "C1-positive-docs-only",
+   "what_changed_between_them": "documentation only (EQUIV_CONTROL_NOTE.md added on the temporary branch); the implementation revision is the apply-session reconciliation commit c41f0dc8bd32a98a8cca5b62a48687178655d3dc (review-E finding P1-b: the previously recorded 40-character string was not a git object and has been corrected here)",
+   "implementationSha": "c41f0dc8bd32a98a8cca5b62a48687178655d3dc",
+   "evidenceSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
+   "expected_verdict": "PASS",
+   "observed_verdict": "PASS",
+   "exit_code": 0,
+   "digest_implementation": "8a025f670da6b7fb...",
+   "digest_evidence": "8a025f670da6b7fb...",
+   "paths_covered": 382
+  },
+  {
+   "id": "C2-negative-compiled-cpp",
+   "what_changed_between_them": "src/engine/src/IndexPipeline.cpp (derived translation unit)",
+   "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
+   "evidenceSha": "f6f4184e189711fe3bf22ee0b81c36ad17744bcf",
+   "expected_verdict": "FAIL naming the source",
+   "observed_verdict": "FAIL",
+   "exit_code": 1,
+   "names_changed_input": [
+    "src/engine/src/IndexPipeline.cpp"
+   ]
+  },
+  {
+   "id": "C3-negative-header-only",
+   "what_changed_between_them": "src/protocol/include/ffprotocol/SnapshotFormat.h only (product header reachable through the compile graph)",
+   "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
+   "evidenceSha": "14cad472a61d66ccd827e4621078268a3456a3ab",
+   "expected_verdict": "FAIL naming the header",
+   "observed_verdict": "FAIL",
+   "exit_code": 1,
+   "names_changed_input": [
+    "src/protocol/include/ffprotocol/SnapshotFormat.h"
+   ]
+  },
+  {
+   "id": "C4-fail-closed-unresolved-quoted-include",
+   "what_changed_between_them": "src/engine/src/IndexPipeline.cpp appends '#include \"ff_apply_control_missing_header.h\"' (a project quoted include that resolves nowhere)",
+   "implementationSha": "4a6c1ee6e2ed700624fc3da7a1a6fc9c21d78423",
+   "evidenceSha": "4a6c1ee6e2ed700624fc3da7a1a6fc9c21d78423",
+   "expected_verdict": "FAIL closed identifying the unresolved include",
+   "observed_verdict": "FAIL",
+   "exit_code": 1,
+   "identical_digests_but_fail_closed": true,
+   "coverage_failures": [
+    "unresolved-quoted-include: src/engine/src/IndexPipeline.cpp -> ff_apply_control_missing_header.h"
+   ]
+  },
+  {
+   "id": "C5-negative-cmake-manifest",
+   "what_changed_between_them": "src/engine/CMakeLists.txt (build-affecting manifest)",
+   "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
+   "evidenceSha": "d99f22b43f432145a330547cd759e803ada67e30",
+   "expected_verdict": "FAIL naming the manifest",
+   "observed_verdict": "FAIL",
+   "exit_code": 1,
+   "names_changed_input": [
+    "src/engine/CMakeLists.txt"
+   ]
+  },
+  {
+   "id": "C6-negative-nested-header",
+   "what_changed_between_them": "src/protocol/include/ffprotocol/WindowsPath.h (reachable only transitively via SnapshotFormat.h, never directly included by any TU)",
+   "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
+   "evidenceSha": "d9cfa653a9f949a7d17e5729ba002400dd01e77c",
+   "expected_verdict": "FAIL naming the nested header",
+   "observed_verdict": "FAIL",
+   "exit_code": 1,
+   "names_changed_input": [
+    "src/protocol/include/ffprotocol/WindowsPath.h"
+   ]
+  },
+  {
+   "id": "C7-negative-deleted-derived-input",
+   "what_changed_between_them": "src/protocol/include/ffprotocol/SnapshotFormat.h deleted in the evidence revision",
+   "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
+   "evidenceSha": "d7079fbf8a35c68d24e460f4954f3de51e30184e",
+   "expected_verdict": "FAIL identifying the deleted derived input",
+   "observed_verdict": "FAIL",
+   "exit_code": 1,
+   "coverage_failures": [
+    "derived-path-missing-in-a-commit: src/protocol/include/ffprotocol/SnapshotFormat.h"
+   ]
+  }
+ ],
+ "coverage_boundary_recorded_not_failed": {
+  "note": "Unresolved quoted includes from third_party/ amalgamation sources are recorded as coverageNotes, not coverage failures: the vendored SQLite amalgamation carries platform-conditional quoted includes (mingw.h, _mingw.h, sqlite_cfg.h, windows.h, tclsqlite.h, sqlite3rtree.h) naming toolchains outside this repository that are not compiled here. Every quoted include in project source (src/, tests/, verify/, cmake/) still fails closed when unresolved. This exception is directory-scoped, recorded in every gate output, and does not affect the digest claim."
+ },
+ "claim_boundary_design_D4": {
+  "proves": "Git-controlled executable-impacting source and build-input equivalence between two revisions: the derived translation-unit set from build/release-test/compile_commands.json, the recursive quoted/angle include closure over the recorded include roots, and executable-affecting CMake/version build inputs, digested as <path>\\0<git blob id>.",
+  "does_not_prove": [
+   "bit-for-bit reproducible binaries",
+   "compiler version",
+   "Windows SDK version",
+   "environment-derived preprocessor definitions",
+   "compiler command-line flags not modelled by the digest",
+   "external toolchain binaries"
   ],
-  "controls": [
-    {
-      "id": "C1-positive-docs-only",
-      "what_changed_between_them": "documentation only (EQUIV_CONTROL_NOTE.md added on the temporary branch)",
-      "implementationSha": "HEAD at run time (c41f0dc8cc858607627808ba4cb6d0fe04e13ea3 abbreviated c41f0dc)",
-      "evidenceSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
-      "expected_verdict": "PASS",
-      "observed_verdict": "PASS",
-      "exit_code": 0,
-      "digest_implementation": "8a025f670da6b7fb...",
-      "digest_evidence": "8a025f670da6b7fb...",
-      "paths_covered": 382
-    },
-    {
-      "id": "C2-negative-compiled-cpp",
-      "what_changed_between_them": "src/engine/src/IndexPipeline.cpp (derived translation unit)",
-      "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
-      "evidenceSha": "f6f4184e189711fe3bf22ee0b81c36ad17744bcf",
-      "expected_verdict": "FAIL naming the source",
-      "observed_verdict": "FAIL",
-      "exit_code": 1,
-      "names_changed_input": ["src/engine/src/IndexPipeline.cpp"]
-    },
-    {
-      "id": "C3-negative-header-only",
-      "what_changed_between_them": "src/protocol/include/ffprotocol/SnapshotFormat.h only (product header reachable through the compile graph)",
-      "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
-      "evidenceSha": "14cad472a61d66ccd827e4621078268a3456a3ab",
-      "expected_verdict": "FAIL naming the header",
-      "observed_verdict": "FAIL",
-      "exit_code": 1,
-      "names_changed_input": ["src/protocol/include/ffprotocol/SnapshotFormat.h"]
-    },
-    {
-      "id": "C4-fail-closed-unresolved-quoted-include",
-      "what_changed_between_them": "src/engine/src/IndexPipeline.cpp appends '#include \"ff_apply_control_missing_header.h\"' (a project quoted include that resolves nowhere)",
-      "implementationSha": "4a6c1ee6e2ed700624fc3da7a1a6fc9c21d78423",
-      "evidenceSha": "4a6c1ee6e2ed700624fc3da7a1a6fc9c21d78423",
-      "expected_verdict": "FAIL closed identifying the unresolved include",
-      "observed_verdict": "FAIL",
-      "exit_code": 1,
-      "identical_digests_but_fail_closed": true,
-      "coverage_failures": ["unresolved-quoted-include: src/engine/src/IndexPipeline.cpp -> ff_apply_control_missing_header.h"]
-    },
-    {
-      "id": "C5-negative-cmake-manifest",
-      "what_changed_between_them": "src/engine/CMakeLists.txt (build-affecting manifest)",
-      "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
-      "evidenceSha": "d99f22b43f432145a330547cd759e803ada67e30",
-      "expected_verdict": "FAIL naming the manifest",
-      "observed_verdict": "FAIL",
-      "exit_code": 1,
-      "names_changed_input": ["src/engine/CMakeLists.txt"]
-    },
-    {
-      "id": "C6-negative-nested-header",
-      "what_changed_between_them": "src/protocol/include/ffprotocol/WindowsPath.h (reachable only transitively via SnapshotFormat.h, never directly included by any TU)",
-      "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
-      "evidenceSha": "d9cfa653a9f949a7d17e5729ba002400dd01e77c",
-      "expected_verdict": "FAIL naming the nested header",
-      "observed_verdict": "FAIL",
-      "exit_code": 1,
-      "names_changed_input": ["src/protocol/include/ffprotocol/WindowsPath.h"]
-    },
-    {
-      "id": "C7-negative-deleted-derived-input",
-      "what_changed_between_them": "src/protocol/include/ffprotocol/SnapshotFormat.h deleted in the evidence revision",
-      "implementationSha": "795f55384cfef4c3eea360b532f98509fa04ce91",
-      "evidenceSha": "d7079fbf8a35c68d24e460f4954f3de51e30184e",
-      "expected_verdict": "FAIL identifying the deleted derived input",
-      "observed_verdict": "FAIL",
-      "exit_code": 1,
-      "coverage_failures": ["derived-path-missing-in-a-commit: src/protocol/include/ffprotocol/SnapshotFormat.h"]
-    }
-  ],
-  "coverage_boundary_recorded_not_failed": {
-    "note": "Unresolved quoted includes from third_party/ amalgamation sources are recorded as coverageNotes, not coverage failures: the vendored SQLite amalgamation carries platform-conditional quoted includes (mingw.h, _mingw.h, sqlite_cfg.h, windows.h, tclsqlite.h, sqlite3rtree.h) naming toolchains outside this repository that are not compiled here. Every quoted include in project source (src/, tests/, verify/, cmake/) still fails closed when unresolved. This exception is directory-scoped, recorded in every gate output, and does not affect the digest claim."
-  },
-  "claim_boundary_design_D4": {
-    "proves": "Git-controlled executable-impacting source and build-input equivalence between two revisions: the derived translation-unit set from build/release-test/compile_commands.json, the recursive quoted/angle include closure over the recorded include roots, and executable-affecting CMake/version build inputs, digested as <path>\\0<git blob id>.",
-    "does_not_prove": [
-      "bit-for-bit reproducible binaries",
-      "compiler version",
-      "Windows SDK version",
-      "environment-derived preprocessor definitions",
-      "compiler command-line flags not modelled by the digest",
-      "external toolchain binaries"
-    ],
-    "compile_command_hashing_decision": "DEFERRED, not rejected (task 3.4): none of the seven controls demonstrated a command-line-only difference that this campaign's certification relationship would falsely certify, so compile_commands.json command lines are not hashed. Add that only if such a control appears. A full reproducible-build project is out of scope."
-  },
-  "conclusion": "All seven controls produced their expected verdicts against the repaired gate. A passing gate run now demonstrates a relationship capable of failing in all five mandated ways; the historical 228-path record remains preserved as historical evidence."
+  "compile_command_hashing_decision": "DEFERRED, not rejected (task 3.4): none of the seven controls demonstrated a command-line-only difference that this campaign's certification relationship would falsely certify, so compile_commands.json command lines are not hashed. Add that only if such a control appears. A full reproducible-build project is out of scope."
+ },
+ "conclusion": "All seven controls produced their expected verdicts against the repaired gate. A passing gate run now demonstrates a relationship capable of failing in all five mandated ways; the historical 228-path record remains preserved as historical evidence."
 }
