@@ -9,10 +9,12 @@ outside this checked commit, per the reordered 11.6 rule.
 - Branch: `feat/performance-closure-and-multisurface-acceleration-20261001`.
 - Start: `origin/main` `bdd7d7b5fb91586df957ce43b348c7fb95cbeae3` (unchanged
   through the campaign; the branch was created from it).
-- `IMPLEMENTATION_SHA` (last executable-impacting commit): `d50c474`
-  ("fix the material review findings"), with `63ddc21` (bench SAL
-  annotations + configure_file prefix stripping) as the final executable
-  change before this report's documentation tip.
+- `IMPLEMENTATION_SHA`: `63ddc21acf089ad92ddb5783882a74a595a2513c` (bench
+  allocator SAL annotations + configure_file prefix stripping -- the last
+  executable-impacting commit). `d50c474` ("fix the material review
+  findings") is the review-fix commit before it. The 11.6 gate initially ran
+  from `d50c474` and correctly FAILED, naming the bench translation unit; it
+  passes from `63ddc21`.
 - Certified binary identity: every preset was rebuilt at the final tip
   before the ladder; identity binding/freshness tests pass inside the
   parity CTest legs.
@@ -156,13 +158,14 @@ improvement.
 
 ## K. Certification relationship
 
-- `implementation_sha`: `d50c474` (final executable change `63ddc21`).
+- `implementation_sha`: `63ddc21acf089ad92ddb5783882a74a595a2513c`.
 - `certified_binary_sha`: the final documentation tip rebuilt before the
   ladder (all presets; identity binding passes).
 - `evidence_sha` / `repository_tip_sha`: the final tracked tip after the
   report commit.
 - `executable_impacting_digest` / verdict: recorded by the 11.6 equivalence
-  gate run from `d50c474` to the final tracked tip, with the live verdict in
+  gate run from `63ddc21acf089ad92ddb5783882a74a595a2513c` to the final tracked
+  tip (PASS, digest 244d9c4d430059db..., 389 paths), with the live verdict in
   the PR body outside the checked commit.
 
 ## L. Hosted CI
