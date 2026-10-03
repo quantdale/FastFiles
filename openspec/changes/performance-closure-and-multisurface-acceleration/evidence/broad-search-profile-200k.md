@@ -184,3 +184,21 @@ regression appears (the small positive deltas on scan-floor classes are
 within run-to-run noise and the admission cannot engage below the result
 cap). The comparator fix is a correctness improvement: capped searches now
 retain the documented top-N instead of the worst N.
+
+## Search same-binary floor (review-D finding 4 resolution)
+
+`arm_search_pre` run three times against itself (`search_floor_1..3.json`,
+same session, same protocol as the pre/post A/B):
+
+| class | round 1 | round 2 | round 3 | run-to-run spread |
+|---|---:|---:|---:|---:|
+| selective | 23.25 | 23.64 | 21.60 | ~9% |
+| exact_name | 22.30 | 21.80 | 20.76 | ~7% |
+| no_match | 23.33 | 22.17 | 22.18 | ~5% |
+| broad | 171.05 | 176.55 | 162.34 | ~9% |
+| extension | 188.87 | 182.59 | 187.03 | ~3% |
+
+The scan-floor classes' pre/post deltas (+1.2..+2.7%) sit inside their
+measured 5-9% same-binary variation, and the post broad/extension medians
+(80.4/66.4 ms) lie far below the same-binary range (162-177/183-189 ms).
+The noise label is now measurement-backed rather than inferred.

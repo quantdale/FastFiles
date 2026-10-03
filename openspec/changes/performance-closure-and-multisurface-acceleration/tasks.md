@@ -65,12 +65,12 @@
 
 ## 10. Adversarial review
 
-- [ ] 10.1 Reviewer A tries to prove each claimed speedup is noise, using the fresh same-binary floor and payload-identity precondition.
-- [ ] 10.2 Reviewer B attacks name ownership, dangling views, generation replacement, disconnect, and teardown.
-- [ ] 10.3 Reviewer C challenges Unicode, mixed case, result limits, sorting, and cancellation.
-- [ ] 10.4 Reviewer D checks whether a memory win hides a latency or CPU regression.
-- [ ] 10.5 Reviewer E attacks the equivalence gate with `.cpp`, header, nested-header, CMake, unresolved-include, and added or deleted source inputs.
-- [ ] 10.6 Reviewer F compares tasks, lifecycle, workstate, GitHub, PR state, tests, and benchmark records. Fix every material reproduced finding.
+- [x] 10.1 Reviewer A tries to prove each claimed speedup is noise, using the fresh same-binary floor and payload-identity precondition. (Reviewer A: broad/extension separations SUPPORTED as not noise; the pooled retention claim was UNPROVEN as attributed because the decision session lacked an in-session same-binary control and carried a 12.4% same-binary artifact session -- resolved by the in-session controls + counterbalanced A/B recorded in evidence/retention-ab-pooled-name-path.md and by correcting the record; fixed-permutation, dirty-provenance, and search-arm-difference notes recorded.)
+- [x] 10.2 Reviewer B attacks name ownership, dangling views, generation replacement, disconnect, and teardown. (Reviewer B: no dangling-view defect found in the pooled model; found and fixed a real heap-use-after-free in UiServer::EnforceIndexedWorkingSetCapLocked (key dereferenced after erase), copy-and-swap exception safety, a RemapEntryNames guard, the vacuous equivalence gate, and the missing case-insensitive coverage.)
+- [x] 10.3 Reviewer C challenges Unicode, mixed case, result limits, sorting, and cancellation. (Reviewer C: found the empty-primaryTerm tier divergence (descending Relevance admission skipped retained rows) and the incomplete capped-truncation fix in ExecuteSearchCore/ExecuteSearchViews; both fixed with a classifier property test and a top-N content assertion. Unicode/mixed-case/limits/sorting/cancellation otherwise SUPPORTED.)
+- [x] 10.4 Reviewer D checks whether a memory win hides a latency or CPU regression. (Reviewer D: confirmed the admission adds no scan-floor cost (it returns before classify) and no production caller uses the owning conversion; corrected the memory-probe wording (owning reference path), the residual attribution (unseparated, not fragmentation), and the search noise-floor labeling.)
+- [x] 10.5 Reviewer E attacks the equivalence gate with `.cpp`, header, nested-header, CMake, unresolved-include, and added or deleted source inputs. (Reviewer E: found the configure_file template false PASS (fixed; the new template control now FAILs naming cmake/FastFilesVersion.rc.in) and a fabricated C1 implementationSha in the v2 record (corrected); v3 record carries eight controls plus the recorded bounds. All seven original controls re-proven.)
+- [x] 10.6 Reviewer F compares tasks, lifecycle, workstate, GitHub, PR state, tests, and benchmark records. Fix every material reproduced finding. (Reviewer F: dirty tree restored, task 6.3 ticked with evidence, the capped-truncation behavior delta recorded in proposal+spec, WORKSTATE refreshed; benchmark/certification numbers and Git/PR/hosted facts SUPPORTED; temp-worktree cleanup pending before push.)
 
 ## 11. Final certification
 

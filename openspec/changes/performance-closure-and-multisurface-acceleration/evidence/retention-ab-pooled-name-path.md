@@ -92,3 +92,48 @@ projected from the D5 matrix). Structural differences (per-directory
 pools, builder pending list, per-name memcpy) account for it; the retained
 change already meets the acceptance target and no further speculative
 micro-optimization is pursued in this campaign.
+
+## Run 4 — in-session controls and counterbalanced re-measurement (review-A resolution)
+
+Review A correctly showed that Run 3's noise-floor justification was
+imported from a different session and binary, that the decision session had
+no in-session control, that session 1's same-binary gap was 12.39% on
+identical binaries, that the permutation was fixed, and that the candidate
+binary's embedded identity said `dirty`. Runs 4a-4d answer each point
+(batch `build/_apply26/run_final_measurements.bat`, 2026-10-04):
+
+**4a/4b — in-session same-binary floors (identical binary on both arms):**
+
+| session | baseline | candidate | between-arm gap | arm spreads |
+|---|---:|---:|---:|---|
+| `samebin_pre_final` (arm_pre vs itself) | 83.66 | 83.97 | **0.37%** | 7.04% / 2.68% |
+| `samebin_post_final` (arm_post_final vs itself) | 73.38 | 74.06 | **0.92%** | 6.38% / 1.96% |
+
+The identical-binary gap in a quiet session is under 1% -- the 12.39%
+session-1 artifact was a user-loaded outlier, not the protocol's floor.
+
+**4c/4d — counterbalanced A/B (6 processes per arm per ordering):**
+
+| ordering | pre | post | post vs pre |
+|---|---:|---:|---:|
+| AB (`arm_pre` baseline, `arm_post_final` candidate) | 84.40 | 74.20 | **-12.09%** |
+| BA (`arm_post_final` baseline, `arm_pre` candidate) | 84.79 | 73.46 | **-13.37%** |
+
+Run distributions: AB baseline [82.6-87.0] vs candidate [73.0-75.6]; BA
+candidate (pre) [82.8-87.0] vs baseline (post) [71.8-76.5] -- complete
+separation in both orderings, and the swapped order reproduces the effect
+within 1.3 points, so the fixed permutation carries no material positional
+bias. Combined arm medians: pre 84.59 -> post 73.83 = **-12.73%**.
+
+**Provenance correction:** `arm_post_final` is the bench binary rebuilt at
+clean commit `d50c474` (the last executable-impacting commit of this
+campaign; `build_worktree_state` was clean at that build). The earlier
+Run-3 candidate embedded `dirty` because the tree carried uncommitted
+documentation at its build time; that record stands as historical.
+
+**Verdict (restated):** the pooled name path improves the real
+first-generation total by 12.7% (both orderings, non-overlapping
+distributions) against an in-session same-binary gap under 1% and arm
+spreads of 2-7%. This is a clear margin over the freshly measured
+same-binary noise floor and meets the 10% strong target. RETAIN stands on
+properly attributed evidence.
