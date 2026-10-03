@@ -106,18 +106,28 @@ enum class DiagnosticFormat {
 // Alias the descriptive name used by callers that select a stream format.
 using DiagnosticOutputFormat = DiagnosticFormat;
 
+// Namespace-scope defaults keep the field declarators free of scoped-enum
+// initializers (an analysis rule misreads '= Type::Value' declarators as bit
+// fields; the values are unchanged).
+constexpr DiagnosticCategory kDefaultDiagnosticCategory = DiagnosticCategory::IndexingError;
+constexpr DiagnosticCode kDefaultDiagnosticCode = DiagnosticCode::FFDIAG_UNKNOWN;
+
 // Deliberately metadata-only. There is no content or arbitrary payload field.
+// All string members carry explicit default member initializers: positional
+// aggregate initializers may stop at any field and the rest are
+// default-constructed, exactly as documented below for the candidate-matrix
+// members.
 struct DiagnosticEvent {
-    DiagnosticCategory category = DiagnosticCategory::IndexingError;
-    DiagnosticCode code = DiagnosticCode::FFDIAG_UNKNOWN;
-    std::wstring path;
-    std::wstring volumeId;
-    std::wstring state;
+    DiagnosticCategory category = kDefaultDiagnosticCategory;
+    DiagnosticCode code = kDefaultDiagnosticCode;
+    std::wstring path{};
+    std::wstring volumeId{};
+    std::wstring state{};
     uint32_t errorCode = 0;
     uint64_t itemCount = 0;
-    std::wstring outcome;
-    std::wstring accountName;
-    std::wstring accountSid;
+    std::wstring outcome{};
+    std::wstring accountName{};
+    std::wstring accountSid{};
     bool privilegeHeld = false;
     bool privilegeEnabled = false;
     // Candidate-matrix evidence (resolve-raw-volume-privilege-insufficiency
@@ -126,9 +136,9 @@ struct DiagnosticEvent {
     // byte-identically to before. Existing positional aggregate initializers
     // keep working because trailing members are value-initialized to these
     // same defaults.
-    std::wstring candidateId;
-    std::wstring privilegeName;
-    std::wstring groupContext;
+    std::wstring candidateId{};
+    std::wstring privilegeName{};
+    std::wstring groupContext{};
     bool journalQueried = false;
     uint32_t journalQueryError = 0;
     // Result of a minimal FSCTL_READ_USN_JOURNAL probe on the same handle
@@ -138,7 +148,7 @@ struct DiagnosticEvent {
     uint32_t registrationOrder = 0;
     // Authenticode leaf thumbprint observed during engine discovery. This is
     // metadata-only and remains empty for unsigned candidates.
-    std::wstring signatureThumbprint;
+    std::wstring signatureThumbprint{};
 };
 
 std::wstring DiagnosticLogPath();
@@ -146,6 +156,25 @@ std::wstring SerializeDiagnosticEvent(const DiagnosticEvent& event,
                                       DiagnosticFormat format = DiagnosticFormat::Text);
 bool AppendDiagnostic(const DiagnosticEvent& event,
                       DiagnosticFormat format = DiagnosticFormat::Text);
+
+// Explicit seven-field form for callers that previously used positional
+// aggregate prefixes. Initializing every member inside a function body keeps
+// call sites free of partial aggregate initialization; the remaining
+// metadata fields take exactly the defaults documented on the struct.
+inline DiagnosticEvent MakeDiagnosticEvent(DiagnosticCategory category, DiagnosticCode code,
+                                           std::wstring path, std::wstring volumeId,
+                                           std::wstring state, uint32_t errorCode,
+                                           uint64_t itemCount) {
+    DiagnosticEvent event;
+    event.category = category;
+    event.code = code;
+    event.path = std::move(path);
+    event.volumeId = std::move(volumeId);
+    event.state = std::move(state);
+    event.errorCode = errorCode;
+    event.itemCount = itemCount;
+    return event;
+}
 
 // settings-and-appearance 8.3/8.4: diagnostic bundle export for sharing with
 // support. By default the bundle is aggregated/redacted -- per-category and

@@ -37,27 +37,22 @@ void DefaultPipeCanceller(HANDLE pipe) {
 }
 
 
-ffprotocol::SnapshotDirectory ToSnapshotDirectory(const EnumerationResult& result) {
-    ffprotocol::SnapshotDirectory directory;
-    directory.status = static_cast<ffprotocol::DirectoryEnumerationStatus>(result.status);
-    directory.entries.reserve(result.entries.size());
+ffprotocol::PooledSnapshotDirectory ToPooledSnapshotDirectory(const EnumerationResult& result) {
+    // performance-closure-and-multisurface-acceleration 6.1: degraded and
+    // watcher listings build the pooled model directly (names land in the
+    // directory's own pool; no per-entry owning strings).
+    ffprotocol::PooledSnapshotDirectoryBuilder builder;
+    builder.SetStatus(static_cast<ffprotocol::DirectoryEnumerationStatus>(result.status));
     for (const auto& entry : result.entries) {
-        ffprotocol::SnapshotDirectoryEntry snapshotEntry;
-        snapshotEntry.name = entry.name;
-        snapshotEntry.isDirectory = entry.isDirectory;
-        snapshotEntry.sizeBytes = entry.sizeBytes;
         // allocated-size-storage-accuracy D8: the unprivileged
         // FindFirstFileEx path does not surface allocated size, so degraded
         // entries are unknown by construction -- never derived from logical
         // size, never rendered as 0 B.
-        snapshotEntry.allocatedSizeBytes = 0;
-        snapshotEntry.allocatedSizeKnown = false;
-        snapshotEntry.creationTime = entry.creationTime;
-        snapshotEntry.lastModifiedTime = entry.lastModifiedTime;
-        snapshotEntry.attributes = entry.attributes;
-        directory.entries.push_back(std::move(snapshotEntry));
+        builder.AddEntry(entry.name, entry.isDirectory, entry.sizeBytes,
+                         0, false, entry.attributes, entry.creationTime,
+                         entry.lastModifiedTime, 0, 0, 0, 0, 0);
     }
-    return directory;
+    return std::move(builder).Build();
 }
 
 } // namespace
@@ -540,7 +535,7 @@ void UiServer::OnDirectoryChanged(const std::wstring& path) {
     auto result = EnumerateDirectoryDegraded(path);
     {
         std::lock_guard<std::mutex> lock(directoriesMutex_);
-        directories_[path] = ToSnapshotDirectory(result);
+        directories_[path] = ToPooledSnapshotDirectory(result);
         // deterministic-missing-path-state D2: record watcher observation
         // for merge precedence ordering (task 2.1).
         const auto snapStatus = static_cast<ffprotocol::DirectoryEnumerationStatus>(result.status);
@@ -562,9 +557,9 @@ bool UiServer::RepublishAndBroadcastGeneration() {
         generation = snapshot_.Publish(directories_);
     }
     if (generation == 0) {
-        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+        ffprotocol::AppendDiagnostic(ffprotocol::MakeDiagnosticEvent(ffprotocol::DiagnosticCategory::IndexingError,
                                       ffprotocol::DiagnosticCode::FFDIAG_SNAPSHOT_PUBLISH_FAILED,
-                                      {}, {}, L"snapshot-publish-failed", ERROR_WRITE_FAULT, 0});
+                                      {}, {}, L"snapshot-publish-failed", ERROR_WRITE_FAULT, 0));
         return false; // publish failed; nothing to announce
     }
 
@@ -607,7 +602,7 @@ void UiServer::BroadcastEngineStatus(const ClientConnectionPtr& toSingleClient) 
     }
 }
 
-void UiServer::MergeIndexDirectories(std::map<std::wstring, ffprotocol::SnapshotDirectory> indexDirectories) {
+void UiServer::MergeIndexDirectories(ffprotocol::PooledSnapshotMap indexDirectories) {
     std::unordered_set<int64_t> incomingVolumes;
     for (const auto& [path, directory] : indexDirectories) {
         if (directory.volumeRowId != 0) {
@@ -654,10 +649,10 @@ void UiServer::MergeIndexDirectories(std::map<std::wstring, ffprotocol::Snapshot
                 // A newer explicit failure (NotFound/AccessDenied/IoError)
                 // exists for this path. Do not overwrite with stale indexed
                 // success (task 2.1). Record the suppression for diagnostics.
-                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                ffprotocol::AppendDiagnostic(ffprotocol::MakeDiagnosticEvent(ffprotocol::DiagnosticCategory::IndexingError,
                                               ffprotocol::DiagnosticCode::FFDIAG_INDEXED_MERGE_SUPPRESSED,
                                               normalizedPath, {}, L"indexed-merge-suppressed",
-                                              0, 0});
+                                              0, 0));
                 continue;
             }
             directories_[normalizedPath] = std::move(directory);
@@ -676,6 +671,28 @@ void UiServer::MergeIndexDirectories(std::map<std::wstring, ffprotocol::Snapshot
         EnforceIndexedWorkingSetCapLocked();
     }
     RepublishAndBroadcastGeneration();
+}
+
+void UiServer::MergeIndexDirectories(std::map<std::wstring, ffprotocol::SnapshotDirectory> indexDirectories) {
+    // performance-closure-and-multisurface-acceleration 6.1 compatibility
+    // overload: convert the owning map into the pooled model and delegate.
+    // Production call sites pass the pooled export directly so the
+    // eliminated per-entry allocations never reappear at this boundary.
+    ffprotocol::PooledSnapshotMap pooled;
+    for (auto& [path, directory] : indexDirectories) {
+        ffprotocol::PooledSnapshotDirectoryBuilder builder;
+        builder.SetStatus(directory.status);
+        builder.SetIdentity(directory.volumeRowId, directory.directoryIdLow, directory.directoryIdHigh,
+                            directory.parentIdLow, directory.parentIdHigh);
+        for (auto& entry : directory.entries) {
+            builder.AddEntry(entry.name, entry.isDirectory, entry.sizeBytes,
+                             entry.allocatedSizeBytes, entry.allocatedSizeKnown, entry.attributes,
+                             entry.creationTime, entry.lastModifiedTime, entry.volumeRowId,
+                             entry.fileIdLow, entry.fileIdHigh, entry.parentIdLow, entry.parentIdHigh);
+        }
+        pooled.emplace(path, std::move(builder).Build());
+    }
+    MergeIndexDirectories(std::move(pooled));
 }
 
 void UiServer::EnforceIndexedWorkingSetCapLocked() {
@@ -813,9 +830,9 @@ bool UiServer::SendForgetUnavailableVolumeResult(const ClientConnectionPtr& clie
         : ffprotocol::ForgetUnavailableVolumeStatus::Failed;
     const ffprotocol::ForgetUnavailableVolumeResultPayload payload{volumeRowId, status};
     if (status == ffprotocol::ForgetUnavailableVolumeStatus::Failed) {
-        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
+        ffprotocol::AppendDiagnostic(ffprotocol::MakeDiagnosticEvent(ffprotocol::DiagnosticCategory::DatabaseError,
                                       ffprotocol::DiagnosticCode::FFDIAG_FORGET_VOLUME_FAILED,
-                                      {}, std::to_wstring(volumeRowId), L"forget-volume-failed", ERROR_WRITE_FAULT, 0});
+                                      {}, std::to_wstring(volumeRowId), L"forget-volume-failed", ERROR_WRITE_FAULT, 0));
     }
     return client->Write(static_cast<uint16_t>(ffprotocol::UiMessageType::ForgetUnavailableVolumeResult),
                          &payload, sizeof(payload));
@@ -870,9 +887,9 @@ bool UiServer::SendVolumeStatus(const ClientConnectionPtr& client) {
 void UiServer::SetEngineStatus(bool privilegedPathActive) {
     const bool changed = engineActive_.exchange(privilegedPathActive) != privilegedPathActive;
     if (changed) {
-        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+        ffprotocol::AppendDiagnostic(ffprotocol::MakeDiagnosticEvent(ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                       ffprotocol::DiagnosticCode::FFDIAG_ENGINE_STATUS_CHANGED,
-                                      {}, {}, privilegedPathActive ? L"active" : L"unavailable", 0, 0});
+                                      {}, {}, privilegedPathActive ? L"active" : L"unavailable", 0, 0));
         BroadcastEngineStatus();
     }
 }
@@ -912,7 +929,7 @@ void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const s
     watcher_.Watch(path, [this](const std::wstring& changedPath) { OnDirectoryChanged(changedPath); });
 
     auto result = EnumerateDirectoryDegraded(path);
-    const auto snapshotDir = ToSnapshotDirectory(result);
+    const auto snapshotDir = ToPooledSnapshotDirectory(result);
     {
         std::lock_guard<std::mutex> lock(directoriesMutex_);
         directories_[path] = snapshotDir;
@@ -925,9 +942,9 @@ void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const s
     }
 
     if (result.status == EnumerationStatus::AccessDenied) {
-        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
+        ffprotocol::AppendDiagnostic(ffprotocol::MakeDiagnosticEvent(ffprotocol::DiagnosticCategory::InaccessibleDirectory,
                                       ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_ACCESS_DENIED,
-                                      path, {}, L"access-denied", ERROR_ACCESS_DENIED, 0});
+                                      path, {}, L"access-denied", ERROR_ACCESS_DENIED, 0));
         SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::AccessDenied);
         // deterministic-missing-path-state D1: publish the failure status
         // into the snapshot so every subscribed client sees the terminal
@@ -936,17 +953,17 @@ void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const s
         return;
     }
     if (result.status == EnumerationStatus::NotFound) {
-        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
+        ffprotocol::AppendDiagnostic(ffprotocol::MakeDiagnosticEvent(ffprotocol::DiagnosticCategory::InaccessibleDirectory,
                                       ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_NOT_FOUND,
-                                      path, {}, L"not-found", ERROR_PATH_NOT_FOUND, 0});
+                                      path, {}, L"not-found", ERROR_PATH_NOT_FOUND, 0));
         SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::NoLongerAvailable);
         RepublishAndBroadcastGeneration();
         return;
     }
     if (result.status == EnumerationStatus::IoError) {
-        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
+        ffprotocol::AppendDiagnostic(ffprotocol::MakeDiagnosticEvent(ffprotocol::DiagnosticCategory::InaccessibleDirectory,
                                       ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_ENUMERATION_FAILED,
-                                      path, {}, L"enumeration-failed", ERROR_READ_FAULT, 0});
+                                      path, {}, L"enumeration-failed", ERROR_READ_FAULT, 0));
         SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::EnumerationFailed);
         RepublishAndBroadcastGeneration();
         return;
@@ -1048,10 +1065,10 @@ void UiServer::HandleConnection(HANDLE pipe, const std::shared_ptr<ConnectionGat
                 // stage-specific diagnostic instead of an infinite client
                 // reconnect loop over an advertised invalid generation.
                 if (snapshot_.SectionName().empty() || snapshot_.CurrentGeneration() == 0) {
-                    ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                    ffprotocol::AppendDiagnostic(ffprotocol::MakeDiagnosticEvent(ffprotocol::DiagnosticCategory::IndexingError,
                                                   ffprotocol::DiagnosticCode::FFDIAG_SNAPSHOT_SUBSCRIBE_INVALID,
                                                   {}, {}, L"subscribe-without-valid-snapshot",
-                                                  ERROR_INVALID_STATE, 0});
+                                                  ERROR_INVALID_STATE, 0));
                     goto disconnected;
                 }
                 {
@@ -1089,9 +1106,9 @@ void UiServer::HandleConnection(HANDLE pipe, const std::shared_ptr<ConnectionGat
                 }
                 std::wstring path(
                     reinterpret_cast<const wchar_t*>(frame->payload.data() + sizeof(header)), header.pathLengthChars);
-                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                ffprotocol::AppendDiagnostic(ffprotocol::MakeDiagnosticEvent(ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                               ffprotocol::DiagnosticCode::FFDIAG_ENGINE_DIRECTORY_REQUEST_RECEIVED,
-                                              path, {}, L"engine-directory-request-received", 0, 0});
+                                              path, {}, L"engine-directory-request-received", 0, 0));
                 HandleRequestDirectory(client, path);
                 break;
             }

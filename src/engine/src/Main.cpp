@@ -20,7 +20,6 @@
 #include <string>
 #include <vector>
 
-#include "ffsetup/Identifiers.h"
 #include "ffsetup/PinnedSignatures.h"
 #include "ffsetup/ScheduledTaskRegistration.h"
 #include "ffprotocol/Diagnostics.h"
@@ -274,7 +273,7 @@ int wmain() {
     uiServer.onActivity = [&idleManager] { idleManager.NotifyActivity(); };
 
     volumeSessions.SetSnapshotReadyCallback([&uiServer](ffindexstore::VolumeRowId,
-                                                          std::map<std::wstring, ffprotocol::SnapshotDirectory> directories) {
+                                                          ffprotocol::PooledSnapshotMap directories) {
         uiServer.MergeIndexDirectories(std::move(directories));
     });
     volumeSessions.SetVolumeUnavailableCallback(
@@ -310,7 +309,7 @@ int wmain() {
         // memory-bounded-indexed-scale 5.1: bounded top-of-tree working-set
         // export at startup rebuild (see VolumeSessionManager scan-complete
         // publication for the same contract).
-        uiServer.MergeIndexDirectories(indexPipeline.ExportDirectorySnapshotBounded(
+        uiServer.MergeIndexDirectories(indexPipeline.ExportDirectorySnapshotBoundedPooled(
             volumeId, prefix, ffengine::IndexPipeline::kInitialIndexedExportDirectories));
     });
 

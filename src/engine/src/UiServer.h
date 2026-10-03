@@ -56,6 +56,10 @@ public:
     // from the index simply take their place alongside (and eventually
     // superseding, as the index grows to cover them) any degraded-mode-
     // populated entries for the same path.
+    void MergeIndexDirectories(ffprotocol::PooledSnapshotMap indexDirectories);
+    // Compatibility overload for owning maps (tests, small manual paths).
+    // Production passes the pooled export so the eliminated allocations do
+    // not reappear at this merge boundary.
     void MergeIndexDirectories(std::map<std::wstring, ffprotocol::SnapshotDirectory> indexDirectories);
     void RemoveVolumeDirectories(wchar_t driveLetter);
 
@@ -288,7 +292,9 @@ private:
     SnapshotPublisher snapshot_;
 
     mutable std::mutex directoriesMutex_;
-    ffprotocol::CaseInsensitiveSnapshotMap directories_;
+    // performance-closure-and-multisurface-acceleration 6.1: the snapshot
+    // model stores pooled entry names (no per-entry owning strings).
+    ffprotocol::PooledCaseInsensitiveSnapshotMap directories_;
 
     // deterministic-missing-path-state D2/D3: per-path observation ordering.
     // An explicit degraded filesystem observation (from request or watcher

@@ -1315,7 +1315,7 @@ void VolumeSessionManager::RepublishSnapshot(ffindexstore::VolumeRowId durableId
     // the bounded top-of-tree working set, not the complete volume map --
     // published bytes scale with active browse contexts; deeper directories
     // re-materialize through the normal request path.
-    onSnapshotReady_(durableId, pipeline_.ExportDirectorySnapshotBounded(
+    onSnapshotReady_(durableId, pipeline_.ExportDirectorySnapshotBoundedPooled(
                                     durableId, prefix, IndexPipeline::kInitialIndexedExportDirectories));
 }
 

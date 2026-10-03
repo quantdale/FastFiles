@@ -531,7 +531,7 @@ void TestInitialScanBatchesDoNotRepeatWholeSnapshotExports() {
     AddSession(manager, volumeId);
     size_t snapshotCount = 0;
     manager.SetSnapshotReadyCallback(
-        [&](ffindexstore::VolumeRowId, std::map<std::wstring, ffprotocol::SnapshotDirectory> directories) {
+        [&](ffindexstore::VolumeRowId, ffprotocol::PooledSnapshotMap directories) {
             ++snapshotCount;
             Check(!directories.empty(), "the completion export contains the indexed directory tree");
         });
@@ -979,7 +979,7 @@ void TestScanFailedRacingDisconnectFromPublicationKeepsRetryOwner() {
     bool ownerSurvivedDisconnect = false;
     bool disconnectedOnce = false;
     manager.SetSnapshotReadyCallback(
-        [&](ffindexstore::VolumeRowId, std::map<std::wstring, ffprotocol::SnapshotDirectory>) {
+        [&](ffindexstore::VolumeRowId, ffprotocol::PooledSnapshotMap) {
             publicationRan = true;
             if (disconnectedOnce) return;
             disconnectedOnce = true;
@@ -3021,7 +3021,7 @@ void TestCombinedPauseDisconnectReconnectStaleTerminalRecovers() {
     // durable floor instead of dropping it.
     bool disconnectedDuringPublication = false;
     manager.SetSnapshotReadyCallback(
-        [&](ffindexstore::VolumeRowId, std::map<std::wstring, ffprotocol::SnapshotDirectory>) {
+        [&](ffindexstore::VolumeRowId, ffprotocol::PooledSnapshotMap) {
             if (disconnectedDuringPublication) return;
             disconnectedDuringPublication = true;
             manager.OnConnectionStateChanged(ffengine::ConnectionState::Disconnected);

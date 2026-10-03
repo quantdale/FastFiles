@@ -50,7 +50,7 @@ public:
     // volume's up-to-date directory snapshot data, for the caller to
     // publish through SnapshotPublisher (tasks.md 3.5).
     using SnapshotReadyCallback =
-        std::function<void(ffindexstore::VolumeRowId, std::map<std::wstring, ffprotocol::SnapshotDirectory>)>;
+        std::function<void(ffindexstore::VolumeRowId, ffprotocol::PooledSnapshotMap)>;
     void SetSnapshotReadyCallback(SnapshotReadyCallback callback) { onSnapshotReady_ = std::move(callback); }
     using VolumeUnavailableCallback = std::function<void(ffindexstore::VolumeRowId, wchar_t)>;
     void SetVolumeUnavailableCallback(VolumeUnavailableCallback callback) {
