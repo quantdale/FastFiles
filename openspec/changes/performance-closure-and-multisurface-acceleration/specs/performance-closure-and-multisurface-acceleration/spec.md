@@ -164,6 +164,29 @@ A broad-search change SHALL be retained only when broad-query latency has a mate
 - **THEN** the replacement observes the new query rather than a stale result set
 - **AND** the cancelled query does not continue to publish as the current result
 
+### Requirement: Capped indexed search retains the documented top-N
+
+The delta recorded by this change: when an indexed search's matching result
+count exceeds the requested maximum, the retained set SHALL be the top-N by
+the requested sort and direction, with honest truncation reporting. The
+bounded accumulation MUST NOT retain the worst N, discard the best result, or
+depend on enumeration order for membership. Any admission that skips
+materialization for a matched candidate SHALL be result-preserving: the
+final bounded set MUST equal the unadmitted path's set.
+
+#### Scenario: Capped results are the best N, not the worst N
+
+- **WHEN** more candidates match than the requested maximum
+- **THEN** the retained results are the top-N by the requested sort and direction
+- **AND** truncation is reported
+- **AND** the hot projection path and the durable path produce the same set
+
+#### Scenario: Admission preserves the bounded result set
+
+- **WHEN** a matched candidate is admitted out before materialization because its primary key is strictly worse than the current worst
+- **THEN** the final bounded result set is identical to the unadmitted path
+- **AND** ties and folder-dependent sorts fall back to the full path
+
 ### Requirement: Projection memory is decomposed before a representation change
 
 The campaign SHALL remeasure current projection memory and decompose the contributors that are actually resident, including rows, names, normalized names, arena overhead, vector capacity, maps, secondary indexes, identifiers, path structures, allocation overhead, and padding. A `sizeof` estimate alone MUST NOT justify a representation change.

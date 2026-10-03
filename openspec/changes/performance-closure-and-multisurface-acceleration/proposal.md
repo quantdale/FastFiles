@@ -20,7 +20,15 @@
 
 ### Modified Capabilities
 
-- None. This proposal does not change an existing product requirement. A later retained optimization may add a delta only after the isolation or profile experiment proves the current behavior should change. The predecessor change stays `active` until its own open tasks are honestly closed; it is not superseded by this proposal.
+- `indexed search result truncation`: the bounded result set is corrected to
+  retain the documented top-N by the requested sort and direction. A
+  comparator-direction defect in the bounded heap made capped searches retain
+  the worst N and discard the best result; the fix is recorded as an explicit
+  delta in this change's spec because it changes observable results for capped
+  searches. All other existing product requirements are unchanged. The
+  predecessor change is now `completed`: its open certification tasks were
+  closed with current evidence by this change's task 2.7, and it is not
+  superseded.
 
 ## Impact
 
