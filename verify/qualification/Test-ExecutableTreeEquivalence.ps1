@@ -366,12 +366,16 @@ try {
         if ($null -eq $cmakeText) { continue }
         foreach ($m in [regex]::Matches([string]$cmakeText, '(?i)configure_file\s*\(\s*"?([^"\s\)]+\.in)"?')) {
             $candidate = $m.Groups[1].Value.Replace([string][char]92, '/')
+            # Strip the common source-root variable prefixes: the remainder is
+            # repository-relative. Any other variable-driven argument is a
+            # coverage failure rather than a silent skip.
+            $candidate = $candidate -replace '^\$\{(CMAKE_SOURCE_DIR|CMAKE_CURRENT_SOURCE_DIR|PROJECT_SOURCE_DIR|CMAKE_CURRENT_LIST_DIR)\}/', ''
             if ($candidate.StartsWith('$')) {
                 [void]$coverageFailures.Add("configure-template-argument-not-resolved: $candidate (from $cmakeFile)")
                 continue
             }
             if ($implementationPaths -contains $candidate) {
-                [void]$buildInputs.Add($candidate)
+                if (-not $buildInputs.Contains($candidate)) { [void]$buildInputs.Add($candidate) }
             } else {
                 [void]$coverageFailures.Add("configure-template-not-derived: $candidate (from $cmakeFile)")
             }

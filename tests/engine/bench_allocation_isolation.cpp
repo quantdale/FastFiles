@@ -774,8 +774,9 @@ void WriteStats(FILE* out, const char* key, std::vector<double>& samples) {
 }  // namespace
 
 // Bench-scoped allocator (count pass). Replaceable global operators; the gate
-// keeps latency passes at one relaxed load per allocation.
-void* operator new(std::size_t size) {
+// keeps latency passes at one relaxed load per allocation. The SAL annotations
+// mirror vcruntime_new.h so /analyze (C28251) accepts the replacements.
+_Ret_notnull_ _Post_writable_byte_size_(size) void* operator new(std::size_t size) {
     void* memory = std::malloc(size != 0 ? size : 1);
     if (memory == nullptr) throw std::bad_alloc{};
     if (gCountingEnabled.load(std::memory_order_relaxed)) {
@@ -784,7 +785,7 @@ void* operator new(std::size_t size) {
     }
     return memory;
 }
-void* operator new[](std::size_t size) {
+_Ret_notnull_ _Post_writable_byte_size_(size) void* operator new[](std::size_t size) {
     void* memory = std::malloc(size != 0 ? size : 1);
     if (memory == nullptr) throw std::bad_alloc{};
     if (gCountingEnabled.load(std::memory_order_relaxed)) {
