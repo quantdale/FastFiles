@@ -57,3 +57,38 @@ improves by a meaningful margin clearly above the fresh same-binary noise
 floor, with no correctness regression and no material common
 selective-search regression; 10% remains the strong target, not a hard
 floor. Outcome appended below when the run completes.
+
+## Run 3 — RETENTION DECISION (build `c874d50`, production-faithful bench)
+
+16:24-16:28 UTC+?; clean interleaved session, loads 10-25, 6 processes per
+arm (all 12 reps readable this time):
+
+| metric | before (`arm_pre`) | after (`arm_post`) | delta |
+|---|---:|---:|---:|
+| export_ms | 40.03 | 34.41 | -14.05% |
+| publication_ms | 25.43 | 18.13 | -28.68% |
+| client_receive_ms | 0.0054 | 0.0055 | noise |
+| client_parse_ms | 18.10 | 19.31 | +6.7% (inside per-arm spreads: 10.4%/6.0%) |
+| **total_ms** | **82.87** | **71.82** | **-13.33%** |
+
+Per-arm total spreads: baseline 7.7%, candidate 10.4%. Baseline totals
+[88.0, 87.1, 83.2, 82.6, 82.1, 81.6]; candidate totals [78.6, 75.2, 71.9,
+71.7, 71.5, 71.1] — **non-overlapping distributions**: every candidate
+process beat every baseline process.
+
+**DECISION: RETAIN.** The real first-generation path improves 13.33%,
+meeting the strong 10% target with a clear margin over the fresh same-binary
+noise floor. Correctness protections hold: byte-identical wire output
+(mechanically proven), the parse side is unchanged (outcome C), and no
+search-path code changed. The client-parse +6.7% delta sits inside its own
+run-to-run spreads and the payload bytes are identical, so it is not a
+material regression. Memory effect: the pooled model stores each
+directory's name text once in a contiguous pool instead of one owning
+wstring per entry; the phase-8 remeasure records the actual number.
+
+Residual observation (not a blocker, recorded for honesty): the pooled
+export (34.4 ms) is ~8 ms above the isolated arena's ideal (~26 ms
+projected from the D5 matrix). Structural differences (per-directory
+pools, builder pending list, per-name memcpy) account for it; the retained
+change already meets the acceptance target and no further speculative
+micro-optimization is pursued in this campaign.
