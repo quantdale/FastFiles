@@ -281,6 +281,16 @@ void TestConcurrentReadersDuringReplacement() {
         const ffprotocol::PooledSnapshotMap next{
             {L"C:\\", MakePooledDirectory(L"live_" + std::to_wstring(step) + L".txt", step)}};
         Check(publisher.Publish(next) != 0, "concurrent-reader publication commits");
+        if (step == 0) {
+            // Bounded coordination: give the reader threads a window to
+            // observe the first generation before the publisher races through
+            // the rest. The progress assertion below must be deterministic,
+            // not scheduling luck (the full-suite run exposed the race).
+            const auto deadline = Clock::now() + std::chrono::seconds(2);
+            while (consistentReads.load(std::memory_order_relaxed) == 0 && Clock::now() < deadline) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
     }
     running.store(false, std::memory_order_relaxed);
     for (auto& reader : readers) reader.join();

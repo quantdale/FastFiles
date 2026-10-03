@@ -132,8 +132,10 @@ int main() {
 
     for (const ffsearch::SortField field : fields) {
         for (const bool descending : {false, true}) {
-            ffsearch::SearchRequest request{ffsearch::ParseQuery(L"m", registry),
-                                            ffsearch::SearchScope::AllIndexedLocations, L"C:"};
+            ffsearch::SearchRequest request;
+            request.query = ffsearch::ParseQuery(L"m", registry);
+            request.scope = ffsearch::SearchScope::AllIndexedLocations;
+            request.scopePath = L"C:";
             request.sortField = field;
             request.descending = descending;
             request.maxResults = 8;
@@ -178,10 +180,43 @@ int main() {
         }
     }
 
+    // Classifier property (review-C finding 1): the view classifier must
+    // mirror the owning classifier for every (name, term) pair, including the
+    // empty term a filter-only query carries as primaryTerm, mixed case,
+    // non-ASCII terms, and dotted stems.
+    {
+        const std::vector<std::wstring> terms = {L"", L"a", L"A", L"ab", L"common", L"CoMmOn",
+                                                 L".txt", L"x.y", L"Ω"};
+        const std::vector<std::wstring> names = {L"", L"a", L"A.txt", L"abc", L"AB", L"x.ab",
+                                                 L"mixedCase.TXT", L"Ωmega",
+                                                 L"long.name.with.dots.ext", std::wstring(4096, L'z')};
+        for (size_t termIndex = 0; termIndex < terms.size(); ++termIndex) {
+            for (size_t nameIndex = 0; nameIndex < names.size(); ++nameIndex) {
+                const std::wstring& term = terms[termIndex];
+                const std::wstring& name = names[nameIndex];
+                std::u16string name16(name.begin(), name.end());
+                ffsearch::Candidate candidate;
+                candidate.name = name;
+                const ffsearch::MatchTier owningTier = ffsearch::ClassifyMatch(candidate, term);
+                const ffsearch::MatchTier viewTier = ffsearch::ClassifyMatchView(name16, term);
+                if (owningTier != viewTier) {
+                    std::fprintf(stderr, "MISMATCH term=%zu name=%zu owning=%d view=%d",
+                                 termIndex, nameIndex, static_cast<int>(owningTier),
+                                 static_cast<int>(viewTier));
+                    std::fputc(10, stderr);
+                }
+                Check(owningTier == viewTier,
+                      "the view tier classifier mirrors the owning classifier for every term/name pair");
+            }
+        }
+    }
+
     // Unbounded requests never admit rows out: the set must be complete.
     {
-        ffsearch::SearchRequest request{ffsearch::ParseQuery(L"m", registry),
-                                        ffsearch::SearchScope::AllIndexedLocations, L"C:"};
+        ffsearch::SearchRequest request;
+        request.query = ffsearch::ParseQuery(L"m", registry);
+        request.scope = ffsearch::SearchScope::AllIndexedLocations;
+        request.scopePath = L"C:";
         request.sortField = ffsearch::SortField::Filename;
         request.maxResults = 0;
         ffsearch::SearchAccumulator reference(request);

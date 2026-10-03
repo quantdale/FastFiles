@@ -54,6 +54,14 @@ int main() {
     response = ffsearch::ExecuteSearch(entries, request);
     Check(response.results.size() == 2 && response.truncated,
           "bounded search reports truncation instead of growing results without limit");
+    // performance-closure-and-multisurface-acceleration review-C/D finding 1:
+    // the retained rows must be the TOP-N by the requested order (Exact
+    // 'report', then the shorter Prefix 'report_other.txt'), never the worst N
+    // the swapped comparator used to keep.
+    Check(response.results.size() == 2
+              && response.results[0].candidate.name == L"report"
+              && response.results[1].candidate.name == L"report_other.txt",
+          "bounded search retains the top-N by the requested sort, not the worst N");
     request.maxResults = 0;
 
     request.sortField = ffsearch::SortField::Size;

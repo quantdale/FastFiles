@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cwctype>
 #include <unordered_map>
 #include <unordered_set>
 #include <windows.h>
@@ -146,11 +145,15 @@ bool SearchAccumulator::AddViewMatched(Candidate candidate, const CandidateMater
     return AddImpl(std::move(candidate), materialize, true);
 }
 
-bool SearchAccumulator::AdmitView(const CandidateView& candidate) const {
+bool SearchAccumulator::AdmitView(const CandidateView& candidate) {
     // performance-closure-and-multisurface-acceleration 7.3: conservative
     // top-N admission. Only a STRICTLY worse primary key can be skipped: the
     // comparator's secondary keys include folder text the view does not carry
-    // (the folder is materialized only for results), so ties admit.
+    // (the folder is materialized only for results), so ties admit. Reports
+    // false either when the row cannot enter the bounded set (and then sets
+    // the response's truncated flag, because matches exceeded maxResults even
+    // though no heap pop ran) or when cancellation was observed (which does
+    // not set truncated).
     if (response_.cancelled) return false;
     if (request_.maxResults == 0) return true;
     if (response_.results.size() < request_.maxResults) return true;
@@ -160,6 +163,10 @@ bool SearchAccumulator::AdmitView(const CandidateView& candidate) const {
     }
     const SearchResult& worst = response_.results.front();
     const bool descending = request_.descending;
+    const auto verdict = [this](const bool admit) {
+        if (!admit) response_.truncated = true;
+        return admit;
+    };
     switch (request_.sortField) {
         case SortField::Relevance: {
             int primary = static_cast<int>(ClassifyMatchView(candidate.name, request_.query.primaryTerm))
@@ -168,37 +175,37 @@ bool SearchAccumulator::AdmitView(const CandidateView& candidate) const {
                 primary = static_cast<int>(candidate.name.size())
                     - static_cast<int>(worst.candidate.name.size());
             }
-            return descending ? primary >= 0 : primary <= 0;
+            return verdict(descending ? primary >= 0 : primary <= 0);
         }
         case SortField::Filename: {
             const int primary = CompareOrdinal16(candidate.name, worst.candidate.name);
-            return descending ? primary >= 0 : primary <= 0;
+            return verdict(descending ? primary >= 0 : primary <= 0);
         }
         case SortField::Size: {
             const int primary = candidate.sizeBytes < worst.candidate.sizeBytes ? -1
                 : candidate.sizeBytes > worst.candidate.sizeBytes ? 1 : 0;
-            return descending ? primary >= 0 : primary <= 0;
+            return verdict(descending ? primary >= 0 : primary <= 0);
         }
         case SortField::Modified: {
             const int primary = candidate.modifiedTime < worst.candidate.modifiedTime ? -1
                 : candidate.modifiedTime > worst.candidate.modifiedTime ? 1 : 0;
-            return descending ? primary >= 0 : primary <= 0;
+            return verdict(descending ? primary >= 0 : primary <= 0);
         }
         case SortField::Created: {
             const int primary = candidate.createdTime < worst.candidate.createdTime ? -1
                 : candidate.createdTime > worst.candidate.createdTime ? 1 : 0;
-            return descending ? primary >= 0 : primary <= 0;
+            return verdict(descending ? primary >= 0 : primary <= 0);
         }
         case SortField::AllocatedSize: {
             // indexed-search-allocated-size D6: an unknown allocated size sorts
             // after every known value in BOTH directions; mirrored here.
             const bool viewKnown = candidate.allocatedSizeKnown;
             const bool worstKnown = worst.candidate.allocatedSizeKnown;
-            if (viewKnown != worstKnown) return viewKnown;
+            if (viewKnown != worstKnown) return verdict(viewKnown);
             if (!viewKnown) return true;
             const int primary = candidate.allocatedSizeBytes < worst.candidate.allocatedSizeBytes ? -1
                 : candidate.allocatedSizeBytes > worst.candidate.allocatedSizeBytes ? 1 : 0;
-            return descending ? primary >= 0 : primary <= 0;
+            return verdict(descending ? primary >= 0 : primary <= 0);
         }
         case SortField::Path:
             return true;  // folder text is not available pre-materialization
@@ -299,13 +306,13 @@ SearchResponse ExecuteSearchCore(std::vector<Candidate>* mutableCandidates,
             std::push_heap(response.results.begin(), response.results.end(),
                            [field = request.sortField, descending = request.descending]
                            (const SearchResult& a, const SearchResult& b) {
-                               return ResultLess(b, a, field, descending);
+                               return ResultLess(a, b, field, descending);
                            });
             if (response.results.size() > request.maxResults) {
                 std::pop_heap(response.results.begin(), response.results.end(),
                               [field = request.sortField, descending = request.descending]
                               (const SearchResult& a, const SearchResult& b) {
-                                  return ResultLess(b, a, field, descending);
+                                  return ResultLess(a, b, field, descending);
                               });
                 response.results.pop_back();
                 response.truncated = true;
@@ -391,13 +398,13 @@ SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
             std::push_heap(response.results.begin(), response.results.end(),
                            [field = request.sortField, descending = request.descending]
                            (const SearchResult& a, const SearchResult& b) {
-                               return ResultLess(b, a, field, descending);
+                               return ResultLess(a, b, field, descending);
                            });
             if (response.results.size() > request.maxResults) {
                 std::pop_heap(response.results.begin(), response.results.end(),
                               [field = request.sortField, descending = request.descending]
                               (const SearchResult& a, const SearchResult& b) {
-                                  return ResultLess(b, a, field, descending);
+                                  return ResultLess(a, b, field, descending);
                               });
                 response.results.pop_back();
                 response.truncated = true;

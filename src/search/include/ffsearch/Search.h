@@ -37,7 +37,7 @@ struct SearchRequest {
     // Internal bounded-read seam: callers may reject a candidate using a
     // captured configuration snapshot. The filter is evaluated after any
     // required folder materialization and before query/scope acceptance.
-    std::function<bool(const Candidate&)> candidateFilter;
+    std::function<bool(const Candidate&)> candidateFilter{};
     bool candidateFilterRequiresFolder = false;
 };
 
@@ -88,12 +88,14 @@ public:
     // bounded top-N admission. The caller has already evaluated the FULL
     // query predicate set on this view (Query::MatchesView, not
     // MatchesViewWithoutFolder) and the request requires no folder
-    // materialization for evaluation. Returns false only when the view is
-    // STRICTLY worse than the bounded set's current worst on the primary
-    // ordering key, so it cannot enter the top-N; ties and the Path sort
-    // return true. Never changes which candidates are accepted, only whether
-    // a hopeless one is materialized.
-    bool AdmitView(const CandidateView& candidate) const;
+    // materialization for evaluation. Returns false when the view is
+    // STRICTLY worse than the bounded set's current worst (and then sets the
+    // response's truncated flag, because matches exceeded maxResults even
+    // though no heap pop ran) or when cancellation was observed (which does
+    // not set truncated); ties and the Path sort return true. Never changes
+    // which candidates are accepted, only whether a hopeless one is
+    // materialized.
+    bool AdmitView(const CandidateView& candidate);
     // Add() for callers that already evaluated the full query predicate set
     // on the candidate's view; scope, filter, classification, materialization
     // for result display, and the bounded heap are unchanged.

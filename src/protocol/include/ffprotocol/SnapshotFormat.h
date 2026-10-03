@@ -83,8 +83,13 @@ struct SnapshotDirectoryEntry {
     uint64_t parentIdHigh = 0;
 };
 
+// Namespace-scope default keeps field declarators free of scoped-enum
+// initializers (an analysis rule misreads '= Type::Value' declarators as bit
+// fields; the value is unchanged and the struct stays an aggregate).
+constexpr DirectoryEnumerationStatus kDefaultDirectoryStatus = DirectoryEnumerationStatus::NotFound;
+
 struct SnapshotDirectory {
-    DirectoryEnumerationStatus status = DirectoryEnumerationStatus::NotFound;
+    DirectoryEnumerationStatus status = kDefaultDirectoryStatus;
     std::vector<SnapshotDirectoryEntry> entries;
     int64_t volumeRowId = 0;
     uint64_t directoryIdLow = 0;
@@ -164,9 +169,6 @@ struct PooledSnapshotDirectory {
     PooledSnapshotDirectory(const PooledSnapshotDirectory& other);
     PooledSnapshotDirectory& operator=(const PooledSnapshotDirectory& other);
 
-    // Rebuilds copied entry name views against this directory's own buffer.
-    void RemapEntryNames(const PooledSnapshotDirectory& other);
-
     DirectoryEnumerationStatus status;
     std::vector<wchar_t> nameChars;
     std::vector<PooledSnapshotEntry> entries;
@@ -175,6 +177,11 @@ struct PooledSnapshotDirectory {
     uint64_t directoryIdHigh = 0;
     uint64_t parentIdLow = 0;
     uint64_t parentIdHigh = 0;
+
+    // review-B finding F3: internal copy helper (the copy ctor/assignment
+    // callers always pass a source with the same entry count; the
+    // implementation guards the mismatch instead of reading out of bounds).
+    void RemapEntryNames(const PooledSnapshotDirectory& other);
 };
 
 // Builder holds name text as offset/length until Build() creates the views,

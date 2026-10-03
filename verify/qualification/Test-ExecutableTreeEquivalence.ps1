@@ -170,7 +170,7 @@ function Resolve-Include {
         $fromDir = (Split-Path $FromFile -Parent).Replace($bs, '/')
         $base = if ([string]::IsNullOrWhiteSpace($fromDir)) { $RepoRootResolved } else { $RepoRootResolved + '/' + $fromDir }
         try { $combined = [IO.Path]::GetFullPath((Join-Path $base $name)).Replace($bs, '/') } catch { $combined = $null }
-        if ($combined -and $combined.StartsWith($RepoRootResolved + '/')) {
+        if ($combined -and $combined.StartsWith($RepoRootResolved + '/', [System.StringComparison]::OrdinalIgnoreCase)) {
             $rel = $combined.Substring($RepoRootResolved.Length + 1)
             if ($Known -contains $rel) { return $rel }
             if ($rel -match '(?i)^build/') {
@@ -201,7 +201,7 @@ function Resolve-Include {
     return $null
 }
 
-$steps = [System.Collections.Generic.List[object]]{}
+$steps = [System.Collections.Generic.List[object]]::new()
 function Add-Step {
     param([string] $Id, [string] $Status, [string] $Reason, [string] $Detail)
     $script:steps.Add([pscustomobject]@{ capabilityId = $Id; status = $Status; reason = $Reason; detail = $Detail })
@@ -254,7 +254,7 @@ try {
             # 'D:\...\tests\ui\..', and a literal 'tests/ui/..' never matches
             # the normalised tracked path 'tests/TestSupport.h'.
             try { $root = [IO.Path]::GetFullPath($root).Replace('\', '/') } catch { }
-            if ($root.StartsWith($repoRootResolved + '/')) {
+            if ($root.StartsWith($repoRootResolved + '/', [System.StringComparison]::OrdinalIgnoreCase)) {
                 $root = $root.Substring($repoRootResolved.Length + 1)
             }
             if ($root -and -not $root.StartsWith('/')) { [void]$includeDirs.Add($root) }
@@ -338,12 +338,42 @@ try {
     }
     $buildInputs = [System.Collections.Generic.List[string]]::new()
     foreach ($p in $implementationPaths) {
-        if ($p -match '(?i)^cmake/.*\.(cmake|ps1)$' -or $p -match '(?i)^(CMakeLists\.txt|CMakePresets\.json|VERSION)$') {
+        # Every tracked build-system file under cmake/ is executable-impacting
+        # whatever its extension: version headers/resources, identity writers,
+        # and helper modules all feed compiled outputs.
+        if ($p -match '(?i)^cmake/') {
+            [void]$buildInputs.Add($p); continue
+        }
+        if ($p -match '(?i)^(CMakeLists\.txt|CMakePresets\.json|VERSION)$') {
             [void]$buildInputs.Add($p); continue
         }
         if ($p -match '(?i)CMakeLists\.txt$') {
             if (Test-ExecutableManifestIsExecutable -Manifest $p -OwningDirectories $owningDirectories) {
                 [void]$buildInputs.Add($p)
+            }
+        }
+    }
+    # review-E finding P1-a: configure_file templates are executable-impacting
+    # build inputs -- the generated header/resource is compiled, yet a
+    # template is not a TU, not #included, and not a CMakeLists, so without
+    # this rule a change confined to a template moved no digest. Literal first
+    # arguments are resolved against the implementation revision; a
+    # variable-driven argument is recorded as a coverage failure rather than
+    # silently skipped.
+    foreach ($cmakeFile in $implementationPaths) {
+        if (-not ($cmakeFile -match '(?i)(CMakeLists\.txt$|^cmake/)')) { continue }
+        $cmakeText = Get-BlobText -Revision $ImplementationSha -Path $cmakeFile
+        if ($null -eq $cmakeText) { continue }
+        foreach ($m in [regex]::Matches([string]$cmakeText, '(?i)configure_file\s*\(\s*"?([^"\s\)]+\.in)"?')) {
+            $candidate = $m.Groups[1].Value.Replace([string][char]92, '/')
+            if ($candidate.StartsWith('$')) {
+                [void]$coverageFailures.Add("configure-template-argument-not-resolved: $candidate (from $cmakeFile)")
+                continue
+            }
+            if ($implementationPaths -contains $candidate) {
+                [void]$buildInputs.Add($candidate)
+            } else {
+                [void]$coverageFailures.Add("configure-template-not-derived: $candidate (from $cmakeFile)")
             }
         }
     }
@@ -437,6 +467,8 @@ try {
         capabilityVerification = @($steps | ForEach-Object { [pscustomobject]@{ capabilityId = $_.capabilityId; status = $_.status; reason = $_.reason; detail = $_.detail } })
         statement = if ($equivalent) {
             "product_tree($($ImplementationSha.Substring(0,12))) == product_tree($($EvidenceSha.Substring(0,12))): the executable-impacting source tree is unchanged between the implementation SHA and the evidence tip, so a binary certified at the implementation SHA is not invalidated by the evidence-only commit."
+        } elseif ($coverageFailures.Count -gt 0) {
+            "product_tree($($ImplementationSha.Substring(0,12))) and product_tree($($EvidenceSha.Substring(0,12))) digests compare as $($implementationDigest -eq $evidenceDigest), but derivation coverage is UNPROVEN ($($coverageFailures.Count) failure(s)): certification MUST NOT be carried forward."
         } else {
             "product_tree($($ImplementationSha.Substring(0,12))) != product_tree($($EvidenceSha.Substring(0,12))): an executable-impacting input differs, so certification MUST NOT be carried forward."
         }

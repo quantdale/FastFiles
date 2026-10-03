@@ -362,6 +362,8 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
 // directory pool), so byte-identity is structural, not replicated.
 // ---------------------------------------------------------------------------
 void PooledSnapshotDirectory::RemapEntryNames(const PooledSnapshotDirectory& other) {
+    // review-B finding F3: never read past the source's entry count.
+    if (other.entries.size() < entries.size()) return;
     for (size_t index = 0; index < entries.size(); ++index) {
         const std::wstring_view oldName = other.entries[index].name;
         const size_t offsetChars = (other.nameChars.empty() || oldName.data() == nullptr)
@@ -389,15 +391,12 @@ PooledSnapshotDirectory::PooledSnapshotDirectory(const PooledSnapshotDirectory& 
 
 PooledSnapshotDirectory& PooledSnapshotDirectory::operator=(const PooledSnapshotDirectory& other) {
     if (this == &other) return *this;
-    status = other.status;
-    nameChars = other.nameChars;
-    entries = other.entries;
-    volumeRowId = other.volumeRowId;
-    directoryIdLow = other.directoryIdLow;
-    directoryIdHigh = other.directoryIdHigh;
-    parentIdLow = other.parentIdLow;
-    parentIdHigh = other.parentIdHigh;
-    RemapEntryNames(other);
+    // review-B finding F4: copy-and-swap. A direct member-wise copy can free
+    // this object's nameChars while entries still hold views into it, and a
+    // later allocation failure would leave those views dangling. The local
+    // copy is fully constructed (or throws) before *this is touched.
+    PooledSnapshotDirectory copy(other);
+    *this = std::move(copy);
     return *this;
 }
 

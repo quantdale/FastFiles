@@ -820,6 +820,12 @@ bool FoldedContains16(std::u16string_view name, std::wstring_view term) {
 }  // namespace
 
 MatchTier ClassifyMatchView(std::u16string_view name, std::wstring_view term) {
+    // review-C finding 1: mirror ClassifyMatch's explicit empty-term guard. A
+    // filter-only query carries an empty primaryTerm, and without this the
+    // view classifier returned Prefix/Exact where the owning classifier
+    // returns Substring -- which made the descending-Relevance admission skip
+    // rows the full path retains.
+    if (term.empty()) return MatchTier::Substring;
     std::u16string_view stem = name;
     const size_t dot = stem.find_last_of(u'.');
     if (dot != std::u16string_view::npos) stem = stem.substr(0, dot);

@@ -718,9 +718,13 @@ void UiServer::EnforceIndexedWorkingSetCapLocked() {
               [](const auto& left, const auto& right) { return left.first < right.first; });
     const size_t toEvict = indexedEntries.size() - indexedWorkingSetCap_;
     for (size_t index = 0; index < toEvict; ++index) {
-        const std::wstring* victimPath = indexedEntries[index].second;
-        directories_.erase(*victimPath);
-        pathObservations_.erase(*victimPath);
+        // review-B finding F1: `indexedEntries` stores pointers to directory
+        // map keys; erasing the directory frees that node, so the key must be
+        // copied before the first erase or the pathObservations lookup below
+        // dereferences freed memory (ASan: heap-use-after-free, READ).
+        const std::wstring victimPath = *indexedEntries[index].second;
+        directories_.erase(victimPath);
+        pathObservations_.erase(victimPath);
         ++workingSetEvictions_;
     }
 }

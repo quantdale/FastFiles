@@ -120,8 +120,6 @@ bool SameEntry(const ffprotocol::SnapshotDirectoryEntry& a, const ffprotocol::Po
 }  // namespace
 
 int main() {
-    int failures = 0;
-
     // Byte-equivalence across randomized fixtures, including Unicode,
     // mixed-case, empty, and 32,767-char pathological names.
     for (unsigned seed = 1; seed <= 12; ++seed) {
@@ -150,7 +148,7 @@ int main() {
 
         // Capacity fail-closed: one byte short must refuse, never truncate.
         std::vector<uint8_t> tooSmall(pooledBytes.empty() ? 0 : pooledBytes.size() - 1);
-        Check(!ffprotocol::SerializeSnapshotTo(pooled, tooSmall.data(), tooSmall.size() + 1),
+        Check(!ffprotocol::SerializeSnapshotTo(pooled, tooSmall.data(), tooSmall.size()),
               (label + "pooled writer fails closed when capacity is short").c_str());
     }
 
@@ -232,6 +230,34 @@ int main() {
               "builder growth preserves exact name text after buffer reallocation");
     }
 
+    // review-B finding F5: the production container is the case-insensitive
+    // pooled map; prove its serialization is byte-identical to the owning
+    // case-insensitive map for the same mixed-case keys.
+    {
+        const OwningMap fixture = MakeFixture(5);
+        ffprotocol::CaseInsensitiveSnapshotMap owningCi;
+        ffprotocol::PooledCaseInsensitiveSnapshotMap pooledCi;
+        for (const auto& [path, directory] : fixture) {
+            ffprotocol::SnapshotDirectory owningDirectory = directory;
+            ffprotocol::PooledSnapshotDirectoryBuilder builder;
+            builder.SetStatus(directory.status);
+            builder.SetIdentity(directory.volumeRowId, directory.directoryIdLow, directory.directoryIdHigh,
+                                directory.parentIdLow, directory.parentIdHigh);
+            for (const auto& entry : directory.entries) {
+                builder.AddEntry(entry.name, entry.isDirectory, entry.sizeBytes,
+                                 entry.allocatedSizeBytes, entry.allocatedSizeKnown, entry.attributes,
+                                 entry.creationTime, entry.lastModifiedTime, entry.volumeRowId,
+                                 entry.fileIdLow, entry.fileIdHigh, entry.parentIdLow, entry.parentIdHigh);
+            }
+            owningCi.emplace(path, std::move(owningDirectory));
+            pooledCi.emplace(path, std::move(builder).Build());
+        }
+        const std::vector<uint8_t> owningBytes = ffprotocol::SerializeSnapshot(owningCi);
+        const std::vector<uint8_t> pooledBytes = ffprotocol::SerializeSnapshot(pooledCi);
+        Check(!owningBytes.empty() && owningBytes == pooledBytes,
+              "case-insensitive pooled map serializes byte-identically to the owning case-insensitive map");
+    }
+
     // Empty fixture: a valid empty snapshot is exactly four bytes both ways.
     {
         OwningMap emptyOwning;
@@ -241,8 +267,8 @@ int main() {
         Check(a.size() == 4 && b == a, "empty pooled snapshot equals empty owning snapshot (4 bytes)");
     }
 
-    if (failures != 0) {
-        std::fprintf(stderr, "%d check(s) failed\n", failures);
-    }
-    return failures == 0 ? 0 : 1;
+    // review-C finding: Check() reports through fftest::FailureCount(), so the
+    // exit code must come from it; a local never-assigned counter made this
+    // gate unable to fail.
+    return FailureCount() == 0 ? 0 : 1;
 }
