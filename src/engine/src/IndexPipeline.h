@@ -326,6 +326,19 @@ public:
         ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix,
         size_t maxDirectories);
 
+    // performance-closure-and-multisurface-acceleration 6.1: pooled-name
+    // export. Same traversal, ordering, and bounded-eviction semantics as
+    // ExportDirectorySnapshotBounded (the owning exports above are converting
+    // wrappers over this core), but entry names land in per-directory pools
+    // instead of per-entry owning std::wstring allocations. Measured on the
+    // 200k-entry D5 isolation matrix: the owning build+serialize stages cost
+    // 59% more at byte-identical payload. Callers that publish must pass the
+    // pooled result straight through so the eliminated allocations never
+    // reappear at a merge boundary.
+    ffprotocol::PooledSnapshotMap ExportDirectorySnapshotBoundedPooled(
+        ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix,
+        size_t maxDirectories);
+
     // file-preview-and-properties §6.2 / storage-analysis §3.1: returns the
     // subtree aggregate for `parentFrn` from the in-memory projection if
     // the folder is known, or std::nullopt if it is not.

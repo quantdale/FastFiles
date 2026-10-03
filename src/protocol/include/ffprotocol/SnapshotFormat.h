@@ -178,6 +178,10 @@ struct PooledSnapshotDirectory {
 
 // Builder holds name text as offset/length until Build() creates the views,
 // so buffer growth during construction can never leave a dangling view.
+// Name text may arrive as std::wstring_view (export paths) or
+// std::u16string_view (the projection NamePool's native text); both carry
+// UTF-16 code units and are copied with explicit per-unit conversion, which
+// is byte-identical on Windows where wchar_t is 16-bit.
 class PooledSnapshotDirectoryBuilder {
 public:
     PooledSnapshotDirectoryBuilder() : status_(DirectoryEnumerationStatus::NotFound) {}
@@ -190,13 +194,59 @@ public:
         parentIdLow_ = parentIdLow;
         parentIdHigh_ = parentIdHigh;
     }
+    // Accepts either name-view form the engine produces:
+    // std::wstring_view / std::wstring (export and test paths) and
+    // std::u16string_view (the projection NamePool's native text). Both carry
+    // UTF-16 code units and are copied with explicit per-unit conversion,
+    // which is byte-identical on Windows where wchar_t is 16-bit.
     void AddEntry(std::wstring_view name, bool isDirectory, uint64_t sizeBytes,
                   uint64_t allocatedSizeBytes, bool allocatedSizeKnown, uint32_t attributes,
                   uint64_t creationTime, uint64_t lastModifiedTime, int64_t entryVolumeRowId,
-                  uint64_t fileIdLow, uint64_t fileIdHigh, uint64_t parentIdLow, uint64_t parentIdHigh);
+                  uint64_t fileIdLow, uint64_t fileIdHigh, uint64_t parentIdLow, uint64_t parentIdHigh) {
+        AddEntryText(name, isDirectory, sizeBytes, allocatedSizeBytes, allocatedSizeKnown,
+                     attributes, creationTime, lastModifiedTime, entryVolumeRowId,
+                     fileIdLow, fileIdHigh, parentIdLow, parentIdHigh);
+    }
+    void AddEntry(std::u16string_view name, bool isDirectory, uint64_t sizeBytes,
+                  uint64_t allocatedSizeBytes, bool allocatedSizeKnown, uint32_t attributes,
+                  uint64_t creationTime, uint64_t lastModifiedTime, int64_t entryVolumeRowId,
+                  uint64_t fileIdLow, uint64_t fileIdHigh, uint64_t parentIdLow, uint64_t parentIdHigh) {
+        AddEntryText(name, isDirectory, sizeBytes, allocatedSizeBytes, allocatedSizeKnown,
+                     attributes, creationTime, lastModifiedTime, entryVolumeRowId,
+                     fileIdLow, fileIdHigh, parentIdLow, parentIdHigh);
+    }
     PooledSnapshotDirectory Build() &&;
 
 private:
+    template <typename CharT>
+    void AddEntryText(std::basic_string_view<CharT> name, bool isDirectory, uint64_t sizeBytes,
+                      uint64_t allocatedSizeBytes, bool allocatedSizeKnown, uint32_t attributes,
+                      uint64_t creationTime, uint64_t lastModifiedTime, int64_t entryVolumeRowId,
+                      uint64_t fileIdLow, uint64_t fileIdHigh, uint64_t parentIdLow, uint64_t parentIdHigh) {
+        static_assert(sizeof(wchar_t) == 2,
+                      "pooled name storage copies UTF-16 code units; Windows wchar_t is required");
+        PendingEntry entry;
+        entry.nameOffsetChars = static_cast<uint32_t>(nameChars_.size());
+        entry.nameLengthChars = static_cast<uint32_t>(name.size());
+        nameChars_.reserve(nameChars_.size() + name.size());
+        for (CharT unit : name) {
+            nameChars_.push_back(static_cast<wchar_t>(unit));
+        }
+        entry.isDirectory = isDirectory;
+        entry.sizeBytes = sizeBytes;
+        entry.allocatedSizeBytes = allocatedSizeBytes;
+        entry.allocatedSizeKnown = allocatedSizeKnown;
+        entry.attributes = attributes;
+        entry.creationTime = creationTime;
+        entry.lastModifiedTime = lastModifiedTime;
+        entry.volumeRowId = entryVolumeRowId;
+        entry.fileIdLow = fileIdLow;
+        entry.fileIdHigh = fileIdHigh;
+        entry.parentIdLow = parentIdLow;
+        entry.parentIdHigh = parentIdHigh;
+        pending_.push_back(entry);
+    }
+
     struct PendingEntry {
         uint32_t nameOffsetChars = 0;
         uint32_t nameLengthChars = 0;

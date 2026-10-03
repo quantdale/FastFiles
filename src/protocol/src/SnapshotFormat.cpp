@@ -401,30 +401,6 @@ PooledSnapshotDirectory& PooledSnapshotDirectory::operator=(const PooledSnapshot
     return *this;
 }
 
-void PooledSnapshotDirectoryBuilder::AddEntry(
-    std::wstring_view name, bool isDirectory, uint64_t sizeBytes,
-    uint64_t allocatedSizeBytes, bool allocatedSizeKnown, uint32_t attributes,
-    uint64_t creationTime, uint64_t lastModifiedTime, int64_t entryVolumeRowId,
-    uint64_t fileIdLow, uint64_t fileIdHigh, uint64_t parentIdLow, uint64_t parentIdHigh) {
-    PendingEntry entry;
-    entry.nameOffsetChars = static_cast<uint32_t>(nameChars_.size());
-    entry.nameLengthChars = static_cast<uint32_t>(name.size());
-    nameChars_.insert(nameChars_.end(), name.begin(), name.end());
-    entry.isDirectory = isDirectory;
-    entry.sizeBytes = sizeBytes;
-    entry.allocatedSizeBytes = allocatedSizeBytes;
-    entry.allocatedSizeKnown = allocatedSizeKnown;
-    entry.attributes = attributes;
-    entry.creationTime = creationTime;
-    entry.lastModifiedTime = lastModifiedTime;
-    entry.volumeRowId = entryVolumeRowId;
-    entry.fileIdLow = fileIdLow;
-    entry.fileIdHigh = fileIdHigh;
-    entry.parentIdLow = parentIdLow;
-    entry.parentIdHigh = parentIdHigh;
-    pending_.push_back(entry);
-}
-
 PooledSnapshotDirectory PooledSnapshotDirectoryBuilder::Build() && {
     PooledSnapshotDirectory directory;
     directory.status = status_;

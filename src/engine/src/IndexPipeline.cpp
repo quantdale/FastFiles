@@ -1010,79 +1010,7 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
     }
 }
 
-std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshot(
-    ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!projection_.ReloadEvictedVolume(store_, id)) return {};
-    std::map<std::wstring, ffprotocol::SnapshotDirectory> result;
-    projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
-        if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {
-            return; // only directories become a listing key; files are listed as their parent's entries below
-        }
-
-        // ReconstructPath's walk includes the volume-root entry's own
-        // stored name (whatever $FILE_NAME record 5 happens to carry --
-        // real NTFS volumes don't store a human-meaningful name there,
-        // e.g. empty or "."), which is not what a UI wants to see in
-        // place of the actual drive letter. So the root entry's own name
-        // is always replaced with rootPathPrefix rather than appended to.
-        auto pathResult = projection_.ReconstructPath(id, entry.frn);
-        const std::wstring reconstructed = ToWString(pathResult.path);
-        std::wstring fullPath;
-        if (entry.parentFrn == entry.frn) {
-            fullPath = rootPathPrefix; // this entry IS the volume root
-        } else if (pathResult.reachedRoot) {
-            // ReconstructPath includes the root entry's on-disk name at the
-            // front of the string.  That name is commonly empty, but valid
-            // volumes can expose a non-empty synthetic root name (for example
-            // ".").  Strip exactly that root component; stripping through the
-            // first separator would incorrectly turn Users\\Alice into Alice.
-            const std::wstring relative = StripVolumeRootName(projection_, id, entry.frn, reconstructed);
-            fullPath = rootPathPrefix;
-            if (!relative.empty()) fullPath += L"\\" + relative;
-        } else {
-            // Defensive fallback for a broken/incomplete parent chain --
-            // should never happen on a well-formed volume.
-            fullPath = rootPathPrefix + L"\\" + reconstructed;
-        }
-
-        ffprotocol::SnapshotDirectory directory;
-        directory.status = ffprotocol::DirectoryEnumerationStatus::Success;
-        directory.volumeRowId = entry.volumeRowId;
-        directory.directoryIdLow = entry.frn.low;
-        directory.directoryIdHigh = entry.frn.high;
-        directory.parentIdLow = entry.parentFrn.low;
-        directory.parentIdHigh = entry.parentFrn.high;
-        if (std::span<const uint32_t> children = projection_.ChildIndices(id, entry.frn); !children.empty()) {
-            directory.entries.reserve(children.size());
-            for (uint32_t childIndex : children) {
-                const auto& child = projection_.EntryAt(childIndex);
-                ffprotocol::SnapshotDirectoryEntry snapshotEntry;
-                snapshotEntry.name = ToWString(projection_.Names().Get(child.nameId));
-                snapshotEntry.isDirectory = (child.attributes & kFileAttributeDirectory) != 0;
-                snapshotEntry.sizeBytes = child.sizeBytes;
-                // allocated-size-storage-accuracy 5.3/D6: carry the
-                // projection's explicit known state into the snapshot.
-                snapshotEntry.allocatedSizeBytes = child.allocatedSizeBytes;
-                snapshotEntry.allocatedSizeKnown = child.allocatedSizeKnown;
-                snapshotEntry.attributes = child.attributes;
-                snapshotEntry.creationTime = child.creationTime;
-                snapshotEntry.lastModifiedTime = child.lastModifiedTime;
-                snapshotEntry.volumeRowId = child.volumeRowId;
-                snapshotEntry.fileIdLow = child.frn.low;
-                snapshotEntry.fileIdHigh = child.frn.high;
-                snapshotEntry.parentIdLow = child.parentFrn.low;
-                snapshotEntry.parentIdHigh = child.parentFrn.high;
-                directory.entries.push_back(std::move(snapshotEntry));
-            }
-        }
-        result.emplace(std::move(fullPath), std::move(directory));
-    });
-
-    return result;
-}
-
-std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshotBounded(
+ffprotocol::PooledSnapshotMap IndexPipeline::ExportDirectorySnapshotBoundedPooled(
     ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix, size_t maxDirectories) {
     if (maxDirectories == 0) {
         return {};
@@ -1093,9 +1021,16 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
     // an in-flight bound: each insertion that would exceed maxDirectories
     // evicts the current largest key (map's rbegin), so final size never
     // exceeds maxDirectories and total work is O(D log max) not O(D log D).
+    //
+    // performance-closure-and-multisurface-acceleration 6.1: this is the
+    // single export core. Entry names land in per-directory pools
+    // (PooledSnapshotDirectoryBuilder) instead of per-entry owning
+    // std::wstring allocations; the owning exports below are converting
+    // wrappers so the traversal and the bounded-eviction semantics exist
+    // exactly once.
     std::lock_guard<std::mutex> lock(mutex_);
     if (!projection_.ReloadEvictedVolume(store_, id)) return {};
-    std::map<std::wstring, ffprotocol::SnapshotDirectory> result;
+    ffprotocol::PooledSnapshotMap result;
     projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
         if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {
             return;
@@ -1112,41 +1047,87 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
         } else {
             fullPath = rootPathPrefix + L"\\" + reconstructed;
         }
-        ffprotocol::SnapshotDirectory directory;
-        directory.status = ffprotocol::DirectoryEnumerationStatus::Success;
-        directory.volumeRowId = entry.volumeRowId;
-        directory.directoryIdLow = entry.frn.low;
-        directory.directoryIdHigh = entry.frn.high;
-        directory.parentIdLow = entry.parentFrn.low;
-        directory.parentIdHigh = entry.parentFrn.high;
+        ffprotocol::PooledSnapshotDirectoryBuilder builder;
+        builder.SetStatus(ffprotocol::DirectoryEnumerationStatus::Success);
+        builder.SetIdentity(entry.volumeRowId, entry.frn.low, entry.frn.high,
+                            entry.parentFrn.low, entry.parentFrn.high);
         if (std::span<const uint32_t> children = projection_.ChildIndices(id, entry.frn); !children.empty()) {
-            directory.entries.reserve(children.size());
             for (uint32_t childIndex : children) {
                 const auto& child = projection_.EntryAt(childIndex);
-                ffprotocol::SnapshotDirectoryEntry snapshotEntry;
-                snapshotEntry.name = ToWString(projection_.Names().Get(child.nameId));
-                snapshotEntry.isDirectory = (child.attributes & kFileAttributeDirectory) != 0;
-                snapshotEntry.sizeBytes = child.sizeBytes;
-                snapshotEntry.allocatedSizeBytes = child.allocatedSizeBytes;
-                snapshotEntry.allocatedSizeKnown = child.allocatedSizeKnown;
-                snapshotEntry.attributes = child.attributes;
-                snapshotEntry.creationTime = child.creationTime;
-                snapshotEntry.lastModifiedTime = child.lastModifiedTime;
-                snapshotEntry.volumeRowId = child.volumeRowId;
-                snapshotEntry.fileIdLow = child.frn.low;
-                snapshotEntry.fileIdHigh = child.frn.high;
-                snapshotEntry.parentIdLow = child.parentFrn.low;
-                snapshotEntry.parentIdHigh = child.parentFrn.high;
-                directory.entries.push_back(std::move(snapshotEntry));
+                // allocated-size-storage-accuracy 5.3/D6: carry the
+                // projection's explicit known state into the snapshot.
+                builder.AddEntry(
+                    projection_.Names().Get(child.nameId),
+                    (child.attributes & kFileAttributeDirectory) != 0,
+                    child.sizeBytes,
+                    child.allocatedSizeBytes,
+                    child.allocatedSizeKnown,
+                    child.attributes,
+                    child.creationTime,
+                    child.lastModifiedTime,
+                    child.volumeRowId,
+                    child.frn.low,
+                    child.frn.high,
+                    child.parentFrn.low,
+                    child.parentFrn.high);
             }
         }
-        result.emplace(std::move(fullPath), std::move(directory));
+        result.emplace(std::move(fullPath), std::move(builder).Build());
         if (result.size() > maxDirectories) {
             auto largest = std::prev(result.end());
             result.erase(largest);
         }
     });
     return result;
+}
+
+namespace {
+
+std::map<std::wstring, ffprotocol::SnapshotDirectory> ToOwningSnapshotMap(
+    const ffprotocol::PooledSnapshotMap& pooled) {
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> result;
+    for (const auto& [path, directory] : pooled) {
+        ffprotocol::SnapshotDirectory owned;
+        owned.status = directory.status;
+        owned.volumeRowId = directory.volumeRowId;
+        owned.directoryIdLow = directory.directoryIdLow;
+        owned.directoryIdHigh = directory.directoryIdHigh;
+        owned.parentIdLow = directory.parentIdLow;
+        owned.parentIdHigh = directory.parentIdHigh;
+        owned.entries.reserve(directory.entries.size());
+        for (const auto& entry : directory.entries) {
+            ffprotocol::SnapshotDirectoryEntry ownedEntry;
+            ownedEntry.name = std::wstring(entry.name);
+            ownedEntry.isDirectory = entry.isDirectory;
+            ownedEntry.sizeBytes = entry.sizeBytes;
+            ownedEntry.allocatedSizeBytes = entry.allocatedSizeBytes;
+            ownedEntry.allocatedSizeKnown = entry.allocatedSizeKnown;
+            ownedEntry.attributes = entry.attributes;
+            ownedEntry.creationTime = entry.creationTime;
+            ownedEntry.lastModifiedTime = entry.lastModifiedTime;
+            ownedEntry.volumeRowId = entry.volumeRowId;
+            ownedEntry.fileIdLow = entry.fileIdLow;
+            ownedEntry.fileIdHigh = entry.fileIdHigh;
+            ownedEntry.parentIdLow = entry.parentIdLow;
+            ownedEntry.parentIdHigh = entry.parentIdHigh;
+            owned.entries.push_back(std::move(ownedEntry));
+        }
+        result.emplace(path, std::move(owned));
+    }
+    return result;
+}
+
+}  // namespace
+
+std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshot(
+    ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix) {
+    return ToOwningSnapshotMap(ExportDirectorySnapshotBoundedPooled(
+        id, rootPathPrefix, (std::numeric_limits<size_t>::max)()));
+}
+
+std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshotBounded(
+    ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix, size_t maxDirectories) {
+    return ToOwningSnapshotMap(ExportDirectorySnapshotBoundedPooled(id, rootPathPrefix, maxDirectories));
 }
 
 std::optional<ffindexstore::Projection::FolderAggregate> IndexPipeline::GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) {
