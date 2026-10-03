@@ -19,6 +19,14 @@ target_link_libraries(ffsearch_history_tests PRIVATE ffsearch)
 add_test(NAME ffsearch_history_tests COMMAND ffsearch_history_tests)
 
 # Informational only: isolated literal matcher evidence, never run by CTest.
+
+# performance-closure-and-multisurface-acceleration 7.3: bounded top-N
+# admission property test (gated adds and view-matched adds must reproduce
+# the reference result set exactly for every sort field and direction).
+add_executable(ffsearch_admission_tests test_search_admission.cpp)
+target_link_libraries(ffsearch_admission_tests PRIVATE ffsearch)
+add_test(NAME ffsearch_admission_tests COMMAND ffsearch_admission_tests)
+
 add_executable(ffsearch_bench_literal_matcher bench_literal_matcher.cpp)
 target_link_libraries(ffsearch_bench_literal_matcher PRIVATE ffsearch)
 

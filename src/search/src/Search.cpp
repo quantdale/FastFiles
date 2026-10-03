@@ -139,6 +139,75 @@ SearchAccumulator::SearchAccumulator(const SearchRequest& request,
                                  request.query.requiresFolder) {}
 
 bool SearchAccumulator::Add(Candidate candidate, const CandidateMaterializer& materialize) {
+    return AddImpl(std::move(candidate), materialize, false);
+}
+
+bool SearchAccumulator::AddViewMatched(Candidate candidate, const CandidateMaterializer& materialize) {
+    return AddImpl(std::move(candidate), materialize, true);
+}
+
+bool SearchAccumulator::AdmitView(const CandidateView& candidate) const {
+    // performance-closure-and-multisurface-acceleration 7.3: conservative
+    // top-N admission. Only a STRICTLY worse primary key can be skipped: the
+    // comparator's secondary keys include folder text the view does not carry
+    // (the folder is materialized only for results), so ties admit.
+    if (response_.cancelled) return false;
+    if (request_.maxResults == 0) return true;
+    if (response_.results.size() < request_.maxResults) return true;
+    if (request_.candidateFilter || request_.candidateFilterRequiresFolder
+        || folderNeededForEvaluation_) {
+        return true;
+    }
+    const SearchResult& worst = response_.results.front();
+    const bool descending = request_.descending;
+    switch (request_.sortField) {
+        case SortField::Relevance: {
+            int primary = static_cast<int>(ClassifyMatchView(candidate.name, request_.query.primaryTerm))
+                - static_cast<int>(worst.tier);
+            if (primary == 0) {
+                primary = static_cast<int>(candidate.name.size())
+                    - static_cast<int>(worst.candidate.name.size());
+            }
+            return descending ? primary >= 0 : primary <= 0;
+        }
+        case SortField::Filename: {
+            const int primary = CompareOrdinal16(candidate.name, worst.candidate.name);
+            return descending ? primary >= 0 : primary <= 0;
+        }
+        case SortField::Size: {
+            const int primary = candidate.sizeBytes < worst.candidate.sizeBytes ? -1
+                : candidate.sizeBytes > worst.candidate.sizeBytes ? 1 : 0;
+            return descending ? primary >= 0 : primary <= 0;
+        }
+        case SortField::Modified: {
+            const int primary = candidate.modifiedTime < worst.candidate.modifiedTime ? -1
+                : candidate.modifiedTime > worst.candidate.modifiedTime ? 1 : 0;
+            return descending ? primary >= 0 : primary <= 0;
+        }
+        case SortField::Created: {
+            const int primary = candidate.createdTime < worst.candidate.createdTime ? -1
+                : candidate.createdTime > worst.candidate.createdTime ? 1 : 0;
+            return descending ? primary >= 0 : primary <= 0;
+        }
+        case SortField::AllocatedSize: {
+            // indexed-search-allocated-size D6: an unknown allocated size sorts
+            // after every known value in BOTH directions; mirrored here.
+            const bool viewKnown = candidate.allocatedSizeKnown;
+            const bool worstKnown = worst.candidate.allocatedSizeKnown;
+            if (viewKnown != worstKnown) return viewKnown;
+            if (!viewKnown) return true;
+            const int primary = candidate.allocatedSizeBytes < worst.candidate.allocatedSizeBytes ? -1
+                : candidate.allocatedSizeBytes > worst.candidate.allocatedSizeBytes ? 1 : 0;
+            return descending ? primary >= 0 : primary <= 0;
+        }
+        case SortField::Path:
+            return true;  // folder text is not available pre-materialization
+    }
+    return true;
+}
+
+bool SearchAccumulator::AddImpl(Candidate candidate, const CandidateMaterializer& materialize,
+                                const bool queryPredicatesAlreadyEvaluated) {
     if (response_.cancelled) return false;
     const size_t chunkSize = (std::max)(size_t{1}, request_.chunkSize);
     if (response_.candidatesVisited % chunkSize == 0 && cancelled_ && cancelled_()) {
@@ -147,7 +216,7 @@ bool SearchAccumulator::Add(Candidate candidate, const CandidateMaterializer& ma
         return false;
     }
     ++response_.candidatesVisited;
-    if (!request_.query.MatchesWithoutFolder(candidate)) return true;
+    if (!queryPredicatesAlreadyEvaluated && !request_.query.MatchesWithoutFolder(candidate)) return true;
     bool materialized = false;
     if ((folderNeededForEvaluation_ || request_.candidateFilterRequiresFolder) && materialize) {
         if (!materialize(candidate)) return true;
@@ -155,7 +224,7 @@ bool SearchAccumulator::Add(Candidate candidate, const CandidateMaterializer& ma
     }
     if (request_.candidateFilter && !request_.candidateFilter(candidate)) return true;
     if (!InScope(candidate, request_.scope, request_.scopePath, request_.persistentOnly)) return true;
-    if (!request_.query.Matches(candidate)) return true;
+    if (!queryPredicatesAlreadyEvaluated && !request_.query.Matches(candidate)) return true;
     if (!materialized && !folderNeededForEvaluation_ && materialize && !materialize(candidate)) return true;
 
     const MatchTier tier = ClassifyMatch(candidate, request_.query.primaryTerm);
@@ -164,9 +233,16 @@ bool SearchAccumulator::Add(Candidate candidate, const CandidateMaterializer& ma
         ++diagnostics_->matchedRows;
     }
     if (request_.maxResults != 0) {
+        // performance-closure-and-multisurface-acceleration 7.3 correctness
+        // fix: the bounded heap's root must be the WORST result so the
+        // pop_heap/pop_back pair discards the worst and the retained set is
+        // the documented TOP-N ("capped result sets are the TOP-N by the
+        // requested sort"). The previous swapped comparator made the root the
+        // BEST result and discarded it, so capped searches retained the worst
+        // N; ffsearch_admission_tests' differential proof caught it.
         const auto comparator = [field = request_.sortField, descending = request_.descending]
                                 (const SearchResult& left, const SearchResult& right) {
-            return ResultLess(right, left, field, descending);
+            return ResultLess(left, right, field, descending);
         };
         std::push_heap(response_.results.begin(), response_.results.end(), comparator);
         if (response_.results.size() > request_.maxResults) {

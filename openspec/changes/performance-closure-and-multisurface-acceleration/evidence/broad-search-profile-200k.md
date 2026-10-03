@@ -101,3 +101,60 @@ only for a sufficiently long simple literal under specific conditions that
 none of the measured classes met at this scale (`projection_probe` and the
 prefix cases scan). Recording this satisfies the 7.2 requirement to state
 whether the existing filename index is on the measured broad path: it is not.
+
+## Task 7.3 implementation and 7.4 decision — RETAIN
+
+Implementation (committed with this evidence):
+
+1. **Bounded top-N admission** (`SearchAccumulator::AdmitView`): under the
+   existing full-view-evaluation gate (`!folderNeededForView`: AllIndexedLocations,
+   no folder-requiring predicate or filter), a matched view whose PRIMARY key
+   is strictly worse than the bounded set's current worst is admitted out
+   before any materialization. Conservative by construction: ties and the Path
+   sort fall through to the full path.
+2. **`AddViewMatched`**: skips the redundant owned-candidate predicate
+   re-evaluation when the loop already ran the full predicate set on the view.
+3. **Capped-search correctness fix found by the admission's differential
+   proof**: the bounded heap's comparator was argument-swapped, making the
+   heap root the BEST result; `pop_heap`+`pop_back` then discarded the best
+   and capped searches retained the WORST N — contradicting the documented
+   "capped result sets are the TOP-N by the requested sort" contract. The
+   property test (gated vs plain adds) exposed it via a hot/cold signature
+   mismatch in `ffengine_index_pipeline_tests`. Fixed by comparing
+   `ResultLess(left, right, ...)` so the root is the worst and the pop
+   discards the worst.
+
+Proofs: `ffsearch_admission_tests` (new) proves for every sort field and
+direction that gated adds and view-matched adds reproduce the reference
+bounded set exactly, and that unbounded requests never admit rows out; full
+Debug CTest 127/127; ASan focused suites pass.
+
+### Measured effect (3 interleaved rounds per arm, per-class medians)
+
+| class | pre (2230376) | post (7.3) | delta |
+|---|---:|---:|---:|
+| selective | 21.31 | 21.64 | +1.6% (noise) |
+| exact_name | 22.27 | 22.52 | +1.2% (noise) |
+| no_match | 22.08 | 22.67 | +2.7% (noise) |
+| moderate | 80.07 | 67.09 | -16.2% |
+| prefix | 79.73 | 65.74 | -17.5% |
+| unicode | 86.63 | 77.18 | -10.9% |
+| mixed_case | 125.03 | 91.53 | -26.8% |
+| worst_substring | 116.39 | 62.92 | -45.9% |
+| broad | 163.71 | 80.42 | **-50.9%** |
+| short_prefix | 163.36 | 79.11 | -51.6% |
+| high_limit_broad | 163.29 | 78.47 | -51.9% |
+| extension | 181.75 | 66.40 | **-63.5%** |
+
+Counter attribution (broad, warm iteration 0, all three rounds): matched
+59,062; `candidate_name_copies` / `candidate_objects_materialized` fall from
+59,062 to 19,573 in every post round; traversal 163-174 ms -> 77-84 ms.
+`filename_index_used` stays false (unchanged path).
+
+**DECISION: RETAIN.** Broad-query latency drops 50.9% (bar: >=10% or a
+meaningful absolute drop), the admission is result-preserving by proof, and
+no material selective, Unicode, mixed-case, cancellation, or memory
+regression appears (the small positive deltas on scan-floor classes are
+within run-to-run noise and the admission cannot engage below the result
+cap). The comparator fix is a correctness improvement: capped searches now
+retain the documented top-N instead of the worst N.

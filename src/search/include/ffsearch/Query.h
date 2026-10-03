@@ -157,6 +157,10 @@ struct Query {
 
 Query ParseQuery(std::wstring_view text, const FilterRegistry& registry);
 bool OrdinalContains(std::wstring_view haystack, std::wstring_view needle);
+// performance-closure-and-multisurface-acceleration 7.3: ordinal comparison
+// between a NamePool UTF-16 view and a wide-character string (Windows wchar_t
+// is UTF-16; the comparison is unit-wise and case-insensitive).
+int CompareOrdinal16(std::u16string_view left, std::wstring_view right);
 bool GlobMatches(std::wstring_view text, std::wstring_view pattern);
 
 // A literal needle prepared once for repeated case-insensitive ordinal

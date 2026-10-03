@@ -84,10 +84,26 @@ public:
     // Returns false only when cancellation was observed. A false return is a
     // cooperative stop signal for the source enumerator, not a search error.
     bool Add(Candidate candidate, const CandidateMaterializer& materialize = {});
+    // performance-closure-and-multisurface-acceleration 7.3: conservative
+    // bounded top-N admission. The caller has already evaluated the FULL
+    // query predicate set on this view (Query::MatchesView, not
+    // MatchesViewWithoutFolder) and the request requires no folder
+    // materialization for evaluation. Returns false only when the view is
+    // STRICTLY worse than the bounded set's current worst on the primary
+    // ordering key, so it cannot enter the top-N; ties and the Path sort
+    // return true. Never changes which candidates are accepted, only whether
+    // a hopeless one is materialized.
+    bool AdmitView(const CandidateView& candidate) const;
+    // Add() for callers that already evaluated the full query predicate set
+    // on the candidate's view; scope, filter, classification, materialization
+    // for result display, and the bounded heap are unchanged.
+    bool AddViewMatched(Candidate candidate, const CandidateMaterializer& materialize = {});
     SearchResponse Finish();
     bool Cancelled() const noexcept { return response_.cancelled; }
 
 private:
+    bool AddImpl(Candidate candidate, const CandidateMaterializer& materialize,
+                 bool queryPredicatesAlreadyEvaluated);
     SearchRequest request_;
     std::function<bool()> cancelled_;
     SearchDiagnostics* diagnostics_ = nullptr;
@@ -120,6 +136,11 @@ SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
                                   SearchDiagnostics* diagnostics = nullptr);
 void SortResults(std::vector<SearchResult>& results, SortField field, bool descending);
 MatchTier ClassifyMatch(const Candidate& candidate, std::wstring_view term);
+// performance-closure-and-multisurface-acceleration 7.3: tier classification
+// for a pre-materialization candidate view (UTF-16 name, no folder). Mirrors
+// ClassifyMatch's name checks; a name that does not contain the term is
+// PathOnly exactly as the owning classifier reports.
+MatchTier ClassifyMatchView(std::u16string_view name, std::wstring_view term);
 
 struct PathReconstruction {
     std::vector<std::wstring> segments;

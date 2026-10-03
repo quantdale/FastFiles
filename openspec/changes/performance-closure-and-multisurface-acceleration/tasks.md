@@ -47,8 +47,8 @@
 
 - [x] 7.1 After the name decision, freshly benchmark selective, moderate, broad, no-result, exact, short-prefix, mixed-case, Unicode, high-limit, and cancellation or replacement queries on the current candidate. Do not use the historical ~95 ms figure as the before row.
 - [x] 7.2 Profile candidate acquisition, normalized-field access, matching, result construction, sorting, top-N selection, and publication. Record whether the existing filename index is on the measured broad path.
-- [ ] 7.3 Implement at most the evidence-backed candidate. Do not revive the fold-free matcher unless this profile shows an end-to-end broad-search win.
-- [ ] 7.4 Retain only a material broad-query reduction, preferably at least 10% or a meaningful absolute drop, without a material selective, Unicode, mixed-case, cancellation, or memory regression. Otherwise revert and record the rejection.
+- [x] 7.3 Implement at most the evidence-backed candidate. Do not revive the fold-free matcher unless this profile shows an end-to-end broad-search win.
+- [x] 7.4 Retain only a material broad-query reduction, preferably at least 10% or a meaningful absolute drop, without a material selective, Unicode, mixed-case, cancellation, or memory regression. Otherwise revert and record the rejection.
 
 ## 8. Projection memory
 

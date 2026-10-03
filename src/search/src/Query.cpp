@@ -1,4 +1,5 @@
 #include "ffsearch/Query.h"
+#include "ffsearch/Search.h"
 
 #include <algorithm>
 #include <chrono>
@@ -7,6 +8,13 @@
 #include <windows.h>
 
 namespace ffsearch {
+
+// performance-closure-and-multisurface-acceleration 7.3: ordinal comparison
+// between a NamePool UTF-16 view and a wide-character string. Declared here so
+// the anonymous-namespace helpers below and the search accumulator can share
+// one implementation.
+int CompareOrdinal16(std::u16string_view left, std::wstring_view right);
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -31,12 +39,6 @@ std::wstring Lower(std::wstring_view value) {
     std::wstring result(value);
     std::transform(result.begin(), result.end(), result.begin(), [](wchar_t c) { return static_cast<wchar_t>(towlower(c)); });
     return result;
-}
-
-int CompareOrdinal16(std::u16string_view left, std::wstring_view right) {
-    if (gActiveDiagnostics != nullptr) ++gActiveDiagnostics->caseInsensitiveComparisons;
-    return CompareStringOrdinal(reinterpret_cast<const wchar_t*>(left.data()), static_cast<int>(left.size()),
-                                right.data(), static_cast<int>(right.size()), TRUE) - CSTR_EQUAL;
 }
 
 bool IsAscii(std::wstring_view value) {
@@ -756,6 +758,75 @@ Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
         query.simpleLiteralShifts = BuildAsciiShifts(query.simpleLiteralFolded);
     }
     return query;
+}
+
+int CompareOrdinal16(std::u16string_view left, std::wstring_view right) {
+    if (gActiveDiagnostics != nullptr) ++gActiveDiagnostics->caseInsensitiveComparisons;
+    return CompareStringOrdinal(reinterpret_cast<const wchar_t*>(left.data()), static_cast<int>(left.size()),
+                                right.data(), static_cast<int>(right.size()), TRUE) - CSTR_EQUAL;
+}
+
+namespace {
+
+bool FoldedEquals16(std::u16string_view name, std::wstring_view term) {
+    if (name.size() != term.size()) return false;
+    if (IsAscii(term)) {
+        for (size_t index = 0; index < name.size(); ++index) {
+            if (FoldAscii16Char(name[index]) != static_cast<char16_t>(FoldAsciiWideChar(term[index]))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return CompareOrdinal16(name, term) == 0;
+}
+
+bool FoldedStartsWith16(std::u16string_view name, std::wstring_view term) {
+    if (term.size() > name.size()) return false;
+    if (IsAscii(term)) {
+        for (size_t index = 0; index < term.size(); ++index) {
+            if (FoldAscii16Char(name[index]) != static_cast<char16_t>(FoldAsciiWideChar(term[index]))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return CompareOrdinal16(name.substr(0, term.size()), term) == 0;
+}
+
+bool FoldedContains16(std::u16string_view name, std::wstring_view term) {
+    if (term.empty()) return true;
+    if (term.size() > name.size()) return false;
+    if (IsAscii(term)) {
+        for (size_t start = 0; start + term.size() <= name.size(); ++start) {
+            bool equal = true;
+            for (size_t index = 0; index < term.size(); ++index) {
+                if (FoldAscii16Char(name[start + index])
+                    != static_cast<char16_t>(FoldAsciiWideChar(term[index]))) {
+                    equal = false;
+                    break;
+                }
+            }
+            if (equal) return true;
+        }
+        return false;
+    }
+    for (size_t start = 0; start + term.size() <= name.size(); ++start) {
+        if (CompareOrdinal16(name.substr(start, term.size()), term) == 0) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+MatchTier ClassifyMatchView(std::u16string_view name, std::wstring_view term) {
+    std::u16string_view stem = name;
+    const size_t dot = stem.find_last_of(u'.');
+    if (dot != std::u16string_view::npos) stem = stem.substr(0, dot);
+    if (FoldedEquals16(stem, term) || FoldedEquals16(name, term)) return MatchTier::Exact;
+    if (FoldedStartsWith16(name, term)) return MatchTier::Prefix;
+    if (FoldedContains16(name, term)) return MatchTier::Substring;
+    return MatchTier::PathOnly;
 }
 
 } // namespace ffsearch

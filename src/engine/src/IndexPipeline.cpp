@@ -1663,12 +1663,26 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                             ++hotRowsRejectedBeforeMaterialization;
                             continue;
                         }
+                        // performance-closure-and-multisurface-acceleration 7.3:
+                        // when the view evaluated the FULL predicate set (no
+                        // folder-dependent evaluation), a strictly worse
+                        // primary key can be admitted out before any
+                        // materialization, and Add need not re-evaluate the
+                        // query predicates on the owned candidate.
+                        const bool fullViewEvaluation = !folderNeededForView;
+                        if (fullViewEvaluation && !accumulator.AdmitView(view)) {
+                            ++hotRowsRejectedBeforeMaterialization;
+                            continue;
+                        }
                         const auto survivorStart = Clock::now();
                         const auto& prefix = context.prefixes.at(row.volumeRowId);
                         ffsearch::Candidate candidate =
                             MakeProjectionCandidateFromLightweight(row, name, prefix);
                         ++candidateNameCopies;
-                        if (!accumulator.Add(std::move(candidate), materialize)) break;
+                        const bool continueSearch = fullViewEvaluation
+                            ? accumulator.AddViewMatched(std::move(candidate), materialize)
+                            : accumulator.Add(std::move(candidate), materialize);
+                        if (!continueSearch) break;
                         ++candidateObjectsMaterialized;
                         survivorMaterializationMs += std::chrono::duration<double, std::milli>(
                             Clock::now() - survivorStart).count();
