@@ -122,3 +122,16 @@ repository truth was reconciled (`apply-live-reconciliation.md`); current-state
 validation is this record. The predecessor is therefore marked `completed` in
 `openspec/lifecycle.json` (not by `supersededBy`). Raw-volume tasks 5.4 and 2.3
 are NOT touched: they remain unchecked and external (`elevated`/`clean-host`).
+
+## Task 9.1 — user-visible checks after the retained changes
+
+`pwsh ./dev.ps1 test-e2e` on the retained candidate (pooled name path +
+search admission + capped-truncation fix), debug-diagnostic rebuilt at the
+current HEAD: **8 passed / 0 failed / 0 skipped**, provenance
+`boundToHead=true`. The scenario details cover Home, This PC terminal state,
+nested browse, Back/Forward/Up, direct path, stale-column and terminal-item
+behaviour, plus exact/partial/no-result/superseded-query/selection/result-open
+search checks — the practical navigation-to-ready and
+search-input-to-visible-results paths. These checks are not new wall-clock
+gates; no timing threshold was added. UIA core/full and the visual catalog
+are re-run in the final certification ladder (task 11.3).

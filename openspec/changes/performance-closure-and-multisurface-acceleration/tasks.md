@@ -58,7 +58,7 @@
 
 ## 9. User-visible behavior and the search flake
 
-- [ ] 9.1 After any retained engine or search change, check navigation-to-ready, search-input-to-visible-results, tab-switch-to-ready, Home-to-ready, and large-directory-to-ready where practical. Do not turn those checks into a brittle wall-clock gate. If a check cannot be run, say so.
+- [x] 9.1 After any retained engine or search change, check navigation-to-ready, search-input-to-visible-results, tab-switch-to-ready, Home-to-ready, and large-directory-to-ready where practical. Do not turn those checks into a brittle wall-clock gate. If a check cannot be run, say so.
 - [x] 9.2 Attempt to reproduce `search-deep-result-navigation` (`alpha` not accepted, observed empty on AutomationId 7101) with repeated focused trials and an aggregate run.
 - [x] 9.3 Investigate readiness, UIA cache staleness, focus transfer, text and value patterns, foreground state, control recreation, typing versus direct value set, and event synchronization. Instrument the harness only as far as that distinction requires.
 - [x] 9.4 Fix a deterministic harness defect in the harness, or a deterministic product race in the product. If the matrix does not reproduce it, record `UNREPRODUCED / OBSERVED FLAKE` and keep the historical failure.
