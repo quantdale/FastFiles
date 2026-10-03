@@ -52,9 +52,9 @@
 
 ## 8. Projection memory
 
-- [ ] 8.1 Remeasure projection memory on the current candidate. Decompose rows, names, normalized names, arena overhead, vector capacity, maps, secondary indexes, identifiers, path structures, allocation overhead, and padding using working-set or allocation evidence, not `sizeof` alone.
+- [x] 8.1 Remeasure projection memory on the current candidate. Decompose rows, names, normalized names, arena overhead, vector capacity, maps, secondary indexes, identifiers, path structures, allocation overhead, and padding using working-set or allocation evidence, not `sizeof` alone.
 - [x] 8.2 Classify duplication across SQLite, the projection, `NamePool`, the filename index, the snapshot export, the UI generation, and search results as intentional, transient, or accidental.
-- [ ] 8.3 Retain a memory change only when it saves a material fraction at realistic scale, preferably at least 10%, without materially worsening search, navigation, indexing, startup, or reconciliation. Removing a useful index that makes search materially slower is not by itself a win. Otherwise reject and record the tradeoff.
+- [x] 8.3 Retain a memory change only when it saves a material fraction at realistic scale, preferably at least 10%, without materially worsening search, navigation, indexing, startup, or reconciliation. Removing a useful index that makes search materially slower is not by itself a win. Otherwise reject and record the tradeoff.
 
 ## 9. User-visible behavior and the search flake
 

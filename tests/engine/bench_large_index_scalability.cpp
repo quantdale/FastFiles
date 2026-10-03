@@ -272,6 +272,8 @@ struct DatasetResult {
     MemorySample afterRebuild;
     MemorySample afterBroadQuery;
     MemorySample postQuery;
+    size_t projectionEstimatedBytes = 0;
+    size_t projectionEntryBytes = sizeof(ffindexstore::ProjectionEntry);
     ResourceSample resourcesAfterRebuild;
     ResourceSample resourcesPostQuery;
     struct ContentionResult {
@@ -565,7 +567,8 @@ bool BuildSyntheticDatabase(const std::filesystem::path& database, size_t scale,
 
 bool LoadPipeline(const std::filesystem::path& database, ffengine::IndexPipeline& pipeline,
                   ffindexstore::VolumeRowId volumeId, double& rebuildMs, MemorySample& afterOpen,
-                  MemorySample& afterRebuild, bool detailedDiagnostics, size_t scale) {
+                  MemorySample& afterRebuild, size_t& projectionEstimatedBytes,
+                  bool detailedDiagnostics, size_t scale) {
     if (!pipeline.Open(PathToUtf8(database))) return false;
     afterOpen = ReadMemory();
     ffprotocol::VolumeSetting setting;
@@ -580,6 +583,10 @@ bool LoadPipeline(const std::filesystem::path& database, ffengine::IndexPipeline
     pipeline.RebuildAll({});
     rebuildMs = ElapsedMs(rebuildStart);
     afterRebuild = ReadMemory();
+    // performance-closure-and-multisurface-acceleration 8.1: the projection's
+    // own estimator total at this scale, for calibration against the measured
+    // private-bytes delta (the estimator is not a working-set proof).
+    projectionEstimatedBytes = pipeline.GetProjectionMemoryDiagnostics().estimatedBytes;
     if (detailedDiagnostics) {
         std::printf("  [%zu] projection rebuild complete %.2f s\n", scale, rebuildMs / 1000.0);
         std::fflush(stdout);
@@ -1218,6 +1225,8 @@ void WriteDataset(std::ostream& output, const DatasetResult& dataset) {
     output << ",\"memory_after_fixture\":"; WriteMemory(output, dataset.afterFixture);
     output << ",\"memory_after_database_open\":"; WriteMemory(output, dataset.afterDatabaseOpen);
     output << ",\"memory_after_rebuild\":"; WriteMemory(output, dataset.afterRebuild);
+    output << ",\"projection_estimated_bytes\":" << dataset.projectionEstimatedBytes
+           << ",\"projection_entry_bytes\":" << dataset.projectionEntryBytes;
     output << ",\"memory_after_broad_query\":"; WriteMemory(output, dataset.afterBroadQuery);
     output << ",\"memory_post_query\":"; WriteMemory(output, dataset.postQuery);
     output << ",\"resources_after_rebuild\":"; WriteResource(output, dataset.resourcesAfterRebuild);
@@ -1413,6 +1422,7 @@ int wmain(int argc, wchar_t** argv) {
         ffengine::IndexPipeline pipeline;
         if (!LoadPipeline(database, pipeline, volumeId, dataset.rebuildMs,
                            dataset.afterDatabaseOpen, dataset.afterRebuild,
+                           dataset.projectionEstimatedBytes,
                            options.detailedDiagnostics, scale)) {
             std::fprintf(stderr, "synthetic database reload failed at %zu\n", scale);
             std::error_code ignored;

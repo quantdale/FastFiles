@@ -87,3 +87,58 @@ not accumulate.
 
 8.3's retain/reject decision is deferred until the breakdown pass and the
 1M-row remeasure above are complete; no memory change is justified yet.
+
+## Task 8.1 completion — 1,000,000-row remeasure and decomposition calibration
+
+Run: `ffengine_bench_large_index_scalability --scales 1000000 --diagnostics`
+(load 11; release-test binary at the retained candidate). Measured process
+private bytes:
+
+| stage | private | delta |
+|---|---:|---:|
+| after database open (empty projection) | 7.4 MB | baseline |
+| after rebuild (projection resident) | 527.9 MB | **+520.5 MB = 520.5 bytes/row** |
+| after broad query | 541.9 MB | +14.0 MB transient query state |
+| post-query (stable) | 598.2 MB | +70.3 MB retained result/search state |
+
+Estimator calibration (`Projection::EstimatedMemoryBytes`, the categories
+that are actually summed): 404.4 MB = **404.4 bytes/row** at 1M rows.
+`sizeof(ffindexstore::ProjectionEntry)` = **104 bytes**, so the row array is
+a ~104 bytes/row floor (20% of resident); the estimator's remaining ~300
+bytes/row cover the id/parent maps, the interned name arena, the filename
+trigram postings + non-ASCII list, and LRU metadata. The measured-minus-
+estimator residual is **+116.1 MB (~22% of resident)**: allocator overhead,
+fragmentation, padding, and vector-capacity slack beyond the estimator's
+accounting. The 200k measurement (549 bytes/row measured) shows allocation
+efficiency improving slightly with scale; both numbers are measured, and
+neither is a `sizeof` estimate.
+
+Category access boundary recorded honestly: rows are directly measurable
+(public `ProjectionEntry` size + row count), the name arena / maps / postings
+are private and are covered by the estimator's own category sums, and the
+residual names the untracked allocator cost. No per-category number is
+invented from `sizeof` alone.
+
+## Task 8.3 decision — REJECT further memory changes (recorded tradeoff)
+
+No memory representation change is retained, for three measured reasons:
+
+1. The only large removable structure is the secondary filename index
+   (trigram postings + non-ASCII list). The engine's own suite proves it is
+   used for eligible selective literal searches ("fully-resident eligible
+   searches use the trigram accelerator"), and the spec is explicit that
+   removing a useful accelerator that makes search materially slower is not
+   a win. The 8.2 classification marks it intentional-for-speed.
+2. The 8.2 trace found no accidental duplication: the name plane interns
+   once in the arena, and the retained pooled-name change (task 6.1) already
+   removed the transient per-entry owning copies from the export/merge/publish
+   path, so the model no longer allocates one wstring per entry. No further
+   copy removal meets the >=10%-at-realistic-scale bar.
+3. The resident projection is dominated by the row array floor plus the
+   estimator's categories plus a ~22% allocator residual; the decomposition
+   shows no single accidental contributor large enough to remove without a
+   search, navigation, indexing, startup, or reconciliation regression.
+
+Tradeoff recorded: projection memory stays at ~520 bytes/row measured at 1M
+rows; the campaign deliberately keeps the filename accelerator and the
+existing representations rather than trading search latency for bytes.
