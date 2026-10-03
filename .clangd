@@ -5,4 +5,7 @@ CompileFlags:
     - -Isrc/ipc/include
     - -Isrc/setup/include
     - -Isrc/indexsvc/src
+    - -Isrc/engine/src
+    - -Isrc/indexstore/include
+    - -Isrc/search/include
     - -Ibuild/debug/generated

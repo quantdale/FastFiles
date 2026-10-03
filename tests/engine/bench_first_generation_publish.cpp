@@ -410,7 +410,13 @@ int wmain(int argc, wchar_t** argv) {
         Run run;
 
         const auto exportStart = Clock::now();
-        auto directories = bench.pipeline.ExportDirectorySnapshotBounded(
+        // performance-closure-and-multisurface-acceleration 6.4 fidelity:
+        // production call sites (Main.cpp, VolumeSessionManager's
+        // snapshot-ready callback) now export and merge through the pooled
+        // name path, so the benchmark measures exactly that path. Using the
+        // owning conversion wrappers here would measure pooled->owning->
+        // pooled re-conversion that production never performs.
+        auto directories = bench.pipeline.ExportDirectorySnapshotBoundedPooled(
             bench.volumeId, L"C:", ffengine::IndexPipeline::kInitialIndexedExportDirectories);
         run.exportMs = ElapsedMs(exportStart);
         run.directoriesPublished = directories.size();
@@ -419,16 +425,11 @@ int wmain(int argc, wchar_t** argv) {
         }
 
         const auto publishStart = Clock::now();
-        // MergeIndexDirectories takes the snapshot map by value. Every
-        // production call site (Main.cpp, VolumeSessionManager's
-        // snapshot-ready callback) hands it a prvalue or std::move, so the
-        // real path transfers ownership instead of deep-copying 200,000
-        // SnapshotDirectoryEntry objects and their strings. Pass by move here
-        // so this benchmark measures the product path rather than a copy the
-        // product never performs (measured: ~26 ms of spurious work at 200,000
-        // entries). The exported map is not read again after this call -- the
-        // published file count is taken from the frame the client actually
-        // received.
+        // MergeIndexDirectories takes the pooled map by value; production
+        // hands it a prvalue or std::move, so the real path transfers
+        // ownership of the pooled name storage instead of copying it. The
+        // exported map is not read again after this call -- the published
+        // file count is taken from the frame the client actually received.
         bench.server->MergeIndexDirectories(std::move(directories));
         run.publicationMs = ElapsedMs(publishStart);
 
