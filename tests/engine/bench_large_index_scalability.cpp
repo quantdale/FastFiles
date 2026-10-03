@@ -21,7 +21,6 @@
 #include <map>
 #include <mutex>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -245,7 +244,11 @@ std::wstring FileName(size_t index) {
     if (pattern == 5) return L"project_" + std::to_wstring(index) + L".cpp";
     if (pattern == 6) return L"notes_" + std::to_wstring(index) + L".md";
     if (pattern == 7) return L"common_media_" + std::to_wstring(index) + L".mp4";
-    if (pattern == 8) return L"dataset_" + std::to_wstring(index) + L".bin";
+    // performance-closure-and-multisurface-acceleration 7.1: a deterministic
+    // Unicode-name subset (10% of the fixture) so the Unicode query class is
+    // measured against real matches, not only the no-result path. Escape
+    // sequences keep the source encoding-independent.
+    if (pattern == 8) return L"\u0441\u043f\u0438\u0441\u043e\u043a_" + std::to_wstring(index) + L".txt";
     return L"backup_" + std::to_wstring(index) + L".7z";
 }
 
@@ -427,6 +430,7 @@ struct QueryCase {
     const char* name;
     const wchar_t* query;
     uint8_t sortField;
+    uint32_t maxResults = 10000;
 };
 
 std::string ReadCpuName() {
@@ -596,7 +600,7 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     request.scope = 3; // AllIndexedLocations
     request.scopePath = L"C:";
     request.sortField = queryCase.sortField;
-    request.maxResults = 10'000;
+    request.maxResults = queryCase.maxResults;
     request.query = queryCase.query;
 
     SearchOutcome outcome;
@@ -1368,6 +1372,12 @@ int wmain(int argc, wchar_t** argv) {
         {"prefix", L"photo", 0},
         {"extension", L"ext:txt", 3},
         {"worst_substring", L"component", 3},
+        // performance-closure-and-multisurface-acceleration 7.1 additions:
+        {"exact_name", L"unique_component_7391.txt", 0},
+        {"short_prefix", L"co", 0},
+        {"mixed_case", L"CoMmOn_CoMpOnEnT", 0},
+        {"unicode", L"\u0441\u043f\u0438\u0441\u043e\u043a", 0},
+        {"high_limit_broad", L"common", 0, 50000},
     };
 
     ffengine::SnapshotPublisher publisher;
