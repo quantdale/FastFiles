@@ -67,6 +67,11 @@ public:
                      PublishTimings* timings = nullptr);
     uint64_t Publish(const ffprotocol::CaseInsensitiveSnapshotMap& directories,
                      PublishTimings* timings = nullptr);
+    // performance-closure-and-multisurface-acceleration 6.1: pooled-name
+    // model overload. Emits exactly the same bytes as the owning overloads
+    // (shared layout implementation) without per-entry owning strings.
+    uint64_t Publish(const ffprotocol::PooledCaseInsensitiveSnapshotMap& directories,
+                     PublishTimings* timings = nullptr);
 
     // Stable prefix sent in SubscribeAck. The generation suffix is appended
     // by CurrentSectionName() and is intentionally not part of this value.

@@ -227,6 +227,15 @@ uint64_t SnapshotPublisher::Publish(const ffprotocol::CaseInsensitiveSnapshotMap
     return PublishPayload(payloadSize, writer, timings);
 }
 
+uint64_t SnapshotPublisher::Publish(const ffprotocol::PooledCaseInsensitiveSnapshotMap& directories,
+                                     PublishTimings* timings) {
+    const size_t payloadSize = ffprotocol::SerializedSnapshotSize(directories);
+    const SnapshotWriter writer = [&directories](uint8_t* destination, size_t capacity) {
+        return ffprotocol::SerializeSnapshotTo(directories, destination, capacity);
+    };
+    return PublishPayload(payloadSize, writer, timings);
+}
+
 uint64_t SnapshotPublisher::PublishPayload(size_t payloadSize, const SnapshotWriter& writer,
                                            PublishTimings* timings) {
     using Clock = std::chrono::steady_clock;
