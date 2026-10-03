@@ -1053,7 +1053,7 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
         directory.directoryIdHigh = entry.frn.high;
         directory.parentIdLow = entry.parentFrn.low;
         directory.parentIdHigh = entry.parentFrn.high;
-        if (auto children = projection_.ChildIndices(id, entry.frn); !children.empty()) {
+        if (std::span<const uint32_t> children = projection_.ChildIndices(id, entry.frn); !children.empty()) {
             directory.entries.reserve(children.size());
             for (uint32_t childIndex : children) {
                 const auto& child = projection_.EntryAt(childIndex);
@@ -1119,7 +1119,7 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
         directory.directoryIdHigh = entry.frn.high;
         directory.parentIdLow = entry.parentFrn.low;
         directory.parentIdHigh = entry.parentFrn.high;
-        if (auto children = projection_.ChildIndices(id, entry.frn); !children.empty()) {
+        if (std::span<const uint32_t> children = projection_.ChildIndices(id, entry.frn); !children.empty()) {
             directory.entries.reserve(children.size());
             for (uint32_t childIndex : children) {
                 const auto& child = projection_.EntryAt(childIndex);
