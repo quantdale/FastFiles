@@ -4,6 +4,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "WindowsPath.h"
@@ -25,7 +26,10 @@ namespace ffprotocol {
 // without allowing an unbounded publish allocation. Publication fails closed
 // above this explicit bound and the UI surfaces that failure. Unlike the old
 // two-slot layout, this is a limit rather than a mapping reservation.
-constexpr size_t kSnapshotMaximumPayloadBytes = 256 * 1024 * 1024;
+// inline constexpr: external linkage so this header constant is not reported
+// unused by translation units that include SnapshotFormat.h without reading
+// the cap (it is enforced by SnapshotPublisher's two size checks).
+inline constexpr size_t kSnapshotMaximumPayloadBytes = 256 * 1024 * 1024;
 // audit-remediation FF-AUDIT-04: the header is versioned so a UI never
 // interprets a section written by an incompatible engine layout.
 // allocated-size-storage-accuracy D6: version 3 adds per-entry allocated
@@ -116,5 +120,123 @@ bool SerializeSnapshotTo(const CaseInsensitiveSnapshotMap& directories,
 // any malformed input (truncated buffer, declared length exceeding what
 // remains) rather than a partial result.
 std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uint8_t* data, size_t size);
+
+// performance-closure-and-multisurface-acceleration 6.1: pooled name
+// storage for the engine-side snapshot model. The wire format is unchanged
+// (version 3): these types only describe the ENGINE's in-memory model so that
+// building the serialized bytes never constructs a per-entry owning
+// std::wstring (measured: eliminating that per-entry allocation moves the
+// 200k-entry build+serialize stages by -59% at identical payload bytes).
+//
+// Ownership and lifetime: a PooledSnapshotDirectory owns its name text in
+// nameChars; entry.name views point INTO that vector. Views are created only
+// by PooledSnapshotDirectoryBuilder once the name text is complete, and
+// moving a directory transfers the vector buffer (pointer stable), so views
+// survive map insertion and moves. Copying a directory rebuilds the views
+// against the copy's own buffer. Nothing may append to nameChars while entry
+// name views exist; the builder enforces this by construction.
+struct PooledSnapshotEntry {
+    std::wstring_view name;
+    bool isDirectory = false;
+    uint64_t sizeBytes = 0;
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
+    uint32_t attributes = 0;
+    uint64_t creationTime = 0;
+    uint64_t lastModifiedTime = 0;
+    int64_t volumeRowId = 0;
+    uint64_t fileIdLow = 0;
+    uint64_t fileIdHigh = 0;
+    uint64_t parentIdLow = 0;
+    uint64_t parentIdHigh = 0;
+};
+
+struct PooledSnapshotDirectory {
+    // status is initialized in the constructor (explicit form, matching the
+    // owning SnapshotDirectory's NotFound default without an in-class scoped
+    // enum initializer).
+    PooledSnapshotDirectory() : status(DirectoryEnumerationStatus::NotFound) {}
+    PooledSnapshotDirectory(PooledSnapshotDirectory&&) = default;
+    PooledSnapshotDirectory& operator=(PooledSnapshotDirectory&&) = default;
+    // Copy rebuilds entry name views against this copy's own nameChars: the
+    // default copy would leave views pointing into the source buffer.
+    PooledSnapshotDirectory(const PooledSnapshotDirectory& other);
+    PooledSnapshotDirectory& operator=(const PooledSnapshotDirectory& other);
+
+    // Rebuilds copied entry name views against this directory's own buffer.
+    void RemapEntryNames(const PooledSnapshotDirectory& other);
+
+    DirectoryEnumerationStatus status;
+    std::vector<wchar_t> nameChars;
+    std::vector<PooledSnapshotEntry> entries;
+    int64_t volumeRowId = 0;
+    uint64_t directoryIdLow = 0;
+    uint64_t directoryIdHigh = 0;
+    uint64_t parentIdLow = 0;
+    uint64_t parentIdHigh = 0;
+};
+
+// Builder holds name text as offset/length until Build() creates the views,
+// so buffer growth during construction can never leave a dangling view.
+class PooledSnapshotDirectoryBuilder {
+public:
+    PooledSnapshotDirectoryBuilder() : status_(DirectoryEnumerationStatus::NotFound) {}
+    void SetStatus(DirectoryEnumerationStatus status) { status_ = status; }
+    void SetIdentity(int64_t volumeRowId, uint64_t directoryIdLow, uint64_t directoryIdHigh,
+                     uint64_t parentIdLow, uint64_t parentIdHigh) {
+        volumeRowId_ = volumeRowId;
+        directoryIdLow_ = directoryIdLow;
+        directoryIdHigh_ = directoryIdHigh;
+        parentIdLow_ = parentIdLow;
+        parentIdHigh_ = parentIdHigh;
+    }
+    void AddEntry(std::wstring_view name, bool isDirectory, uint64_t sizeBytes,
+                  uint64_t allocatedSizeBytes, bool allocatedSizeKnown, uint32_t attributes,
+                  uint64_t creationTime, uint64_t lastModifiedTime, int64_t entryVolumeRowId,
+                  uint64_t fileIdLow, uint64_t fileIdHigh, uint64_t parentIdLow, uint64_t parentIdHigh);
+    PooledSnapshotDirectory Build() &&;
+
+private:
+    struct PendingEntry {
+        uint32_t nameOffsetChars = 0;
+        uint32_t nameLengthChars = 0;
+        bool isDirectory = false;
+        uint64_t sizeBytes = 0;
+        uint64_t allocatedSizeBytes = 0;
+        bool allocatedSizeKnown = false;
+        uint32_t attributes = 0;
+        uint64_t creationTime = 0;
+        uint64_t lastModifiedTime = 0;
+        int64_t volumeRowId = 0;
+        uint64_t fileIdLow = 0;
+        uint64_t fileIdHigh = 0;
+        uint64_t parentIdLow = 0;
+        uint64_t parentIdHigh = 0;
+    };
+    DirectoryEnumerationStatus status_;
+    std::vector<wchar_t> nameChars_;
+    std::vector<PendingEntry> pending_;
+    int64_t volumeRowId_ = 0;
+    uint64_t directoryIdLow_ = 0;
+    uint64_t directoryIdHigh_ = 0;
+    uint64_t parentIdLow_ = 0;
+    uint64_t parentIdHigh_ = 0;
+};
+
+using PooledSnapshotMap = std::map<std::wstring, PooledSnapshotDirectory>;
+using PooledCaseInsensitiveSnapshotMap =
+    std::map<std::wstring, PooledSnapshotDirectory, CaseInsensitivePathLess>;
+
+// Pooled overloads emit exactly the bytes the owning overloads emit: both
+// share one layout implementation, and tests prove byte-equality over
+// randomized fixtures. The pooled forms must not change the wire format.
+std::vector<uint8_t> SerializeSnapshot(const PooledSnapshotMap& directories);
+std::vector<uint8_t> SerializeSnapshot(const PooledCaseInsensitiveSnapshotMap& directories);
+size_t SerializedSnapshotSize(const PooledSnapshotMap& directories) noexcept;
+size_t SerializedSnapshotSize(const PooledCaseInsensitiveSnapshotMap& directories) noexcept;
+bool SerializeSnapshotTo(const PooledSnapshotMap& directories,
+                         uint8_t* destination, size_t capacity) noexcept;
+bool SerializeSnapshotTo(const PooledCaseInsensitiveSnapshotMap& directories,
+                         uint8_t* destination, size_t capacity) noexcept;
 
 } // namespace ffprotocol

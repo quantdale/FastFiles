@@ -16,7 +16,7 @@ bool AddBytes(size_t current, size_t additional, size_t& result) noexcept {
     return true;
 }
 
-bool AddWideStringBytes(size_t current, const std::wstring& text, size_t& result) noexcept {
+bool AddWideStringBytes(size_t current, std::wstring_view text, size_t& result) noexcept {
     if (text.size() > std::numeric_limits<uint32_t>::max()) {
         return false;
     }
@@ -86,7 +86,7 @@ public:
     bool WriteU64(uint64_t value) noexcept { return WriteRaw(&value, sizeof(value)); }
     bool WriteByte(uint8_t value) noexcept { return WriteRaw(&value, sizeof(value)); }
 
-    bool WriteWideString(const std::wstring& text) noexcept {
+    bool WriteWideString(std::wstring_view text) noexcept {
         if (text.size() > std::numeric_limits<uint32_t>::max()
             || text.size() > std::numeric_limits<size_t>::max() / sizeof(wchar_t)) {
             valid_ = false;
@@ -190,13 +190,15 @@ public:
         if (!ReadU32(lengthChars)) {
             return false;
         }
-        if (lengthChars > std::numeric_limits<size_t>::max() / sizeof(wchar_t)) {
+        // Bound the declared length against what actually remains BEFORE any
+        // byte arithmetic: this rejects oversized declared lengths without a
+        // width-dependent overflow guard (a uint32 length can never overflow
+        // the size_t byte count here, and the remaining() bound below is the
+        // authoritative check).
+        if (static_cast<size_t>(lengthChars) > remaining() / sizeof(wchar_t)) {
             return false;
         }
         const size_t byteLength = static_cast<size_t>(lengthChars) * sizeof(wchar_t);
-        if (remaining() < byteLength) {
-            return false;
-        }
         out.assign(reinterpret_cast<const wchar_t*>(data_ + offset_), lengthChars);
         offset_ += byteLength;
         return true;
@@ -351,6 +353,135 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
         return std::nullopt; // trailing garbage after the declared content
     }
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// performance-closure-and-multisurface-acceleration 6.1: pooled-name model.
+// The pooled overloads delegate to the SAME layout implementation as the
+// owning overloads (entry.name is a std::wstring_view into the owning
+// directory pool), so byte-identity is structural, not replicated.
+// ---------------------------------------------------------------------------
+void PooledSnapshotDirectory::RemapEntryNames(const PooledSnapshotDirectory& other) {
+    for (size_t index = 0; index < entries.size(); ++index) {
+        const std::wstring_view oldName = other.entries[index].name;
+        const size_t offsetChars = (other.nameChars.empty() || oldName.data() == nullptr)
+            ? 0
+            : static_cast<size_t>(oldName.data() - other.nameChars.data());
+        entries[index].name = nameChars.empty()
+            ? std::wstring_view{}
+            : std::wstring_view(nameChars.data() + offsetChars, oldName.size());
+    }
+}
+
+PooledSnapshotDirectory::PooledSnapshotDirectory(const PooledSnapshotDirectory& other)
+    : status(other.status),
+      nameChars(other.nameChars),
+      entries(other.entries),
+      volumeRowId(other.volumeRowId),
+      directoryIdLow(other.directoryIdLow),
+      directoryIdHigh(other.directoryIdHigh),
+      parentIdLow(other.parentIdLow),
+      parentIdHigh(other.parentIdHigh) {
+    // The copied views still point into other.nameChars; rebuild them
+    // against this copy's own buffer using the source offsets.
+    RemapEntryNames(other);
+}
+
+PooledSnapshotDirectory& PooledSnapshotDirectory::operator=(const PooledSnapshotDirectory& other) {
+    if (this == &other) return *this;
+    status = other.status;
+    nameChars = other.nameChars;
+    entries = other.entries;
+    volumeRowId = other.volumeRowId;
+    directoryIdLow = other.directoryIdLow;
+    directoryIdHigh = other.directoryIdHigh;
+    parentIdLow = other.parentIdLow;
+    parentIdHigh = other.parentIdHigh;
+    RemapEntryNames(other);
+    return *this;
+}
+
+void PooledSnapshotDirectoryBuilder::AddEntry(
+    std::wstring_view name, bool isDirectory, uint64_t sizeBytes,
+    uint64_t allocatedSizeBytes, bool allocatedSizeKnown, uint32_t attributes,
+    uint64_t creationTime, uint64_t lastModifiedTime, int64_t entryVolumeRowId,
+    uint64_t fileIdLow, uint64_t fileIdHigh, uint64_t parentIdLow, uint64_t parentIdHigh) {
+    PendingEntry entry;
+    entry.nameOffsetChars = static_cast<uint32_t>(nameChars_.size());
+    entry.nameLengthChars = static_cast<uint32_t>(name.size());
+    nameChars_.insert(nameChars_.end(), name.begin(), name.end());
+    entry.isDirectory = isDirectory;
+    entry.sizeBytes = sizeBytes;
+    entry.allocatedSizeBytes = allocatedSizeBytes;
+    entry.allocatedSizeKnown = allocatedSizeKnown;
+    entry.attributes = attributes;
+    entry.creationTime = creationTime;
+    entry.lastModifiedTime = lastModifiedTime;
+    entry.volumeRowId = entryVolumeRowId;
+    entry.fileIdLow = fileIdLow;
+    entry.fileIdHigh = fileIdHigh;
+    entry.parentIdLow = parentIdLow;
+    entry.parentIdHigh = parentIdHigh;
+    pending_.push_back(entry);
+}
+
+PooledSnapshotDirectory PooledSnapshotDirectoryBuilder::Build() && {
+    PooledSnapshotDirectory directory;
+    directory.status = status_;
+    directory.volumeRowId = volumeRowId_;
+    directory.directoryIdLow = directoryIdLow_;
+    directory.directoryIdHigh = directoryIdHigh_;
+    directory.parentIdLow = parentIdLow_;
+    directory.parentIdHigh = parentIdHigh_;
+    directory.nameChars = std::move(nameChars_);
+    directory.entries.reserve(pending_.size());
+    for (const PendingEntry& pending : pending_) {
+        PooledSnapshotEntry entry;
+        // Views are created only here, after all name text is final, so
+        // buffer growth during construction can never dangle a view.
+        entry.name = std::wstring_view(
+            directory.nameChars.data() + pending.nameOffsetChars, pending.nameLengthChars);
+        entry.isDirectory = pending.isDirectory;
+        entry.sizeBytes = pending.sizeBytes;
+        entry.allocatedSizeBytes = pending.allocatedSizeBytes;
+        entry.allocatedSizeKnown = pending.allocatedSizeKnown;
+        entry.attributes = pending.attributes;
+        entry.creationTime = pending.creationTime;
+        entry.lastModifiedTime = pending.lastModifiedTime;
+        entry.volumeRowId = pending.volumeRowId;
+        entry.fileIdLow = pending.fileIdLow;
+        entry.fileIdHigh = pending.fileIdHigh;
+        entry.parentIdLow = pending.parentIdLow;
+        entry.parentIdHigh = pending.parentIdHigh;
+        directory.entries.push_back(entry);
+    }
+    return directory;
+}
+
+std::vector<uint8_t> SerializeSnapshot(const PooledSnapshotMap& directories) {
+    return SerializeSnapshotImpl(directories);
+}
+
+std::vector<uint8_t> SerializeSnapshot(const PooledCaseInsensitiveSnapshotMap& directories) {
+    return SerializeSnapshotImpl(directories);
+}
+
+size_t SerializedSnapshotSize(const PooledSnapshotMap& directories) noexcept {
+    return SerializedSnapshotSizeImpl(directories);
+}
+
+size_t SerializedSnapshotSize(const PooledCaseInsensitiveSnapshotMap& directories) noexcept {
+    return SerializedSnapshotSizeImpl(directories);
+}
+
+bool SerializeSnapshotTo(const PooledSnapshotMap& directories,
+                         uint8_t* destination, size_t capacity) noexcept {
+    return SerializeSnapshotToImpl(directories, destination, capacity);
+}
+
+bool SerializeSnapshotTo(const PooledCaseInsensitiveSnapshotMap& directories,
+                         uint8_t* destination, size_t capacity) noexcept {
+    return SerializeSnapshotToImpl(directories, destination, capacity);
 }
 
 } // namespace ffprotocol
