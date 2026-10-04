@@ -983,8 +983,11 @@ void Projection::ShrinkBulkRebuildCapacity() {
     // thrash the allocator.
     constexpr size_t kMaterialSlackBytes = 256 * 1024;
     size_t slackBytes = namePool_.GrowthSlackBytes();
+    // Reclaimable child-array bytes are capacity minus the array's length
+    // (shrink_to_fit reduces capacity to size); live links are a different
+    // quantity and would overstate the slack when stale copies are present.
     slackBytes += parentToChildren_.ChildCapacityBytes()
-        - parentToChildren_.LiveChildLinkCount() * sizeof(uint32_t);
+        - parentToChildren_.ChildLinkCount() * sizeof(uint32_t);
     slackBytes += filenameNonAsciiEntries_.capacity() * sizeof(uint32_t)
         - filenameNonAsciiEntries_.size() * sizeof(uint32_t);
     for (const auto& [trigram, posting] : filenameTrigramPostings_) {

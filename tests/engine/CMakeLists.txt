@@ -259,6 +259,9 @@ add_executable(ffengine_bench_large_index_scalability
 )
 target_include_directories(ffengine_bench_large_index_scalability PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_bench_large_index_scalability PRIVATE ffindexstore ffprotocol ffsearch ffsetup psapi Rpcrt4 Shell32 Ole32)
+# The memory report embeds ffsetup::kBuildIdentityAscii; a targeted build must
+# refresh the generated identity first or the report could claim a stale tree.
+add_dependencies(ffengine_bench_large_index_scalability fastfiles_build_identity)
 
 # Informational only: compares bounded secondary filename-index candidates
 # against the canonical matcher. It is intentionally not registered with

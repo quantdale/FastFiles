@@ -2052,7 +2052,8 @@ int RunMemoryReportMode(const Options& options) {
     output << "\n  ,\"preset\":";
     WriteJsonString(output, options.preset);
     output << "\n  ,\"units_are_binary\":true"
-           << "\n  ,\"bulk_rebuild_shrink_enabled\":true"
+           << "\n  ,\"projection_memory_layout_revision\":"
+           << ffindexstore::kProjectionMemoryLayoutRevision
            << "\n  ,\"allocator_probe_enabled\":true";
     output << "\n  ,\"rebuild_cycles_requested\":" << options.rebuildCycles
            << "\n  ,\"export_bound_directories\":" << options.exportBoundDirectories

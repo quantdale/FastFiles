@@ -79,6 +79,14 @@ private:
 // pipeline thread, or a caller-held lock around startup rebuild) are
 // responsible for serializing mutation, consistent with SnapshotPublisher
 // already requiring the caller to serialize Publish() calls.
+// performance-closure-and-multisurface-acceleration 8.3: revision of the
+// projection's memory representation and layout. Revision 2 is the
+// capacity-slack release after bulk rebuild plus the dense per-slot LRU
+// timestamps (revision 1 was the pre-correction representation). Reports embed
+// this compiled value so an artifact identifies which representation produced
+// it instead of asserting a hardcoded flag.
+inline constexpr uint32_t kProjectionMemoryLayoutRevision = 2;
+
 class Projection {
 public:
     static constexpr size_t kDefaultMaximumMemoryBytes = 500ULL * 1024ULL * 1024ULL;
@@ -134,7 +142,9 @@ public:
         // ---- parent/child index -----------------------------------------
         size_t childMapElements = 0;        // distinct parent keys
         size_t childMapBuckets = 0;
-        size_t childMapChildLinks = 0;      // used child slots in the flat array
+        // Live per-key child links (<= the flat array's length: swap-removal
+        // and slice relocation can leave stale tail copies in the array).
+        size_t childMapChildLinks = 0;
         size_t childMapKeyBytes = 0;
         size_t childMapChildBytes = 0;      // flat child-index array capacity
         size_t childMapStateBytes = 0;

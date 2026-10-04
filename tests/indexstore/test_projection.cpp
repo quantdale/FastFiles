@@ -882,6 +882,24 @@ void TestLruTimestampsSurviveIterationOrderCompaction() {
     Projection proj;
     Check(proj.RebuildVolumeFromStore(store, volume, changes.size()),
           "bulk rebuild permutes dense slots into probe order");
+    // Discriminator precondition: without the timestamp remap the victim is
+    // the probe-order-first non-root row (the stale vector is monotonic in the
+    // new slot order). If that row were also the first-streamed row, a broken
+    // tree could evict the same row and the test would pass vacuously. Dense
+    // cursor order equals probe order after this rebuild.
+    uint64_t firstProbeRowFrn = 0;
+    {
+        ProjectionEntryCursor cursor = proj.BeginEntryCursor();
+        const ProjectionEntry* entry = nullptr;
+        while (cursor.Next(entry)) {
+            if (entry != nullptr && entry->parentFrn != entry->frn) {
+                firstProbeRowFrn = entry->frn.low;
+                break;
+            }
+        }
+    }
+    Check(firstProbeRowFrn != 0 && firstProbeRowFrn != 1000,
+          "probe order does not start with the first-streamed row, so the eviction assertion discriminates");
     // The rows were streamed in insertion order, so the first row carries the
     // oldest access stamp; refresh the last row so it is unambiguously newest.
     Check(proj.Find(volume, FileId{1000 + (kRows - 1) * 7919, 0}) != nullptr,
