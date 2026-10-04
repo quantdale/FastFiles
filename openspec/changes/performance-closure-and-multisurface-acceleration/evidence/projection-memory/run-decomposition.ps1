@@ -16,9 +16,13 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..\..')).Path
 Set-Location $repoRoot
 
-$status = (git status --porcelain) -join "`n"
-if ($status.Trim().Length -ne 0) {
-    throw "Refusing to measure a dirty tree:`n$status"
+# Only this script's own report outputs are allowed to be untracked: a
+# re-run must not be blocked by the artifacts it previously produced.
+$status = (git status --porcelain) | Where-Object {
+    $_ -notmatch 'evidence/projection-memory/projection-memory-(200k|1m)\.json$'
+}
+if ($status.Count -ne 0) {
+    throw "Refusing to measure a dirty tree:`n$($status -join "`n")"
 }
 $sha = (git rev-parse HEAD).Trim()
 $lineEndingCheck = git diff --check
