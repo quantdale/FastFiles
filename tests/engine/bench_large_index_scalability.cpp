@@ -164,6 +164,12 @@ struct Options {
     bool memoryReport = false;
     size_t rebuildCycles = 4;
     size_t exportBoundDirectories = 4096;
+    // Provenance recorded into the memory report so the artifact identifies
+    // its own build and command instead of relying on an ignored file name.
+    std::string commandLine;
+    std::string sourceState;   // caller-supplied (clean/dirty), verified by the runner
+    std::string sourceSha;     // caller-supplied git revision
+    std::string preset;        // caller-supplied configure preset
 };
 
 std::vector<size_t> ParseScales(const std::wstring& text) {
@@ -186,6 +192,10 @@ std::vector<size_t> ParseScales(const std::wstring& text) {
 }
 
 bool ParseOptions(int argc, wchar_t** argv, Options& options) {
+    for (int index = 0; index < argc; ++index) {
+        if (!options.commandLine.empty()) options.commandLine += ' ';
+        options.commandLine += ToUtf8(argv[index]);
+    }
     for (int index = 1; index < argc; ++index) {
         const std::wstring argument = argv[index];
         if (argument == L"--help") {
@@ -214,6 +224,18 @@ bool ParseOptions(int argc, wchar_t** argv, Options& options) {
         if (argument == L"--memory-report" && index + 1 < argc) {
             options.memoryOutputPath = argv[++index];
             options.memoryReport = true;
+            continue;
+        }
+        if (argument == L"--source-state" && index + 1 < argc) {
+            options.sourceState = ToUtf8(argv[++index]);
+            continue;
+        }
+        if (argument == L"--source-sha" && index + 1 < argc) {
+            options.sourceSha = ToUtf8(argv[++index]);
+            continue;
+        }
+        if (argument == L"--preset" && index + 1 < argc) {
+            options.preset = ToUtf8(argv[++index]);
             continue;
         }
         if (argument == L"--rebuild-cycles" && index + 1 < argc) {
@@ -1855,10 +1877,9 @@ void WriteBreakdown(std::ostream& output, const ffindexstore::Projection::Memory
            << ",\"filename_index_non_ascii_slots\":" << b.filenameIndexNonAsciiSlots
            << ",\"filename_index_non_ascii_bytes\":" << b.filenameIndexNonAsciiBytes
            << ",\"filename_index_bytes\":" << b.filenameIndexBytes
-           << ",\"lru_bucket_count\":" << b.lruBucketCount
-           << ",\"lru_bucket_bytes\":" << b.lruBucketBytes
-           << ",\"lru_node_count\":" << b.lruNodeCount
-           << ",\"lru_approx_node_bytes\":" << b.lruApproxNodeBytes
+           << ",\"lru_slot_capacity\":" << b.lruSlotCapacity
+           << ",\"lru_slot_count\":" << b.lruSlotCount
+           << ",\"lru_tracked_count\":" << b.lruTrackedCount
            << ",\"lru_bytes\":" << b.lruBytes
            << ",\"evicted_volume_count\":" << b.evictedVolumeCount
            << ",\"evicted_volume_bucket_count\":" << b.evictedVolumeBucketCount
@@ -2021,7 +2042,19 @@ int RunMemoryReportMode(const Options& options) {
         if (index != 0) output << ',';
         output << options.scales[index];
     }
-    output << "]\n  ,\"rebuild_cycles_requested\":" << options.rebuildCycles
+    output << "]";
+    output << "\n  ,\"command_line\":";
+    WriteJsonString(output, options.commandLine);
+    output << "\n  ,\"source_state\":";
+    WriteJsonString(output, options.sourceState);
+    output << "\n  ,\"source_sha\":";
+    WriteJsonString(output, options.sourceSha);
+    output << "\n  ,\"preset\":";
+    WriteJsonString(output, options.preset);
+    output << "\n  ,\"units_are_binary\":true"
+           << "\n  ,\"bulk_rebuild_shrink_enabled\":true"
+           << "\n  ,\"allocator_probe_enabled\":true";
+    output << "\n  ,\"rebuild_cycles_requested\":" << options.rebuildCycles
            << "\n  ,\"export_bound_directories\":" << options.exportBoundDirectories
            << "\n  ,\"harness_retention\":{\"capture_point_bytes\":" << sizeof(MemoryCapturePoint)
            << ",\"note\":\"each rebuild cycle and lifecycle capture retains one MemoryCapturePoint "
@@ -2051,7 +2084,10 @@ int RunMemoryReportMode(const Options& options) {
               "publish APIs in one process; the UI-side parse here is the in-process published-section read, "
               "not the FastFiles UI process\","
               "\"timings in this mode are single-process measurements and are not the campaign's idle-gated "
-              "latency protocol\"]\n"
+              "latency protocol\","
+              "\"this executable replaces the global operator new/delete in every mode, so any other mode of this benchmark binary is instrumented and must not be used as uninstrumented latency evidence\","
+              "\"all byte quantities are binary (MiB = 1048576 bytes); allocator counts exclude the C-only SQLite allocation plane\"]\n"
+
            << "  ,\"scales\":[";
     for (size_t index = 0; index < reports.size(); ++index) {
         if (index != 0) output << ',';

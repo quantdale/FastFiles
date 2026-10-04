@@ -707,8 +707,10 @@ void TestProjectionMemoryBreakdownMatchesEstimatorAndCategories() {
               + breakdown.filenameIndexApproxNodeBytes + breakdown.filenameIndexBucketBytes
               + breakdown.filenameIndexNonAsciiBytes,
           "filename-index bytes sum postings, node headers, buckets, non-ASCII list");
-    Check(breakdown.lruBytes == breakdown.lruBucketBytes + breakdown.lruApproxNodeBytes,
-          "LRU bytes sum buckets and nodes");
+    Check(breakdown.lruBytes == breakdown.lruSlotCapacity * sizeof(uint64_t),
+          "LRU bytes are the dense per-slot timestamp capacity");
+    Check(breakdown.lruTrackedCount <= breakdown.lruSlotCount,
+          "tracked LRU slots never exceed the dense slot count");
     Check(breakdown.normalizedNameStorageBytes == 0,
           "no stored normalized-name category exists (folds are computed on demand)");
     Check(breakdown.storedPathBytes == 0,
@@ -727,6 +729,41 @@ void TestProjectionMemoryBreakdownMatchesEstimatorAndCategories() {
     Check(disabled.modeledCategoryBytes == proj.EstimatedMemoryBytes(),
           "the modeled sum still matches the estimator with the accelerator disabled");
     proj.SetBulkScanActive(false);
+}
+
+// performance-closure-and-multisurface-acceleration 8.3: the dense per-slot
+// LRU timestamps must survive removal, slot reuse, compaction, and eviction
+// order exactly as the previous hash-map representation did.
+void TestDenseLruTimestampsTrackAccessOrder() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"a.txt"));
+    proj.Upsert(1, MakeEntry(101, 5, u"b.txt"));
+    proj.Upsert(1, MakeEntry(102, 5, u"c.txt"));
+    Check(proj.Find(1, FileId{100, 0}) != nullptr, "dense LRU fixture row a is present");
+    Check(proj.Find(1, FileId{102, 0}) != nullptr, "dense LRU fixture row c is present");
+    // Every upsert stamps its slot (the pre-existing behavior), so all live
+    // rows are tracked once the fixture is built.
+    Check(proj.GetMemoryBreakdown().lruTrackedCount == 4,
+          "every live row carries a dense timestamp");
+
+    proj.Remove(1, FileId{100, 0});
+    Check(proj.GetMemoryBreakdown().lruTrackedCount == 3,
+          "removing a row clears its dense timestamp");
+    proj.Upsert(1, MakeEntry(200, 5, u"d.txt"));
+    const auto afterReuse = proj.GetMemoryBreakdown();
+    Check(afterReuse.lruTrackedCount == 4,
+          "a reused slot is tracked again with a fresh timestamp");
+
+    // Row 101 was never touched, so it must be the eviction victim while the
+    // recently touched rows survive.
+    proj.SetMaximumMemoryBytes(proj.EstimatedMemoryBytes() - 1);
+    Check(proj.Find(1, FileId{101, 0}) == nullptr,
+          "the untouched row is the least-recently-used eviction victim");
+    Check(proj.Find(1, FileId{102, 0}) != nullptr,
+          "a recently touched row survives dense-LRU eviction");
+    Check(proj.Find(1, FileId{200, 0}) != nullptr,
+          "a reused slot is evictable last, not first");
 }
 
 // performance-closure-and-multisurface-acceleration 8.3: a bulk rebuild must
@@ -776,9 +813,20 @@ void TestRebuildReleasesBulkCapacitySlack() {
     Check(breakdown.childMapChildBytes == breakdown.childMapChildLinks * sizeof(uint32_t),
           "flat child-index capacity equals its used links after a bulk rebuild");
 
-    // The designed flat-open-addressing load factor is not slack and must stay.
-    Check(breakdown.idMapBuckets >= breakdown.idMapElements,
-          "the identifier map keeps its designed bucket sizing");
+    // Content must survive the shrink: names, parent/child links, lookups.
+    const auto* root = proj.Find(volume, FileId{5, 0});
+    Check(root != nullptr && proj.Names().Get(root->nameId) == u"C:",
+          "the root row survives the shrink");
+    Check(proj.ChildIndices(volume, FileId{5, 0}).size() == changes.size() - 1,
+          "every child link survives the shrink");
+    const auto* first = proj.Find(volume, FileId{100, 0});
+    Check(first != nullptr && proj.Names().Get(first->nameId) == u"unique_bulk_name_0.txt",
+          "the first file row and its interned name survive the shrink");
+
+    // The designed flat-open-addressing load factor is not slack and must stay:
+    // the growth rule requires count < buckets * 3/4.
+    Check(breakdown.idMapBuckets >= (breakdown.idMapElements * 4) / 3,
+          "the identifier map keeps its designed <=75% occupancy sizing");
     Check(breakdown.modeledCategoryBytes == proj.EstimatedMemoryBytes(),
           "the shrink keeps the breakdown and estimator in agreement");
 
@@ -815,6 +863,7 @@ int main() {
     TestNamePoolViewInvalidatesOnArenaGrowth();
     TestNamePoolViewInvalidatesOnCompactStorage();
     TestProjectionMemoryBreakdownMatchesEstimatorAndCategories();
+    TestDenseLruTimestampsTrackAccessOrder();
     TestRebuildReleasesBulkCapacitySlack();
 
     if (fftest::FailureCount() > 0) {
