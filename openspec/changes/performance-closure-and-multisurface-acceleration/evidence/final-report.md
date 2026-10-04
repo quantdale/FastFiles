@@ -25,11 +25,13 @@ outside this checked commit, per the reordered 11.6 rule.
 - Certified binary identity: every preset was rebuilt at the final tip
   before the ladder; identity binding/freshness tests pass inside the
   parity CTest legs.
-- OpenSpec lifecycle: this change is **`active` with 50/51 tasks checked** —
-  the completion review reopened task 8.1 (the per-category projection-memory
-  decomposition), which is the remaining mandatory local acceptance work.
-  The change is **not archived and not merged**: PR #13 remains open for
-  human review by design, with `MERGE_ELIGIBLE = NO`. Predecessor
+- OpenSpec lifecycle: this change is **`completed` with 51/51 tasks checked**
+  after the finalization closed task 8.1 (the allocation-instrumented
+  projection-memory decomposition) and re-decided task 8.3 on that evidence
+  (section H). No internal acceptance work is open. The change is **not
+  archived and not merged**: PR #13 remains open for human review by design,
+  with `MERGE_ELIGIBLE` stated in the PR body and the session response.
+  Predecessor
   `measured-performance-acceleration-and-exact-certification` `completed`
   with its 6.3/6.4 closed by current evidence (task 2.7).
 - Worktree: clean at every certification run; the two owned temporary
@@ -190,18 +192,22 @@ improvement.
 
 ## K. Certification relationship
 
-- `implementation_sha`: `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a` (the
-  second-review reconciliation commit; the last executable-impacting change).
-  The gate relationship from it to the final tracked tip is recorded in the
-  generated artifact and the PR body, not in this tracked file, per the
-  reordered rule. Historical: `f0eb28a` -> `623490f` was PASS with digest
-  `f3668f51f36a9245725cce5aaebbeed6e46738d9e458abceeb4be54002ec49ca`
+- `implementation_sha`: the finalization's last executable-impacting change
+  (the independent-review fixes over the decomposition seam, the bulk-rebuild
+  slack release, the dense per-slot LRU representation, and the benchmark
+  provenance work; the exact SHA is the finalization commit named in the PR
+  body and the session response). The gate relationship from it to the final
+  tracked tip is recorded in the generated artifact and the PR body, not in
+  this tracked file, per the reordered rule. Historical: `ae1d03f0` was the
+  pre-finalization certified implementation; `f0eb28a` -> `623490f` was PASS
+  with digest  `f3668f51f36a9245725cce5aaebbeed6e46738d9e458abceeb4be54002ec49ca`
   (`build/_apply26/gates3/r1fix_self_application.json`); `63ddc21` was the
   pre-repair implementation SHA with digest `244d9c4d430059db...`.
-- `certified_binary_sha`: `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a`
-  (verified as the embedded `FastFilesEngine.exe` PrivateBuild in all five
-  rebuilt presets; identity binding/freshness pass inside the parity CTest
-  legs).
+- `certified_binary_sha`: the executable tree of the finalization
+  `implementation_sha`; the identity-bearing binaries are rebuilt at the
+  certification tip and identity binding/freshness pass inside the parity
+  CTest legs (the reports in `evidence/projection-memory/` record the
+  benchmark's own embedded identity).
 - `evidence_sha` / `repository_tip_sha`: the final tracked tip after the
   report commit.
 - `executable_impacting_digest` / verdict: the current run is from
@@ -236,24 +242,30 @@ review's findings are addressed in `ae1d03f` and this report:
   across filename/relevance x both directions x caps 1 and 2.
 - **R2 (P2)**: task 8.1 was reopened honestly -- the per-category/
   allocation-instrumented and repeat-rebuild pass was not produced, and the
-  8.3 rejection is rescoped to the measured evidence. The change is `active`
-  with that one open acceptance task.
+  8.3 rejection is rescoped to the measured evidence. History: that state was
+  closed by the finalization, which produced the instrumented decomposition,
+  retained the two measured corrections, and set task 8.1 and 8.3 with
+  current evidence.
 - **R3 (P2)**: this report now carries the fresh actual totals
   (127/127 both presets at the fixed tip; the predecessor-era 124 is
   historical) and the explicit embedded `certified_binary_sha`.
 - **S1 (P2)**: the WORKSTATE current checkpoint was rewritten to one
   coherent frontier and one next action with correct SHAs.
 
-**MERGE_ELIGIBLE = NO** pending the reopened memory acceptance work (task
-8.1) and the reviewer's requested re-verification; the earlier YES verdict
-is withdrawn.
+**MERGE_ELIGIBLE** is stated with its exact reasons in the PR body and the
+session response. History: at this point in the campaign it was NO pending the
+reopened memory acceptance work; that work is now complete (section H), and
+the remaining gates are the final-tip certification ladder, the equivalence
+gate, and any required hosted check or review.
 
 ## M. Remaining work
 
 - **Internal acceptance**: none open. Task 8.1 is complete and task 8.3 is
-  decided with measured retain/reject evidence (section H); the remaining
-  work is the final-tip certification ladder, the equivalence gate, and the
-  independent review of the resulting delta.
+  decided with measured retain/reject evidence (section H); the independent
+  reviews of the finalization delta are complete and their findings are
+  repaired. The remaining work is the final-tip certification ladder, the
+  equivalence gate, the push, the PR update, and the single hosted
+  inspection.
 - External only: hosted CI execution (billing/infrastructure), production
   signing/pins, clean-host install, elevated MFT/USN, the raw-volume
   completion bound (predecessor 5.4 / residual 2.3 stay unchecked), the

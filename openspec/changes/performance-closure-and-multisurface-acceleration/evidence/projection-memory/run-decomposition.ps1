@@ -52,5 +52,9 @@ foreach ($scale in 200000, 1000000) {
     )
     & $binary @arguments
     if ($LASTEXITCODE -ne 0) { throw "memory report failed at scale $scale ($LASTEXITCODE)" }
-    Write-Host "wrote $output"
+    $embedded = (Get-Content -Raw $output | ConvertFrom-Json).build_identity
+    if ($embedded -ne $sha) {
+        throw "embedded build identity $embedded does not match the measured clean revision $sha"
+    }
+    Write-Host "wrote $output (embedded identity $embedded)"
 }

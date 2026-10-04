@@ -5,11 +5,13 @@ preserves that file's historical numbers and supersedes only its
 "not produced / task 8.1 remains open" statements, which the finalization run
 replaced with the measurements below.
 
-Candidate identity: `afc366f` (projection decomposition seam, bulk-rebuild
-slack release, dense per-slot LRU) plus `fc8d873` (independent-review fixes),
-with the executable tree unchanged by the later `8edcede` runner-script
-commit; the embedded `build_identity` recorded in each JSON is the clean
-tree revision the release-test binary was built at. Preset: `release-test`
+Candidate identity: implementation revision `fc8d873` (the independent-review
+fixes) over `43c044f` (projection decomposition seam + bulk-rebuild slack
+release), `53c1a8d` (dense per-slot LRU timestamps), `afc366f` (report
+provenance and tests), and `3651dfb` (probe SAL fix); the executable tree of
+`fc8d873` is unchanged by the later evidence-only commits. The embedded
+`build_identity` recorded in each JSON is the clean tree revision the
+release-test binary was built at. Preset: `release-test`
 (MSVC Release-with-symbols, `/W4 /WX /permissive- /sdl`). Both runs were
 produced by the tracked runner
 `evidence/projection-memory/run-decomposition.ps1`, which refuses a dirty
@@ -90,7 +92,7 @@ the same plateau as the first generation.
 | name hash inner bucket vectors (unmodeled by estimator) | 800000 | 0.76 | 0.76% |
 | filename posting capacity | 13333352 | 12.72 | 12.61% |
 |   filename posting payload (live) | 3333338 | 3.18 | 3.15% |
-| filename posting vector headers (approx) | 35952 | 0.03 | 0.03% |
+| filename index node headers (approx, incl. 8 B per trigram key) | 47936 | 0.05 | 0.01% |
 | filename posting bucket array | 16384 | 0.02 | 0.02% |
 | filename non-ASCII list capacity | 78748 | 0.08 | 0.07% |
 | LRU dense timestamp slots | 1600000 | 1.53 | 1.51% |
@@ -148,7 +150,7 @@ the same plateau as the first generation.
 | name hash inner bucket vectors (unmodeled by estimator) | 4000000 | 3.81 | 0.81% |
 | filename posting capacity | 68511928 | 65.34 | 13.80% |
 |   filename posting payload (live) | 17127982 | 16.33 | 3.45% |
-| filename posting vector headers (approx) | 35952 | 0.03 | 0.01% |
+| filename index node headers (approx, incl. 8 B per trigram key) | 47936 | 0.05 | 0.01% |
 | filename posting bucket array | 16384 | 0.02 | 0.00% |
 | filename non-ASCII list capacity | 393748 | 0.38 | 0.08% |
 | LRU dense timestamp slots | 8000000 | 7.63 | 1.61% |
@@ -174,13 +176,17 @@ the same plateau as the first generation.
   one-time capacity growth, a real modeled category). There is no per-cycle
   growth in any projection container.
 - The small residual live-bytes movement between cycles is the benchmark's own
-  report storage: each cycle and lifecycle capture retains one
-  `MemoryCapturePoint` (`harness_retention.capture_point_bytes`, 664 bytes)
-  plus its name string. The JSON exposes both the per-capture delta and that
-  constant, so the arithmetic is checkable: cycle-to-cycle live delta minus
-  the modeled-category delta is at most a capture point plus a small string,
-  and the reopened pipeline's live-allocation count equals the first
-  generation's plus the number of capture points retained by then.
+  report storage. Each retained `MemoryCapturePoint` is
+  `harness_retention.capture_point_bytes` (656 bytes in both reports) plus,
+  when the capture name is long enough for the heap, its name string; the JSON
+  exposes that constant and per-capture allocator snapshots. The observed
+  movement is **+3 live allocations at cycle 1 -> 2 and +1 per cycle
+  afterwards**, with byte increments of 727 B then 656 + 32 B; the capture
+  points dominate, but this is an observed bound, not the clean
+  one-capture-per-cycle equality an earlier draft claimed. The remainder is a
+  few hundred bytes per rebuild, independent of row count, and the projection's
+  own categories are byte-identical from cycle 2 onward, which is the product
+  claim this reconciliation supports.
 - `after_pipeline_close` still holds the projection (the pipeline object is
   alive), and destruction (`after_pipeline_release`) returns to the process
   baseline: **still-owned allocations** fall to single-digit kilobytes while
@@ -191,6 +197,11 @@ the same plateau as the first generation.
   itself. That is pre-existing engine behavior, unchanged by this campaign,
   and is not a user-visible path (startup rebuild runs against an empty
   projection); it is recorded here because the cycle timings make it visible.
+  The "unchanged" claim is artifact-backed: the archived comparison arms
+  record 1M cycles 2-4 at 152.5/152.8/164.4 s (baseline) and 149.1/145.2/155.0 s
+  (after the slack release), against 145.1/141.3/141.7 s for the final
+  candidate; the spread is run-to-run variation on this host, and the
+  corrections add no measurable rebuild cost.
 
 ## 6. Cross-layer duplication classification (updated from current source)
 
@@ -245,8 +256,25 @@ code, while the final row is the committed candidate):
 | total change | -94578706 | -90.20 | -136036352 | -129.73 |
 | total change as share of baseline | | -20.50% | | -21.51% |
 
-Both corrections are individually material at this scale and the combined
-result clears the campaign's 10% strong target:
+### 7.1 Comparison-arm provenance
+
+The two pre-final rows above were measured during this finalization **before
+the corrections were committed**, on a dirty tree at HEAD `2633529` with the
+then-uncommitted decomposition seam, probe, and report mode. They are archived
+next to this record as
+`projection-memory/projection-memory-1m-comparison-baseline.json` (before
+either correction) and
+`projection-memory/projection-memory-1m-comparison-after-slack-release.json`
+(after the slack release, before the dense LRU); both carry the earlier probe
+convention in which `live_usable_bytes` included the probe header, so only
+`live_requested_bytes`, `private_bytes`, and the cycle timings are compared
+here. They are not reproducible from the current tree because the
+pre-correction code never existed in a revision containing the report mode.
+The artifact-backed, reproducible result is the final row: the two tracked
+reports (`projection-memory-{200k,1m}.json`) produced by the tracked runner on
+a clean tree.
+
+The two corrections are below the campaign's 10% strong target taken alone
 
 - the bulk-rebuild slack release alone removes 37,802,344 bytes (36.05 MiB,
   -8.2%) of still-owned live bytes and 22,204,416 bytes (21.18 MiB, -3.5%) of
@@ -265,23 +293,29 @@ container, and the focused plus full suites cover the eviction and rebuild
 paths. `EstimatedMemoryBytes()` now models the dense LRU storage, so the memory
 policy no longer over-counts LRU metadata.
 
-Rejected or deferred with measured numbers:
+Rejected or deferred with measured numbers (all shares use the 1M plateau
+process private of 496357376 bytes = 473.36 MiB, the same denominator as the tables
+above):
 
-- **Identifier map (58.0 MB at 1M, 9.6% of private):** the flat
+- **Identifier map (60,817,408 B = 58.00 MiB, 12.25%):** the flat
   open-addressing table holds 2,097,152 probes for 1,000,000 elements. The
   measured occupancy is 47.7%, but the smaller power-of-two (1,048,576) is
   95.4% occupied, above the 75% growth bound `EnsureInsertCapacity()` enforces,
   so the table would immediately grow and probe past `kMaxProbeDistance`. The
   2x sizing is a consequence of the probe-table invariant, not removable
   slack; reducing it requires redesigning the probe/load-factor contract.
-- **Filename trigram accelerator (68.97 MB at 1M, 11.9% of private):**
+- **Filename trigram accelerator (68,969,996 B = 65.77 MiB, 13.90%):**
   measured as the largest single removable structure, but the spec rejects
   trading search latency for bytes and the engine suite proves eligible
   selective literal searches use it. Retained.
-- **Stdlib node links (~32 MB at 1M):** the name hash index and its inner
-  bucket vectors plus map nodes. They are the price of the looked-up
-  structures the projection needs; the modeled category counts their headers
-  and the residual names the link overhead instead of hiding it.
+- **Stdlib node links and the unmodeled remainder (24,490,157 B = 23.36 MiB):
+  ** the whole live payload outside the modeled categories at 1M, covering the
+  name hash index's node links and inner bucket vectors plus allocator
+  bookkeeping. (An earlier draft cited 32 MB for node links; that figure was
+  `name_hash_approx_node_bytes`, a *modeled* term already inside
+  `modeled_category_bytes`.) Heap rounding is not a contributor: the probe
+  records `live_rounding_overhead_bytes == 0` in every sample because every
+  payload is 16-byte aligned and the probe header absorbs malloc's rounding.
 - **Normalized-name and stored-path storage: 0 bytes by construction.** Folds
   are computed on demand and paths are reconstructed per call; there is
   nothing to remove.
@@ -295,14 +329,17 @@ Rejected or deferred with measured numbers:
 | live caller-usable | 366873717 | 349.88 | probe header excluded on both paths |
 | modeled categories | 338383496 | 322.71 | equals Projection::EstimatedMemoryBytes() |
 | measured unmodeled allocations | 4000064 | 3.81 | name-hash bucket vectors + cold-volume buckets |
-| live payload outside modeled categories | 24490157 | 23.36 | stdlib node links + allocator rounding |
-| private minus live payload | 129483659 | 123.49 | probe headers (32 B/allocation), heap block headers, SQLite C plane, CRT retained pages, page tables, mapped image |
+| live payload outside modeled categories | 24490157 | 23.36 | stdlib node links; allocator rounding measured 0 |
+| probe allocation header (32 B x live allocations) | 64097472 | 61.13 | the probe's own header, exactly computable from the recorded count |
+| remaining private minus live payload and probe header | 65386187 | 62.36 | heap block headers, SQLite's C plane, CRT-retained pages, page tables, mapped image |
 
 The residual is disclosed rather than attributed: the probe's own allocation
-header, the C++ standard-library node links, the CRT heap's retained free
-pages, SQLite's C allocation plane, page tables, and thread/mapped-image pages
-are all inside these boundaries, and the JSON records which of them the
-instrumentation can and cannot see.
+header (quantified above), the C++ standard-library node links, the CRT heap's
+retained free pages, SQLite's C allocation plane, page tables, and
+thread/mapped-image pages are inside these boundaries, and the JSON records
+which of them the instrumentation can and cannot see. `live_rounding_overhead_bytes`
+is 0 in every snapshot (all payloads are 16-byte aligned), so rounding is not a
+residual contributor.
 
 ## 9. Historical record
 
