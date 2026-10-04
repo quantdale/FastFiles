@@ -261,12 +261,16 @@ gate, and any required hosted check or review.
 
 ## M. Remaining work
 
-- **Internal acceptance**: none open. Task 8.1 is complete and task 8.3 is
-  decided with measured retain/reject evidence (section H); the independent
-  reviews of the finalization delta are complete and their findings are
-  repaired. The remaining work is the final-tip certification ladder, the
-  equivalence gate, the push, the PR update, and the single hosted
-  inspection.
+- **Internal acceptance**: none open, and the finalization gates are complete.
+  Task 8.1 is complete and task 8.3 is decided with measured retain/reject
+  evidence (section H); the independent reviews of the finalization delta are
+  complete with their findings repaired; the full local certification ladder
+  ran at the final tip; the executable-tree equivalence gate passed from the
+  implementation SHA to the pushed tip; and the single hosted inspection found
+  a zero-step, externally blocked result. The live tip, gate digest/verdict,
+  ladder counts, and verdicts are recorded in the PR body and the session
+  response rather than in this tracked file, so no further certify-and-document
+  cycle is opened.
 - External only: hosted CI execution (billing/infrastructure), production
   signing/pins, clean-host install, elevated MFT/USN, the raw-volume
   completion bound (predecessor 5.4 / residual 2.3 stay unchecked), the
