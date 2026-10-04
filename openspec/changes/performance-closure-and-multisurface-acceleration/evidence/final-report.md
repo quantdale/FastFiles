@@ -9,14 +9,14 @@ outside this checked commit, per the reordered 11.6 rule.
 - Branch: `feat/performance-closure-and-multisurface-acceleration-20261001`.
 - Start: `origin/main` `bdd7d7b5fb91586df957ce43b348c7fb95cbeae3` (unchanged
   through the campaign; the branch was created from it).
-- `IMPLEMENTATION_SHA`: `f0eb28aac24ae44ae0c79edae62d5c792dae5861` (the
-  completion-review R1 repair: volume-root rows gated out of the top-N
-  admission). History: `d50c474` was the first review-fix commit, `63ddc21`
-  the bench-annotation/gate-prefix commit; the 11.6 gate ran from `d50c474`
-  and correctly FAILED naming the bench translation unit, and passes from
-  `f0eb28a`.
+- `IMPLEMENTATION_SHA`: `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a` (the
+  second-review reconciliation commit: the full eight-case capped-root
+  regression matrix plus the harness bounded-wait fix). History: `f0eb28a`
+  was the R1 repair, `d50c474` the first review-fix commit, `63ddc21` the
+  bench-annotation/gate-prefix commit; the 11.6 gate ran from `d50c474` and
+  correctly FAILED naming the bench translation unit.
 - `certified_binary_sha` (embedded identity, verified in every rebuilt
-  preset): `f0eb28aac24ae44ae0c79edae62d5c792dae5861`
+  preset): `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a`
   (`FastFilesEngine.exe` PrivateBuild in Debug, release-test, Analyze, ASan,
   and debug-diagnostic).
 - Certified binary identity: every preset was rebuilt at the final tip
@@ -170,16 +170,14 @@ improvement.
 
 ## K. Certification relationship
 
-- `implementation_sha`: `f0eb28aac24ae44ae0c79edae62d5c792dae5861` (the R1
-  repair commit; the matrix-extension commit that follows it is the last
-  executable-impacting change of the second review round — its SHA and the
-  resulting gate relationship are recorded in the PR body and in the
-  generated gate artifact, not in this tracked file, per the reordered
-  rule). Historical: `63ddc21acf089ad92ddb5783882a74a595a2513c` was the
-  pre-repair implementation SHA whose gate relationship used digest
-  `244d9c4d430059db...`; the current relationship for `f0eb28a` to the
-  `623490f` tip is PASS with digest `f3668f51f36a9245725cce5aaebbeed6e46738d9e458abceeb4be54002ec49ca`
-  (`build/_apply26/gates3/r1fix_self_application.json`).
+- `implementation_sha`: `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a` (the
+  second-review reconciliation commit; the last executable-impacting change).
+  The gate relationship from it to the final tracked tip is recorded in the
+  generated artifact and the PR body, not in this tracked file, per the
+  reordered rule. Historical: `f0eb28a` -> `623490f` was PASS with digest
+  `f3668f51f36a9245725cce5aaebbeed6e46738d9e458abceeb4be54002ec49ca`
+  (`build/_apply26/gates3/r1fix_self_application.json`); `63ddc21` was the
+  pre-repair implementation SHA with digest `244d9c4d430059db...`.
 - `certified_binary_sha`: `f0eb28aac24ae44ae0c79edae62d5c792dae5861`
   (verified as the embedded `FastFilesEngine.exe` PrivateBuild in all five
   rebuilt presets; identity binding/freshness pass inside the parity CTest
