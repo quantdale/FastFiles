@@ -9,12 +9,16 @@ outside this checked commit, per the reordered 11.6 rule.
 - Branch: `feat/performance-closure-and-multisurface-acceleration-20261001`.
 - Start: `origin/main` `bdd7d7b5fb91586df957ce43b348c7fb95cbeae3` (unchanged
   through the campaign; the branch was created from it).
-- `IMPLEMENTATION_SHA`: `63ddc21acf089ad92ddb5783882a74a595a2513c` (bench
-  allocator SAL annotations + configure_file prefix stripping -- the last
-  executable-impacting commit). `d50c474` ("fix the material review
-  findings") is the review-fix commit before it. The 11.6 gate initially ran
-  from `d50c474` and correctly FAILED, naming the bench translation unit; it
-  passes from `63ddc21`.
+- `IMPLEMENTATION_SHA`: `f0eb28aac24ae44ae0c79edae62d5c792dae5861` (the
+  completion-review R1 repair: volume-root rows gated out of the top-N
+  admission). History: `d50c474` was the first review-fix commit, `63ddc21`
+  the bench-annotation/gate-prefix commit; the 11.6 gate ran from `d50c474`
+  and correctly FAILED naming the bench translation unit, and passes from
+  `f0eb28a`.
+- `certified_binary_sha` (embedded identity, verified in every rebuilt
+  preset): `f0eb28aac24ae44ae0c79edae62d5c792dae5861`
+  (`FastFilesEngine.exe` PrivateBuild in Debug, release-test, Analyze, ASan,
+  and debug-diagnostic).
 - Certified binary identity: every preset was rebuilt at the final tip
   before the ladder; identity binding/freshness tests pass inside the
   parity CTest legs.
@@ -29,11 +33,15 @@ outside this checked commit, per the reordered 11.6 rule.
 
 ## B. Certification debt (current counts, this candidate)
 
+Fresh full ladder at `f0eb28a` (all counts are the actual registered totals;
+the predecessor-era 124/124 is historical evidence for `8c8aa0b`, not the
+current suite):
+
 | gate | result |
 |---|---|
 | Local CI parity (`Invoke-CiParity.ps1`) | **11 PASS / 0 FAIL / 0 SKIP** (preflight, policy, strict OpenSpec, build debug/release-test/analyze, ctest debug, ctest release-test, ASan slice, hygiene suite, release-candidate) |
-| Debug CTest | 127/127 passed, 0 failed, 0 skipped |
-| release-test CTest | 124/124 passed, 0 failed, 0 skipped (the 30-second volume-session assertion unchanged and passing) |
+| Debug CTest | **127/127** passed, 0 failed, 0 skipped |
+| release-test CTest | **127/127** passed, 0 failed, 0 skipped (the 30-second volume-session assertion unchanged and passing) |
 | Analyze | warning-clean (0 warnings) |
 | Authoritative ASan slice | 4/4 passed |
 | strict OpenSpec | 91/91 |
@@ -41,9 +49,9 @@ outside this checked commit, per the reordered 11.6 rule.
 | unsigned release-candidate qualification | PASS |
 | E2E (`dev.ps1 test-e2e`) | 8 passed / 0 failed / 0 skipped, `boundToHead=true` |
 | UIA core | 16 passed / 0 skipped / 0 failed |
-| UIA full | 23 passed / 6 skipped / 0 failed |
-| visual catalog (`-Gallery`) | 20 recorded / 20 passed / 0 failed |
-| focused many-tabs | 1/1 passed |
+| UIA full | 23 passed / 6 skipped / 0 failed (one prior attempt died with the environmental `capability-worker-exited-without-result`; the retry passed) |
+| visual catalog (`-Gallery`) | 20 recorded / 20 passed / 0 failed (one prior attempt aborted on a transient "settings dialog did not appear" timing; the retry passed) |
+| focused many-tabs | 1/1 passed (one prior attempt hit the same environmental worker death; the retry passed) |
 
 Predecessor closure evidence (task 2.7): release-test 124/124 with
 `TestStopReturnsWithoutWaitingForTheSchedulerInterval` at 13.99 s, Debug
@@ -161,9 +169,14 @@ improvement.
 
 ## K. Certification relationship
 
-- `implementation_sha`: `63ddc21acf089ad92ddb5783882a74a595a2513c`.
-- `certified_binary_sha`: the final documentation tip rebuilt before the
-  ladder (all presets; identity binding passes).
+- `implementation_sha`: `f0eb28aac24ae44ae0c79edae62d5c792dae5861` (the R1
+  repair commit). `63ddc21acf089ad92ddb5783882a74a595a2513c` was the
+  pre-repair implementation SHA; the equivalence gate was re-run from
+  `f0eb28a` to the final tracked tip after the report commit.
+- `certified_binary_sha`: `f0eb28aac24ae44ae0c79edae62d5c792dae5861`
+  (verified as the embedded `FastFilesEngine.exe` PrivateBuild in all five
+  rebuilt presets; identity binding/freshness pass inside the parity CTest
+  legs).
 - `evidence_sha` / `repository_tip_sha`: the final tracked tip after the
   report commit.
 - `executable_impacting_digest` / verdict: recorded by the 11.6 equivalence
@@ -177,6 +190,32 @@ improvement.
 zero executed steps → `HOSTED_CI = BLOCKED_EXTERNAL`. The final tip is
 inspected once after the push and reported live; local results remain
 labelled `LOCAL-PARITY-NOT-HOSTED-CI`.
+
+## Review repair (completion review at `20abb4c`, BLOCK)
+
+The review's four findings were all addressed in `f0eb28a` (and this report):
+
+- **R1 (P1)**: the top-N admission judged a volume-root row by its empty
+  pre-materialization view name while the owning candidate uses the
+  `prefix + "\\"` display name, so a capped descending filename search
+  discarded the winning root (hot `B` vs durable `Z:\`). Root rows are now
+  gated out of both the admission and the `AddViewMatched` view-skip.
+  `TestCappedRootSearchMatchesColdAndRetainsTopN` reproduces the reviewer's
+  exact case red-first (fails with the gate removed) and passes with it,
+  across filename/relevance x both directions x caps 1 and 2.
+- **R2 (P2)**: task 8.1 was reopened honestly -- the per-category/
+  allocation-instrumented and repeat-rebuild pass was not produced, and the
+  8.3 rejection is rescoped to the measured evidence. The change is `active`
+  with that one open acceptance task.
+- **R3 (P2)**: this report now carries the fresh actual totals
+  (127/127 both presets at the fixed tip; the predecessor-era 124 is
+  historical) and the explicit embedded `certified_binary_sha`.
+- **S1 (P2)**: the WORKSTATE current checkpoint was rewritten to one
+  coherent frontier and one next action with correct SHAs.
+
+**MERGE_ELIGIBLE = NO** pending the reopened memory acceptance work (task
+8.1) and the reviewer's requested re-verification; the earlier YES verdict
+is withdrawn.
 
 ## M. Remaining work
 
