@@ -52,23 +52,23 @@ with the production initial-publication bound of 4096 directories.
 
 | cycle | rebuild ms | private MiB | live requested MiB | live allocations | modeled MiB | estimator MiB |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| after_rebuild_cycle_1 | 608.6 | 98.55 | 72.50 | 403041 | 66.63 | 66.63 |
-| after_rebuild_cycle_2 | 5393.7 | 100.01 | 73.29 | 403044 | 67.42 | 67.42 |
-| after_rebuild_cycle_3 | 5384.8 | 100.29 | 73.30 | 403045 | 67.42 | 67.42 |
-| after_rebuild_cycle_4 | 5460.3 | 100.85 | 73.30 | 403046 | 67.42 | 67.42 |
+| after_rebuild_cycle_1 | 618.5 | 98.51 | 72.50 | 403041 | 66.63 | 66.63 |
+| after_rebuild_cycle_2 | 5388.2 | 101.07 | 73.29 | 403044 | 67.42 | 67.42 |
+| after_rebuild_cycle_3 | 5307.9 | 99.95 | 73.30 | 403045 | 67.42 | 67.42 |
+| after_rebuild_cycle_4 | 5324.3 | 100.16 | 73.30 | 403046 | 67.42 | 67.42 |
 
 ### 3.1 Lifecycle capture points (200,000 rows)
 
 | capture | private MiB | working set MiB | shareable MiB | live requested MiB | live allocations | peak private MiB |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| process_start | 1.30 | 6.67 | 5.83 | 0.00 | 9 | 1.30 |
-| after_fixture_generation | 2.89 | 9.15 | 6.94 | 0.00 | 12 | 149.01 |
-| after_database_open | 5.87 | 11.79 | 6.95 | 0.00 | 31 | 149.01 |
-| after_export_weighing | 115.01 | 140.66 | 30.43 | 73.30 | 403051 | 186.70 |
-| after_pipeline_close | 108.82 | 136.86 | 30.43 | 73.30 | 403050 | 186.70 |
-| after_pipeline_release | 5.24 | 34.30 | 30.43 | 0.01 | 25 | 186.70 |
-| after_close_reopen_rebuild | 105.61 | 133.59 | 30.43 | 72.51 | 403053 | 186.70 |
-| after_close_reopen_close | 106.37 | 134.41 | 30.43 | 72.51 | 403052 | 186.70 |
+| process_start | 1.27 | 6.66 | 5.83 | 0.00 | 9 | 1.27 |
+| after_fixture_generation | 2.71 | 9.02 | 6.95 | 0.00 | 12 | 148.08 |
+| after_database_open | 5.73 | 11.67 | 6.95 | 0.00 | 31 | 148.08 |
+| after_export_weighing | 109.29 | 136.44 | 30.43 | 73.30 | 403051 | 186.26 |
+| after_pipeline_close | 112.03 | 137.74 | 30.43 | 73.30 | 403050 | 186.26 |
+| after_pipeline_release | 5.18 | 34.54 | 30.43 | 0.01 | 25 | 186.26 |
+| after_close_reopen_rebuild | 106.17 | 134.05 | 30.43 | 72.51 | 403053 | 186.26 |
+| after_close_reopen_close | 106.70 | 134.76 | 30.43 | 72.51 | 403052 | 186.26 |
 
 The projection is released to a justified baseline: `after_pipeline_release`
 returns to kilobytes of live C++ bytes and ~5 MiB private while the durable
@@ -79,95 +79,95 @@ the same plateau as the first generation.
 
 | category | bytes | MiB | share of process private |
 | --- | ---: | ---: | ---: |
-| live rows (capacity x layout) | 20800000 | 19.84 | 19.67% |
+| live rows (capacity x layout) | 20800000 | 19.84 | 19.81% |
 | row-vector slack | 0 | 0.00 | 0.00% |
-| free list (slot reuse) | 829528 | 0.79 | 0.78% |
-| identifier map (keys/values/states) | 15204352 | 14.50 | 14.38% |
-| parent/child map + flat child array | 1135872 | 1.08 | 1.07% |
-| interned name arena capacity | 7550910 | 7.20 | 7.14% |
+| free list (slot reuse) | 829528 | 0.79 | 0.79% |
+| identifier map (keys/values/states) | 15204352 | 14.50 | 14.48% |
+| parent/child map + flat child array | 1135872 | 1.08 | 1.08% |
+| interned name arena capacity | 7550910 | 7.20 | 7.19% |
 |   name arena slack | 0 | 0.00 | 0.00% |
-| name offset/length table | 1600000 | 1.53 | 1.51% |
-| name hash bucket array | 2097152 | 2.00 | 1.98% |
-| name hash node headers (approx) | 6400000 | 6.10 | 6.05% |
+| name offset/length table | 1600000 | 1.53 | 1.52% |
+| name hash bucket array | 2097152 | 2.00 | 2.00% |
+| name hash node headers (approx) | 6400000 | 6.10 | 6.09% |
 | name hash inner bucket vectors (unmodeled by estimator) | 800000 | 0.76 | 0.76% |
-| filename posting capacity | 13333352 | 12.72 | 12.61% |
-|   filename posting payload (live) | 3333338 | 3.18 | 3.15% |
-| filename index node headers (approx, incl. 8 B per trigram key) | 47936 | 0.05 | 0.01% |
+| filename posting capacity | 13333352 | 12.72 | 12.70% |
+|   filename posting payload (live) | 3333338 | 3.18 | 3.17% |
+| filename index node headers (approx, incl. 8 B per trigram key) | 47936 | 0.05 | 0.05% |
 | filename posting bucket array | 16384 | 0.02 | 0.02% |
 | filename non-ASCII list capacity | 78748 | 0.08 | 0.07% |
-| LRU dense timestamp slots | 1600000 | 1.53 | 1.51% |
+| LRU dense timestamp slots | 1600000 | 1.53 | 1.52% |
 | cold-volume marker bucket array (unmodeled) | 64 | 0.00 | 0.00% |
 | normalized-name storage (structurally absent) | 0 | 0.00 | 0.00% |
 | stored path storage (structurally absent) | 0 | 0.00 | 0.00% |
-| modeled category sum (= estimator) | 70694234 | 67.42 | 66.85% |
-| modeled + measured unmodeled allocations | 71494298 | 68.18 | 67.61% |
+| modeled category sum (= estimator) | 70694234 | 67.42 | 67.31% |
+| modeled + measured unmodeled allocations | 71494298 | 68.18 | 68.08% |
 
 ### 3.3 Export/publication weighing (200,000 rows)
 
 | arm | pass | directories | entries | serialized bytes | retained export live requested B | arm requested B | arm allocations | export ms | publish ms | payload hash |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| pooled_export | 1 | 3126 | 199999 | 24501854 | 30489553 | 134145771 | 128560 | 41.3 | 11.0 | 2305792822676763593 |
-| pooled_export | 2 | 3126 | 199999 | 24501854 | 30489553 | 134145771 | 128560 | 48.9 | 13.7 | 2305792822676763593 |
-| owning_export | 1 | 3126 | 199999 | 24501854 | 34521715 | 168667486 | 337937 | 68.1 | 14.7 | 2305792822676763593 |
-| owning_export | 2 | 3126 | 199999 | 24501854 | 34521715 | 168667486 | 337937 | 67.6 | 14.8 | 2305792822676763593 |
+| pooled_export | 1 | 3126 | 199999 | 24501854 | 30489553 | 134145771 | 128560 | 41.7 | 10.1 | 2305792822676763593 |
+| pooled_export | 2 | 3126 | 199999 | 24501854 | 30489553 | 134145771 | 128560 | 40.7 | 12.9 | 2305792822676763593 |
+| owning_export | 1 | 3126 | 199999 | 24501854 | 34521715 | 168667486 | 337937 | 71.2 | 13.5 | 2305792822676763593 |
+| owning_export | 2 | 3126 | 199999 | 24501854 | 34521715 | 168667486 | 337937 | 64.5 | 14.8 | 2305792822676763593 |
 
 ## 4. 1,000,000-row result
 
 | cycle | rebuild ms | private MiB | live requested MiB | live allocations | modeled MiB | estimator MiB |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| after_rebuild_cycle_1 | 3483.1 | 467.90 | 345.87 | 2003041 | 318.70 | 318.70 |
-| after_rebuild_cycle_2 | 145074.1 | 473.05 | 349.88 | 2003044 | 322.71 | 322.71 |
-| after_rebuild_cycle_3 | 141254.0 | 474.64 | 349.88 | 2003045 | 322.71 | 322.71 |
-| after_rebuild_cycle_4 | 141711.8 | 473.36 | 349.88 | 2003046 | 322.71 | 322.71 |
+| after_rebuild_cycle_1 | 3398.1 | 466.78 | 345.87 | 2003041 | 318.70 | 318.70 |
+| after_rebuild_cycle_2 | 141528.7 | 473.02 | 349.88 | 2003044 | 322.71 | 322.71 |
+| after_rebuild_cycle_3 | 139794.4 | 473.47 | 349.88 | 2003045 | 322.71 | 322.71 |
+| after_rebuild_cycle_4 | 140338.6 | 466.18 | 349.88 | 2003046 | 322.71 | 322.71 |
 
 ### 4.1 Lifecycle capture points (1,000,000 rows)
 
 | capture | private MiB | working set MiB | shareable MiB | live requested MiB | live allocations | peak private MiB |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| process_start | 1.32 | 6.68 | 5.83 | 0.00 | 9 | 1.32 |
-| after_fixture_generation | 5.65 | 11.20 | 7.12 | 0.00 | 12 | 972.79 |
-| after_database_open | 7.93 | 13.43 | 7.12 | 0.00 | 31 | 972.79 |
-| after_export_weighing | 506.62 | 534.47 | 38.26 | 349.88 | 2003051 | 972.79 |
-| after_pipeline_close | 506.64 | 534.47 | 38.26 | 349.88 | 2003050 | 972.79 |
-| after_pipeline_release | 7.70 | 43.16 | 38.26 | 0.01 | 25 | 972.79 |
-| after_close_reopen_rebuild | 470.20 | 493.57 | 38.26 | 345.88 | 2003053 | 972.79 |
-| after_close_reopen_close | 470.20 | 493.56 | 38.26 | 345.88 | 2003052 | 972.79 |
+| process_start | 1.28 | 6.66 | 5.83 | 0.00 | 9 | 1.28 |
+| after_fixture_generation | 4.85 | 10.81 | 7.12 | 0.00 | 12 | 972.78 |
+| after_database_open | 7.20 | 13.06 | 7.12 | 0.00 | 31 | 972.78 |
+| after_export_weighing | 542.52 | 570.39 | 38.27 | 349.88 | 2003051 | 972.78 |
+| after_pipeline_close | 542.70 | 570.39 | 38.26 | 349.88 | 2003050 | 972.78 |
+| after_pipeline_release | 6.14 | 42.88 | 38.26 | 0.01 | 25 | 972.78 |
+| after_close_reopen_rebuild | 473.65 | 502.78 | 38.27 | 345.88 | 2003053 | 972.78 |
+| after_close_reopen_close | 473.65 | 502.77 | 38.26 | 345.88 | 2003052 | 972.78 |
 
 ### 4.2 Category decomposition at the 1,000,000-row plateau
 
 | category | bytes | MiB | share of process private |
 | --- | ---: | ---: | ---: |
-| live rows (capacity x layout) | 104000000 | 99.18 | 20.95% |
+| live rows (capacity x layout) | 104000000 | 99.18 | 21.28% |
 | row-vector slack | 0 | 0.00 | 0.00% |
-| free list (slot reuse) | 4199476 | 4.00 | 0.85% |
-| identifier map (keys/values/states) | 60817408 | 58.00 | 12.25% |
-| parent/child map + flat child array | 5343488 | 5.10 | 1.08% |
-| interned name arena capacity | 38664520 | 36.87 | 7.79% |
+| free list (slot reuse) | 4199476 | 4.00 | 0.86% |
+| identifier map (keys/values/states) | 60817408 | 58.00 | 12.44% |
+| parent/child map + flat child array | 5343488 | 5.10 | 1.09% |
+| interned name arena capacity | 38664520 | 36.87 | 7.91% |
 |   name arena slack | 0 | 0.00 | 0.00% |
-| name offset/length table | 8000000 | 7.63 | 1.61% |
-| name hash bucket array | 8388608 | 8.00 | 1.69% |
-| name hash node headers (approx) | 32000000 | 30.52 | 6.45% |
-| name hash inner bucket vectors (unmodeled by estimator) | 4000000 | 3.81 | 0.81% |
-| filename posting capacity | 68511928 | 65.34 | 13.80% |
-|   filename posting payload (live) | 17127982 | 16.33 | 3.45% |
+| name offset/length table | 8000000 | 7.63 | 1.64% |
+| name hash bucket array | 8388608 | 8.00 | 1.72% |
+| name hash node headers (approx) | 32000000 | 30.52 | 6.55% |
+| name hash inner bucket vectors (unmodeled by estimator) | 4000000 | 3.81 | 0.82% |
+| filename posting capacity | 68511928 | 65.34 | 14.02% |
+|   filename posting payload (live) | 17127982 | 16.33 | 3.50% |
 | filename index node headers (approx, incl. 8 B per trigram key) | 47936 | 0.05 | 0.01% |
 | filename posting bucket array | 16384 | 0.02 | 0.00% |
 | filename non-ASCII list capacity | 393748 | 0.38 | 0.08% |
-| LRU dense timestamp slots | 8000000 | 7.63 | 1.61% |
+| LRU dense timestamp slots | 8000000 | 7.63 | 1.64% |
 | cold-volume marker bucket array (unmodeled) | 64 | 0.00 | 0.00% |
 | normalized-name storage (structurally absent) | 0 | 0.00 | 0.00% |
 | stored path storage (structurally absent) | 0 | 0.00 | 0.00% |
-| modeled category sum (= estimator) | 338383496 | 322.71 | 68.17% |
-| modeled + measured unmodeled allocations | 342383560 | 326.52 | 68.98% |
+| modeled category sum (= estimator) | 338383496 | 322.71 | 69.22% |
+| modeled + measured unmodeled allocations | 342383560 | 326.52 | 70.04% |
 
 ### 4.3 Export/publication weighing (1,000,000 rows)
 
 | arm | pass | directories | entries | serialized bytes | retained export live requested B | arm requested B | arm allocations | export ms | publish ms | payload hash |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| pooled_export | 1 | 4096 | 262098 | 32452196 | 40470188 | 591101503 | 676542 | 211.0 | 14.3 | 17376203612763246927 |
-| pooled_export | 2 | 4096 | 262098 | 32452196 | 40470188 | 591101503 | 676542 | 194.7 | 18.5 | 17376203612763246927 |
-| owning_export | 1 | 4096 | 262098 | 32452196 | 45712225 | 636813728 | 950928 | 236.3 | 18.8 | 17376203612763246927 |
-| owning_export | 2 | 4096 | 262098 | 32452196 | 45712225 | 636813728 | 950928 | 229.8 | 18.8 | 17376203612763246927 |
+| pooled_export | 1 | 4096 | 262098 | 32452196 | 40470188 | 591101503 | 676542 | 211.3 | 15.8 | 17376203612763246927 |
+| pooled_export | 2 | 4096 | 262098 | 32452196 | 40470188 | 591101503 | 676542 | 191.9 | 17.6 | 17376203612763246927 |
+| owning_export | 1 | 4096 | 262098 | 32452196 | 45712225 | 636813728 | 950928 | 234.5 | 18.0 | 17376203612763246927 |
+| owning_export | 2 | 4096 | 262098 | 32452196 | 45712225 | 636813728 | 950928 | 218.9 | 18.6 | 17376203612763246927 |
 
 ## 5. Repeat-rebuild, release, and harness-retention reconciliation
 
@@ -252,9 +252,9 @@ code, while the final row is the committed candidate):
 | --- | ---: | ---: | ---: | ---: |
 | baseline (no slack release, hash-map LRU) | 461452423 | 440.08 | 632393728 | 603.10 |
 | after bulk-rebuild slack release | 423650079 | 404.02 | 610189312 | 581.92 |
-| after slack release + dense LRU (final) | 366873717 | 349.88 | 496357376 | 473.36 |
-| total change | -94578706 | -90.20 | -136036352 | -129.73 |
-| total change as share of baseline | | -20.50% | | -21.51% |
+| after slack release + dense LRU (final) | 366873717 | 349.88 | 488820736 | 466.18 |
+| total change | -94578706 | -90.20 | -143572992 | -136.92 |
+| total change as share of baseline | | -20.50% | | -22.70% |
 
 ### 7.1 Comparison-arm provenance
 
@@ -280,11 +280,11 @@ The two corrections are below the campaign's 10% strong target taken alone
   -8.2%) of still-owned live bytes and 22,204,416 bytes (21.18 MiB, -3.5%) of
   process private bytes;
 - the dense LRU alone removes a further 56,776,362 bytes (54.15 MiB, -13.4%)
-  of live bytes and 113,831,936 bytes (108.56 MiB, -18.7%) of private bytes,
+  of live bytes and 121,368,576 bytes (115.75 MiB, -19.9%) of private bytes,
   the larger private effect reflecting that a million small map nodes had also
   been holding heap pages;
-- combined: -90,196,706 bytes (-86.02 MiB, -20.5%) live and -136,036,352 bytes
-  (-129.73 MiB, -21.5%) private.
+- combined: -94,578,706 bytes (-90.20 MiB, -20.5%) live and -143,572,992 bytes
+  (-136.92 MiB, -22.7%) private.
 
 They are real reductions in **still-owned** bytes with no rebuild-time cost, no
 content change, and no search, navigation, indexing, startup, or reconciliation
@@ -324,14 +324,14 @@ above):
 
 | quantity | bytes | MiB | note |
 | --- | ---: | ---: | --- |
-| process private bytes | 496357376 | 473.36 | instrumented process, plateau |
+| process private bytes | 488820736 | 466.18 | instrumented process, plateau |
 | live requested (payload) | 366873717 | 349.88 | bytes passed to operator new |
 | live caller-usable | 366873717 | 349.88 | probe header excluded on both paths |
 | modeled categories | 338383496 | 322.71 | equals Projection::EstimatedMemoryBytes() |
 | measured unmodeled allocations | 4000064 | 3.81 | name-hash bucket vectors + cold-volume buckets |
 | live payload outside modeled categories | 24490157 | 23.36 | stdlib node links; allocator rounding measured 0 |
 | probe allocation header (32 B x live allocations) | 64097472 | 61.13 | the probe's own header, exactly computable from the recorded count |
-| remaining private minus live payload and probe header | 65386187 | 62.36 | heap block headers, SQLite's C plane, CRT-retained pages, page tables, mapped image |
+| remaining private minus live payload and probe header | 57849547 | 55.17 | heap block headers, SQLite's C plane, CRT-retained pages, page tables, mapped image |
 
 The residual is disclosed rather than attributed: the probe's own allocation
 header (quantified above), the C++ standard-library node links, the CRT heap's

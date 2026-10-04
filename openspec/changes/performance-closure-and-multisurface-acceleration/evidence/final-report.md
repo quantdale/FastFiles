@@ -158,10 +158,11 @@ SQLite's C plane, page tables) instead of attributing it to fragmentation.
 Task 8.3 retained two measured corrections found by that decomposition: the
 bulk-rebuild capacity-slack release (name arena/table, flat child array,
 trigram postings) and dense per-slot LRU timestamps replacing a per-entry
-`unordered_map` node. At 1,000,000 rows, together they remove 90,196,706 bytes
-(-86.02 MiB, -20.5%) of still-owned live bytes and 136,036,352 bytes
-(-129.73 MiB, -21.5%) of process private bytes, with repeated-rebuild time
-unchanged and content preserved; the spec's 10% strong target is cleared. The
+`unordered_map` node. At 1,000,000 rows, together they remove 94,578,706 bytes
+(-90.20 MiB, -20.5%) of still-owned live bytes and 143,572,992 bytes
+(-136.92 MiB, -22.7%) of process private bytes, with repeated-rebuild time
+unchanged (both comparison arms archived) and content preserved; the spec's 10%
+strong target is cleared. The
 identifier-map capacity (forced by the <=75% occupancy growth bound), the
 filename accelerator (spec-protected, proven used), and the remaining stdlib
 node links are rejected/deferred with those measured reasons. History: the
