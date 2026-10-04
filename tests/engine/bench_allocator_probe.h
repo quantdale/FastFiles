@@ -194,11 +194,11 @@ _Ret_notnull_ _Post_writable_byte_size_(size) void* operator new(std::size_t siz
 _Ret_notnull_ _Post_writable_byte_size_(size) void* operator new[](std::size_t size) {
     return ffbench::detail::AllocateChecked(size, ffbench::kDefaultNewAlignment);
 }
-_Ret_maybenull_ _Success_(return != nullptr) _Post_writable_byte_size_(size)
+_Ret_maybenull_ _Success_(return != NULL) _Post_writable_byte_size_(size)
 void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
     return ffbench::detail::AllocateNoThrow(size, ffbench::kDefaultNewAlignment);
 }
-_Ret_maybenull_ _Success_(return != nullptr) _Post_writable_byte_size_(size)
+_Ret_maybenull_ _Success_(return != NULL) _Post_writable_byte_size_(size)
 void* operator new[](std::size_t size, const std::nothrow_t&) noexcept {
     return ffbench::detail::AllocateNoThrow(size, ffbench::kDefaultNewAlignment);
 }
@@ -210,11 +210,11 @@ _Ret_notnull_ _Post_writable_byte_size_(size) void* operator new[](std::size_t s
                                                                    std::align_val_t alignment) {
     return ffbench::detail::AllocateChecked(size, static_cast<std::size_t>(alignment));
 }
-_Ret_maybenull_ _Success_(return != nullptr) _Post_writable_byte_size_(size)
+_Ret_maybenull_ _Success_(return != NULL) _Post_writable_byte_size_(size)
 void* operator new(std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept {
     return ffbench::detail::AllocateNoThrow(size, static_cast<std::size_t>(alignment));
 }
-_Ret_maybenull_ _Success_(return != nullptr) _Post_writable_byte_size_(size)
+_Ret_maybenull_ _Success_(return != NULL) _Post_writable_byte_size_(size)
 void* operator new[](std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept {
     return ffbench::detail::AllocateNoThrow(size, static_cast<std::size_t>(alignment));
 }
