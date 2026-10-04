@@ -98,9 +98,11 @@ public:
     // test, or any production representation change.
     //
     // Measurement contract:
-    //  * Every byte field is derived from a live capacity()/size()/
-    //    bucket_count()/element-count measurement of the owning container.
-    //    Nothing here is inferred from sizeof(object) alone.
+    //  * Every byte field is a live capacity()/size()/bucket_count()/
+    //    element-count measurement of the owning container, except the two
+    //    explicitly labelled `*ApproxNodeBytes` node-header terms, which are
+    //    element counts * sizeof(...) mirroring EstimatedMemoryBytes()'s
+    //    convention. Nothing here is derived from sizeof(object) alone.
     //  * `modeledCategoryBytes` sums exactly the categories
     //    EstimatedMemoryBytes() models; a unit test asserts the two stay
     //    equal so the estimator and this breakdown cannot silently drift.

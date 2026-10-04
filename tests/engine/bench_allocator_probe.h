@@ -16,8 +16,10 @@
 //     outside this counter; they show up in the process-private reconciliation
 //     instead of being invented here.
 //   * A 32-byte header stores the base pointer and the requested/usable sizes.
-//     That header, the heap block header, and any heap rounding stay residual
-//     overhead; they are never attributed to a projection category.
+//     `usable` is the caller-usable size (the probe header excluded on both
+//     allocation paths), so `usable - requested` is pure heap rounding; the
+//     probe header itself and the heap block header stay residual overhead and
+//     are never attributed to a projection category.
 //   * Overriding the replaceable global operators makes this an instrumented
 //     executable: its numbers are allocation evidence, not wall-clock
 //     evidence.
@@ -143,7 +145,8 @@ inline void* AllocateTracked(const std::size_t size, const std::size_t alignment
         auto* header = static_cast<AllocationHeader*>(base);
         header->baseForFree = base;
         header->requestedBytes = requested;
-        header->usableBytes = _msize(base);
+        // Caller-usable bytes: _msize includes this probe's own header.
+        header->usableBytes = _msize(base) - sizeof(AllocationHeader);
         RecordAllocation(requested, header->usableBytes);
         return static_cast<void*>(header + 1);
     }

@@ -1612,13 +1612,17 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                             if (entry->parentFrn != entry->frn) {
                                 ++namePoolLookups;
                                 const std::u16string_view name = projection_.Names().Get(entry->nameId);
-                                row.nameOffset = nameBuffer.size();
-                                row.nameLength = name.size();
-                                nameBuffer.append(name.data(), name.size());
                                 if (name.empty()) {
+                                    // Checked before the append: an empty
+                                    // interned name may carry a null data()
+                                    // pointer, and appending it is formally
+                                    // undefined even for a zero count.
                                     if (detailedDiagnostics) ++emptyNamesRejected;
                                     continue;
                                 }
+                                row.nameOffset = nameBuffer.size();
+                                row.nameLength = name.size();
+                                nameBuffer.append(name.data(), name.size());
                             } else {
                                 row.nameOffset = nameBuffer.size();
                                 row.nameLength = 0;

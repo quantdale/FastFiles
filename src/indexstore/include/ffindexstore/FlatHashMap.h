@@ -284,7 +284,20 @@ public:
     // per-array capacity detail for the memory decomposition; the byte values
     // are capacity() measurements and sum to MemoryUsageBytes().
     size_t ElementCount() const noexcept { return count_; }
+    // Length of the flat child-index array. This can exceed the number of live
+    // links after removals: a vacated element is swapped to its slice tail and
+    // a relocated slice leaves the old copy behind, so only the per-key counts
+    // are authoritative for liveness.
     size_t ChildLinkCount() const noexcept { return values_.size(); }
+    // Sum of the live per-key child counts (O(buckets); diagnostics and the
+    // bulk-rebuild slack decision only).
+    size_t LiveChildLinkCount() const noexcept {
+        size_t result = 0;
+        for (size_t index = 0; index < states_.size(); ++index) {
+            if (states_[index] == 1) result += counts_[index];
+        }
+        return result;
+    }
     size_t KeyCapacityBytes() const noexcept { return keys_.capacity() * sizeof(EntryKey); }
     size_t ChildCapacityBytes() const noexcept { return values_.capacity() * sizeof(uint32_t); }
     size_t StateCapacityBytes() const noexcept { return states_.capacity(); }

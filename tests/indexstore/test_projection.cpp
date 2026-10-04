@@ -758,6 +758,11 @@ void TestDenseLruTimestampsTrackAccessOrder() {
     // Row 101 was never touched, so it must be the eviction victim while the
     // recently touched rows survive.
     proj.SetMaximumMemoryBytes(proj.EstimatedMemoryBytes() - 1);
+    const auto afterEviction = proj.GetMemoryBreakdown();
+    Check(afterEviction.evictedVolumeCount >= 1,
+          "the eviction records the cold-volume marker");
+    Check(afterEviction.evictedVolumeBucketBytes >= sizeof(void*),
+          "the cold-volume marker set reports its bucket array");
     Check(proj.Find(1, FileId{101, 0}) == nullptr,
           "the untouched row is the least-recently-used eviction victim");
     Check(proj.Find(1, FileId{102, 0}) != nullptr,
@@ -804,14 +809,24 @@ void TestRebuildReleasesBulkCapacitySlack() {
 
     // MSVC's shrink_to_fit reallocates exactly, so a rebuilt projection holds
     // no invisible growth slack in these bulk-grown containers.
-    Check(breakdown.nameArenaCapacityChars == breakdown.nameArenaChars,
-          "name arena capacity equals its used chars after a bulk rebuild");
-    Check(breakdown.nameTableBytes == breakdown.nameTableSlotCount * sizeof(uint32_t) * 2,
-          "name offset table capacity equals its used slots after a bulk rebuild");
-    Check(breakdown.filenameIndexPostingSlots == breakdown.filenameIndexPostingPayload,
-          "trigram posting capacity equals its payload after a bulk rebuild");
-    Check(breakdown.childMapChildBytes == breakdown.childMapChildLinks * sizeof(uint32_t),
-          "flat child-index capacity equals its used links after a bulk rebuild");
+    // shrink_to_fit is non-binding in the standard, so these are collapse
+    // bounds: they prove the release without pinning one STL's exact
+    // reallocation behavior (the pre-shrink slack was tens of percent).
+    Check(breakdown.nameArenaCapacityChars
+              <= breakdown.nameArenaChars + breakdown.nameArenaChars / 8 + 16,
+          "name arena capacity collapses to its used chars after a bulk rebuild");
+    Check(breakdown.nameTableBytes
+              <= (breakdown.nameTableSlotCount + breakdown.nameTableSlotCount / 8 + 16)
+                  * sizeof(uint32_t) * 2,
+          "name offset table capacity collapses to its used slots after a bulk rebuild");
+    Check(breakdown.filenameIndexPostingSlots
+              <= breakdown.filenameIndexPostingPayload + breakdown.filenameIndexPostingPayload / 8 + 16,
+          "trigram posting capacity collapses to its payload after a bulk rebuild");
+    Check(breakdown.childMapChildLinks == changes.size() - 1
+              && breakdown.childMapChildBytes
+                  <= (breakdown.childMapChildLinks + breakdown.childMapChildLinks / 8 + 16)
+                      * sizeof(uint32_t),
+          "flat child-index capacity collapses to its live links after a bulk rebuild");
 
     // Content must survive the shrink: names, parent/child links, lookups.
     const auto* root = proj.Find(volume, FileId{5, 0});
@@ -829,6 +844,54 @@ void TestRebuildReleasesBulkCapacitySlack() {
           "the identifier map keeps its designed <=75% occupancy sizing");
     Check(breakdown.modeledCategoryBytes == proj.EstimatedMemoryBytes(),
           "the shrink keeps the breakdown and estimator in agreement");
+
+    std::error_code ignored;
+    std::filesystem::remove(dbPath, ignored);
+    std::filesystem::remove(dbPath.string() + "-wal", ignored);
+    std::filesystem::remove(dbPath.string() + "-shm", ignored);
+}
+
+// performance-closure-and-multisurface-acceleration 8.3: a bulk rebuild calls
+// CompactEntriesForIterationOrder(), which permutes dense entry slots into the
+// id->index probe order. The dense LRU timestamps must be permuted with the
+// same mapping, or the eviction policy becomes a hash-order choice.
+void TestLruTimestampsSurviveIterationOrderCompaction() {
+    Store store;
+    const auto dbPath = std::filesystem::temp_directory_path() /
+        ("ffindexstore_projection_lru_compact_" + std::to_string(GetCurrentProcessId()) + ".db");
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+    Check(store.Open(dbPath.string()), "LRU compaction fixture store opens");
+    VolumeKey key;
+    key.serialNumber = 917319;
+    const auto volume = *store.GetOrCreateVolume(key);
+    std::vector<EntryChange> changes;
+    changes.push_back({EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)});
+    constexpr uint64_t kRows = 32;
+    for (uint64_t index = 0; index < kRows; ++index) {
+        std::u16string name = u"row_";
+        for (const char digit : std::to_string(index)) {
+            name.push_back(static_cast<char16_t>(digit));
+        }
+        changes.push_back({EntryChangeKind::Upsert,
+                           MakeEntry(1000 + index * 7919, 5, std::move(name))});
+    }
+    Check(store.ApplyBatch(volume, changes), "LRU compaction fixture rows are durable");
+
+    Projection proj;
+    Check(proj.RebuildVolumeFromStore(store, volume, changes.size()),
+          "bulk rebuild permutes dense slots into probe order");
+    // The rows were streamed in insertion order, so the first row carries the
+    // oldest access stamp; refresh the last row so it is unambiguously newest.
+    Check(proj.Find(volume, FileId{1000 + (kRows - 1) * 7919, 0}) != nullptr,
+          "the last fixture row is present and touched");
+
+    proj.SetMaximumMemoryBytes(proj.EstimatedMemoryBytes() - 1);
+    Check(proj.Find(volume, FileId{1000, 0}) == nullptr,
+          "the oldest streamed row is the eviction victim after slot permutation");
+    Check(proj.Find(volume, FileId{1000 + (kRows - 1) * 7919, 0}) != nullptr,
+          "the most recently touched row survives after slot permutation");
 
     std::error_code ignored;
     std::filesystem::remove(dbPath, ignored);
@@ -864,6 +927,7 @@ int main() {
     TestNamePoolViewInvalidatesOnCompactStorage();
     TestProjectionMemoryBreakdownMatchesEstimatorAndCategories();
     TestDenseLruTimestampsTrackAccessOrder();
+    TestLruTimestampsSurviveIterationOrderCompaction();
     TestRebuildReleasesBulkCapacitySlack();
 
     if (fftest::FailureCount() > 0) {

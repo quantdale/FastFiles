@@ -136,7 +136,7 @@ Projection::MemoryBreakdown Projection::GetMemoryBreakdown() const noexcept {
     // array (no per-key heap vector).
     result.childMapElements = parentToChildren_.ElementCount();
     result.childMapBuckets = parentToChildren_.size();
-    result.childMapChildLinks = parentToChildren_.ChildLinkCount();
+    result.childMapChildLinks = parentToChildren_.LiveChildLinkCount();
     result.childMapKeyBytes = parentToChildren_.KeyCapacityBytes();
     result.childMapChildBytes = parentToChildren_.ChildCapacityBytes();
     result.childMapStateBytes = parentToChildren_.StateCapacityBytes();
@@ -459,15 +459,24 @@ void Projection::CompactEntriesForIterationOrder() {
     std::vector<uint32_t> remap(entries_.size());
     std::vector<ProjectionEntry> reordered;
     reordered.reserve(entries_.size());
+    // performance-closure-and-multisurface-acceleration 8.3: the dense LRU
+    // timestamps live per entry slot, so they must be permuted with the rows.
+    // Leaving them in the old slot order would make the eviction policy read
+    // another row's access time after this compaction.
+    std::vector<uint64_t> reorderedAccessTimes;
+    reorderedAccessTimes.reserve(entries_.size());
     idToIndex_.ForEach([&](const EntryKey&, const uint32_t oldIndex) {
         remap[oldIndex] = static_cast<uint32_t>(reordered.size());
         reordered.push_back(entries_[oldIndex]);
+        reorderedAccessTimes.push_back(oldIndex < lastAccessTimes_.size()
+            ? lastAccessTimes_[oldIndex] : 0);
     });
     if (reordered.size() != entries_.size()) return;
 
     idToIndex_.RemapValues([&](const uint32_t oldIndex) { return remap[oldIndex]; });
     parentToChildren_.RemapValues([&](const uint32_t oldIndex) { return remap[oldIndex]; });
     entries_ = std::move(reordered);
+    lastAccessTimes_ = std::move(reorderedAccessTimes);
     denseIterationOrderValid_ = true;
 }
 
@@ -975,7 +984,7 @@ void Projection::ShrinkBulkRebuildCapacity() {
     constexpr size_t kMaterialSlackBytes = 256 * 1024;
     size_t slackBytes = namePool_.GrowthSlackBytes();
     slackBytes += parentToChildren_.ChildCapacityBytes()
-        - parentToChildren_.ChildLinkCount() * sizeof(uint32_t);
+        - parentToChildren_.LiveChildLinkCount() * sizeof(uint32_t);
     slackBytes += filenameNonAsciiEntries_.capacity() * sizeof(uint32_t)
         - filenameNonAsciiEntries_.size() * sizeof(uint32_t);
     for (const auto& [trigram, posting] : filenameTrigramPostings_) {
