@@ -34,7 +34,7 @@ outside this checked commit, per the reordered 11.6 rule.
 
 ## B. Certification debt (current counts, this candidate)
 
-Fresh full ladder at `f0eb28a` (all counts are the actual registered totals;
+Fresh full ladder at `ae1d03f` (all counts are the actual registered totals;
 the predecessor-era 124/124 is historical evidence for `8c8aa0b`, not the
 current suite):
 
@@ -51,7 +51,7 @@ current suite):
 | E2E (`dev.ps1 test-e2e`) | 8 passed / 0 failed / 0 skipped, `boundToHead=true` |
 | UIA core | 16 passed / 0 skipped / 0 failed |
 | UIA full | 23 passed / 6 skipped / 0 failed (one prior attempt died with the environmental `capability-worker-exited-without-result`; the retry passed) |
-| visual catalog (`-Gallery`) | 20 recorded / 20 passed / 0 failed (one prior attempt aborted on "settings dialog did not appear"; root cause fixed in the harness — `Set-CatalogTheme` used a single 2.5 s probe and now uses a bounded 10 s readiness wait in 1 s polls, so the dialog is still required but the transient short-wait race is removed) |
+| visual catalog (`-Gallery`) | 20 recorded / 20 passed / 0 failed (one prior attempt aborted on "settings dialog did not appear". The harness change is a **bounded mitigation**, not a proven root-cause fix: `Set-CatalogTheme` used a single 2.5 s dialog probe and now uses a bounded 10 s readiness wait in 1 s polls, so a delayed dialog is tolerated up to the documented bound; isolated controls verify delayed-dialog recovery and bounded failure, but the historical abort's precise cause was not captured) |
 | focused many-tabs | 1/1 passed (one prior attempt hit the same environmental worker death; the retry passed) |
 
 Predecessor closure evidence (task 2.7): release-test 124/124 with
@@ -178,16 +178,20 @@ improvement.
   `f3668f51f36a9245725cce5aaebbeed6e46738d9e458abceeb4be54002ec49ca`
   (`build/_apply26/gates3/r1fix_self_application.json`); `63ddc21` was the
   pre-repair implementation SHA with digest `244d9c4d430059db...`.
-- `certified_binary_sha`: `f0eb28aac24ae44ae0c79edae62d5c792dae5861`
+- `certified_binary_sha`: `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a`
   (verified as the embedded `FastFilesEngine.exe` PrivateBuild in all five
   rebuilt presets; identity binding/freshness pass inside the parity CTest
   legs).
 - `evidence_sha` / `repository_tip_sha`: the final tracked tip after the
   report commit.
-- `executable_impacting_digest` / verdict: recorded by the 11.6 equivalence
-  gate run from `63ddc21acf089ad92ddb5783882a74a595a2513c` to the final tracked
-  tip (PASS, digest 244d9c4d430059db..., 389 paths), with the live verdict in
-  the PR body outside the checked commit.
+- `executable_impacting_digest` / verdict: the current run is from
+  `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a` to the tracked tip
+  `0d247ed51d343db6faf0114a997b239b759fcb9b` — **PASS**, digest
+  `c9c660e85d7c744b90146c53424ee22c9876e5cdfc96a71cddf3e571871df021`,
+  389 paths (309 TUs, 33 build inputs). Any later tracked commit requires
+  another run; the live final tip/verdict stays in the PR body and the
+  generated artifact outside the checked commit. Historical: the
+  `63ddc21`-based run used digest `244d9c4d430059db...`.
 
 ## L. Hosted CI
 
@@ -198,7 +202,9 @@ labelled `LOCAL-PARITY-NOT-HOSTED-CI`.
 
 ## Review repair (completion review at `20abb4c`, BLOCK)
 
-The review's four findings were all addressed in `f0eb28a` (and this report):
+The first completion review's four findings were addressed in `f0eb28a` and its
+successors (`ae1d03f` carries the final executable state); the second repair
+review's findings are addressed in `ae1d03f` and this report:
 
 - **R1 (P1)**: the top-N admission judged a volume-root row by its empty
   pre-materialization view name while the owning candidate uses the
