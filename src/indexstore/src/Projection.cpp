@@ -93,8 +93,7 @@ size_t Projection::EstimatedMemoryBytes() const noexcept {
         + parentToChildren_.MemoryUsageBytes()
         + namePool_.MemoryUsageBytes()
         + filenameNonAsciiEntries_.capacity() * sizeof(uint32_t)
-        + lastAccess_.bucket_count() * sizeof(void*)
-        + lastAccess_.size() * (sizeof(EntryKey) + sizeof(uint64_t));
+        + lastAccessTimes_.capacity() * sizeof(uint64_t);
     for (const auto& [trigram, posting] : filenameTrigramPostings_) {
         (void)trigram;
         result += sizeof(uint64_t) + sizeof(std::vector<uint32_t>)
@@ -192,12 +191,14 @@ Projection::MemoryBreakdown Projection::GetMemoryBreakdown() const noexcept {
         + result.filenameIndexBucketBytes
         + result.filenameIndexNonAsciiBytes;
 
-    // LRU eviction metadata (EntryKey -> access timestamp).
-    result.lruBucketCount = lastAccess_.bucket_count();
-    result.lruBucketBytes = lastAccess_.bucket_count() * sizeof(void*);
-    result.lruNodeCount = lastAccess_.size();
-    result.lruApproxNodeBytes = lastAccess_.size() * (sizeof(EntryKey) + sizeof(uint64_t));
-    result.lruBytes = result.lruBucketBytes + result.lruApproxNodeBytes;
+    // LRU eviction metadata: one dense uint64 timestamp per entry slot.
+    result.lruSlotCapacity = lastAccessTimes_.capacity();
+    result.lruSlotCount = lastAccessTimes_.size();
+    result.lruTrackedCount = 0;
+    for (const uint64_t timestamp : lastAccessTimes_) {
+        if (timestamp != 0) ++result.lruTrackedCount;
+    }
+    result.lruBytes = result.lruSlotCapacity * sizeof(uint64_t);
 
     // Cold-volume markers. EstimatedMemoryBytes() does not model this set, so
     // only its bucket array is added to the additive reported total; the
@@ -241,22 +242,18 @@ Projection::MemoryDiagnostics Projection::GetMemoryDiagnostics() const {
     return diagnostics;
 }
 
-void Projection::Touch(const EntryKey& key) const noexcept {
-    try {
-        if (accessClock_ == std::numeric_limits<uint64_t>::max()) {
-            accessClock_ = 1;
-            for (auto& [entryKey, timestamp] : lastAccess_) {
-                (void)entryKey;
-                timestamp = 0;
-            }
-        } else {
-            ++accessClock_;
-        }
-        lastAccess_[key] = accessClock_;
-    } catch (...) {
-        // LRU metadata is an optimization and must never make projection
-        // lookup or ingestion fail under memory pressure.
+void Projection::TouchIndex(const uint32_t index) const noexcept {
+    // Dense timestamps cannot allocate, so this cannot fail and needs no
+    // failure path; a slot beyond the current vector is simply not tracked
+    // (it is initialized when the slot is created).
+    if (index >= lastAccessTimes_.size()) return;
+    if (accessClock_ == std::numeric_limits<uint64_t>::max()) {
+        accessClock_ = 1;
+        std::fill(lastAccessTimes_.begin(), lastAccessTimes_.end(), 0);
+    } else {
+        ++accessClock_;
     }
+    lastAccessTimes_[index] = accessClock_;
 }
 
 std::optional<EntryKey> Projection::LeastRecentlyUsedEntry() const {
@@ -268,8 +265,8 @@ std::optional<EntryKey> Projection::LeastRecentlyUsedEntry() const {
     uint64_t rootTimestamp = std::numeric_limits<uint64_t>::max();
     idToIndex_.ForEach([&](const EntryKey& key, const uint32_t index) {
         const ProjectionEntry& entry = entries_[index];
-        const auto accessIt = lastAccess_.find(key);
-        const uint64_t timestamp = accessIt == lastAccess_.end() ? 0 : accessIt->second;
+        const uint64_t timestamp = index < lastAccessTimes_.size()
+            ? lastAccessTimes_[index] : 0;
         if (entry.parentFrn == entry.frn) {
             if (!rootFallback || timestamp < rootTimestamp) {
                 rootFallback = key;
@@ -352,6 +349,8 @@ void Projection::CompactStorage() {
     InvalidateFilenameIndex();
     std::vector<ProjectionEntry> compacted;
     compacted.reserve(idToIndex_.size());
+    std::vector<uint64_t> compactedAccessTimes;
+    compactedAccessTimes.reserve(idToIndex_.size());
     FlatHashMap<EntryKey, uint32_t, EntryKeyHash> compactedIds;
     compactedIds.reserve(idToIndex_.size());
     FlatChildrenMap compactedChildren;
@@ -362,6 +361,8 @@ void Projection::CompactStorage() {
         entry.nameId = compactedNames.Intern(namePool_.Get(entry.nameId));
         const uint32_t newIndex = static_cast<uint32_t>(compacted.size());
         compacted.push_back(entry);
+        compactedAccessTimes.push_back(oldIndex < lastAccessTimes_.size()
+            ? lastAccessTimes_[oldIndex] : 0);
         compactedIds.insert(key, newIndex);
         if (entry.parentFrn != entry.frn) {
             compactedChildren.insert(EntryKey{entry.volumeRowId, entry.parentFrn}, newIndex);
@@ -369,6 +370,7 @@ void Projection::CompactStorage() {
     });
 
     entries_ = std::move(compacted);
+    lastAccessTimes_ = std::move(compactedAccessTimes);
     freeList_.clear();
     idToIndex_ = std::move(compactedIds);
     parentToChildren_ = std::move(compactedChildren);
@@ -575,7 +577,7 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
         entry.attributes = record.attributes;
         entry.nameAsciiLower = IsAsciiLower(record.name);
         entry.nameIsAscii = IsAscii(record.name);
-        Touch(key);
+        TouchIndex(index);
         AddFilenameIndexEntry(index);
         return;
     }
@@ -607,11 +609,15 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
         entries_.push_back(entry);
     }
 
+    if (index >= lastAccessTimes_.size()) {
+        lastAccessTimes_.resize(static_cast<size_t>(index) + 1, 0);
+    }
+    lastAccessTimes_[index] = 0;
     idToIndex_.insert(key, index);
     if (record.parentId != record.id) {
         parentToChildren_.insert(EntryKey{volumeRowId, record.parentId}, index);
     }
-    Touch(key);
+    TouchIndex(index);
     AddFilenameIndexEntry(index);
 }
 
@@ -692,7 +698,7 @@ void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     RemoveFilenameIndexEntry(index, namePool_.Get(entries_[index].nameId));
     RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
     idToIndex_.erase(key);
-    lastAccess_.erase(key);
+    if (index < lastAccessTimes_.size()) lastAccessTimes_[index] = 0;
     freeList_.push_back(index);
     // entries_[index] itself is left in place (tombstoned) -- nothing
     // reachable via idToIndex_/parentToChildren_ points at it anymore, and
@@ -717,7 +723,7 @@ void Projection::RemoveVolume(VolumeRowId volumeRowId) {
 const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) const {
     const EntryKey key{volumeRowId, frn};
     const uint32_t* pIndex = idToIndex_.find(key);
-    if (pIndex != nullptr) Touch(key);
+    if (pIndex != nullptr) TouchIndex(*pIndex);
     return pIndex ? &entries_[*pIndex] : nullptr;
 }
 
@@ -810,7 +816,8 @@ std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
 
 std::span<const uint32_t> Projection::ChildIndices(VolumeRowId volumeRowId, FileId parentFrn) const {
     const EntryKey key{volumeRowId, parentFrn};
-    if (idToIndex_.find(key) != nullptr) Touch(key);
+    const uint32_t* index = idToIndex_.find(key);
+    if (index != nullptr) TouchIndex(*index);
     return parentToChildren_.find(key);
 }
 

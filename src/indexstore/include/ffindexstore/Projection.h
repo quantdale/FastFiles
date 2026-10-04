@@ -168,11 +168,10 @@ public:
         size_t filenameIndexNonAsciiBytes = 0;
         size_t filenameIndexBytes = 0;
         // ---- LRU / eviction metadata -------------------------------------
-        size_t lruBucketCount = 0;
-        size_t lruBucketBytes = 0;
-        size_t lruNodeCount = 0;
-        size_t lruApproxNodeBytes = 0;          // EntryKey + timestamp per node
-        size_t lruBytes = 0;
+        size_t lruSlotCapacity = 0;             // dense per-slot timestamp vector
+        size_t lruSlotCount = 0;
+        size_t lruTrackedCount = 0;             // slots carrying a nonzero timestamp
+        size_t lruBytes = 0;                    // lruSlotCapacity * sizeof(uint64_t)
         // ---- structures the estimator does not model ---------------------
         size_t evictedVolumeCount = 0;
         size_t evictedVolumeBucketCount = 0;
@@ -380,7 +379,7 @@ private:
     std::optional<EntryKey> LeastRecentlyUsedEntry() const;
     void EvictSubtree(const EntryKey& rootKey);
     void CompactStorage();
-    void Touch(const EntryKey& key) const noexcept;
+    void TouchIndex(uint32_t index) const noexcept;
     void CompactEntriesForIterationOrder();
     void RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index);
     void RebuildFilenameIndex();
@@ -403,7 +402,15 @@ private:
     bool filenameIndexBuilding_ = false;
     size_t maximumMemoryBytes_ = kDefaultMaximumMemoryBytes;
     mutable uint64_t accessClock_ = 0;
-    mutable std::unordered_map<EntryKey, uint64_t, EntryKeyHash> lastAccess_;
+    // performance-closure-and-multisurface-acceleration 8.3: one access
+    // timestamp per dense entry slot instead of one hash-map node per entry.
+    // The key -> slot map (idToIndex_) already exists, so the previous
+    // std::unordered_map<EntryKey, uint64_t> was a second hashed container
+    // costing about 40 bytes per entry (bucket array + node key + node link);
+    // this costs 8 bytes per dense slot. Slot reuse, Remove, and
+    // CompactStorage reset or remap the timestamps exactly as they did for the
+    // removed map nodes, and LeastRecentlyUsedEntry reads them by slot.
+    mutable std::vector<uint64_t> lastAccessTimes_;
     std::unordered_set<VolumeRowId> evictedVolumes_;
     bool enforcingMemoryLimit_ = true;
     // memory-bounded-indexed-scale 3.1: monotonic policy observability.
