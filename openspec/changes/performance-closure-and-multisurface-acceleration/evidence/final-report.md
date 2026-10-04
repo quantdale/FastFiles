@@ -9,16 +9,19 @@ outside this checked commit, per the reordered 11.6 rule.
 - Branch: `feat/performance-closure-and-multisurface-acceleration-20261001`.
 - Start: `origin/main` `bdd7d7b5fb91586df957ce43b348c7fb95cbeae3` (unchanged
   through the campaign; the branch was created from it).
-- `IMPLEMENTATION_SHA`: `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a` (the
-  second-review reconciliation commit: the full eight-case capped-root
-  regression matrix plus the harness bounded-wait fix). History: `f0eb28a`
-  was the R1 repair, `d50c474` the first review-fix commit, `63ddc21` the
-  bench-annotation/gate-prefix commit; the 11.6 gate ran from `d50c474` and
-  correctly FAILED naming the bench translation unit.
-- `certified_binary_sha` (embedded identity, verified in every rebuilt
-  preset): `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a`
-  (`FastFilesEngine.exe` PrivateBuild in Debug, release-test, Analyze, ASan,
-  and debug-diagnostic).
+- `IMPLEMENTATION_SHA`: the finalization's last executable-impacting commit
+  `fc8d873b25417ad5986d9853c3a4ac2298a1350b` (independent-review fixes on top
+  of the decomposition seam, the bulk-rebuild slack release, the dense LRU
+  representation, and the benchmark provenance work; the last executable
+  change). Later tracked commits in this finalization are documentation,
+  evidence, and the tracked reproduction runner only. History: `ae1d03f0` was
+  the pre-finalization certified implementation, `43c044f` the decomposition
+  seam + slack release, `53c1a8d` the dense LRU, `3651dfb` the probe SAL fix.
+- `certified_binary_sha` (embedded identity of the rebuilt outputs): the
+  executable tree of `fc8d873` (equivalence-gated to the final tracked tip);
+  the identity-bearing binaries are rebuilt at the certification tip and the
+  live tip/verdict are recorded in the generated equivalence artifact and the
+  PR body, not in this tracked file.
 - Certified binary identity: every preset was rebuilt at the final tip
   before the ladder; identity binding/freshness tests pass inside the
   parity CTest legs.
@@ -136,16 +139,33 @@ case/non-ASCII/dotted corpora; unbounded never admits) — that test exposed
 both the empty-primaryTerm classifier divergence and the incomplete
 comparator fix.
 
-## H. Projection memory — REJECTED (recorded tradeoff)
+## H. Projection memory — DECOMPOSED AND PARTIALLY RETAINED
 
-1M-row remeasure: resident projection **520.5 bytes/row measured** (private
-delta), estimator 404.4 B/row, `sizeof(ProjectionEntry)` 104 bytes as the
-row floor, residual +116.1 MB (~22%) recorded as unseparated un-estimated
-node/heap overhead (not asserted fragmentation). 8.2 found no accidental
-duplication; the only large removable structure is the filename accelerator
-the suite proves is used, and the spec rejects trading search latency for
-bytes. No memory change retained; the pooled change additionally removed the
-transient per-entry owning copies.
+The finalization completed task 8.1 with allocation-instrumented,
+capacity-based decomposition at 200k and 1M rows
+(`evidence/projection-memory-decomposition-final.md` +
+`evidence/projection-memory/projection-memory-{200k,1m}.json`, produced by
+the tracked `run-decomposition.ps1` runner on a clean `release-test` tree).
+The reports separate process private, working set, shareable pages, live
+requested/caller-usable bytes, allocation counts, and the estimator sum; every
+required contributor is a live capacity measurement; normalized-name and
+stored-path storage are explicit structural zeros; the residual names its
+boundary (probe header, stdlib node links, heap block headers/retention,
+SQLite's C plane, page tables) instead of attributing it to fragmentation.
+
+Task 8.3 retained two measured corrections found by that decomposition: the
+bulk-rebuild capacity-slack release (name arena/table, flat child array,
+trigram postings) and dense per-slot LRU timestamps replacing a per-entry
+`unordered_map` node. At 1,000,000 rows, together they remove 90,196,706 bytes
+(-86.02 MiB, -20.5%) of still-owned live bytes and 136,036,352 bytes
+(-129.73 MiB, -21.5%) of process private bytes, with repeated-rebuild time
+unchanged and content preserved; the spec's 10% strong target is cleared. The
+identifier-map capacity (forced by the <=75% occupancy growth bound), the
+filename accelerator (spec-protected, proven used), and the remaining stdlib
+node links are rejected/deferred with those measured reasons. History: the
+earlier 520.5 B/row / 404.4 B/row / +116.1 MB record in
+`evidence/projection-memory-decomposition.md` is preserved and is superseded
+only as the pre-instrumentation measurement.
 
 ## I. User-visible effect
 
@@ -230,11 +250,10 @@ is withdrawn.
 
 ## M. Remaining work
 
-- **Internal (mandatory local acceptance): task 8.1** — the scoped
-  per-category/capacity and allocation-instrumented (or repeat-rebuild)
-  projection-memory decomposition reopened by the completion review. Until it
-  is produced, the 8.3 rejection is scoped to the measured evidence and
-  `MERGE_ELIGIBLE` stays NO.
+- **Internal acceptance**: none open. Task 8.1 is complete and task 8.3 is
+  decided with measured retain/reject evidence (section H); the remaining
+  work is the final-tip certification ladder, the equivalence gate, and the
+  independent review of the resulting delta.
 - External only: hosted CI execution (billing/infrastructure), production
   signing/pins, clean-host install, elevated MFT/USN, the raw-volume
   completion bound (predecessor 5.4 / residual 2.3 stay unchecked), the

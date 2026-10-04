@@ -1,5 +1,13 @@
 # Phase H — projection memory: remeasure and duplication classification
 
+> **Successor record:** the finalization completed this decomposition at the
+> post-review candidate in `projection-memory-decomposition-final.md` with the
+> machine-readable reports under `evidence/projection-memory/`. The numbers in
+> this file are preserved unchanged as the earlier, estimator-calibrated and
+> pre-instrumentation measurement; only its "not produced / task 8.1 remains
+> open" statements are superseded.
+
+
 Candidate: release-test binaries embedded at `0936b1e` (built on the clean
 tree; no production source changed in this campaign). Measurement host was
 user-saturated (load 86-91) at run time — byte-level working-set/private
