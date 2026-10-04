@@ -1669,8 +1669,17 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         // primary key can be admitted out before any
                         // materialization, and Add need not re-evaluate the
                         // query predicates on the owned candidate.
+                        //
+                        // completion-review R1: a volume-root row's view name is
+                        // EMPTY while its materialized candidate uses the display
+                        // name `prefix + "\\"` (e.g. "Z:\\"). The admission
+                        // compares view names, so it must never judge a root row --
+                        // a descending filename search otherwise discards the root
+                        // that correctly wins. Root rows also take the full Add
+                        // path so no view-based skip applies to them at all.
                         const bool fullViewEvaluation = !folderNeededForView;
-                        if (fullViewEvaluation && !accumulator.AdmitView(view)) {
+                        const bool isVolumeRoot = (row.parentFrn == row.frn);
+                        if (fullViewEvaluation && !isVolumeRoot && !accumulator.AdmitView(view)) {
                             ++hotRowsRejectedBeforeMaterialization;
                             continue;
                         }
@@ -1679,7 +1688,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         ffsearch::Candidate candidate =
                             MakeProjectionCandidateFromLightweight(row, name, prefix);
                         ++candidateNameCopies;
-                        const bool continueSearch = fullViewEvaluation
+                        const bool continueSearch = (fullViewEvaluation && !isVolumeRoot)
                             ? accumulator.AddViewMatched(std::move(candidate), materialize)
                             : accumulator.Add(std::move(candidate), materialize);
                         if (!continueSearch) break;

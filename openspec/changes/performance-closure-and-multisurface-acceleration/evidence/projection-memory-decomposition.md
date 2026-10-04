@@ -131,7 +131,15 @@ are private and are covered by the estimator's own category sums, and the
 residual names the untracked allocator cost. No per-category number is
 invented from `sizeof` alone.
 
-## Task 8.3 decision — REJECT further memory changes (recorded tradeoff)
+## Task 8.3 decision — REJECT further memory changes on the measured evidence (recorded tradeoff)
+
+SCOPE (completion review R2): this rejection rests on the measured
+working-set totals, the estimator calibration, and the source-traced
+duplication classification -- NOT on a completed per-category
+decomposition. The per-category/allocation-instrumented and
+repeat-rebuild pass scoped above was not produced, so task 8.1 remains
+open and this is a scoped rejection of the candidates examined, not an
+exhaustive proof that no memory candidate exists.
 
 No memory representation change is retained, for three measured reasons:
 

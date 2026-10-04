@@ -52,7 +52,7 @@
 
 ## 8. Projection memory
 
-- [x] 8.1 Remeasure projection memory on the current candidate. Decompose rows, names, normalized names, arena overhead, vector capacity, maps, secondary indexes, identifiers, path structures, allocation overhead, and padding using working-set or allocation evidence, not `sizeof` alone.
+- [ ] 8.1 Remeasure projection memory on the current candidate. Decompose rows, names, normalized names, arena overhead, vector capacity, maps, secondary indexes, identifiers, path structures, allocation overhead, and padding using working-set or allocation evidence, not `sizeof` alone. (PARTIAL, reopened by completion review R2: the working-set totals at 200k and 1M, the estimator calibration, the 104-byte row floor, and the +116MB unseparated residual are measured and recorded in `evidence/projection-memory-decomposition.md`, but the planned per-category/allocation-instrumented and repeat-rebuild pass was NOT produced, so the decomposition is not complete. The 8.3 rejection below is scoped to the measured evidence: no accidental duplication, and the only large removable structure is the filename accelerator the suite proves is used.)
 - [x] 8.2 Classify duplication across SQLite, the projection, `NamePool`, the filename index, the snapshot export, the UI generation, and search results as intentional, transient, or accidental.
 - [x] 8.3 Retain a memory change only when it saves a material fraction at realistic scale, preferably at least 10%, without materially worsening search, navigation, indexing, startup, or reconciliation. Removing a useful index that makes search materially slower is not by itself a win. Otherwise reject and record the tradeoff.
 

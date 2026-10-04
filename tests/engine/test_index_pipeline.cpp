@@ -1417,6 +1417,95 @@ void TestForcedEvictionSearchEquivalence() {
 
 // memory-bounded-indexed-scale 3.3: repeated alternating searches over an
 // evicted index must neither grow the projection nor reload/evict thrash.
+// completion-review R1: a volume-root row's pre-materialization view name is
+// empty while its owning candidate uses the display name `prefix + "\\"`.
+// The bounded top-N admission must not judge root rows by that placeholder:
+// a capped descending filename search must return the root the durable path
+// returns, and hot/cold must agree for every ordering and direction.
+void TestCappedRootSearchMatchesColdAndRetainsTopN() {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_capped_root_search.db")), "the capped-root fixture opens");
+    VolumeKey firstKey;
+    firstKey.serialNumber = 0;
+    const auto firstVolume = pipeline.ResolveVolume(firstKey);
+    VolumeKey secondKey;
+    secondKey.serialNumber = 2;
+    const auto secondVolume = pipeline.ResolveVolume(secondKey);
+    ffprotocol::VolumeSetting firstSetting;
+    firstSetting.key = L"C:";
+    firstSetting.enabled = true;
+    pipeline.SetVolumeRules(firstVolume, firstSetting);
+    ffprotocol::VolumeSetting secondSetting;
+    secondSetting.key = L"Z:";
+    secondSetting.enabled = true;
+    pipeline.SetVolumeRules(secondVolume, secondSetting);
+    const std::vector<ffprotocol::MftRecordV1> rows{
+        MakeMftRecord(5, 5, u"", 0x10, 0),
+        MakeMftRecord(100, 5, u"A", 0x10, 0),
+        MakeMftRecord(101, 5, u"B", 0x10, 0),
+    };
+    Check(pipeline.ApplyMftBatch(firstVolume, rows) && pipeline.ApplyMftBatch(secondVolume, rows),
+          "the capped-root fixture applies to both volumes");
+    pipeline.RebuildAll({});
+    Check(pipeline.MarkScanComplete(firstVolume) && pipeline.MarkScanComplete(secondVolume),
+          "the capped-root fixture marks both volumes scan complete");
+
+    struct Case {
+        uint8_t sortField;
+        bool descending;
+        uint32_t maxResults;
+    };
+    const Case cases[] = {
+        {1, true, 1},   // filename descending
+        {1, false, 1},  // filename ascending
+        {1, true, 2},   // filename descending, both roots in the capped set
+        {0, true, 1},   // relevance descending
+        {0, false, 1},  // relevance ascending
+    };
+    for (const Case& testCase : cases) {
+        ffprotocol::IndexedSearchRequest request;
+        request.requestId = 1;
+        request.scope = 3;  // AllIndexedLocations
+        request.sortField = testCase.sortField;
+        request.descending = testCase.descending;
+        request.maxResults = testCase.maxResults;
+        request.query = L"kind:folder";
+        const auto hot = pipeline.SearchIndexed(request);
+        pipeline.UnloadVolumeFromProjection(firstVolume);
+        pipeline.UnloadVolumeFromProjection(secondVolume);
+        ++request.requestId;
+        const auto cold = pipeline.SearchIndexed(request);
+        Check(hot.status == ffprotocol::IndexedSearchStatus::Completed &&
+                  cold.status == ffprotocol::IndexedSearchStatus::Completed,
+              "capped root searches complete on the hot and durable paths");
+        bool identical = hot.candidates.size() == cold.candidates.size();
+        for (size_t index = 0; identical && index < hot.candidates.size(); ++index) {
+            identical = hot.candidates[index].id == cold.candidates[index].id &&
+                        hot.candidates[index].name == cold.candidates[index].name &&
+                        hot.candidates[index].volumeId == cold.candidates[index].volumeId;
+        }
+        Check(identical, "capped root search returns the same candidates on the hot and durable paths");
+        pipeline.RebuildAll({});
+        Check(pipeline.MarkScanComplete(firstVolume) && pipeline.MarkScanComplete(secondVolume),
+              "the capped-root fixture re-arms both volumes after the durable pass");
+    }
+
+    // The reviewer's exact case: the capped descending filename search must
+    // keep the volume root whose display name wins the ordering.
+    ffprotocol::IndexedSearchRequest rootRequest;
+    rootRequest.requestId = 99;
+    rootRequest.scope = 3;
+    rootRequest.sortField = 1;  // Filename
+    rootRequest.descending = true;
+    rootRequest.maxResults = 1;
+    rootRequest.query = L"kind:folder";
+    const auto rootResult = pipeline.SearchIndexed(rootRequest);
+    Check(rootResult.candidates.size() == 1 && rootResult.candidates[0].id == 5 &&
+              rootResult.candidates[0].name == L"Z:\\",
+          "capped descending filename search retains the winning volume root");
+}
+
+
 void TestRepeatedColdSearchesDoNotThrashMemory() {
     IndexPipeline pipeline;
     Check(pipeline.Open(FreshDbPath("engine_test_eviction_thrash.db")),
@@ -2317,6 +2406,7 @@ int main() {
         TestIndexedSearchPropagatesAllocatedSize();
         TestIndexedSearchOndiskFilter();
         TestForcedEvictionSearchEquivalence();
+    TestCappedRootSearchMatchesColdAndRetainsTopN();
         TestRepeatedColdSearchesDoNotThrashMemory();
         TestColdMutationsAndRestartEquivalence();
         TestColdFolderAggregateServedFromStore();
