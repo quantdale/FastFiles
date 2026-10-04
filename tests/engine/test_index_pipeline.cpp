@@ -1459,8 +1459,11 @@ void TestCappedRootSearchMatchesColdAndRetainsTopN() {
         {1, true, 1},   // filename descending
         {1, false, 1},  // filename ascending
         {1, true, 2},   // filename descending, both roots in the capped set
+        {1, false, 2},  // filename ascending, both roots in the capped set
         {0, true, 1},   // relevance descending
         {0, false, 1},  // relevance ascending
+        {0, true, 2},   // relevance descending, capped set of two
+        {0, false, 2},  // relevance ascending, capped set of two
     };
     for (const Case& testCase : cases) {
         ffprotocol::IndexedSearchRequest request;

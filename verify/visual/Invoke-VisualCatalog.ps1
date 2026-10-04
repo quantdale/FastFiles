@@ -252,9 +252,17 @@ function Test-CatalogNamed {
 
 function Set-CatalogTheme {
     param($Driver, [int] $ProcessId, [ValidateSet('Light', 'Dark')][string] $Theme)
+    # Bounded readiness wait (documented non-determinism bound): the settings
+    # dialog is opened by the preceding UI action and can take longer than a
+    # single 2.5 s probe under load -- the fixed-tip certification run aborted
+    # once on exactly that transient. The dialog is still REQUIRED; the wait is
+    # retried in bounded 1 s polls up to 10 s before the failure is reported.
     $settings = $null
-    try { $settings = Find-UiaElement -Driver $Driver -ClassName 'FastFilesSettingsDialog' -ProcessId $ProcessId -TimeoutMs 2500 } catch { }
-    if (-not $settings) { throw 'settings dialog did not appear while selecting a visual theme' }
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not $settings -and [DateTime]::UtcNow -lt $deadline) {
+        try { $settings = Find-UiaElement -Driver $Driver -ClassName 'FastFilesSettingsDialog' -ProcessId $ProcessId -TimeoutMs 1000 } catch { $settings = $null }
+    }
+    if (-not $settings) { throw 'settings dialog did not appear while selecting a visual theme (bounded 10 s wait exhausted)' }
     $combos = @(Find-UiaElement -Driver $Driver -ClassName 'ComboBox' -FromElement $settings -TimeoutMs 2000 -All)
     if ($combos.Count -lt 1) { throw 'settings theme combo was not discoverable' }
     $index = if ($Theme -eq 'Dark') { 1 } else { 0 }

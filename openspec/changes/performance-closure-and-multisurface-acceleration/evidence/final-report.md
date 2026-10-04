@@ -22,10 +22,11 @@ outside this checked commit, per the reordered 11.6 rule.
 - Certified binary identity: every preset was rebuilt at the final tip
   before the ladder; identity binding/freshness tests pass inside the
   parity CTest legs.
-- OpenSpec lifecycle: this change `completed` (all 51 tasks checked; the
-  lifecycle model requires an active change to have open tasks, and this
-  campaign's work is done) — **not archived and not merged**: PR #13 remains
-  open for human review by design. Predecessor
+- OpenSpec lifecycle: this change is **`active` with 50/51 tasks checked** —
+  the completion review reopened task 8.1 (the per-category projection-memory
+  decomposition), which is the remaining mandatory local acceptance work.
+  The change is **not archived and not merged**: PR #13 remains open for
+  human review by design, with `MERGE_ELIGIBLE = NO`. Predecessor
   `measured-performance-acceleration-and-exact-certification` `completed`
   with its 6.3/6.4 closed by current evidence (task 2.7).
 - Worktree: clean at every certification run; the two owned temporary
@@ -50,7 +51,7 @@ current suite):
 | E2E (`dev.ps1 test-e2e`) | 8 passed / 0 failed / 0 skipped, `boundToHead=true` |
 | UIA core | 16 passed / 0 skipped / 0 failed |
 | UIA full | 23 passed / 6 skipped / 0 failed (one prior attempt died with the environmental `capability-worker-exited-without-result`; the retry passed) |
-| visual catalog (`-Gallery`) | 20 recorded / 20 passed / 0 failed (one prior attempt aborted on a transient "settings dialog did not appear" timing; the retry passed) |
+| visual catalog (`-Gallery`) | 20 recorded / 20 passed / 0 failed (one prior attempt aborted on "settings dialog did not appear"; root cause fixed in the harness — `Set-CatalogTheme` used a single 2.5 s probe and now uses a bounded 10 s readiness wait in 1 s polls, so the dialog is still required but the transient short-wait race is removed) |
 | focused many-tabs | 1/1 passed (one prior attempt hit the same environmental worker death; the retry passed) |
 
 Predecessor closure evidence (task 2.7): release-test 124/124 with
@@ -170,9 +171,15 @@ improvement.
 ## K. Certification relationship
 
 - `implementation_sha`: `f0eb28aac24ae44ae0c79edae62d5c792dae5861` (the R1
-  repair commit). `63ddc21acf089ad92ddb5783882a74a595a2513c` was the
-  pre-repair implementation SHA; the equivalence gate was re-run from
-  `f0eb28a` to the final tracked tip after the report commit.
+  repair commit; the matrix-extension commit that follows it is the last
+  executable-impacting change of the second review round — its SHA and the
+  resulting gate relationship are recorded in the PR body and in the
+  generated gate artifact, not in this tracked file, per the reordered
+  rule). Historical: `63ddc21acf089ad92ddb5783882a74a595a2513c` was the
+  pre-repair implementation SHA whose gate relationship used digest
+  `244d9c4d430059db...`; the current relationship for `f0eb28a` to the
+  `623490f` tip is PASS with digest `f3668f51f36a9245725cce5aaebbeed6e46738d9e458abceeb4be54002ec49ca`
+  (`build/_apply26/gates3/r1fix_self_application.json`).
 - `certified_binary_sha`: `f0eb28aac24ae44ae0c79edae62d5c792dae5861`
   (verified as the embedded `FastFilesEngine.exe` PrivateBuild in all five
   rebuilt presets; identity binding/freshness pass inside the parity CTest
@@ -219,6 +226,11 @@ is withdrawn.
 
 ## M. Remaining work
 
+- **Internal (mandatory local acceptance): task 8.1** — the scoped
+  per-category/capacity and allocation-instrumented (or repeat-rebuild)
+  projection-memory decomposition reopened by the completion review. Until it
+  is produced, the 8.3 rejection is scoped to the measured evidence and
+  `MERGE_ELIGIBLE` stays NO.
 - External only: hosted CI execution (billing/infrastructure), production
   signing/pins, clean-host install, elevated MFT/USN, the raw-volume
   completion bound (predecessor 5.4 / residual 2.3 stay unchecked), the
