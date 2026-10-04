@@ -279,7 +279,7 @@
     },
     {
       "name": "performance-closure-and-multisurface-acceleration",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -304,6 +304,22 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/performance-closure-and-multisurface-acceleration/evidence/final-report.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/evidence/projection-memory-decomposition-final.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/evidence/projection-memory/projection-memory-200k.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/evidence/projection-memory/projection-memory-1m.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/performance-closure-and-multisurface-acceleration/evidence/projection-memory/run-decomposition.ps1"
         }
       ],
       "supersededBy": null,
