@@ -104,6 +104,122 @@ size_t Projection::EstimatedMemoryBytes() const noexcept {
     return result;
 }
 
+// performance-closure-and-multisurface-acceleration 8.1: read-only
+// decomposition of the projection's own allocations. Each field is a live
+// capacity/size/bucket-count measurement; the `modeledCategoryBytes` sum
+// deliberately reproduces EstimatedMemoryBytes() exactly (asserted by
+// ffindexstore_projection_tests) so the diagnostic cannot drift from the
+// estimator the memory policy uses. Standard-library node links, allocator
+// headers, and heap rounding are not guessed here -- they remain the
+// disclosed residual in the process/allocator reconciliation.
+Projection::MemoryBreakdown Projection::GetMemoryBreakdown() const noexcept {
+    MemoryBreakdown result;
+
+    // Rows: dense array plus the freed-slot reuse list.
+    result.entryCount = idToIndex_.size();
+    result.rowCapacity = entries_.capacity();
+    result.rowBytes = result.rowCapacity * sizeof(ProjectionEntry);
+    result.rowLiveBytes = result.entryCount * sizeof(ProjectionEntry);
+    result.rowSlackBytes = result.rowBytes - result.rowLiveBytes;
+    result.freeListSlots = freeList_.capacity();
+    result.freeListBytes = result.freeListSlots * sizeof(uint32_t);
+
+    // Identifier map (EntryKey -> dense row index), a flat open-addressing
+    // table: three parallel arrays whose capacities are the allocation.
+    result.idMapElements = idToIndex_.size();
+    result.idMapBuckets = idToIndex_.bucket_count();
+    result.idMapKeyBytes = idToIndex_.KeyCapacityBytes();
+    result.idMapValueBytes = idToIndex_.ValueCapacityBytes();
+    result.idMapStateBytes = idToIndex_.StateCapacityBytes();
+    result.idMapBytes = idToIndex_.MemoryUsageBytes();
+
+    // Parent -> children index: one flat map with a contiguous child-index
+    // array (no per-key heap vector).
+    result.childMapElements = parentToChildren_.ElementCount();
+    result.childMapBuckets = parentToChildren_.size();
+    result.childMapChildLinks = parentToChildren_.ChildLinkCount();
+    result.childMapKeyBytes = parentToChildren_.KeyCapacityBytes();
+    result.childMapChildBytes = parentToChildren_.ChildCapacityBytes();
+    result.childMapStateBytes = parentToChildren_.StateCapacityBytes();
+    result.childMapOffsetBytes = parentToChildren_.OffsetCapacityBytes();
+    result.childMapCountBytes = parentToChildren_.CountCapacityBytes();
+    result.childMapBytes = parentToChildren_.MemoryUsageBytes();
+
+    // Interned names: one UTF-16 arena (original case only) plus an
+    // offset/length table and a hash-bucket index of its own. There is no
+    // second, normalized copy of any name anywhere in the projection.
+    result.uniqueNameCount = namePool_.UniqueNameCount();
+    result.nameArenaChars = namePool_.ArenaSizeChars();
+    result.nameArenaCapacityChars = namePool_.ArenaCapacityChars();
+    result.nameArenaBytes = namePool_.ArenaCapacityBytes();
+    result.nameArenaSlackBytes =
+        result.nameArenaBytes - result.nameArenaChars * sizeof(char16_t);
+    result.nameTableSlotCount = namePool_.TableSlotCount();
+    result.nameTableBytes = namePool_.TableSlotCapacityBytes();
+    result.nameHashBucketCount = namePool_.HashBucketCount();
+    result.nameHashBucketBytes = namePool_.HashBucketArrayBytes();
+    result.nameHashNodeCount = result.nameHashBucketCount == 0 ? 0 : namePool_.HashBucketElementCount();
+    result.nameHashApproxNodeBytes = namePool_.HashNodeApproxBytes();
+    result.nameHashPayloadBytes = namePool_.HashBucketPayloadBytes();
+    result.nameBytes = namePool_.MemoryUsageBytes();
+
+    // Secondary filename accelerator: trigram -> sorted posting vectors plus
+    // a sorted non-ASCII entry list. Posting vector capacity (not only the
+    // payload size) is reported, because the vectors are push_back-built and
+    // never shrunk to fit.
+    result.filenameIndexValid = filenameIndexValid_;
+    result.filenameIndexDistinctTrigrams = filenameTrigramPostings_.size();
+    for (const auto& [trigram, posting] : filenameTrigramPostings_) {
+        (void)trigram;
+        result.filenameIndexPostingSlots += posting.capacity();
+        result.filenameIndexPostingPayload += posting.size();
+    }
+    result.filenameIndexPostingBytes =
+        result.filenameIndexPostingSlots * sizeof(uint32_t);
+    result.filenameIndexPostingHeaderBytes =
+        result.filenameIndexDistinctTrigrams * sizeof(std::vector<uint32_t>);
+    result.filenameIndexBucketCount = filenameTrigramPostings_.bucket_count();
+    result.filenameIndexBucketBytes = filenameTrigramPostings_.bucket_count() * sizeof(void*);
+    result.filenameIndexApproxNodeBytes =
+        result.filenameIndexDistinctTrigrams * sizeof(uint64_t)
+        + result.filenameIndexPostingHeaderBytes;
+    result.filenameIndexNonAsciiCount = filenameNonAsciiEntries_.size();
+    result.filenameIndexNonAsciiSlots = filenameNonAsciiEntries_.capacity();
+    result.filenameIndexNonAsciiBytes =
+        result.filenameIndexNonAsciiSlots * sizeof(uint32_t);
+    result.filenameIndexBytes = result.filenameIndexPostingBytes
+        + result.filenameIndexApproxNodeBytes
+        + result.filenameIndexBucketBytes
+        + result.filenameIndexNonAsciiBytes;
+
+    // LRU eviction metadata (EntryKey -> access timestamp).
+    result.lruBucketCount = lastAccess_.bucket_count();
+    result.lruBucketBytes = lastAccess_.bucket_count() * sizeof(void*);
+    result.lruNodeCount = lastAccess_.size();
+    result.lruApproxNodeBytes = lastAccess_.size() * (sizeof(EntryKey) + sizeof(uint64_t));
+    result.lruBytes = result.lruBucketBytes + result.lruApproxNodeBytes;
+
+    // Cold-volume markers. EstimatedMemoryBytes() does not model this set, so
+    // only its bucket array is added to the additive reported total; the
+    // per-node link remains unmodeled residual rather than a fabricated size.
+    result.evictedVolumeCount = evictedVolumes_.size();
+    result.evictedVolumeBucketCount = evictedVolumes_.bucket_count();
+    result.evictedVolumeBucketBytes = evictedVolumes_.bucket_count() * sizeof(void*);
+
+    // Structurally absent categories: the matcher folds a name on demand (no
+    // stored folded/normalized copy) and paths are rebuilt per call from
+    // parent links (ProjectionEntry has no path field).
+    result.normalizedNameStorageBytes = 0;
+    result.storedPathBytes = 0;
+
+    result.modeledCategoryBytes = result.rowBytes + result.freeListBytes
+        + result.idMapBytes + result.childMapBytes + result.nameBytes
+        + result.filenameIndexBytes + result.lruBytes;
+    result.reportedTotalBytes = result.modeledCategoryBytes
+        + result.evictedVolumeBucketBytes + result.nameHashPayloadBytes;
+    return result;
+}
+
 bool Projection::IsMemoryPressureHigh() const noexcept {
     if (maximumMemoryBytes_ == 0) return false;
     return EstimatedMemoryBytes() >= maximumMemoryBytes_ - maximumMemoryBytes_ / 5;
@@ -830,9 +946,44 @@ bool Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, u
     }
     CompactEntriesForIterationOrder();
     RebuildFilenameIndex();
+    // performance-closure-and-multisurface-acceleration 8.3: a bulk rebuild
+    // grows the name arena, the offset table, the flat child-index array, and
+    // the trigram posting vectors by geometric reallocation, so each holds
+    // unused capacity afterwards. Release that slack once the bulk load is
+    // complete; content is unchanged and the next incremental mutation grows
+    // the storage again with the usual amortized behavior. The projection's
+    // id->index table is deliberately NOT shrunk: its 2x flat-open-addressing
+    // sizing is the designed <=75% occupancy bound, not slack.
+    ShrinkBulkRebuildCapacity();
     enforcingMemoryLimit_ = wasEnforcingMemoryLimit;
     EnforceMemoryLimit();
     return !NeedsReload(volumeRowId);
+}
+
+void Projection::ShrinkBulkRebuildCapacity() {
+    // Release slack only when it is material. A single-volume reload into a
+    // projection that is already near its live size must not pay a
+    // reallocation to return a few bytes, and repeated reloads must not
+    // thrash the allocator.
+    constexpr size_t kMaterialSlackBytes = 256 * 1024;
+    size_t slackBytes = namePool_.GrowthSlackBytes();
+    slackBytes += parentToChildren_.ChildCapacityBytes()
+        - parentToChildren_.ChildLinkCount() * sizeof(uint32_t);
+    slackBytes += filenameNonAsciiEntries_.capacity() * sizeof(uint32_t)
+        - filenameNonAsciiEntries_.size() * sizeof(uint32_t);
+    for (const auto& [trigram, posting] : filenameTrigramPostings_) {
+        (void)trigram;
+        slackBytes += (posting.capacity() - posting.size()) * sizeof(uint32_t);
+    }
+    if (slackBytes < kMaterialSlackBytes) return;
+
+    namePool_.ShrinkToFit();
+    parentToChildren_.ShrinkToFit();
+    filenameNonAsciiEntries_.shrink_to_fit();
+    for (auto& [trigram, posting] : filenameTrigramPostings_) {
+        (void)trigram;
+        posting.shrink_to_fit();
+    }
 }
 
 } // namespace ffindexstore

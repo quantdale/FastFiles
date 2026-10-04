@@ -24,6 +24,16 @@ void NamePool::Reserve(size_t expectedUniqueNames, size_t expectedTotalChars) {
     hashBuckets_.reserve(expectedUniqueNames);
 }
 
+void NamePool::ShrinkToFit() {
+    // The arena and the offset/length table are the two large capacity holders
+    // (the hash bucket array is at most one pointer per bucket and the
+    // per-bucket candidate vectors are tiny); rehash(0) is the standard way to
+    // request the minimum bucket array for the current element count.
+    arena_.shrink_to_fit();
+    table_.shrink_to_fit();
+    hashBuckets_.rehash(0);
+}
+
 NameId NamePool::Intern(std::u16string_view name) {
     const uint64_t hash = HashName(name);
     auto& bucket = hashBuckets_[hash];

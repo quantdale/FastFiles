@@ -28,8 +28,15 @@ public:
     size_t size() const noexcept { return count_; }
     bool empty() const noexcept { return count_ == 0; }
     size_t bucket_count() const noexcept { return keys_.size(); }
+    // performance-closure-and-multisurface-acceleration 8.1: the capacity
+    // halves of MemoryUsageBytes, so a diagnostic can attribute the map's
+    // allocated bytes per array instead of only as one opaque sum. These are
+    // live capacity() measurements, not object-size estimates.
+    size_t KeyCapacityBytes() const noexcept { return keys_.capacity() * sizeof(Key); }
+    size_t ValueCapacityBytes() const noexcept { return values_.capacity() * sizeof(Value); }
+    size_t StateCapacityBytes() const noexcept { return states_.capacity(); }
     size_t MemoryUsageBytes() const noexcept {
-        return keys_.capacity() * sizeof(Key) + values_.capacity() * sizeof(Value) + states_.capacity();
+        return KeyCapacityBytes() + ValueCapacityBytes() + StateCapacityBytes();
     }
 
     void reserve(size_t n) {
@@ -273,11 +280,27 @@ public:
 
     size_t size() const noexcept { return keys_.size(); }
     bool empty() const noexcept { return keys_.empty(); }
+    // performance-closure-and-multisurface-acceleration 8.1: element and
+    // per-array capacity detail for the memory decomposition; the byte values
+    // are capacity() measurements and sum to MemoryUsageBytes().
+    size_t ElementCount() const noexcept { return count_; }
+    size_t ChildLinkCount() const noexcept { return values_.size(); }
+    size_t KeyCapacityBytes() const noexcept { return keys_.capacity() * sizeof(EntryKey); }
+    size_t ChildCapacityBytes() const noexcept { return values_.capacity() * sizeof(uint32_t); }
+    size_t StateCapacityBytes() const noexcept { return states_.capacity(); }
+    size_t OffsetCapacityBytes() const noexcept { return offsets_.capacity() * sizeof(size_t); }
+    size_t CountCapacityBytes() const noexcept { return counts_.capacity() * sizeof(size_t); }
     size_t MemoryUsageBytes() const noexcept {
-        return keys_.capacity() * sizeof(EntryKey) + values_.capacity() * sizeof(uint32_t)
-            + states_.capacity() + offsets_.capacity() * sizeof(size_t)
-            + counts_.capacity() * sizeof(size_t);
+        return KeyCapacityBytes() + ChildCapacityBytes() + StateCapacityBytes()
+            + OffsetCapacityBytes() + CountCapacityBytes();
     }
+
+    // performance-closure-and-multisurface-acceleration 8.3: releases the flat
+    // child-index array's append slack left by a bulk rebuild. The probe-table
+    // arrays stay at their designed <=70% load factor, so only the payload
+    // array is shrunk. Slices are addressed by the offsets stored per key, so
+    // shrinking the array (indices, not pointers) preserves them.
+    void ShrinkToFit() { values_.shrink_to_fit(); }
 
     std::span<const uint32_t> find(const EntryKey& key) const {
         const ProbeResult probe = find_slot(key);

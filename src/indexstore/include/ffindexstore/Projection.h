@@ -90,6 +90,101 @@ public:
     size_t MaximumMemoryBytes() const noexcept { return maximumMemoryBytes_; }
     size_t EstimatedMemoryBytes() const noexcept;
     bool IsMemoryPressureHigh() const noexcept;
+
+    // performance-closure-and-multisurface-acceleration 8.1: narrow,
+    // read-only diagnostic seam for the projection-memory decomposition. It
+    // exists so the memory benchmark can attribute the projection's own
+    // allocations per contributor without private-access hacks, a friend
+    // test, or any production representation change.
+    //
+    // Measurement contract:
+    //  * Every byte field is derived from a live capacity()/size()/
+    //    bucket_count()/element-count measurement of the owning container.
+    //    Nothing here is inferred from sizeof(object) alone.
+    //  * `modeledCategoryBytes` sums exactly the categories
+    //    EstimatedMemoryBytes() models; a unit test asserts the two stay
+    //    equal so the estimator and this breakdown cannot silently drift.
+    //  * Standard-library node links, allocator headers, and heap rounding
+    //    are deliberately NOT fabricated: they stay in the
+    //    process-private/allocator reconciliation as disclosed residual.
+    //  * Structures the estimator does not model are reported in their own
+    //    additive field (`evictedVolumeBucketBytes`), not folded into the
+    //    modeled sum.
+    //  * Structurally absent categories are explicit zeros with the reason:
+    //    normalized names are folded on demand (no stored folded copy) and
+    //    paths are reconstructed per call (no stored path field).
+    struct MemoryBreakdown {
+        // ---- rows -------------------------------------------------------
+        size_t entryCount = 0;              // live rows (idToIndex_.size())
+        size_t rowCapacity = 0;             // entries_.capacity()
+        size_t rowBytes = 0;                // rowCapacity * sizeof(ProjectionEntry)
+        size_t rowLiveBytes = 0;            // entryCount * sizeof(ProjectionEntry)
+        size_t rowSlackBytes = 0;           // rowBytes - rowLiveBytes
+        size_t freeListSlots = 0;
+        size_t freeListBytes = 0;
+        // ---- identifier maps --------------------------------------------
+        size_t idMapElements = 0;
+        size_t idMapBuckets = 0;            // keys_.size() (flat table slots)
+        size_t idMapKeyBytes = 0;
+        size_t idMapValueBytes = 0;
+        size_t idMapStateBytes = 0;
+        size_t idMapBytes = 0;
+        // ---- parent/child index -----------------------------------------
+        size_t childMapElements = 0;        // distinct parent keys
+        size_t childMapBuckets = 0;
+        size_t childMapChildLinks = 0;      // used child slots in the flat array
+        size_t childMapKeyBytes = 0;
+        size_t childMapChildBytes = 0;      // flat child-index array capacity
+        size_t childMapStateBytes = 0;
+        size_t childMapOffsetBytes = 0;
+        size_t childMapCountBytes = 0;
+        size_t childMapBytes = 0;
+        // ---- names (interned; original case only) ------------------------
+        size_t uniqueNameCount = 0;
+        size_t nameArenaChars = 0;              // used UTF-16 chars
+        size_t nameArenaCapacityChars = 0;
+        size_t nameArenaBytes = 0;
+        size_t nameArenaSlackBytes = 0;
+        size_t nameTableSlotCount = 0;
+        size_t nameTableBytes = 0;              // offset/length slots capacity
+        size_t nameHashBucketCount = 0;
+        size_t nameHashBucketBytes = 0;
+        size_t nameHashNodeCount = 0;
+        size_t nameHashApproxNodeBytes = 0;     // key + vector header per bucket
+        size_t nameHashPayloadBytes = 0;        // bucket candidate-vector capacities (unmodeled by the estimator)
+        size_t nameBytes = 0;
+        // ---- secondary filename index ------------------------------------
+        bool filenameIndexValid = false;
+        size_t filenameIndexDistinctTrigrams = 0;
+        size_t filenameIndexPostingSlots = 0;   // sum of posting capacities
+        size_t filenameIndexPostingPayload = 0; // sum of posting sizes
+        size_t filenameIndexPostingBytes = 0;   // postingSlots * sizeof(uint32_t)
+        size_t filenameIndexPostingHeaderBytes = 0;
+        size_t filenameIndexBucketCount = 0;
+        size_t filenameIndexBucketBytes = 0;
+        size_t filenameIndexApproxNodeBytes = 0;
+        size_t filenameIndexNonAsciiCount = 0;  // live entries (size, not capacity)
+        size_t filenameIndexNonAsciiSlots = 0;
+        size_t filenameIndexNonAsciiBytes = 0;
+        size_t filenameIndexBytes = 0;
+        // ---- LRU / eviction metadata -------------------------------------
+        size_t lruBucketCount = 0;
+        size_t lruBucketBytes = 0;
+        size_t lruNodeCount = 0;
+        size_t lruApproxNodeBytes = 0;          // EntryKey + timestamp per node
+        size_t lruBytes = 0;
+        // ---- structures the estimator does not model ---------------------
+        size_t evictedVolumeCount = 0;
+        size_t evictedVolumeBucketCount = 0;
+        size_t evictedVolumeBucketBytes = 0;    // bucket array only; node links unmodeled
+        // ---- structurally absent categories ------------------------------
+        size_t normalizedNameStorageBytes = 0;  // folds computed on demand
+        size_t storedPathBytes = 0;             // paths reconstructed per call
+        // ---- totals -------------------------------------------------------
+        size_t modeledCategoryBytes = 0;        // == EstimatedMemoryBytes()
+        size_t reportedTotalBytes = 0;          // modeled + concrete unmodeled allocations
+    };
+    MemoryBreakdown GetMemoryBreakdown() const noexcept;
     // Applies the bounded LRU policy after a complete ingestion mutation
     // batch. Upsert deliberately does not compact per record: compaction
     // rebuilds every projection index and must not turn a large scan into an
@@ -289,6 +384,9 @@ private:
     void CompactEntriesForIterationOrder();
     void RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index);
     void RebuildFilenameIndex();
+    // performance-closure-and-multisurface-acceleration 8.3: releases the
+    // geometric-growth capacity slack a bulk rebuild leaves behind.
+    void ShrinkBulkRebuildCapacity();
     void AddFilenameIndexEntry(uint32_t index);
     void RemoveFilenameIndexEntry(uint32_t index, std::u16string_view name);
     void InvalidateFilenameIndex() noexcept;

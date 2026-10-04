@@ -351,6 +351,11 @@ public:
     // residency accessors back observability without exposing the projection.
     void SetProjectionMemoryBudget(size_t maximumBytes);
     ffindexstore::Projection::MemoryDiagnostics GetProjectionMemoryDiagnostics() const;
+    // performance-closure-and-multisurface-acceleration 8.1: read-only
+    // per-category projection memory decomposition (see
+    // Projection::MemoryBreakdown). Diagnostic only; no representation or
+    // policy change.
+    ffindexstore::Projection::MemoryBreakdown GetProjectionMemoryBreakdown() const;
     bool IsVolumeEvicted(ffindexstore::VolumeRowId volumeId) const;
     // memory-bounded-indexed-scale 5.x: explicit policy hook dropping one
     // volume's resident rows (durable data untouched). Also the deterministic

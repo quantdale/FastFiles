@@ -655,10 +655,145 @@ void TestNamePoolViewInvalidatesOnCompactStorage() {
     Check(afterId == beforeId, "NameId for same name is stable when pool is rebuilt from same insertion order");
 }
 
+// performance-closure-and-multisurface-acceleration 8.1: the read-only
+// memory breakdown must (a) sum to exactly the estimator the memory policy
+// uses, (b) report every category from live capacities, and (c) report the
+// structurally absent categories as explicit zeros.
+void TestProjectionMemoryBreakdownMatchesEstimatorAndCategories() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"report.txt"));
+    proj.Upsert(1, MakeEntry(101, 5, u"REPORT-copy.txt"));
+    proj.Upsert(1, MakeEntry(102, 5, u"\u6771\u4EAC_report.txt"));
+    proj.Upsert(1, MakeEntry(103, 5, u"nested", 0x10));
+    proj.Upsert(1, MakeEntry(104, 103, u"leaf.txt"));
+
+    const auto breakdown = proj.GetMemoryBreakdown();
+    Check(breakdown.entryCount == 6, "breakdown reports every live row");
+    Check(breakdown.rowLiveBytes == breakdown.entryCount * sizeof(ProjectionEntry),
+          "row live bytes are row count * measured entry layout");
+    Check(breakdown.rowBytes == breakdown.rowCapacity * sizeof(ProjectionEntry),
+          "row bytes are the live vector capacity * measured entry layout");
+    Check(breakdown.rowSlackBytes == breakdown.rowBytes - breakdown.rowLiveBytes,
+          "row slack is capacity minus live rows");
+    Check(breakdown.freeListBytes == breakdown.freeListSlots * sizeof(uint32_t),
+          "free-list bytes are its live capacity");
+    Check(breakdown.idMapBytes == breakdown.idMapKeyBytes + breakdown.idMapValueBytes
+              + breakdown.idMapStateBytes,
+          "identifier-map bytes sum the three flat-table arrays");
+    Check(breakdown.idMapElements == 6 && breakdown.idMapBuckets >= 6,
+          "identifier map reports elements and buckets");
+    Check(breakdown.childMapBytes == breakdown.childMapKeyBytes + breakdown.childMapChildBytes
+              + breakdown.childMapStateBytes + breakdown.childMapOffsetBytes
+              + breakdown.childMapCountBytes,
+          "parent/child map bytes sum keys, flat child array, states, offsets, counts");
+    Check(breakdown.childMapElements >= 2 && breakdown.childMapChildLinks >= 3,
+          "parent/child map reports distinct parents and used child links");
+    Check(breakdown.nameBytes == breakdown.nameArenaBytes + breakdown.nameTableBytes
+              + breakdown.nameHashBucketBytes + breakdown.nameHashApproxNodeBytes,
+          "name bytes sum arena, offset table, and hash index");
+    Check(breakdown.uniqueNameCount == 6, "one interned entry per distinct name");
+    Check(breakdown.nameArenaChars == 54, "arena holds the six distinct name strings once");
+    Check(breakdown.nameArenaSlackBytes
+              == breakdown.nameArenaBytes - breakdown.nameArenaChars * sizeof(char16_t),
+          "arena slack is capacity minus used chars");
+    Check(breakdown.filenameIndexValid, "the optional accelerator is live after ordinary upserts");
+    Check(breakdown.filenameIndexDistinctTrigrams > 0, "trigram postings are reported");
+    Check(breakdown.filenameIndexPostingSlots >= breakdown.filenameIndexPostingPayload,
+          "posting capacity is never below its payload");
+    Check(breakdown.filenameIndexNonAsciiSlots >= 1,
+          "the CJK name is tracked in the non-ASCII list");
+    Check(breakdown.filenameIndexBytes == breakdown.filenameIndexPostingBytes
+              + breakdown.filenameIndexApproxNodeBytes + breakdown.filenameIndexBucketBytes
+              + breakdown.filenameIndexNonAsciiBytes,
+          "filename-index bytes sum postings, node headers, buckets, non-ASCII list");
+    Check(breakdown.lruBytes == breakdown.lruBucketBytes + breakdown.lruApproxNodeBytes,
+          "LRU bytes sum buckets and nodes");
+    Check(breakdown.normalizedNameStorageBytes == 0,
+          "no stored normalized-name category exists (folds are computed on demand)");
+    Check(breakdown.storedPathBytes == 0,
+          "no stored path category exists (paths are reconstructed per call)");
+    Check(breakdown.modeledCategoryBytes == proj.EstimatedMemoryBytes(),
+          "the modeled category sum equals the estimator the memory policy uses");
+    Check(breakdown.reportedTotalBytes == breakdown.modeledCategoryBytes
+              + breakdown.evictedVolumeBucketBytes + breakdown.nameHashPayloadBytes,
+          "the reported total adds the concretely measured unmodeled allocations");
+
+    proj.SetBulkScanActive(true);
+    const auto disabled = proj.GetMemoryBreakdown();
+    Check(!disabled.filenameIndexValid, "a bulk scan disables the optional accelerator");
+    Check(disabled.filenameIndexDistinctTrigrams == 0 && disabled.filenameIndexNonAsciiCount == 0,
+          "a disabled accelerator retains no posting entries or non-ASCII entries (vector capacity is retained, not entry data)");
+    Check(disabled.modeledCategoryBytes == proj.EstimatedMemoryBytes(),
+          "the modeled sum still matches the estimator with the accelerator disabled");
+    proj.SetBulkScanActive(false);
+}
+
+// performance-closure-and-multisurface-acceleration 8.3: a bulk rebuild must
+// release the geometric-growth capacity slack in the name arena, the offset
+// table, the flat child-index array, and the trigram posting vectors, while
+// leaving the projection's designed id->index load factor untouched.
+void TestRebuildReleasesBulkCapacitySlack() {
+    Store store;
+    const auto dbPath = std::filesystem::temp_directory_path() /
+        ("ffindexstore_projection_shrink_" + std::to_string(GetCurrentProcessId()) + ".db");
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+    Check(store.Open(dbPath.string()), "shrink fixture store opens");
+    VolumeKey key;
+    key.serialNumber = 515151;
+    const auto volume = *store.GetOrCreateVolume(key);
+    std::vector<EntryChange> changes;
+    changes.push_back({EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)});
+    // Large enough that the geometric-growth slack in the rebuilt
+    // containers exceeds the projection's material-slack threshold.
+    constexpr uint64_t kRows = 100000;
+    for (uint64_t index = 0; index < kRows; ++index) {
+        std::u16string name = u"unique_bulk_name_";
+        for (const char digit : std::to_string(index)) {
+            name.push_back(static_cast<char16_t>(digit));
+        }
+        name += u".txt";
+        changes.push_back({EntryChangeKind::Upsert, MakeEntry(100 + index, 5, std::move(name))});
+    }
+    Check(store.ApplyBatch(volume, changes), "shrink fixture rows are durable");
+
+    Projection proj;
+    Check(proj.RebuildVolumeFromStore(store, volume, changes.size()),
+          "bulk rebuild succeeds");
+    const auto breakdown = proj.GetMemoryBreakdown();
+    Check(breakdown.entryCount == changes.size(), "every durable row is resident");
+
+    // MSVC's shrink_to_fit reallocates exactly, so a rebuilt projection holds
+    // no invisible growth slack in these bulk-grown containers.
+    Check(breakdown.nameArenaCapacityChars == breakdown.nameArenaChars,
+          "name arena capacity equals its used chars after a bulk rebuild");
+    Check(breakdown.nameTableBytes == breakdown.nameTableSlotCount * sizeof(uint32_t) * 2,
+          "name offset table capacity equals its used slots after a bulk rebuild");
+    Check(breakdown.filenameIndexPostingSlots == breakdown.filenameIndexPostingPayload,
+          "trigram posting capacity equals its payload after a bulk rebuild");
+    Check(breakdown.childMapChildBytes == breakdown.childMapChildLinks * sizeof(uint32_t),
+          "flat child-index capacity equals its used links after a bulk rebuild");
+
+    // The designed flat-open-addressing load factor is not slack and must stay.
+    Check(breakdown.idMapBuckets >= breakdown.idMapElements,
+          "the identifier map keeps its designed bucket sizing");
+    Check(breakdown.modeledCategoryBytes == proj.EstimatedMemoryBytes(),
+          "the shrink keeps the breakdown and estimator in agreement");
+
+    std::error_code ignored;
+    std::filesystem::remove(dbPath, ignored);
+    std::filesystem::remove(dbPath.string() + "-wal", ignored);
+    std::filesystem::remove(dbPath.string() + "-shm", ignored);
+}
+
 } // namespace
 
 int main() {
     TestSiblingsDoNotDuplicateSharedAncestorPath();
+    TestRepeatedNamesAcrossTreeShareOneInternedId();
+    TestPathIsReconstructedOnDemand();
     TestChildrenLookupSupportsDirectoryListing();
     TestReparentingUpdatesParentChildIndex();
     TestPartialUpsertPreservesAbsentMetadata();
@@ -679,6 +814,8 @@ int main() {
     TestProjectionMemoryLimitRunsAtBatchBoundary();
     TestNamePoolViewInvalidatesOnArenaGrowth();
     TestNamePoolViewInvalidatesOnCompactStorage();
+    TestProjectionMemoryBreakdownMatchesEstimatorAndCategories();
+    TestRebuildReleasesBulkCapacitySlack();
 
     if (fftest::FailureCount() > 0) {
         return 1;

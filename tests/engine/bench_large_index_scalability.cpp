@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -30,6 +31,12 @@
 #include "SnapshotPublisher.h"
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
+// performance-closure-and-multisurface-acceleration 8.1: benchmark-scoped
+// allocator probe. The replacement global operators are defined in this
+// translation unit only (FFBENCH_ALLOCATOR_PROBE_DEFINE).
+#define FFBENCH_ALLOCATOR_PROBE_DEFINE
+#include "bench_allocator_probe.h"
+#include "ffsetup/BuildIdentity.h"
 
 namespace {
 
@@ -149,6 +156,14 @@ struct Options {
     std::vector<size_t> scales{10'000, 100'000, 500'000, 1'000'000, 2'000'000};
     std::filesystem::path outputPath = std::filesystem::path(L"docs/benchmarks/large-index-scalability.json");
     bool detailedDiagnostics = false;
+    // performance-closure-and-multisurface-acceleration 8.1: projection-memory
+    // decomposition mode. When set, the benchmark runs only the memory report
+    // (fixture generation -> rebuild cycles -> export weighing -> teardown) and
+    // writes its machine-readable result to memoryOutputPath.
+    std::filesystem::path memoryOutputPath;
+    bool memoryReport = false;
+    size_t rebuildCycles = 4;
+    size_t exportBoundDirectories = 4096;
 };
 
 std::vector<size_t> ParseScales(const std::wstring& text) {
@@ -174,7 +189,10 @@ bool ParseOptions(int argc, wchar_t** argv, Options& options) {
     for (int index = 1; index < argc; ++index) {
         const std::wstring argument = argv[index];
         if (argument == L"--help") {
-            std::wprintf(L"Usage: %s [--scales 10000,100000] [--output path] [--diagnostics]\n", argv[0]);
+            std::wprintf(L"Usage: %s [--scales 10000,100000] [--output path] [--diagnostics]\n"
+                         L"       %s --memory-report <path> [--scales 200000,1000000] "
+                         L"[--rebuild-cycles 4] [--export-bound-directories 4096] [--diagnostics]\n",
+                         argv[0], argv[0]);
             return false;
         }
         if (argument == L"--scales" && index + 1 < argc) {
@@ -191,6 +209,29 @@ bool ParseOptions(int argc, wchar_t** argv, Options& options) {
         }
         if (argument == L"--diagnostics") {
             options.detailedDiagnostics = true;
+            continue;
+        }
+        if (argument == L"--memory-report" && index + 1 < argc) {
+            options.memoryOutputPath = argv[++index];
+            options.memoryReport = true;
+            continue;
+        }
+        if (argument == L"--rebuild-cycles" && index + 1 < argc) {
+            const long parsed = _wtol(argv[++index]);
+            if (parsed < 1 || parsed > 64) {
+                std::fwprintf(stderr, L"Invalid --rebuild-cycles value\n");
+                return false;
+            }
+            options.rebuildCycles = static_cast<size_t>(parsed);
+            continue;
+        }
+        if (argument == L"--export-bound-directories" && index + 1 < argc) {
+            const long parsed = _wtol(argv[++index]);
+            if (parsed < 1) {
+                std::fwprintf(stderr, L"Invalid --export-bound-directories value\n");
+                return false;
+            }
+            options.exportBoundDirectories = static_cast<size_t>(parsed);
             continue;
         }
         std::fwprintf(stderr, L"Unknown or incomplete argument: %s\n", argument.c_str());
@@ -1362,11 +1403,683 @@ void WriteSnapshot(std::ostream& output, const SnapshotRun& run) {
     output << '}';
 }
 
+// ---------------------------------------------------------------------------
+// performance-closure-and-multisurface-acceleration 8.1: projection-memory
+// decomposition mode.
+//
+// Method (emitted in the JSON, not only in prose):
+//   * process private bytes and working set from GetProcessMemoryInfo;
+//   * a working-set page-class split (shareable vs private) from
+//     QueryWorkingSet + QueryWorkingSetEx;
+//   * requested/usable live and cumulative allocation bytes and counts from
+//     the benchmark-scoped operator-new probe (bench_allocator_probe.h);
+//   * the projection's own category capacities from
+//     Projection::GetMemoryBreakdown -- live capacity measurements, never a
+//     sizeof-only estimate;
+//   * repeated same-process rebuild cycles plus a close/reopen/rebuild cycle
+//     for plateau and return-to-baseline evidence;
+//   * a counterbalanced pooled-vs-owning export/publication weighing on the
+//     same projection generation and the same bounded directory set.
+// ---------------------------------------------------------------------------
+
+struct WorkingSetSplit {
+    bool available = false;
+    uint64_t totalBytes = 0;
+    uint64_t shareableBytes = 0;
+    uint64_t privateBytes = 0;
+    uint64_t pages = 0;
+    uint64_t pageSizeBytes = 0;
+};
+
+WorkingSetSplit ReadWorkingSetSplit() {
+    WorkingSetSplit split;
+    SYSTEM_INFO systemInfo{};
+    GetSystemInfo(&systemInfo);
+    split.pageSizeBytes = systemInfo.dwPageSize != 0 ? systemInfo.dwPageSize : 4096;
+
+    PROCESS_MEMORY_COUNTERS_EX counters{};
+    counters.cb = sizeof(counters);
+    if (!GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
+                              sizeof(counters))) {
+        return split;
+    }
+    // QueryWorkingSet fills the caller's array with the resident page base
+    // addresses; a zero-initialized array beyond the returned count stays
+    // null, which is how the count is recovered. QueryWorkingSetEx then
+    // classifies each resident page as shareable (mapped file / section,
+    // including the published generation) or private.
+    size_t capacity = static_cast<size_t>(counters.WorkingSetSize / split.pageSizeBytes) + 65536;
+    std::vector<PVOID> pages;
+    std::vector<PSAPI_WORKING_SET_EX_INFORMATION> extended;
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        pages.assign(capacity, nullptr);
+        if (!QueryWorkingSet(GetCurrentProcess(), pages.data(),
+                             static_cast<DWORD>(pages.size() * sizeof(PVOID)))) {
+            capacity *= 2;
+            continue;
+        }
+        size_t count = 0;
+        while (count < pages.size() && pages[count] != nullptr) ++count;
+        extended.assign(count, PSAPI_WORKING_SET_EX_INFORMATION{});
+        for (size_t index = 0; index < count; ++index) {
+            extended[index].VirtualAddress = pages[index];
+        }
+        if (count != 0
+            && !QueryWorkingSetEx(GetCurrentProcess(), extended.data(),
+                                  static_cast<DWORD>(extended.size() * sizeof(extended[0])))) {
+            break;
+        }
+        split.available = true;
+        for (const auto& entry : extended) {
+            if (!entry.VirtualAttributes.Valid) continue;
+            ++split.pages;
+            split.totalBytes += split.pageSizeBytes;
+            if (entry.VirtualAttributes.Shared) {
+                split.shareableBytes += split.pageSizeBytes;
+            } else {
+                split.privateBytes += split.pageSizeBytes;
+            }
+        }
+        return split;
+    }
+    return split;
+}
+
+uint64_t Fnv1a64(const std::vector<uint8_t>& bytes) {
+    uint64_t hash = 1469598103934665603ull;
+    for (const uint8_t byte : bytes) {
+        hash ^= byte;
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+struct MemoryCapturePoint {
+    std::string name;
+    MemorySample memory;
+    uint64_t peakWorkingSetBytes = 0;
+    uint64_t peakPrivateBytes = 0;
+    WorkingSetSplit workingSetSplit;
+    ffbench::AllocatorSnapshot allocator;
+    double elapsedMs = 0.0;
+    bool hasProjection = false;
+    ffindexstore::Projection::MemoryBreakdown breakdown;
+    size_t estimatedBytes = 0;
+};
+
+MemoryCapturePoint CaptureMemoryPoint(const std::string& name, const double elapsedMs) {
+    MemoryCapturePoint point;
+    point.name = name;
+    PROCESS_MEMORY_COUNTERS_EX counters{};
+    counters.cb = sizeof(counters);
+    if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
+                             sizeof(counters))) {
+        point.memory = {static_cast<uint64_t>(counters.WorkingSetSize),
+                        static_cast<uint64_t>(counters.PrivateUsage)};
+        point.peakWorkingSetBytes = counters.PeakWorkingSetSize;
+        point.peakPrivateBytes = counters.PeakPagefileUsage;
+    }
+    point.workingSetSplit = ReadWorkingSetSplit();
+    point.allocator = ffbench::ReadAllocatorSnapshot();
+    point.elapsedMs = elapsedMs;
+    return point;
+}
+
+MemoryCapturePoint CaptureProjectionPoint(const std::string& name, ffengine::IndexPipeline& pipeline,
+                                          const double elapsedMs) {
+    MemoryCapturePoint point = CaptureMemoryPoint(name, elapsedMs);
+    point.breakdown = pipeline.GetProjectionMemoryBreakdown();
+    point.estimatedBytes = pipeline.GetProjectionMemoryDiagnostics().estimatedBytes;
+    point.hasProjection = true;
+    return point;
+}
+
+struct ExportArmPass {
+    size_t directories = 0;
+    size_t entries = 0;
+    size_t serializedBytes = 0;
+    size_t publishReportedSerializedBytes = 0;
+    uint64_t payloadHash = 0;
+    double exportMs = 0.0;
+    double explicitSerializeMs = 0.0;
+    double publishTotalMs = 0.0;
+    double publishCopyAndCommitMs = 0.0;
+    double publishSerializationMs = 0.0;
+    uint64_t generation = 0;
+    bool publishSucceeded = false;
+    MemorySample memoryBefore;
+    MemorySample memoryAfterExport;
+    MemorySample memoryAfterPublish;
+    ffbench::AllocatorSnapshot allocatorBefore;
+    ffbench::AllocatorSnapshot allocatorAfterExport;
+    ffbench::AllocatorSnapshot allocatorAfterPublish;
+    long long retainedExportLiveRequestedBytes = 0;
+    unsigned long long retainedExportLiveUsableBytes = 0;
+    unsigned long long exportAllocationCount = 0;
+    unsigned long long armTotalRequestedBytes = 0;
+    unsigned long long armAllocationCount = 0;
+};
+
+struct ExportArm {
+    std::string name;
+    bool executed = false;
+    std::vector<ExportArmPass> passes;
+};
+
+ExportArmPass RunPooledExportPass(ffengine::IndexPipeline& pipeline, const ffindexstore::VolumeRowId volumeId,
+                                  const size_t boundDirectories,
+                                  ffengine::SnapshotPublisher& publisher) {
+    ExportArmPass pass;
+    pass.memoryBefore = ReadMemory();
+    pass.allocatorBefore = ffbench::ReadAllocatorSnapshot();
+
+    const auto exportStart = Clock::now();
+    ffprotocol::PooledSnapshotMap snapshot =
+        pipeline.ExportDirectorySnapshotBoundedPooled(volumeId, L"C:", boundDirectories);
+    pass.exportMs = ElapsedMs(exportStart);
+    pass.memoryAfterExport = ReadMemory();
+    pass.allocatorAfterExport = ffbench::ReadAllocatorSnapshot();
+    pass.retainedExportLiveRequestedBytes =
+        ffbench::LiveRequestedDelta(pass.allocatorBefore, pass.allocatorAfterExport);
+    pass.retainedExportLiveUsableBytes =
+        ffbench::LiveUsableDelta(pass.allocatorBefore, pass.allocatorAfterExport);
+    pass.exportAllocationCount = ffbench::AllocationsDelta(pass.allocatorBefore, pass.allocatorAfterExport);
+    pass.directories = snapshot.size();
+    for (const auto& [path, directory] : snapshot) {
+        UNREFERENCED_PARAMETER(path);
+        pass.entries += directory.entries.size();
+    }
+
+    const auto serializeStart = Clock::now();
+    const std::vector<uint8_t> bytes = ffprotocol::SerializeSnapshot(snapshot);
+    pass.explicitSerializeMs = ElapsedMs(serializeStart);
+    pass.serializedBytes = bytes.size();
+    pass.payloadHash = Fnv1a64(bytes);
+
+    ffengine::SnapshotPublisher::PublishTimings timings;
+    const auto publishStart = Clock::now();
+    pass.generation = publisher.Publish(snapshot, &timings);
+    pass.publishTotalMs = ElapsedMs(publishStart);
+    pass.publishSucceeded = pass.generation != 0;
+    pass.publishReportedSerializedBytes = timings.serializedBytes;
+    pass.publishCopyAndCommitMs = timings.copyAndCommitMs;
+    pass.publishSerializationMs = timings.serializationMs;
+    pass.memoryAfterPublish = ReadMemory();
+    pass.allocatorAfterPublish = ffbench::ReadAllocatorSnapshot();
+    pass.armTotalRequestedBytes =
+        ffbench::RequestedBytesDelta(pass.allocatorBefore, pass.allocatorAfterPublish);
+    pass.armAllocationCount = ffbench::AllocationsDelta(pass.allocatorBefore, pass.allocatorAfterPublish);
+    return pass;
+}
+
+ExportArmPass RunOwningExportPass(ffengine::IndexPipeline& pipeline, const ffindexstore::VolumeRowId volumeId,
+                                  const size_t boundDirectories,
+                                  ffengine::SnapshotPublisher& publisher) {
+    ExportArmPass pass;
+    pass.memoryBefore = ReadMemory();
+    pass.allocatorBefore = ffbench::ReadAllocatorSnapshot();
+
+    const auto exportStart = Clock::now();
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> snapshot =
+        pipeline.ExportDirectorySnapshotBounded(volumeId, L"C:", boundDirectories);
+    pass.exportMs = ElapsedMs(exportStart);
+    pass.memoryAfterExport = ReadMemory();
+    pass.allocatorAfterExport = ffbench::ReadAllocatorSnapshot();
+    pass.retainedExportLiveRequestedBytes =
+        ffbench::LiveRequestedDelta(pass.allocatorBefore, pass.allocatorAfterExport);
+    pass.retainedExportLiveUsableBytes =
+        ffbench::LiveUsableDelta(pass.allocatorBefore, pass.allocatorAfterExport);
+    pass.exportAllocationCount = ffbench::AllocationsDelta(pass.allocatorBefore, pass.allocatorAfterExport);
+    pass.directories = snapshot.size();
+    for (const auto& [path, directory] : snapshot) {
+        UNREFERENCED_PARAMETER(path);
+        pass.entries += directory.entries.size();
+    }
+
+    const auto serializeStart = Clock::now();
+    const std::vector<uint8_t> bytes = ffprotocol::SerializeSnapshot(snapshot);
+    pass.explicitSerializeMs = ElapsedMs(serializeStart);
+    pass.serializedBytes = bytes.size();
+    pass.payloadHash = Fnv1a64(bytes);
+
+    ffengine::SnapshotPublisher::PublishTimings timings;
+    const auto publishStart = Clock::now();
+    pass.generation = publisher.Publish(snapshot, &timings);
+    pass.publishTotalMs = ElapsedMs(publishStart);
+    pass.publishSucceeded = pass.generation != 0;
+    pass.publishReportedSerializedBytes = timings.serializedBytes;
+    pass.publishCopyAndCommitMs = timings.copyAndCommitMs;
+    pass.publishSerializationMs = timings.serializationMs;
+    pass.memoryAfterPublish = ReadMemory();
+    pass.allocatorAfterPublish = ffbench::ReadAllocatorSnapshot();
+    pass.armTotalRequestedBytes =
+        ffbench::RequestedBytesDelta(pass.allocatorBefore, pass.allocatorAfterPublish);
+    pass.armAllocationCount = ffbench::AllocationsDelta(pass.allocatorBefore, pass.allocatorAfterPublish);
+    return pass;
+}
+
+struct ScaleMemoryReport {
+    size_t scale = 0;
+    size_t directoryCount = 0;
+    size_t fileCount = 0;
+    size_t boundDirectories = 0;
+    size_t rebuildCycleTarget = 0;
+    uint64_t databaseBytes = 0;
+    uint64_t volumeRowId = 0;
+    std::wstring databaseLocation;
+    double generationMs = 0.0;
+    bool executed = false;
+    std::string failureReason;
+    std::vector<MemoryCapturePoint> captures;
+    std::vector<MemoryCapturePoint> rebuildCycles;
+    ExportArm pooledExport;
+    ExportArm owningExport;
+    bool payloadIdentical = false;
+};
+
+bool RunScaleMemoryReport(const size_t scale, const Options& options,
+                          ffengine::SnapshotPublisher& publisher, ScaleMemoryReport& report) {
+    report.scale = scale;
+    report.directoryCount = (std::max)(size_t{1}, scale / 64);
+    report.fileCount = scale > 1 + report.directoryCount ? scale - 1 - report.directoryCount : 0;
+    report.boundDirectories = options.exportBoundDirectories;
+    report.rebuildCycleTarget = options.rebuildCycles;
+
+    const std::filesystem::path temporaryDirectory = MakeTemporaryDirectory(scale);
+    if (temporaryDirectory.empty()) {
+        report.failureReason = "temporary directory creation failed";
+        return false;
+    }
+    const std::filesystem::path database = temporaryDirectory / L"index.db";
+    report.databaseLocation = database.wstring();
+
+    bool succeeded = false;
+    do {
+        report.captures.push_back(CaptureMemoryPoint("process_start", 0.0));
+        MemorySample beforeFixture{};
+        MemorySample afterFixture{};
+        ffindexstore::VolumeRowId volumeId = 0;
+        if (!BuildSyntheticDatabase(database, scale, report.generationMs, volumeId,
+                                    beforeFixture, afterFixture, options.detailedDiagnostics)) {
+            report.failureReason = "synthetic database generation failed";
+            break;
+        }
+        report.databaseBytes = DatabaseBytes(database);
+        report.volumeRowId = static_cast<uint64_t>(volumeId);
+        report.captures.push_back(CaptureMemoryPoint("after_fixture_generation", 0.0));
+
+        ffprotocol::VolumeSetting setting;
+        setting.key = L"C:";
+        setting.enabled = true;
+        {
+            ffengine::IndexPipeline pipeline;
+            const auto openStart = Clock::now();
+            if (!pipeline.Open(PathToUtf8(database))) {
+                report.failureReason = "database open failed";
+                break;
+            }
+            pipeline.SetVolumeRules(volumeId, setting);
+            report.captures.push_back(
+                CaptureProjectionPoint("after_database_open", pipeline, ElapsedMs(openStart)));
+
+            for (size_t cycle = 1; cycle <= options.rebuildCycles; ++cycle) {
+                const auto rebuildStart = Clock::now();
+                pipeline.RebuildAll({});
+                const double rebuildMs = ElapsedMs(rebuildStart);
+                report.rebuildCycles.push_back(CaptureProjectionPoint(
+                    "after_rebuild_cycle_" + std::to_string(cycle), pipeline, rebuildMs));
+                if (options.detailedDiagnostics) {
+                    const auto& point = report.rebuildCycles.back();
+                    std::printf("  [%zu] rebuild cycle %zu: %.1f ms, private %.1f MB, live requested %.1f MB, "
+                                "live allocations %llu\n",
+                                scale, cycle, rebuildMs,
+                                static_cast<double>(point.memory.privateBytes) / (1024.0 * 1024.0),
+                                static_cast<double>(point.allocator.liveRequestedBytes) / (1024.0 * 1024.0),
+                                point.allocator.liveAllocations);
+                    std::fflush(stdout);
+                }
+            }
+
+            // Counterbalanced export weighing: pooled (retained production path),
+            // owning (reference path), owning, pooled.
+            ExportArm pooledArm;
+            pooledArm.name = "pooled-export-publication";
+            ExportArm owningArm;
+            owningArm.name = "owning-export-publication";
+            for (int pass = 0; pass < 4; ++pass) {
+                if (pass == 0 || pass == 3) {
+                    pooledArm.passes.push_back(RunPooledExportPass(
+                        pipeline, volumeId, options.exportBoundDirectories, publisher));
+                } else {
+                    owningArm.passes.push_back(RunOwningExportPass(
+                        pipeline, volumeId, options.exportBoundDirectories, publisher));
+                }
+            }
+            pooledArm.executed = true;
+            owningArm.executed = true;
+            report.payloadIdentical = !pooledArm.passes.empty() && !owningArm.passes.empty()
+                && pooledArm.passes.front().payloadHash == owningArm.passes.front().payloadHash
+                && pooledArm.passes.front().serializedBytes == owningArm.passes.front().serializedBytes;
+            report.pooledExport = std::move(pooledArm);
+            report.owningExport = std::move(owningArm);
+            report.captures.push_back(CaptureMemoryPoint("after_export_weighing", 0.0));
+
+            const auto closeStart = Clock::now();
+            pipeline.Close();
+            report.captures.push_back(CaptureMemoryPoint("after_pipeline_close", ElapsedMs(closeStart)));
+        }
+        report.captures.push_back(CaptureMemoryPoint("after_pipeline_release", 0.0));
+
+        // Release-and-rebuild cycle: the same durable database is reopened in
+        // the same process and rebuilt once more, then closed again. A
+        // justified baseline means this repeat does not raise live allocations
+        // or private bytes above the first generation's plateau.
+        ffengine::IndexPipeline reopened;
+        const auto reopenStart = Clock::now();
+        if (!reopened.Open(PathToUtf8(database))) {
+            report.failureReason = "reopen after close failed";
+            break;
+        }
+        reopened.SetVolumeRules(volumeId, setting);
+        reopened.RebuildAll({});
+        report.captures.push_back(CaptureProjectionPoint("after_close_reopen_rebuild", reopened,
+                                                          ElapsedMs(reopenStart)));
+        const auto secondCloseStart = Clock::now();
+        reopened.Close();
+        report.captures.push_back(CaptureMemoryPoint("after_close_reopen_close", ElapsedMs(secondCloseStart)));
+        succeeded = true;
+    } while (false);
+
+    std::error_code ignored;
+    std::filesystem::remove_all(temporaryDirectory, ignored);
+    report.executed = succeeded;
+    return succeeded;
+}
+
+void WriteAllocator(std::ostream& output, const ffbench::AllocatorSnapshot& snapshot) {
+    output << "{\"live_requested_bytes\":" << snapshot.liveRequestedBytes
+           << ",\"live_usable_bytes\":" << snapshot.liveUsableBytes
+           << ",\"live_rounding_overhead_bytes\":" << snapshot.liveRoundingOverheadBytes()
+           << ",\"live_allocations\":" << snapshot.liveAllocations
+           << ",\"total_allocations\":" << snapshot.totalAllocations
+           << ",\"total_requested_bytes\":" << snapshot.totalRequestedBytes
+           << ",\"peak_live_requested_bytes\":" << snapshot.peakLiveRequestedBytes << '}';
+}
+
+void WriteBreakdown(std::ostream& output, const ffindexstore::Projection::MemoryBreakdown& b) {
+    output << "{\"entry_count\":" << b.entryCount
+           << ",\"row_capacity\":" << b.rowCapacity
+           << ",\"row_bytes\":" << b.rowBytes
+           << ",\"row_live_bytes\":" << b.rowLiveBytes
+           << ",\"row_slack_bytes\":" << b.rowSlackBytes
+           << ",\"free_list_slots\":" << b.freeListSlots
+           << ",\"free_list_bytes\":" << b.freeListBytes
+           << ",\"id_map_elements\":" << b.idMapElements
+           << ",\"id_map_buckets\":" << b.idMapBuckets
+           << ",\"id_map_key_bytes\":" << b.idMapKeyBytes
+           << ",\"id_map_value_bytes\":" << b.idMapValueBytes
+           << ",\"id_map_state_bytes\":" << b.idMapStateBytes
+           << ",\"id_map_bytes\":" << b.idMapBytes
+           << ",\"child_map_elements\":" << b.childMapElements
+           << ",\"child_map_buckets\":" << b.childMapBuckets
+           << ",\"child_map_child_links\":" << b.childMapChildLinks
+           << ",\"child_map_key_bytes\":" << b.childMapKeyBytes
+           << ",\"child_map_child_bytes\":" << b.childMapChildBytes
+           << ",\"child_map_state_bytes\":" << b.childMapStateBytes
+           << ",\"child_map_offset_bytes\":" << b.childMapOffsetBytes
+           << ",\"child_map_count_bytes\":" << b.childMapCountBytes
+           << ",\"child_map_bytes\":" << b.childMapBytes
+           << ",\"unique_name_count\":" << b.uniqueNameCount
+           << ",\"name_arena_chars\":" << b.nameArenaChars
+           << ",\"name_arena_capacity_chars\":" << b.nameArenaCapacityChars
+           << ",\"name_arena_bytes\":" << b.nameArenaBytes
+           << ",\"name_arena_slack_bytes\":" << b.nameArenaSlackBytes
+           << ",\"name_table_slot_count\":" << b.nameTableSlotCount
+           << ",\"name_table_bytes\":" << b.nameTableBytes
+           << ",\"name_hash_bucket_count\":" << b.nameHashBucketCount
+           << ",\"name_hash_bucket_bytes\":" << b.nameHashBucketBytes
+           << ",\"name_hash_node_count\":" << b.nameHashNodeCount
+           << ",\"name_hash_approx_node_bytes\":" << b.nameHashApproxNodeBytes
+           << ",\"name_hash_payload_bytes\":" << b.nameHashPayloadBytes
+           << ",\"name_bytes\":" << b.nameBytes
+           << ",\"filename_index_valid\":" << (b.filenameIndexValid ? "true" : "false")
+           << ",\"filename_index_distinct_trigrams\":" << b.filenameIndexDistinctTrigrams
+           << ",\"filename_index_posting_slots\":" << b.filenameIndexPostingSlots
+           << ",\"filename_index_posting_payload\":" << b.filenameIndexPostingPayload
+           << ",\"filename_index_posting_bytes\":" << b.filenameIndexPostingBytes
+           << ",\"filename_index_posting_header_bytes\":" << b.filenameIndexPostingHeaderBytes
+           << ",\"filename_index_bucket_count\":" << b.filenameIndexBucketCount
+           << ",\"filename_index_bucket_bytes\":" << b.filenameIndexBucketBytes
+           << ",\"filename_index_approx_node_bytes\":" << b.filenameIndexApproxNodeBytes
+           << ",\"filename_index_non_ascii_count\":" << b.filenameIndexNonAsciiCount
+           << ",\"filename_index_non_ascii_slots\":" << b.filenameIndexNonAsciiSlots
+           << ",\"filename_index_non_ascii_bytes\":" << b.filenameIndexNonAsciiBytes
+           << ",\"filename_index_bytes\":" << b.filenameIndexBytes
+           << ",\"lru_bucket_count\":" << b.lruBucketCount
+           << ",\"lru_bucket_bytes\":" << b.lruBucketBytes
+           << ",\"lru_node_count\":" << b.lruNodeCount
+           << ",\"lru_approx_node_bytes\":" << b.lruApproxNodeBytes
+           << ",\"lru_bytes\":" << b.lruBytes
+           << ",\"evicted_volume_count\":" << b.evictedVolumeCount
+           << ",\"evicted_volume_bucket_count\":" << b.evictedVolumeBucketCount
+           << ",\"evicted_volume_bucket_bytes\":" << b.evictedVolumeBucketBytes
+           << ",\"normalized_name_storage_bytes\":" << b.normalizedNameStorageBytes
+           << ",\"stored_path_bytes\":" << b.storedPathBytes
+           << ",\"modeled_category_bytes\":" << b.modeledCategoryBytes
+           << ",\"reported_total_bytes\":" << b.reportedTotalBytes << '}';
+}
+
+void WriteCapturePoint(std::ostream& output, const MemoryCapturePoint& point) {
+    output << "{\"name\":";
+    WriteJsonString(output, point.name);
+    output << ",\"elapsed_ms\":";
+    WriteJsonDouble(output, point.elapsedMs);
+    output << ",\"working_set_bytes\":" << point.memory.workingSetBytes
+           << ",\"private_bytes\":" << point.memory.privateBytes
+           << ",\"peak_working_set_bytes\":" << point.peakWorkingSetBytes
+           << ",\"peak_private_bytes\":" << point.peakPrivateBytes
+           << ",\"allocator\":";
+    WriteAllocator(output, point.allocator);
+    output << ",\"working_set_split\":{\"available\":"
+           << (point.workingSetSplit.available ? "true" : "false")
+           << ",\"page_size_bytes\":" << point.workingSetSplit.pageSizeBytes
+           << ",\"pages\":" << point.workingSetSplit.pages
+           << ",\"total_bytes\":" << point.workingSetSplit.totalBytes
+           << ",\"shareable_bytes\":" << point.workingSetSplit.shareableBytes
+           << ",\"private_bytes\":" << point.workingSetSplit.privateBytes << '}';
+    if (point.hasProjection) {
+        output << ",\"estimator_bytes\":" << point.estimatedBytes << ",\"projection\":";
+        WriteBreakdown(output, point.breakdown);
+    }
+    output << '}';
+}
+
+void WriteExportArmPass(std::ostream& output, const ExportArmPass& pass) {
+    output << "{\"directories\":" << pass.directories << ",\"entries\":" << pass.entries
+           << ",\"serialized_bytes\":" << pass.serializedBytes
+           << ",\"publish_reported_serialized_bytes\":" << pass.publishReportedSerializedBytes
+           << ",\"payload_fnv1a64\":" << pass.payloadHash
+           << ",\"export_ms\":";
+    WriteJsonDouble(output, pass.exportMs);
+    output << ",\"explicit_serialize_ms\":";
+    WriteJsonDouble(output, pass.explicitSerializeMs);
+    output << ",\"publish_total_ms\":";
+    WriteJsonDouble(output, pass.publishTotalMs);
+    output << ",\"publish_copy_and_commit_ms\":";
+    WriteJsonDouble(output, pass.publishCopyAndCommitMs);
+    output << ",\"publish_serialization_ms\":";
+    WriteJsonDouble(output, pass.publishSerializationMs);
+    output << ",\"publish_succeeded\":" << (pass.publishSucceeded ? "true" : "false")
+           << ",\"generation\":" << pass.generation
+           << ",\"retained_export_live_requested_bytes\":" << pass.retainedExportLiveRequestedBytes
+           << ",\"retained_export_live_usable_bytes\":" << pass.retainedExportLiveUsableBytes
+           << ",\"export_allocation_count\":" << pass.exportAllocationCount
+           << ",\"arm_total_requested_bytes\":" << pass.armTotalRequestedBytes
+           << ",\"arm_allocation_count\":" << pass.armAllocationCount
+           << ",\"memory_before\":";
+    WriteMemory(output, pass.memoryBefore);
+    output << ",\"memory_after_export\":";
+    WriteMemory(output, pass.memoryAfterExport);
+    output << ",\"memory_after_publish\":";
+    WriteMemory(output, pass.memoryAfterPublish);
+    output << ",\"allocator_before\":";
+    WriteAllocator(output, pass.allocatorBefore);
+    output << ",\"allocator_after_export\":";
+    WriteAllocator(output, pass.allocatorAfterExport);
+    output << ",\"allocator_after_publish\":";
+    WriteAllocator(output, pass.allocatorAfterPublish);
+    output << '}';
+}
+
+void WriteExportArm(std::ostream& output, const ExportArm& arm) {
+    output << "{\"name\":";
+    WriteJsonString(output, arm.name);
+    output << ",\"executed\":" << (arm.executed ? "true" : "false") << ",\"passes\":[";
+    for (size_t index = 0; index < arm.passes.size(); ++index) {
+        if (index != 0) output << ',';
+        WriteExportArmPass(output, arm.passes[index]);
+    }
+    output << "]}";
+}
+
+void WriteScaleMemoryReport(std::ostream& output, const ScaleMemoryReport& report) {
+    output << "{\"scale\":" << report.scale
+           << ",\"directory_count\":" << report.directoryCount
+           << ",\"file_count\":" << report.fileCount
+           << ",\"bound_directories\":" << report.boundDirectories
+           << ",\"rebuild_cycle_target\":" << report.rebuildCycleTarget
+           << ",\"database_bytes\":" << report.databaseBytes
+           << ",\"durable_volume_row_id\":" << report.volumeRowId
+           << ",\"generation_ms\":";
+    WriteJsonDouble(output, report.generationMs);
+    output << ",\"executed\":" << (report.executed ? "true" : "false")
+           << ",\"failure_reason\":";
+    WriteJsonString(output, report.failureReason);
+    output << ",\"payload_identical\":" << (report.payloadIdentical ? "true" : "false")
+           << ",\"rebuild_cycles\":[";
+    for (size_t index = 0; index < report.rebuildCycles.size(); ++index) {
+        if (index != 0) output << ',';
+        WriteCapturePoint(output, report.rebuildCycles[index]);
+    }
+    output << "],\"captures\":[";
+    for (size_t index = 0; index < report.captures.size(); ++index) {
+        if (index != 0) output << ',';
+        WriteCapturePoint(output, report.captures[index]);
+    }
+    output << "],\"pooled_export\":";
+    WriteExportArm(output, report.pooledExport);
+    output << ",\"owning_export\":";
+    WriteExportArm(output, report.owningExport);
+    output << '}';
+}
+
+int RunMemoryReportMode(const Options& options) {
+    ffengine::SnapshotPublisher publisher;
+    if (!publisher.Start(GetCurrentProcessId())) {
+        std::fprintf(stderr, "snapshot publisher start failed\n");
+        return 1;
+    }
+    std::vector<ScaleMemoryReport> reports;
+    bool allSucceeded = true;
+    for (const size_t scale : options.scales) {
+        std::printf("Projection-memory decomposition: building %zu synthetic entries...\n", scale);
+        std::fflush(stdout);
+        ScaleMemoryReport report;
+        if (!RunScaleMemoryReport(scale, options, publisher, report)) {
+            allSucceeded = false;
+            std::fprintf(stderr, "memory decomposition failed at %zu: %s\n", scale,
+                         report.failureReason.c_str());
+        }
+        reports.push_back(std::move(report));
+    }
+    publisher.Stop();
+
+    std::filesystem::path parent = options.memoryOutputPath.parent_path();
+    if (!parent.empty()) {
+        std::error_code error;
+        std::filesystem::create_directories(parent, error);
+        if (error) {
+            std::fprintf(stderr, "unable to create memory report directory\n");
+            return 1;
+        }
+    }
+    std::ofstream output(options.memoryOutputPath, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        std::fprintf(stderr, "unable to open memory report output: %s\n",
+                     PathToUtf8(options.memoryOutputPath).c_str());
+        return 1;
+    }
+    const MachineInfo machine = ReadMachineInfo();
+    output << "{\n  \"schema\":\"fastfiles-projection-memory-decomposition-v1\"\n"
+           << "  ,\"generated_epoch_seconds\":" << static_cast<long long>(std::time(nullptr)) << '\n'
+           << "  ,\"build_identity\":\"" << ffsetup::kBuildIdentityAscii << "\"\n"
+           << "  ,\"build_configuration\":";
+    WriteJsonString(output, machine.buildConfiguration);
+    output << "\n  ,\"process_id\":" << GetCurrentProcessId()
+           << "\n  ,\"requested_scales\":[";
+    for (size_t index = 0; index < options.scales.size(); ++index) {
+        if (index != 0) output << ',';
+        output << options.scales[index];
+    }
+    output << "]\n  ,\"rebuild_cycles_requested\":" << options.rebuildCycles
+           << "\n  ,\"export_bound_directories\":" << options.exportBoundDirectories
+           << "\n  ,\"harness_retention\":{\"capture_point_bytes\":" << sizeof(MemoryCapturePoint)
+           << ",\"note\":\"each rebuild cycle and lifecycle capture retains one MemoryCapturePoint "
+              "(plus its capture-name string) inside this report; that harness retention is part of the "
+              "measured live-allocator delta and is reconciled against the projection category sums\"}"
+           << "\n  ,\"machine\":";
+    WriteMachine(output, machine);
+    output << "\n  ,\"instrumentation\":{"
+              "\"allocator_probe\":\"replaced global operator new/delete: live+cumulative requested and "
+              "usable bytes, allocation counts, live peak; C++ allocations only (SQLite C allocations are "
+              "outside the counter)\","
+              "\"process_memory\":\"GetProcessMemoryInfo PROCESS_MEMORY_COUNTERS_EX (working set, private "
+              "usage, peak working set, peak pagefile)\","
+              "\"working_set_split\":\"QueryWorkingSet + QueryWorkingSetEx page classification (shareable "
+              "vs private)\","
+              "\"projection_categories\":\"Projection::GetMemoryBreakdown live capacity/size/bucket_count "
+              "measurements; modeled_category_bytes equals Projection::EstimatedMemoryBytes\","
+              "\"units\":\"bytes and milliseconds\"}\n"
+           << "  ,\"limitations\":["
+              "\"allocator counts cover C++ operator new/delete only; SQLite (compiled as C) allocates "
+              "through malloc/free and appears in the private-bytes residual instead\","
+              "\"standard-library node links, the probe's 32-byte allocation header, heap block headers and "
+              "heap rounding are residual and are not attributed to any projection category\","
+              "\"working-set shareable pages identify shareable/pagefile-backed pages; they are not proof "
+              "that another process maps the same section\","
+              "\"the export weighing uses the real IndexPipeline pooled/owning export and SnapshotPublisher "
+              "publish APIs in one process; the UI-side parse here is the in-process published-section read, "
+              "not the FastFiles UI process\","
+              "\"timings in this mode are single-process measurements and are not the campaign's idle-gated "
+              "latency protocol\"]\n"
+           << "  ,\"scales\":[";
+    for (size_t index = 0; index < reports.size(); ++index) {
+        if (index != 0) output << ',';
+        WriteScaleMemoryReport(output, reports[index]);
+    }
+    output << "]\n}\n";
+    output.close();
+
+    std::printf("Wrote %s\n", PathToUtf8(options.memoryOutputPath).c_str());
+    return allSucceeded ? 0 : 1;
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
     Options options;
     if (!ParseOptions(argc, argv, options)) return 2;
+
+    // performance-closure-and-multisurface-acceleration 8.1: the memory mode is
+    // a separate, focused path (fixture -> rebuild cycles -> export weighing ->
+    // teardown) that writes its own machine-readable report.
+    if (options.memoryReport) {
+        if (options.memoryOutputPath.empty()) {
+            std::fprintf(stderr, "--memory-report requires an output path\n");
+            return 2;
+        }
+        return RunMemoryReportMode(options);
+    }
 
     std::vector<DatasetResult> datasets;
     std::vector<SearchRun> searchRuns;

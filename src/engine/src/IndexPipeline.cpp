@@ -1191,6 +1191,14 @@ ffindexstore::Projection::MemoryDiagnostics IndexPipeline::GetProjectionMemoryDi
     return projection_.GetMemoryDiagnostics();
 }
 
+// performance-closure-and-multisurface-acceleration 8.1: read-only
+// projection memory decomposition for the memory benchmark. The lock is the
+// same one every other projection read takes; nothing here mutates state.
+ffindexstore::Projection::MemoryBreakdown IndexPipeline::GetProjectionMemoryBreakdown() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return projection_.GetMemoryBreakdown();
+}
+
 bool IndexPipeline::IsVolumeEvicted(const ffindexstore::VolumeRowId volumeId) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return projection_.NeedsReload(volumeId);
