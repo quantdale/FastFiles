@@ -9,14 +9,25 @@ outside this checked commit, per the reordered 11.6 rule.
 - Branch: `feat/performance-closure-and-multisurface-acceleration-20261001`.
 - Start: `origin/main` `bdd7d7b5fb91586df957ce43b348c7fb95cbeae3` (unchanged
   through the campaign; the branch was created from it).
-- `IMPLEMENTATION_SHA`: the finalization's last executable-impacting commit
-  `fc8d873b25417ad5986d9853c3a4ac2298a1350b` (independent-review fixes on top
-  of the decomposition seam, the bulk-rebuild slack release, the dense LRU
-  representation, and the benchmark provenance work; the last executable
-  change). Later tracked commits in this finalization are documentation,
-  evidence, and the tracked reproduction runner only. History: `ae1d03f0` was
-  the pre-finalization certified implementation, `43c044f` the decomposition
-  seam + slack release, `53c1a8d` the dense LRU, `3651dfb` the probe SAL fix.
+- `IMPLEMENTATION_SHA`: `337f2a90dab22a80eb7e476f2bcc99be3695bca5` - the
+  finalization's last executable-impacting commit (the follow-up review fixes
+  to `src/indexstore/Projection.{h,cpp}` and the projection-memory report
+  provenance). Earlier executable commits in the finalization, in order:
+  `43c044f` decomposition seam + bulk-rebuild slack release, `3651dfb` probe
+  SAL fix, `53c1a8d` dense per-slot LRU, `afc366f` memory-report provenance,
+  `fc8d873` independent-review fixes. `337f2a9` is the SHA the
+  executable-tree-equivalence gate runs from: it is the last commit that
+  changes an executable-impacting input, so a binary built here is the
+  certified binary and is proven equivalent to the evidence tip (section K).
+  Correction (claim truthfulness): an earlier revision of this report named
+  `fc8d873` as the last executable change and claimed every later commit was
+  documentation-only. Both are superseded - `337f2a9` later changed
+  `src/indexstore/Projection.{h,cpp}`, and the gate `fc8d873`->evidence-tip
+  FAILS on five changed files while `337f2a9`->evidence-tip PASSES, which is
+  what proves `337f2a9` (not `fc8d873`) is the certified implementation.
+  Tracked commits after `337f2a9` (`863be78`, `fc2b894`, `f31fce0`) are
+  documentation/evidence only. History: `ae1d03f0` was the pre-finalization
+  certified implementation.
 - `certified_binary_sha` (embedded identity of the rebuilt outputs): the
   executable tree of `fc8d873` (equivalence-gated to the final tracked tip);
   the identity-bearing binaries are rebuilt at the certification tip and the
@@ -193,15 +204,15 @@ improvement.
 
 ## K. Certification relationship
 
-- `implementation_sha`: the finalization's last executable-impacting change
-  (the independent-review fixes over the decomposition seam, the bulk-rebuild
-  slack release, the dense per-slot LRU representation, and the benchmark
-  provenance work; the exact SHA is the finalization commit named in the PR
-  body and the session response). The gate relationship from it to the final
-  tracked tip is recorded in the generated artifact and the PR body, not in
-  this tracked file, per the reordered rule. Historical: `ae1d03f0` was the
-  pre-finalization certified implementation; `f0eb28a` -> `623490f` was PASS
-  with digest  `f3668f51f36a9245725cce5aaebbeed6e46738d9e458abceeb4be54002ec49ca`
+- `implementation_sha`: `337f2a90dab22a80eb7e476f2bcc99be3695bca5` - the
+  finalization's last executable-impacting commit (the follow-up review fixes
+  to `src/indexstore/Projection.{h,cpp}`; earlier executable finalization
+  commits are `fc8d873` independent-review fixes, `43c044f` decomposition
+  seam + slack release, `53c1a8d` dense per-slot LRU, `3651dfb` probe SAL
+  fix, `afc366f` memory-report provenance). This is the exact SHA the
+  executable-tree-equivalence gate runs from; a binary built here is the
+  certified binary. Historical: `ae1d03f0` was the pre-finalization certified
+  implementation; `f0eb28a` -> `623490f` was PASS with digest  `f3668f51f36a9245725cce5aaebbeed6e46738d9e458abceeb4be54002ec49ca`
   (`build/_apply26/gates3/r1fix_self_application.json`); `63ddc21` was the
   pre-repair implementation SHA with digest `244d9c4d430059db...`.
 - `certified_binary_sha`: the executable tree of the finalization
@@ -211,14 +222,20 @@ improvement.
   benchmark's own embedded identity).
 - `evidence_sha` / `repository_tip_sha`: the final tracked tip after the
   report commit.
-- `executable_impacting_digest` / verdict: the current run is from
-  `ae1d03f0bb90b109cd781d07223fd69ec0f8ec7a` to the tracked tip
-  `0d247ed51d343db6faf0114a997b239b759fcb9b` — **PASS**, digest
-  `c9c660e85d7c744b90146c53424ee22c9876e5cdfc96a71cddf3e571871df021`,
-  389 paths (309 TUs, 33 build inputs). Any later tracked commit requires
-  another run; the live final tip/verdict stays in the PR body and the
-  generated artifact outside the checked commit. Historical: the
-  `63ddc21`-based run used digest `244d9c4d430059db...`.
+- `executable_impacting_digest` / verdict: the authoritative relationship is
+  `product_tree(337f2a9) == product_tree(current evidence tip)` — **PASS**,
+  digest `ebbeb6b8066568d13adbf7a534a6713d29c77f5f40417f92764acf78b8036e21`
+  (390 paths / 309 TUs / 33 build inputs). The digest is stable across
+  evidence-only tips (they move no executable-impacting file), so it is safe
+  to record here; only the moving evidence-tip SHA lives in the generated
+  artifact `build/finalize-for-main-equivalence.json` and the PR body, per the
+  reordered rule (no certify-then-document loop). Any later tracked commit is
+  re-gated the same way. Adversarial control on the corrected identity: the
+  gate `fc8d873`->evidence-tip **FAILS** (five changed files, incl.
+  `src/indexstore/Projection.{h,cpp}`), proving `fc8d873` is not the
+  implementation and `337f2a9` is. Historical intermediate runs:
+  `ae1d03f0`->`0d247ed` PASS digest  `c9c660e85d7c744b90146c53424ee22c9876e5cdfc96a71cddf3e571871df021`
+  (389 paths); the `63ddc21`-based run digest `244d9c4d430059db...`.
 
 ## L. Hosted CI
 
