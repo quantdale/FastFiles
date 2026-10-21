@@ -48,7 +48,7 @@
 
 ## 9. Review
 
-- [ ] 9.1 Independent adversarial read-only reviews: A rebuild correctness (replacement, retry, scan authority, indexes, memory limits); B complexity/performance (verify claimed complexity change); C search equivalence (differential attack on every accelerated path); D memory/resources (peak, retained pages, handles, cycles); E lifecycle mapping (benchmark vs production correspondence); F certification truth (SHAs, equivalence claims, reused evidence).
+- [x] 9.1 Independent adversarial read-only reviews: A rebuild correctness (replacement, retry, scan authority, indexes, memory limits); B complexity/performance (verify claimed complexity change); C search equivalence (differential attack on every accelerated path); D memory/resources (peak, retained pages, handles, cycles); E lifecycle mapping (benchmark vs production correspondence); F certification truth (SHAs, equivalence claims, reused evidence). Evidence: `evidence/adversarial-review-2026-10-21.md` (six parallel lanes at `b6df9ef`; 3 P1s + 7 P2s + P3s confirmed and fixed in `43fc3c1` with regression tests; lane-E evidence-truth corrections applied; honest open items disclosed).
 
 ## 10. Certification
 
