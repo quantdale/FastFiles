@@ -175,9 +175,9 @@ public:
         size_t filenameIndexBucketCount = 0;
         size_t filenameIndexBucketBytes = 0;
         size_t filenameIndexApproxNodeBytes = 0;
-        size_t filenameIndexNonAsciiCount = 0;  // live entries (size, not capacity)
-        size_t filenameIndexNonAsciiSlots = 0;
-        size_t filenameIndexNonAsciiBytes = 0;
+        size_t filenameIndexExceptionalCount = 0;  // live entries (size, not capacity)
+        size_t filenameIndexExceptionalSlots = 0;
+        size_t filenameIndexExceptionalBytes = 0;
         size_t filenameIndexBytes = 0;
         // ---- LRU / eviction metadata -------------------------------------
         size_t lruSlotCapacity = 0;             // dense per-slot timestamp vector
@@ -280,6 +280,13 @@ public:
     void SetRemovalMaintenanceMode(RemovalMaintenanceMode mode) noexcept {
         removalMaintenanceMode_ = mode;
     }
+    // large-index-lifecycle-and-search-scalability review-remediation (P2-A):
+    // testing-only seam that force-marks a UTF-16 unit as fold-exceptional
+    // (simulates a host ordinal table that equates it with ASCII, e.g. U+017F
+    // LONG S vs 's'), so the candidate-completeness machinery for the
+    // exceptional-name fallback is deterministically testable on hosts whose
+    // real table has no cross-ASCII fold classes. Never set in production.
+    static void SetTestingFoldExceptionalUnit(char16_t unit, bool exceptional);
 #endif
 
     const ProjectionEntry* Find(VolumeRowId volumeRowId, FileId frn) const;
@@ -289,6 +296,11 @@ public:
     // Returns a conservative candidate set for an already ASCII-folded
     // simple literal. nullopt means the secondary accelerator is ineligible
     // or unavailable, so callers must use the canonical live-entry scan.
+    // The candidate set is a CONSERVATIVE SUPERSET of the rows the canonical
+    // (CompareStringOrdinal ignore-case) matcher would accept: every row the
+    // matcher accepts is present, though the set may contain false positives
+    // that only the canonical matcher rejects. False negatives are forbidden
+    // (review-remediation P2-A enforces this for every host ordinal table).
     // Returned slot indices belong to this projection generation and are
     // valid only while the caller holds the projection's synchronization.
     std::optional<std::vector<uint32_t>> FilenameCandidateIndices(
@@ -441,7 +453,11 @@ private:
     FlatChildrenMap parentToChildren_;
     bool denseIterationOrderValid_ = false;
     std::unordered_map<uint64_t, std::vector<uint32_t>> filenameTrigramPostings_;
-    std::vector<uint32_t> filenameNonAsciiEntries_;
+    // review-remediation (P2-A): rows whose names can match an ASCII needle
+    // through a non-ASCII unit under the host ordinal table, plus every
+    // surrogate-bearing name (conservative). Sorted slot indices; merged into
+    // every ASCII candidate set so the superset invariant holds.
+    std::vector<uint32_t> filenameExceptionalEntries_;
     bool filenameIndexValid_ = true;
     bool filenameIndexBuilding_ = false;
 #ifdef FF_INDEXSTORE_TESTING

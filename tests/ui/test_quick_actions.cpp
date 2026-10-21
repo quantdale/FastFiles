@@ -5,6 +5,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 
+#include "ClipboardRoundTripClassifier.h"
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -96,38 +97,114 @@ int main() {
         Check(paths.empty() && !cut, "a failed lock must yield an empty path list");
     }
 
-    // Round-trip through the real clipboard APIs (skipped when a locked-down
-    // session refuses OpenClipboard; that is an environment limit, not a
-    // logic failure).
+    // Round-trip through the real clipboard APIs. Classification is explicit
+    // (ClipboardRoundTripClassifier): an exact round trip PASSes; DELIVERED
+    // but wrong or incomplete data FAILs immediately (never retried away);
+    // only CONFIRMED conditions (every advertised format -- independent
+    // formats included -- delivering nothing across a bounded read window
+    // while the write stuck, or a refused write/open) are loud SKIPs.
+    // review-remediation P2-B. The bounded window exists because raw-probe
+    // evidence (build/campaign/probe_clipboard) shows this host can deliver
+    // freshly written formats LATE: the first read-after-write sees null
+    // handles while the identical read milliseconds later returns the exact
+    // payload. That race must not masquerade as either data loss or
+    // "interception", and format availability alone must never pass a round
+    // trip.
     {
         const std::vector<std::wstring> expected{L"C:\\Fixture\\RoundTrip.txt", L"D:\\Fixture\\RoundTrip2.txt"};
-        if (ffui::CopyFilesToClipboard(nullptr, expected, true)) {
-            bool cut = false;
-            const auto read = ffui::ReadFilesFromClipboard(nullptr, cut);
-            if (read == expected && cut) {
-                Check(true, "clipboard HDROP round-trip lost paths");
-                Check(true, "clipboard Preferred DropEffect round-trip lost the cut intent");
-            } else if (IsClipboardFormatAvailable(CF_HDROP)) {
-                // large-index-lifecycle-and-search-scalability: the write
-                // stuck (CF_HDROP is still listed) but the read-back delivered
-                // nothing -- GetClipboardData is intercepted in this session
-                // (raw Win32 probe: every format reads back null while
-                // SetClipboardData/EnumClipboardFormats and the OLE clipboard
-                // path work). That is a session-level read interception, the
-                // same environment class the write-side skip above covers;
-                // fail loud only when the data is genuinely gone.
-                std::cout << "clipboard read-back intercepted (CF_HDROP present but GetClipboardData "
-                             "delivers nothing); skipping real-clipboard round-trip\n";
+        if (!ffui::CopyFilesToClipboard(nullptr, expected, true)) {
+            std::cout << "clipboard unavailable (write refused); "
+                         "SKIP real-clipboard round-trip ("
+                      << ClipboardRoundTripVerdictName(fftest::ClipboardRoundTripVerdict::PublicationUnavailable)
+                      << ")\n";
+        } else {
+            const DWORD sequenceAtWrite = GetClipboardSequenceNumber();
+            fftest::ClipboardRoundTripObservations observations;
+            observations.writePublished = true;
+            bool delivered = false;
+            for (int attempt = 0; attempt < 80 && !delivered; ++attempt) {
+                bool cut = false;
+                const auto read = ffui::ReadFilesFromClipboard(nullptr, cut);
+                if (read.empty() && !cut) {
+                    // Nothing delivered yet: retry inside the bounded window.
+                    Sleep(25);
+                    continue;
+                }
+                // Something was delivered: evaluate now and stop. A wrong
+                // delivery is a real data defect and may never be skipped.
+                observations.pathsMatchExpected = (read == expected);
+                observations.cutIntentMatchesExpected = (cut == true); // published cut=true
+                delivered = true;
+            }
+            observations.sequenceChangedSincePublication =
+                GetClipboardSequenceNumber() != sequenceAtWrite;
+            if (!delivered) {
+                // Nothing was delivered across the whole window: classify
+                // from raw observations (advertised formats, actual
+                // GetClipboardData handles, lockability, parsed payload).
+                if (OpenClipboard(nullptr)) {
+                    const UINT probeFormats[] = {CF_HDROP, CF_UNICODETEXT, CF_TEXT, CF_DIB};
+                    for (const UINT format : probeFormats) {
+                        if (!IsClipboardFormatAvailable(format)) continue;
+                        ++observations.advertisedFormatCount;
+                        if (format == CF_UNICODETEXT) observations.independentFormatAdvertised = true;
+                        HANDLE data = GetClipboardData(format);
+                        if (data == nullptr) {
+                            ++observations.nullHandleFormatCount;
+                            continue;
+                        }
+                        void* locked = GlobalLock(data);
+                        if (locked == nullptr) {
+                            ++observations.nullHandleFormatCount;
+                            continue;
+                        }
+                        ++observations.readableFormatCount;
+                        if (format == CF_HDROP) {
+                            observations.hdropAdvertised = true;
+                            observations.hdropReadable = true;
+                            std::vector<std::wstring> probePaths;
+                            bool probeCut = false;
+                            observations.hdropPayloadValid =
+                                ffui::ReadDropHandle(data, nullptr, probePaths, probeCut) && !probePaths.empty();
+                        }
+                        if (format == CF_UNICODETEXT) observations.independentFormatReadable = true;
+                        GlobalUnlock(data);
+                    }
+                    CloseClipboard();
+                }
+                if (IsClipboardFormatAvailable(CF_HDROP)) observations.hdropAdvertised = true;
+            }
+            const auto verdict = fftest::ClassifyClipboardRoundTrip(observations);
+            if (verdict == fftest::ClipboardRoundTripVerdict::Pass) {
+                Check(true, "clipboard HDROP round-trip preserved the exact paths");
+                Check(true, "clipboard Preferred DropEffect round-trip preserved the cut intent");
+            } else if (verdict == fftest::ClipboardRoundTripVerdict::EnvironmentInterception) {
+                // The documented locked-down-session condition, confirmed
+                // from actual null handles across ALL advertised formats for
+                // the whole bounded window -- not from format availability.
+                std::cout << "clipboard read-back delivered nothing across the bounded window "
+                             "(every advertised format has a null handle while the write stuck); "
+                             "SKIP real-clipboard round-trip ("
+                          << ClipboardRoundTripVerdictName(verdict) << ")\n";
+            } else if (verdict == fftest::ClipboardRoundTripVerdict::PublicationUnavailable) {
+                std::cout << "clipboard became unavailable; SKIP real-clipboard round-trip ("
+                          << ClipboardRoundTripVerdictName(verdict) << ")\n";
             } else {
-                Check(read == expected, "clipboard HDROP round-trip lost paths");
-                Check(cut, "clipboard Preferred DropEffect round-trip lost the cut intent");
+                std::cout << "clipboard round-trip classified " << ClipboardRoundTripVerdictName(verdict)
+                          << " delivered=" << (delivered ? 1 : 0)
+                          << " pathsMatch=" << (observations.pathsMatchExpected ? 1 : 0)
+                          << " cutMatch=" << (observations.cutIntentMatchesExpected ? 1 : 0)
+                          << " hdropReadable=" << (observations.hdropReadable ? 1 : 0)
+                          << " payloadValid=" << (observations.hdropPayloadValid ? 1 : 0)
+                          << " advertised=" << observations.advertisedFormatCount
+                          << " null=" << observations.nullHandleFormatCount
+                          << " readable=" << observations.readableFormatCount << "\n";
+                Check(false, "clipboard round-trip returned wrong or incomplete data (classified FAIL, not skipped)");
             }
             if (OpenClipboard(nullptr)) {
                 EmptyClipboard();
                 CloseClipboard();
             }
-        } else {
-            std::cout << "clipboard unavailable; skipping real-clipboard round-trip\n";
         }
     }
 

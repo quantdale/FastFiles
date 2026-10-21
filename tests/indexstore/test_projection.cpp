@@ -701,12 +701,13 @@ void TestProjectionMemoryBreakdownMatchesEstimatorAndCategories() {
     Check(breakdown.filenameIndexDistinctTrigrams > 0, "trigram postings are reported");
     Check(breakdown.filenameIndexPostingSlots >= breakdown.filenameIndexPostingPayload,
           "posting capacity is never below its payload");
-    Check(breakdown.filenameIndexNonAsciiSlots >= 1,
-          "the CJK name is tracked in the non-ASCII list");
+    Check(breakdown.filenameIndexExceptionalCount == 0,
+          "CJK names are not fold-exceptional (this host's ordinal table has no "
+          "cross-ASCII fold classes) and stay out of the exceptional list");
     Check(breakdown.filenameIndexBytes == breakdown.filenameIndexPostingBytes
               + breakdown.filenameIndexApproxNodeBytes + breakdown.filenameIndexBucketBytes
-              + breakdown.filenameIndexNonAsciiBytes,
-          "filename-index bytes sum postings, node headers, buckets, non-ASCII list");
+              + breakdown.filenameIndexExceptionalBytes,
+          "filename-index bytes sum postings, node headers, buckets, exceptional list");
     Check(breakdown.lruBytes == breakdown.lruSlotCapacity * sizeof(uint64_t),
           "LRU bytes are the dense per-slot timestamp capacity");
     Check(breakdown.lruTrackedCount <= breakdown.lruSlotCount,
@@ -724,8 +725,8 @@ void TestProjectionMemoryBreakdownMatchesEstimatorAndCategories() {
     proj.SetBulkScanActive(true);
     const auto disabled = proj.GetMemoryBreakdown();
     Check(!disabled.filenameIndexValid, "a bulk scan disables the optional accelerator");
-    Check(disabled.filenameIndexDistinctTrigrams == 0 && disabled.filenameIndexNonAsciiCount == 0,
-          "a disabled accelerator retains no posting entries or non-ASCII entries (vector capacity is retained, not entry data)");
+    Check(disabled.filenameIndexDistinctTrigrams == 0 && disabled.filenameIndexExceptionalCount == 0,
+          "a disabled accelerator retains no posting entries or fold-exceptional entries (vector capacity is retained, not entry data)");
     Check(disabled.modeledCategoryBytes == proj.EstimatedMemoryBytes(),
           "the modeled sum still matches the estimator with the accelerator disabled");
     proj.SetBulkScanActive(false);
@@ -1027,14 +1028,19 @@ void TestRemoveVolumeCanLeaveAcceleratorForCallerRebuild() {
           "an invalidated accelerator yields no candidates and search falls back to the canonical scan");
 }
 
-// large-index-lifecycle-and-search-scalability 6.2/6.3: filename-accelerator
-// planner. The historical accelerator unconditionally unioned every
-// non-ASCII-named row into every candidate set, so at any scale whose Unicode
-// population exceeds the caller's cap every lookup returned nullopt and no
-// query class could ever use the index. FoldAscii is length-preserving and
-// non-ASCII names' folded trigrams are indexed, so pure-ASCII needles are
-// served by the posting intersection alone (superset guarantee); the union
-// only adds false positives.
+// large-index-lifecycle-and-search-scalability 6.2/6.3 + review-remediation
+// (P2-A): filename-accelerator planner. The historical accelerator
+// unconditionally unioned every non-ASCII-named row into every candidate set,
+// so at any scale whose Unicode population exceeds the caller's cap every
+// lookup returned nullopt and no query class could ever use the index. The
+// posting intersection serves pure-ASCII needles (superset guarantee), merged
+// only with the FOLD-EXCEPTIONAL rows (names that could match an ASCII needle
+// through a non-ASCII unit under the host's CompareStringOrdinal ordinal
+// table, plus every surrogate-bearing name). The pre-review intersection-only
+// variant dropped that merge and relied on an unproven assumption that the
+// host ordinal table has no cross-ASCII fold classes; the tests below pin the
+// invariant against the REAL comparison function and exercise the fallback
+// both through the host-derived probe and the testing seam.
 
 std::u16string FoldAsciiLower(const std::u16string_view value) {
     std::u16string folded;
@@ -1124,6 +1130,202 @@ void TestFilenameCandidatesNarrowForSelectiveNeedlesDespiteUnicodeRows() {
           "a no-match pure-ASCII needle yields an empty candidate set, not every Unicode row");
 }
 
+// review-remediation (P2-A): the exact comparison shape of the canonical
+// matcher (ffsearch::OrdinalContains: equal-length spans through
+// CompareStringOrdinal(..., TRUE)). The candidate-superset invariant is
+// stated against this function -- never against an assumed Unicode casefold.
+bool CanonicalOrdinalContains(const std::u16string& name, const std::u16string& needle) {
+    if (needle.empty()) return true;
+    if (name.size() < needle.size()) return false;
+    for (size_t i = 0; i + needle.size() <= name.size(); ++i) {
+        if (CompareStringOrdinal(reinterpret_cast<const wchar_t*>(name.data() + i),
+                                 static_cast<int>(needle.size()),
+                                 reinterpret_cast<const wchar_t*>(needle.data()),
+                                 static_cast<int>(needle.size()), TRUE) == CSTR_EQUAL) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool OrdinalUnitEqual(const char16_t a, const char16_t b) {
+    return CompareStringOrdinal(reinterpret_cast<const wchar_t*>(&a), 1,
+                                reinterpret_cast<const wchar_t*>(&b), 1, TRUE) == CSTR_EQUAL;
+}
+
+// review-remediation (P2-A): campaign-host characterization of the Windows
+// ordinal case table. The PR review's example assumed Unicode casefold
+// semantics (U+017F LONG S uppercases to 'S' in Unicode's table); the REAL
+// CompareStringOrdinal verdicts on the campaign host are NOT that. If a
+// future Windows ordinal table changes any verdict here this test fails
+// loudly and the review-remediation evidence must be re-audited. The product
+// stays correct either way: the fold-exceptional set is derived from the
+// live comparison function at run time (UnitMayFoldToAscii).
+void TestHostOrdinalFoldSemanticsMatchCampaignMeasurement() {
+    Check(OrdinalUnitEqual(u'A', u'a'),
+          "ASCII sanity: ordinal ignore-case folds A/a");
+    Check(OrdinalUnitEqual(u'\u00C9', u'\u00E9'),
+          "ordinal ignore-case DOES fold non-ASCII case pairs (E-acute): folding is not ASCII-only");
+    Check(!OrdinalUnitEqual(u'\u017F', u's') && !OrdinalUnitEqual(u'\u017F', u'S'),
+          "campaign host: LONG S is NOT equal to s/S under ordinal ignore-case (review example disproven here)");
+    Check(!OrdinalUnitEqual(u'\u212A', u'k') && !OrdinalUnitEqual(u'\u212A', u'K'),
+          "campaign host: KELVIN SIGN is NOT equal to k/K under ordinal ignore-case");
+    Check(!OrdinalUnitEqual(u'\u0131', u'i') && !OrdinalUnitEqual(u'\u0131', u'I'),
+          "campaign host: dotless i is NOT equal to i/I under ordinal ignore-case");
+    Check(!OrdinalUnitEqual(u'\u0130', u'i') && !OrdinalUnitEqual(u'\u0130', u'I'),
+          "campaign host: dotted I is NOT equal to i/I under ordinal ignore-case");
+    Check(!OrdinalUnitEqual(u'\u00DF', u's'),
+          "campaign host: sharp s is NOT equal to s under ordinal ignore-case");
+    Check(!OrdinalUnitEqual(u'\uFB01', u'f'),
+          "campaign host: fi ligature is NOT equal to f under ordinal ignore-case");
+}
+
+// review-remediation (P2-A), RED-FIRST: force the host table to exhibit the
+// exact equivalence the PR review assumed (U+017F LONG S folds to ASCII 'S').
+// The pre-fix intersection-only accelerator omits the long-s row for the
+// ASCII needle "soo" (its ASCII fold cannot contain the 'soo' trigram) --
+// a data-retrieval false negative. The fold-exceptional merge must retain it.
+void TestFilenameCandidatesRetainHostFoldExceptionalNames() {
+    Projection::SetTestingFoldExceptionalUnit(u'\u017F', true);
+    {
+        Projection proj;
+        proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+        proj.Upsert(1, MakeEntry(100, 5, u"\u017Foo.txt", 0));
+        proj.Upsert(1, MakeEntry(101, 5, u"control.txt", 0));
+        proj.Upsert(1, MakeEntry(102, 5, u"soo.txt", 0));
+        const auto candidates = proj.FilenameCandidateIndices(u"soo");
+        Check(candidates.has_value(), "eligible ASCII query still uses the accelerator");
+        if (candidates.has_value()) {
+            Check(CandidateContains(proj, *candidates, 100),
+                  "a host-fold-exceptional long-s name is retained for the ASCII needle (no false negative)");
+            Check(CandidateContains(proj, *candidates, 102),
+                  "the ordinary matching row is retained");
+            Check(!CandidateContains(proj, *candidates, 101),
+                  "the non-matching non-exceptional row is still excluded");
+        }
+        // Renaming away the exceptional unit drops the row's exceptionality.
+        proj.Upsert(1, MakeEntry(100, 5, u"foo.txt", 0));
+        const auto afterRename = proj.FilenameCandidateIndices(u"soo");
+        Check(afterRename.has_value() && !CandidateContains(proj, *afterRename, 100),
+              "renaming away the exceptional unit removes the row from the exceptional merge");
+        // Deletion removes rows from the exceptional merge exactly like postings.
+        proj.Remove(1, FileId{102, 0});
+        const auto afterRemove = proj.FilenameCandidateIndices(u"soo");
+        Check(afterRemove.has_value() && !CandidateContains(proj, *afterRemove, 102),
+              "deleting a row removes it from candidates");
+    }
+    Projection::SetTestingFoldExceptionalUnit(u'\u017F', false);
+}
+
+// review-remediation (P2-A): surrogate-bearing (astral) names are always
+// fold-exceptional (conservative: pair semantics cannot be probed unit-wise
+// and false negatives are forbidden), so they are retained in every ASCII
+// candidate set even when their ASCII fold cannot contain the needle. RED
+// against the pre-fix intersection-only accelerator: for a needle absent
+// from every name its candidate set is empty, so the conservative row was
+// silently dropped.
+void TestFilenameCandidatesRetainSurrogateNamesConservatively() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    std::u16string emojiName;
+    emojiName.push_back(static_cast<char16_t>(0xD83D)); // U+1F600 pair
+    emojiName.push_back(static_cast<char16_t>(0xDE00));
+    emojiName += u"qz.txt";
+    proj.Upsert(1, MakeEntry(100, 5, emojiName, 0));
+    proj.Upsert(1, MakeEntry(101, 5, u"qz.txt", 0));
+    const auto candidates = proj.FilenameCandidateIndices(u"xyz");
+    Check(candidates.has_value(), "eligible ASCII query returns a candidate set");
+    if (candidates.has_value()) {
+        Check(CandidateContains(proj, *candidates, 100),
+              "surrogate-bearing names are conservatively retained in every ASCII candidate set");
+        Check(!CandidateContains(proj, *candidates, 101),
+              "non-exceptional rows are still served by the posting intersection alone");
+    }
+}
+
+// review-remediation (P2-A): the correctness invariant, stated against the
+// real production comparison function: CanonicalMatches(query) is a subset of
+// FilenameCandidateIndices(query). Adversarial cross-casing corpus: long s,
+// Kelvin, dotted/dotless I, sharp s, ligatures, fullwidth, micro, Greek and
+// Cyrillic lookalikes, combining forms, surrogate pairs, mixed
+// ASCII/non-ASCII names, repeated trigrams, query at start/middle/end, and
+// mixed-case queries. On the campaign host most of these pairs are NOT
+// canonical matches (TestHostOrdinalFoldSemanticsMatchCampaignMeasurement
+// records the verdicts); the subset check is what must hold on EVERY host --
+// on a host exhibiting the review's equivalence it fails against the pre-fix
+// intersection-only accelerator (host-conditional red-first).
+void TestFilenameCandidateSupersetInvariantHoldsForAdversarialCasing() {
+    struct Case { std::u16string name; std::u16string needle; };
+    const Case cases[] = {
+        { u"\u017Foo.txt", u"soo" },
+        { u"\u017Foo.txt", u"SOO" },
+        { u"\u212Aelvin.bin", u"kelvin" },
+        { u"\u212Aelvin.bin", u"KELVIN" },
+        { u"cap\u0131tal.txt", u"capital" },
+        { u"CAP\u0130TAL.txt", u"capital" },
+        { u"CAP\u0130TAL.txt", u"CAPITAL" },
+        { u"stra\u00DFe.txt", u"strasse" },
+        { u"stra\u00DFe.txt", u"strase" },
+        { u"\uFB01le.txt", u"file" },
+        { u"\uFB03eld.dat", u"ffield" },
+        { u"\uFF21bc.txt", u"abc" },
+        { u"\u00B5icro.txt", u"micro" },
+        { u"\u03C2igma.txt", u"sigma" },
+        { u"\u0405lavic.txt", u"slavic" },
+        { u"\u0399ota.txt", u"iota" },
+        { u"foo\u017Fbar.txt", u"bar" },
+        { u"foo\u017Fbar.txt", u"FOO" },
+        { u"MiXeD_CaSe.bin", u"mIxEd_cAsE" },
+        { u"Report.TXT", u"report.txt" },
+        { u"report.txt", u"PORT.t" },
+        { u"abcabcabc.txt", u"abcabc" },
+        { u"o\u0308verlay.txt", u"verlay" },
+        { u"\u6771\u4EAC_target.txt", u"target" },
+        { u"plain.txt", u"plain" },
+    };
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    uint64_t id = 100;
+    for (const Case& c : cases) {
+        proj.Upsert(1, MakeEntry(id++, 5, c.name, 0));
+    }
+    // One surrogate-pair row built explicitly (universal-character-names
+    // cannot name surrogates).
+    std::u16string emojiName;
+    emojiName.push_back(static_cast<char16_t>(0xD801));
+    emojiName.push_back(static_cast<char16_t>(0xDC00));
+    emojiName += u"_target.txt";
+    proj.Upsert(1, MakeEntry(id++, 5, emojiName, 0));
+
+    uint64_t checkId = 100;
+    for (const Case& c : cases) {
+        const std::u16string folded = FoldAsciiLower(c.needle);
+        const auto candidates = proj.FilenameCandidateIndices(folded, 0);
+        Check(candidates.has_value(), "an eligible ASCII needle always yields an uncapped candidate set");
+        if (candidates.has_value() && CanonicalOrdinalContains(c.name, c.needle)) {
+            Check(CandidateContains(proj, *candidates, checkId),
+                  "a canonical match is always present in the accelerator candidate set");
+        }
+        // Capped lookups may fall back to nullopt (canonical scan) but may
+        // never return a set that omits a canonical match.
+        const auto capped = proj.FilenameCandidateIndices(folded, 4096);
+        if (capped.has_value() && CanonicalOrdinalContains(c.name, c.needle)) {
+            Check(CandidateContains(proj, *capped, checkId),
+                  "a capped candidate set still contains every canonical match");
+        }
+        ++checkId;
+    }
+    // Surrogate-pair row against an ASCII needle that matches its ASCII tail.
+    {
+        const std::u16string needle = u"target";
+        Check(CanonicalOrdinalContains(emojiName, needle),
+              "the surrogate-pair fixture canonically matches its ASCII tail");
+        const auto candidates = proj.FilenameCandidateIndices(FoldAsciiLower(needle), 0);
+        Check(candidates.has_value() && CandidateContains(proj, *candidates, id - 1),
+              "surrogate-pair rows are retained when their ASCII tail canonically matches");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1159,6 +1361,10 @@ int main() {
     TestRemoveVolumeCanLeaveAcceleratorForCallerRebuild();
     TestFilenameCandidatesAreConservativeSuperset();
     TestFilenameCandidatesNarrowForSelectiveNeedlesDespiteUnicodeRows();
+    TestHostOrdinalFoldSemanticsMatchCampaignMeasurement();
+    TestFilenameCandidatesRetainHostFoldExceptionalNames();
+    TestFilenameCandidatesRetainSurrogateNamesConservatively();
+    TestFilenameCandidateSupersetInvariantHoldsForAdversarialCasing();
 
     if (fftest::FailureCount() > 0) {
         return 1;

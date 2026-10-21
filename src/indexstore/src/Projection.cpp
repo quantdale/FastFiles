@@ -1,8 +1,10 @@
 #include "ffindexstore/Projection.h"
 
 #include <algorithm>
+#include <atomic>
 #include <iterator>
 #include <limits>
+#include <windows.h>
 
 #include "ffindexstore/Store.h"
 
@@ -30,6 +32,63 @@ std::u16string FoldAscii(std::u16string_view name) {
         folded.push_back(ch >= u'A' && ch <= u'Z' ? static_cast<char16_t>(ch + (u'a' - u'A')) : ch);
     }
     return folded;
+}
+
+// large-index-lifecycle-and-search-scalability review-remediation (P2-A):
+// the canonical matcher equates two UTF-16 units case-insensitively through
+// the HOST's ordinal table (CompareStringOrdinal(..., TRUE)), which the
+// ASCII-folded trigram accelerator must never contradict. The accelerator is
+// a conservative superset of canonical matches exactly when every name that
+// could match an ASCII needle THROUGH a non-ASCII code unit is retained
+// separately from the posting intersection. That exceptional set is derived
+// from the actual host comparison function -- never from Unicode casefold
+// tables or assumed equivalences: a unit is fold-exceptional iff the host
+// equates it with any ASCII unit. Surrogate units (astral pairs and unpaired
+// surrogates) are always treated as exceptional, because pair semantics
+// cannot be probed unit-wise and false negatives are forbidden.
+// Measured on the campaign host: NO BMP unit is fold-exceptional (U+017F
+// LONG S is NOT equal to 's'/'S', U+212A KELVIN is not 'k'/'K', U+0131 is
+// not 'i'/'I', and the exhaustive 65,280 x 128 scan found zero cross-ASCII
+// fold classes), so ordinary corpora pay nothing for this guarantee and a
+// host whose table ever changed is handled automatically at run time.
+enum class FoldProbe : uint8_t { Unknown = 0, Ordinary = 1, Exceptional = 2 };
+std::atomic<uint8_t> gFoldProbe[65536]; // FoldProbe per UTF-16 unit; idempotent lazy fill
+#ifdef FF_INDEXSTORE_TESTING
+// Review-remediation P2-A testing seam: force-mark units fold-exceptional to
+// simulate a host ordinal table that equates them with ASCII. Never set in
+// production code (see header seam).
+std::atomic<uint8_t> gTestingForceFoldExceptional[65536];
+#endif
+
+bool UnitMayFoldToAscii(const char16_t unit) {
+    const uint16_t raw = static_cast<uint16_t>(unit);
+    if (raw <= 0x7f) return false;
+    if (raw >= 0xd800 && raw <= 0xdfff) return true; // conservative: surrogates
+#ifdef FF_INDEXSTORE_TESTING
+    if (gTestingForceFoldExceptional[raw].load(std::memory_order_relaxed) != 0) return true;
+#endif
+    uint8_t state = gFoldProbe[raw].load(std::memory_order_acquire);
+    if (state == static_cast<uint8_t>(FoldProbe::Unknown)) {
+        bool exceptional = false;
+        const wchar_t wide = static_cast<wchar_t>(unit);
+        for (int ascii = 0; ascii < 0x80 && !exceptional; ++ascii) {
+            const wchar_t other = static_cast<wchar_t>(ascii);
+            const int verdict = CompareStringOrdinal(&wide, 1, &other, 1, TRUE);
+            // A failed comparison is classified exceptional: fail closed, so
+            // a transient API failure can only cost candidates, never a miss.
+            exceptional = verdict == CSTR_EQUAL || verdict == 0;
+        }
+        state = static_cast<uint8_t>(exceptional ? FoldProbe::Exceptional : FoldProbe::Ordinary);
+        gFoldProbe[raw].store(state, std::memory_order_release);
+    }
+    return state == static_cast<uint8_t>(FoldProbe::Exceptional);
+}
+
+bool NameNeedsExceptionalFallback(const std::u16string_view name) {
+    for (const char16_t ch : name) {
+        if (static_cast<uint16_t>(ch) > 0x7f && UnitMayFoldToAscii(ch)) return true;
+    }
+    return false;
 }
 
 uint64_t PackTrigram(std::u16string_view value, size_t offset) {
@@ -93,13 +152,22 @@ void Projection::SetBulkScanActive(const bool active) noexcept {
     }
 }
 
+#ifdef FF_INDEXSTORE_TESTING
+void Projection::SetTestingFoldExceptionalUnit(const char16_t unit, const bool exceptional) {
+    // large-index-lifecycle-and-search-scalability review-remediation (P2-A):
+    // testing-only fold-exceptional override; process-wide and idempotent.
+    gTestingForceFoldExceptional[static_cast<uint16_t>(unit)].store(
+        exceptional ? 1 : 0, std::memory_order_release);
+}
+#endif
+
 size_t Projection::EstimatedMemoryBytes() const noexcept {
     size_t result = entries_.capacity() * sizeof(ProjectionEntry)
         + freeList_.capacity() * sizeof(uint32_t)
         + idToIndex_.MemoryUsageBytes()
         + parentToChildren_.MemoryUsageBytes()
         + namePool_.MemoryUsageBytes()
-        + filenameNonAsciiEntries_.capacity() * sizeof(uint32_t)
+        + filenameExceptionalEntries_.capacity() * sizeof(uint32_t)
         + lastAccessTimes_.capacity() * sizeof(uint64_t);
     for (const auto& [trigram, posting] : filenameTrigramPostings_) {
         (void)trigram;
@@ -170,7 +238,9 @@ Projection::MemoryBreakdown Projection::GetMemoryBreakdown() const noexcept {
     result.nameBytes = namePool_.MemoryUsageBytes();
 
     // Secondary filename accelerator: trigram -> sorted posting vectors plus
-    // a sorted non-ASCII entry list. Posting vector capacity (not only the
+    // a sorted fold-exceptional entry list (names that could match an ASCII
+    // needle through a non-ASCII unit under the host ordinal table, plus all
+    // surrogate-bearing names). Posting vector capacity (not only the
     // payload size) is reported, because the vectors are push_back-built and
     // never shrunk to fit.
     result.filenameIndexValid = filenameIndexValid_;
@@ -189,14 +259,14 @@ Projection::MemoryBreakdown Projection::GetMemoryBreakdown() const noexcept {
     result.filenameIndexApproxNodeBytes =
         result.filenameIndexDistinctTrigrams * sizeof(uint64_t)
         + result.filenameIndexPostingHeaderBytes;
-    result.filenameIndexNonAsciiCount = filenameNonAsciiEntries_.size();
-    result.filenameIndexNonAsciiSlots = filenameNonAsciiEntries_.capacity();
-    result.filenameIndexNonAsciiBytes =
-        result.filenameIndexNonAsciiSlots * sizeof(uint32_t);
+    result.filenameIndexExceptionalCount = filenameExceptionalEntries_.size();
+    result.filenameIndexExceptionalSlots = filenameExceptionalEntries_.capacity();
+    result.filenameIndexExceptionalBytes =
+        result.filenameIndexExceptionalSlots * sizeof(uint32_t);
     result.filenameIndexBytes = result.filenameIndexPostingBytes
         + result.filenameIndexApproxNodeBytes
         + result.filenameIndexBucketBytes
-        + result.filenameIndexNonAsciiBytes;
+        + result.filenameIndexExceptionalBytes;
 
     // LRU eviction metadata: one dense uint64 timestamp per entry slot.
     result.lruSlotCapacity = lastAccessTimes_.capacity();
@@ -504,16 +574,16 @@ void Projection::CompactEntriesForIterationOrder() {
 void Projection::InvalidateFilenameIndex() noexcept {
     filenameIndexValid_ = false;
     filenameTrigramPostings_.clear();
-    filenameNonAsciiEntries_.clear();
+    filenameExceptionalEntries_.clear();
 }
 
 void Projection::AddFilenameIndexEntry(const uint32_t index) {
     if (!filenameIndexValid_) return;
     try {
         const std::u16string_view name = namePool_.Get(entries_[index].nameId);
-        if (!IsAscii(name)) {
-            if (filenameIndexBuilding_) filenameNonAsciiEntries_.push_back(index);
-            else InsertSorted(filenameNonAsciiEntries_, index);
+        if (NameNeedsExceptionalFallback(name)) {
+            if (filenameIndexBuilding_) filenameExceptionalEntries_.push_back(index);
+            else InsertSorted(filenameExceptionalEntries_, index);
         }
         const std::u16string folded = FoldAscii(name);
         for (const uint64_t trigram : UniqueTrigrams(folded)) {
@@ -529,7 +599,9 @@ void Projection::AddFilenameIndexEntry(const uint32_t index) {
 void Projection::RemoveFilenameIndexEntry(const uint32_t index, const std::u16string_view name) {
     if (!filenameIndexValid_) return;
     try {
-        if (!IsAscii(name)) EraseSorted(filenameNonAsciiEntries_, index);
+        // Must use the exact predicate AddFilenameIndexEntry used, or stale
+        // exceptional entries would linger (or real ones get dropped).
+        if (NameNeedsExceptionalFallback(name)) EraseSorted(filenameExceptionalEntries_, index);
         for (const uint64_t trigram : UniqueTrigrams(FoldAscii(name))) {
             const auto it = filenameTrigramPostings_.find(trigram);
             if (it == filenameTrigramPostings_.end()) continue;
@@ -543,7 +615,7 @@ void Projection::RemoveFilenameIndexEntry(const uint32_t index, const std::u16st
 
 void Projection::RebuildFilenameIndex() {
     filenameTrigramPostings_.clear();
-    filenameNonAsciiEntries_.clear();
+    filenameExceptionalEntries_.clear();
     filenameIndexValid_ = true;
     filenameIndexBuilding_ = true;
     try {
@@ -553,10 +625,10 @@ void Projection::RebuildFilenameIndex() {
             std::sort(posting.begin(), posting.end());
             posting.erase(std::unique(posting.begin(), posting.end()), posting.end());
         }
-        std::sort(filenameNonAsciiEntries_.begin(), filenameNonAsciiEntries_.end());
-        filenameNonAsciiEntries_.erase(
-            std::unique(filenameNonAsciiEntries_.begin(), filenameNonAsciiEntries_.end()),
-            filenameNonAsciiEntries_.end());
+        std::sort(filenameExceptionalEntries_.begin(), filenameExceptionalEntries_.end());
+        filenameExceptionalEntries_.erase(
+            std::unique(filenameExceptionalEntries_.begin(), filenameExceptionalEntries_.end()),
+            filenameExceptionalEntries_.end());
     } catch (...) {
         InvalidateFilenameIndex();
     }
@@ -863,16 +935,39 @@ std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
         if (maximumCandidates != 0 && result.size() > maximumCandidates) {
             return std::nullopt;
         }
-        // large-index-lifecycle-and-search-scalability 6.3: the candidate set
-        // is the posting intersection alone. FoldAscii is length-preserving,
-        // non-ASCII names' folded trigrams are indexed (AddFilenameIndexEntry
-        // indexes every name's fold), and a pure-ASCII needle occurrence keeps
-        // its trigrams in the name's folded multiset -- so the intersection is
-        // already a conservative superset of every fold-matching or
-        // ordinally-matching row. The previous unconditional union with
-        // filenameNonAsciiEntries_ added only false positives, and at any
-        // Unicode population above the caller's cap it forced every lookup to
-        // nullopt (the accelerator was unusable at 200k+ rows).
+        // large-index-lifecycle-and-search-scalability 6.3 + review-
+        // remediation (P2-A): the candidate set is the posting intersection
+        // MERGED with the fold-exceptional rows. For a name that contains no
+        // exceptional unit, a canonical match keeps its aligned span entirely
+        // ASCII (a non-ASCII unit there would have to fold to the aligned
+        // ASCII needle unit -- which is exactly what makes it exceptional),
+        // so the span's ASCII-folded trigrams are in the name's folded
+        // multiset and the posting intersection already retains the row.
+        // Every remaining canonical match goes through a non-ASCII unit the
+        // HOST ordinal table equates with ASCII (or a surrogate), i.e. an
+        // exceptional name -- retained by this merge. The pre-6.3 code unioned
+        // ALL non-ASCII rows, which added non-exceptional false positives and
+        // at any Unicode population above the caller's cap forced every lookup
+        // to nullopt (the accelerator was unusable at 200k+ rows).
+        // CanonicalMatches(query) is therefore a subset of this candidate set
+        // for every host ordinal table; false positives here are verified away
+        // by the authoritative canonical matcher.
+        if (!filenameExceptionalEntries_.empty()) {
+            const size_t maximumSize = (std::numeric_limits<size_t>::max)();
+            const size_t exceptionalCount = filenameExceptionalEntries_.size();
+            const size_t combinedSize = exceptionalCount > maximumSize - result.size()
+                ? maximumSize : result.size() + exceptionalCount;
+            std::vector<uint32_t> merged;
+            merged.reserve(maximumCandidates == 0 ? combinedSize
+                : (std::min)(maximumCandidates == maximumSize ? maximumSize : maximumCandidates + 1,
+                             combinedSize));
+            std::set_union(result.begin(), result.end(), filenameExceptionalEntries_.begin(),
+                           filenameExceptionalEntries_.end(), std::back_inserter(merged));
+            if (maximumCandidates != 0 && merged.size() > maximumCandidates) {
+                return std::nullopt;
+            }
+            return merged;
+        }
         return result;
     } catch (...) {
         // The index is an accelerator only. A transient allocation failure in
@@ -1051,8 +1146,8 @@ void Projection::ShrinkBulkRebuildCapacity() {
     // quantity and would overstate the slack when stale copies are present.
     slackBytes += parentToChildren_.ChildCapacityBytes()
         - parentToChildren_.ChildLinkCount() * sizeof(uint32_t);
-    slackBytes += filenameNonAsciiEntries_.capacity() * sizeof(uint32_t)
-        - filenameNonAsciiEntries_.size() * sizeof(uint32_t);
+    slackBytes += filenameExceptionalEntries_.capacity() * sizeof(uint32_t)
+        - filenameExceptionalEntries_.size() * sizeof(uint32_t);
     for (const auto& [trigram, posting] : filenameTrigramPostings_) {
         (void)trigram;
         slackBytes += (posting.capacity() - posting.size()) * sizeof(uint32_t);
@@ -1061,7 +1156,7 @@ void Projection::ShrinkBulkRebuildCapacity() {
 
     namePool_.ShrinkToFit();
     parentToChildren_.ShrinkToFit();
-    filenameNonAsciiEntries_.shrink_to_fit();
+    filenameExceptionalEntries_.shrink_to_fit();
     for (auto& [trigram, posting] : filenameTrigramPostings_) {
         (void)trigram;
         posting.shrink_to_fit();

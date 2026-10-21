@@ -91,7 +91,7 @@ scan by the cap gate (correct per the cost model). Result sets EXACTLY equal to
 the baseline for all 24 class x scale pairs (zero regressions).
 
 | class | 200k before -> after | 1M before -> after | rows examined (1M) |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | selective | 50.9 -> 1.2 ms (44x) | 302.5 -> 1.6 ms (189x) | 1 (was 1,000,000) |
 | exact_name | 53.1 -> 1.0 ms (52x) | 313.8 -> 2.8 ms (114x) | 1 |
 | no_match | 51.6 -> 1.5 ms (35x) | 307.4 -> 5.5 ms (56x) | 15,625 (was 1,000,000) |

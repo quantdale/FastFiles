@@ -1873,9 +1873,9 @@ void WriteBreakdown(std::ostream& output, const ffindexstore::Projection::Memory
            << ",\"filename_index_bucket_count\":" << b.filenameIndexBucketCount
            << ",\"filename_index_bucket_bytes\":" << b.filenameIndexBucketBytes
            << ",\"filename_index_approx_node_bytes\":" << b.filenameIndexApproxNodeBytes
-           << ",\"filename_index_non_ascii_count\":" << b.filenameIndexNonAsciiCount
-           << ",\"filename_index_non_ascii_slots\":" << b.filenameIndexNonAsciiSlots
-           << ",\"filename_index_non_ascii_bytes\":" << b.filenameIndexNonAsciiBytes
+           << ",\"filename_index_exceptional_count\":" << b.filenameIndexExceptionalCount
+           << ",\"filename_index_exceptional_slots\":" << b.filenameIndexExceptionalSlots
+           << ",\"filename_index_exceptional_bytes\":" << b.filenameIndexExceptionalBytes
            << ",\"filename_index_bytes\":" << b.filenameIndexBytes
            << ",\"lru_slot_capacity\":" << b.lruSlotCapacity
            << ",\"lru_slot_count\":" << b.lruSlotCount

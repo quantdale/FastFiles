@@ -2,7 +2,15 @@ add_executable(ffindexstore_store_tests test_store.cpp)
 target_link_libraries(ffindexstore_store_tests PRIVATE ffindexstore)
 add_test(NAME ffindexstore_store_tests COMMAND ffindexstore_store_tests)
 
-add_executable(ffindexstore_projection_tests test_projection.cpp)
+# large-index-lifecycle-and-search-scalability review-remediation (P2-A):
+# compiles Projection.cpp with the FF_INDEXSTORE_TESTING fold-exceptional seam
+# into this target only (same pattern as the isolation bench below), so the
+# exceptional-name candidate fallback is deterministically testable on hosts
+# whose real ordinal table has no cross-ASCII fold classes. The production
+# ffindexstore build contains no seam.
+add_executable(ffindexstore_projection_tests test_projection.cpp
+  ${CMAKE_SOURCE_DIR}/src/indexstore/src/Projection.cpp)
+target_compile_definitions(ffindexstore_projection_tests PRIVATE FF_INDEXSTORE_TESTING=1)
 target_link_libraries(ffindexstore_projection_tests PRIVATE ffindexstore)
 add_test(NAME ffindexstore_projection_tests COMMAND ffindexstore_projection_tests)
 
