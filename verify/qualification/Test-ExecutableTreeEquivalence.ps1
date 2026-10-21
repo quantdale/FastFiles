@@ -89,7 +89,14 @@ function Get-BlobText {
     $stdout = [IO.Path]::GetTempFileName()
     $stderr = [IO.Path]::GetTempFileName()
     try {
-        $proc = Start-Process -FilePath 'git' -ArgumentList @('-C', $RepoRoot, 'cat-file', '-p', "$($Revision):$($Path)") `
+        # large-index-lifecycle-and-search-scalability: embedded-quote every
+        # argument (the hook-guard quoting class, c261da4). Start-Process
+        # -ArgumentList joins with spaces and does NOT quote, so a checkout
+        # path containing a space split -C's value and every cat-file probe
+        # failed -- which the header-resolution capability then misreported
+        # as "derived-input-missing-in-implementation-sha" for files git
+        # demonstrably has at that revision.
+        $proc = Start-Process -FilePath 'git' -ArgumentList @('-C', "`"$RepoRoot`"", 'cat-file', '-p', "`"$($Revision):$($Path)`"") `
             -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         if ($proc.ExitCode -ne 0) { return $null }
         # -Raw returns the blob as ONE string. Returning a per-line array here
@@ -248,8 +255,14 @@ try {
         # MSVC/CMake emits the include flag GLUED to the path (-ID:\...), and
         # may use /I as well as -I. Matching only the spaced form silently
         # collects zero roots, which empties the header closure entirely.
-        foreach ($m in [regex]::Matches($command, '(?i)(?:^|\s)[/-]I\s*"?([^"\s]+)"?')) {
-            $root = $m.Groups[1].Value.Replace('\', '/')
+        # large-index-lifecycle-and-search-scalability: the capture must take
+        # the WHOLE quoted path (the hook-guard quoting class, c261da4): a
+        # checkout path containing a space truncated at the space, so every
+        # include root under it resolved wrong and the coverage verifier
+        # reported spurious unresolved-quoted-include failures.
+        foreach ($m in [regex]::Matches($command, '(?i)(?:^|\s)[/-]I\s*(?:"([^"]+)"|([^\s"]+))')) {
+            $root = if ($m.Groups[1].Value) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+            $root = $root.Replace('\', '/')
             # Canonicalise before comparison: MSVC emits roots like
             # 'D:\...\tests\ui\..', and a literal 'tests/ui/..' never matches
             # the normalised tracked path 'tests/TestSupport.h'.

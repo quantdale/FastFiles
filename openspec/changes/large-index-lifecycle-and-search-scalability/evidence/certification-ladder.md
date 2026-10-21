@@ -77,3 +77,23 @@ campaign host from a clean worktree.
 - Historical measurement artifacts (`evidence/rebuild/*`, `evidence/search/*`)
   carry their own embedded identities as noted in their provenance blocks;
   the cold-profile artifacts are asserted provenance (disclosed, lane E E-8).
+
+## Equivalence gate verdict (10.2, recorded outside the checked tree per
+## the non-self-reference rule)
+
+Run: `verify/qualification/Test-ExecutableTreeEquivalence.ps1
+-ImplementationSha 43fc3c175d4a940a094e1261b1c96aa8bf0668d1 -EvidenceSha <tip>`
+
+- **PASS** after two harness quoting repairs (both the hook-guard class from
+  `c261da4`: `Start-Process -ArgumentList` joined `-C <path-with-space>`
+  unquoted, and the `-I` capture regex truncated quoted include roots at the
+  first space; both made the verifier falsely report missing inputs on any
+  checkout under a space-containing path). Repairs in
+  `verify/qualification/Test-ExecutableTreeEquivalence.ps1`.
+- Verdict: `product_tree(43fc3c17) == product_tree(<tip>)`,
+  digests `cc97f4708d6eefef49ceec9d8589c73ce002e3505bc7731f600bbc775e0eb7a3`
+  identical, 393 paths covered (313 TUs + build inputs), derivation coverage
+  verified. A binary certified at `implementation_sha` is not invalidated by
+  the documentation/evidence commits that follow.
+- No bit-for-bit binary reproducibility is claimed; this is source-tree
+  equivalence only.
