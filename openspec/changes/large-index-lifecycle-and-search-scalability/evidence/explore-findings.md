@@ -27,6 +27,13 @@ final certification regenerates artifacts at a clean embedded identity.
   live requested 345.9/349.9MB).
 - `rebuild-isolation-after-fix.json` — arm-level: B1 22.0 ms at 200k (**465x**);
   all build phases at the fresh-build floor.
+- `../search/search-matrix-after.json` — **post-rebuild-fix control** (same harness
+  as the search baseline). Result sets are EXACTLY equal to the baseline for all
+  24 class x scale pairs (the rebuild fix changes no search semantics). Honest
+  attribution note: this run used a release-test binary built before the planner
+  fix (only Debug carried it at that point), so its `filename_index_used=false`
+  rows are NOT evidence about the planner fix — they are the stale-binary control.
+  The planner-fix matrix is a separate run (`search-matrix-planner.json`).
 
 ## search/
 
@@ -75,3 +82,27 @@ Debug CTest 127/127 and release-test CTest 127/127 were green at `2e0d819`+`c261
 binaries against current HEAD — Debug rebuilt at `c261da4`). Focused
 indexstore/engine/search suites 18/18 green after the planner fix; full-suite
 re-run at the planner-fix tree in progress at handoff.
+
+## Planner-fix matrix (`search/search-matrix-planner-fix.json`, release-test at `243199e`)
+
+Selective classes now use the accelerator (`filename_index_used=true`, rows
+examined collapse from N to the candidate set); broad classes keep the canonical
+scan by the cap gate (correct per the cost model). Result sets EXACTLY equal to
+the baseline for all 24 class x scale pairs (zero regressions).
+
+| class | 200k before -> after | 1M before -> after | rows examined (1M) |
+|---|---|---|---|
+| selective | 50.9 -> 1.2 ms (44x) | 302.5 -> 1.6 ms (189x) | 1 (was 1,000,000) |
+| exact_name | 53.1 -> 1.0 ms (52x) | 313.8 -> 2.8 ms (114x) | 1 |
+| no_match | 51.6 -> 1.5 ms (35x) | 307.4 -> 5.5 ms (56x) | 15,625 (was 1,000,000) |
+
+Scan-class medians moved 0.6-1.0x across runs (uniform session variance: the
+control run measured them at 1.0-1.3x of baseline with a code-identical scan
+path; no scan regression is claimed or hidden). `no_match` candidates (15,625)
+are trigram false positives (directory-count-shaped intersection), verified
+empty of matches by the canonical matcher.
+
+Acceptance (§17): linear scanning avoided for the clearly selective classes
+(O(K) candidate verification replaces O(N) scans; 56-189x at 1M); no result-set,
+Unicode, or cancellation regressions (24/24 exact result equality; the existing
+cancellation/Unicode suites green).
