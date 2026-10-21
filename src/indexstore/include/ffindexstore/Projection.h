@@ -250,6 +250,27 @@ public:
     // rebuild -- design.md "Risks" name-pool eviction note).
     void RemoveVolume(VolumeRowId volumeRowId);
 
+#ifdef FF_INDEXSTORE_TESTING
+    // large-index-lifecycle-and-search-scalability 4.2: benchmark-only
+    // differential-isolation seam for the removal-cost attribution matrix
+    // (bench_rebuild_isolation). Compiled only into the isolation benchmark
+    // target via FF_INDEXSTORE_TESTING; production builds contain none of
+    // this. RemovalMaintenanceMode::Production (the default) preserves exact
+    // production removal semantics; the other modes skip ONE kind of
+    // per-entry secondary maintenance so the matrix can attribute removal
+    // wall-time to filename-accelerator maintenance vs. parent/child unlink
+    // vs. the residual id-map/free-list work. Never set in production code.
+    enum class RemovalMaintenanceMode : uint8_t {
+        Production = 0,
+        SkipFilenameMaintenance = 1,
+        SkipChildUnlink = 2,
+        SkipBoth = 3,
+    };
+    void SetRemovalMaintenanceMode(RemovalMaintenanceMode mode) noexcept {
+        removalMaintenanceMode_ = mode;
+    }
+#endif
+
     const ProjectionEntry* Find(VolumeRowId volumeRowId, FileId frn) const;
 
     ProjectionEntryCursor BeginEntryCursor() const;
@@ -412,6 +433,9 @@ private:
     std::vector<uint32_t> filenameNonAsciiEntries_;
     bool filenameIndexValid_ = true;
     bool filenameIndexBuilding_ = false;
+#ifdef FF_INDEXSTORE_TESTING
+    RemovalMaintenanceMode removalMaintenanceMode_ = RemovalMaintenanceMode::Production;
+#endif
     size_t maximumMemoryBytes_ = kDefaultMaximumMemoryBytes;
     mutable uint64_t accessClock_ = 0;
     // performance-closure-and-multisurface-acceleration 8.3: one access

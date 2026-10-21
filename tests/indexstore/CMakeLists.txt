@@ -21,5 +21,20 @@ add_test(NAME ffindexstore_read_session_tests COMMAND ffindexstore_read_session_
 add_executable(ffindexstore_bench_projection_memory bench_projection_memory.cpp)
 target_link_libraries(ffindexstore_bench_projection_memory PRIVATE ffindexstore psapi)
 
+# large-index-lifecycle-and-search-scalability 4.2: informational only --
+# differential isolation matrix for the repeated-rebuild removal pathology.
+# Never registered with CTest (wall-clock measurement, not a gate).
+# FF_INDEXSTORE_TESTING compiles the benchmark-only removal-maintenance seam
+# into this target's Projection.cpp only; the production ffindexstore build
+# contains no seam and behaves exactly as Production mode.
+add_executable(ffindexstore_bench_rebuild_isolation
+  bench_rebuild_isolation.cpp
+  ${CMAKE_SOURCE_DIR}/src/indexstore/src/Projection.cpp)
+target_compile_definitions(ffindexstore_bench_rebuild_isolation PRIVATE FF_INDEXSTORE_TESTING=1)
+target_link_libraries(ffindexstore_bench_rebuild_isolation PRIVATE ffindexstore ffsetup psapi)
+# The report embeds ffsetup::kBuildIdentityAscii; a targeted build must
+# refresh the generated identity first or the report could claim a stale tree.
+add_dependencies(ffindexstore_bench_rebuild_isolation fastfiles_build_identity)
+
 set_tests_properties(ffindexstore_store_tests ffindexstore_projection_tests ffindexstore_flat_hash_map_tests ffindexstore_read_session_tests
                      PROPERTIES TIMEOUT 120)

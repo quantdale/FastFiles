@@ -702,10 +702,28 @@ void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     if (pIndex == nullptr) {
         return;
     }
+#ifdef FF_INDEXSTORE_TESTING
+    // large-index-lifecycle-and-search-scalability 4.2: isolation-matrix
+    // modes skip exactly one kind of per-entry maintenance; production
+    // builds compile both checks to constant false (see header seam).
+    const bool skipFilenameMaintenance =
+        removalMaintenanceMode_ == RemovalMaintenanceMode::SkipFilenameMaintenance ||
+        removalMaintenanceMode_ == RemovalMaintenanceMode::SkipBoth;
+    const bool skipChildUnlink =
+        removalMaintenanceMode_ == RemovalMaintenanceMode::SkipChildUnlink ||
+        removalMaintenanceMode_ == RemovalMaintenanceMode::SkipBoth;
+#else
+    constexpr bool skipFilenameMaintenance = false;
+    constexpr bool skipChildUnlink = false;
+#endif
     denseIterationOrderValid_ = false;
     const uint32_t index = *pIndex;
-    RemoveFilenameIndexEntry(index, namePool_.Get(entries_[index].nameId));
-    RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
+    if (!skipFilenameMaintenance) {
+        RemoveFilenameIndexEntry(index, namePool_.Get(entries_[index].nameId));
+    }
+    if (!skipChildUnlink) {
+        RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
+    }
     idToIndex_.erase(key);
     if (index < lastAccessTimes_.size()) lastAccessTimes_[index] = 0;
     freeList_.push_back(index);
