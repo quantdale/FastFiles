@@ -1163,6 +1163,65 @@ bool StoreReadSession::ForEachEntryUntil(VolumeRowId volumeRowId,
     return stepResult == SQLITE_DONE;
 }
 
+namespace {
+// large-index-lifecycle-and-search-scalability review-remediation 18.x:
+// LIKE pattern for a literal needle: wraps in wildcards and escapes the LIKE
+// metacharacters so a needle like "a\b" or "100%" can only ever OVER-match
+// (conservative), never lose a row the needle literally appears in.
+std::string LikePatternForLiteralNeedle(const std::string_view needle) {
+    std::string pattern;
+    pattern.reserve(needle.size() + 2 + needle.size() / 4);
+    pattern.push_back('%');
+    for (const char ch : needle) {
+        if (ch == '\\' || ch == '%' || ch == '_') pattern.push_back('\\');
+        pattern.push_back(ch);
+    }
+    pattern.push_back('%');
+    return pattern;
+}
+} // namespace
+
+bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
+    const VolumeRowId volumeRowId, const std::string_view asciiFoldedNeedle,
+    const Store::EntryVisitorUntil& visitor) {
+    // Conservative-superset prefilter; see the header contract. The needle
+    // must be ASCII (the caller gates on it): SQLite LIKE folds ASCII case
+    // only, which is exactly the fold the superset proof needs, and the GLOB
+    // disjunct admits every name carrying non-ASCII bytes (whose canonical
+    // match could pass through a non-ASCII unit under any host ordinal table).
+    if (!IsOpen() || !visitor) {
+        if (!IsOpen()) failed_ = true;
+        return false;
+    }
+    if (ShouldFail(ReadSessionFaultPoint::DatabaseClosed)) {
+        failed_ = true;
+        Close();
+        return false;
+    }
+    Statement stmt(db_,
+        "SELECT frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, allocated_size_bytes, "
+        "creation_time, last_modified_time, last_access_time, attributes FROM entries WHERE volume_id=? "
+        "AND (name LIKE ? ESCAPE '\\' OR name GLOB '*[^ -~]*');");
+    if (!stmt.Valid()) {
+        failed_ = true;
+        return false;
+    }
+    const std::string pattern = LikePatternForLiteralNeedle(asciiFoldedNeedle);
+    sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(volumeRowId));
+    sqlite3_bind_text(stmt, 2, pattern.data(), static_cast<int>(pattern.size()), SQLITE_TRANSIENT);
+
+    int stepResult;
+    while ((stepResult = sqlite3_step(stmt)) == SQLITE_ROW) {
+        if (ShouldFail(ReadSessionFaultPoint::Stream)) {
+            failed_ = true;
+            return false;
+        }
+        if (!visitor(ReadEntryRecord(stmt))) return true;
+    }
+    if (stepResult != SQLITE_DONE) failed_ = true;
+    return stepResult == SQLITE_DONE;
+}
+
 std::optional<EntryRecord> StoreReadSession::FindEntry(VolumeRowId volumeRowId, FileId frn) {
     if (!IsOpen()) {
         failed_ = true;

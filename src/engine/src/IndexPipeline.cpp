@@ -361,6 +361,26 @@ private:
     std::atomic<size_t>* peak_;
 };
 
+// large-index-lifecycle-and-search-scalability review-remediation 18.x:
+// cold-stream prefilter eligibility. An ASCII-folded simple literal needle of
+// >= 3 units can use the conservative SQL name prefilter
+// (StoreReadSession::ForEachEntryWithAsciiNameUntil): LIKE folds exactly the
+// ASCII case the superset proof needs and the query's own fold is already
+// ASCII-lowercase. Non-ASCII needles return nullopt and keep the full stream
+// because SQLite LIKE cannot fold non-ASCII case variants.
+std::optional<std::string> ColdNamePrefilterNeedle(const ffsearch::Query& query) {
+    if (!query.simpleLiteralName) return std::nullopt;
+    const std::u16string& folded = query.simpleLiteralFolded;
+    if (folded.size() < 3) return std::nullopt;
+    std::string needle;
+    needle.reserve(folded.size());
+    for (const char16_t ch : folded) {
+        if (ch > 0x7f) return std::nullopt;
+        needle.push_back(static_cast<char>(ch));
+    }
+    return needle;
+}
+
 } // namespace
 
 bool IndexPipeline::VolumeSettingsEqual(const ffprotocol::VolumeSetting& left,
@@ -1810,8 +1830,8 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                 if (prefixIt == context.prefixes.end() || context.reader == nullptr) continue;
                 ++coldVolumesSearched;
                 const auto streamStart = Clock::now();
-                const bool streamed = context.reader->ForEachEntryUntil(coldVolumeId,
-                    [&](const ffindexstore::EntryRecord& record) {
+                const auto coldNamePrefilter = ColdNamePrefilterNeedle(searchRequest.query);
+                const auto coldVisitor = [&](const ffindexstore::EntryRecord& record) {
                         if (isCancelled() || stale || accumulator.Cancelled()) return false;
                         ++coldRowsExamined;
                         ffsearch::Candidate candidate = MakeDurableCandidate(record, coldVolumeId,
@@ -1826,7 +1846,11 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         if (!continueSearch || accumulator.Cancelled() || streamFailed) return false;
                         ++candidateObjectsMaterialized;
                         return !stale && !isCancelled();
-                    });
+                    };
+                const bool streamed = coldNamePrefilter.has_value()
+                    ? context.reader->ForEachEntryWithAsciiNameUntil(coldVolumeId, *coldNamePrefilter,
+                                                                     coldVisitor)
+                    : context.reader->ForEachEntryUntil(coldVolumeId, coldVisitor);
                 storeStreamMs += std::chrono::duration<double, std::milli>(Clock::now() - streamStart).count();
                 if (!streamed && !isCancelled() && !stale && !accumulator.Cancelled()) {
                     streamFailed = true;
@@ -1936,8 +1960,8 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                 }
                 ++coldVolumesSearched;
                 const auto streamStart = Clock::now();
-                const bool streamed = context.reader->ForEachEntryUntil(volumeId,
-                    [&](const ffindexstore::EntryRecord& record) {
+                const auto durableNamePrefilter = ColdNamePrefilterNeedle(searchRequest.query);
+                const auto durableVisitor = [&](const ffindexstore::EntryRecord& record) {
                         if (isCancelled() || accumulator.Cancelled()) return false;
                         ++attemptRowsStreamed;
                         ++coldRowsExamined;
@@ -1952,7 +1976,11 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         if (!accumulator.Add(std::move(candidate), materializeDurable)) return false;
                         ++candidateObjectsMaterialized;
                         return !isCancelled() && !accumulator.Cancelled() && !streamFailed;
-                    });
+                    };
+                const bool streamed = durableNamePrefilter.has_value()
+                    ? context.reader->ForEachEntryWithAsciiNameUntil(volumeId, *durableNamePrefilter,
+                                                                     durableVisitor)
+                    : context.reader->ForEachEntryUntil(volumeId, durableVisitor);
                 storeStreamMs += std::chrono::duration<double, std::milli>(Clock::now() - streamStart).count();
                 if (!streamed && !isCancelled() && !accumulator.Cancelled() && !streamFailed) {
                     streamFailed = true;

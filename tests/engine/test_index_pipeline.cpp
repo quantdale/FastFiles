@@ -1286,6 +1286,10 @@ void TestForcedEvictionSearchEquivalence() {
     pipeline.SetVolumeRules(coldVolume, coldSetting);
     // Ingest the cold volume FIRST so its LRU timestamps are the oldest;
     // shrinking the budget then deterministically evicts its subtrees.
+    std::u16string emojiName = u"emoji-";
+    emojiName.push_back(static_cast<char16_t>(0xD83D)); // U+1F600 pair
+    emojiName.push_back(static_cast<char16_t>(0xDE00));
+    emojiName += u"tailfrag.txt";
     Check(pipeline.ApplyMftBatch(coldVolume, {
         MakeMftRecord(1, 1, u".", 0x10, 0),
         MakeMftRecord(10, 1, u"ColdRoot", 0x10, 0),
@@ -1298,6 +1302,15 @@ void TestForcedEvictionSearchEquivalence() {
         MakeMftRecord(110, 12, u"dup.txt", 0, 77),
         MakeMftRecord(111, 12, u"beta.txt", 0, 500),
         MakeMftRecord(120, 10, u"top.jpg", 0, 64),
+        // large-index-lifecycle-and-search-scalability review-remediation 18.x:
+        // cold-prefilter adversarial corpus -- LIKE metacharacters in names,
+        // non-ASCII and surrogate names with ASCII tails, and the long-s
+        // host-fold case (soaked by the hot/cold signature comparison).
+        MakeMftRecord(121, 11, u"100%_done.txt", 0, 5),
+        MakeMftRecord(122, 11, u"a_b.txt", 0, 6),
+        MakeMftRecord(123, 11, u"axb.txt", 0, 7),
+        MakeMftRecord(124, 11, u"\u017Foo.txt", 0, 8),
+        MakeMftRecord(125, 11, emojiName, 0, 9),
     }), "the cold volume fixture persists through normal ingestion");
     const auto diagnosticsColdOnly = pipeline.GetProjectionMemoryDiagnostics();
     (void)diagnosticsColdOnly;
@@ -1345,6 +1358,14 @@ void TestForcedEvictionSearchEquivalence() {
         {"duplicate basenames path sort", makeQuery(L"dup.txt", 3, L"", 2), false},
         {"path-scoped subtree", makeQuery(L"report", 1, L"D:\\ColdRoot\\SubA"), false},
         {"broad capped", makeQuery(L"txt", 3, L"", 0, 3), false},
+        // large-index-lifecycle-and-search-scalability review-remediation 18.x:
+        // cold prefilter adversarial needles (LIKE metacharacters, ASCII case
+        // variants, ASCII tails of non-ASCII names, long-s host-fold case).
+        {"percent needle", makeQuery(L"100%"), false},
+        {"underscore needle", makeQuery(L"a_b"), false},
+        {"emoji tail needle", makeQuery(L"tailfrag"), false},
+        {"long-s host-fold needle", makeQuery(L"soo"), false},
+        {"upper-case selective", makeQuery(L"ALPHA"), true},
     };
 
     // Reference pass: everything fully resident.

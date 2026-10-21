@@ -251,6 +251,19 @@ public:
     void Close() noexcept;
 
     bool ForEachEntryUntil(VolumeRowId volumeRowId, const Store::EntryVisitorUntil& visitor);
+    // large-index-lifecycle-and-search-scalability review-remediation 18.x:
+    // conservative SQL name prefilter for a pure-ASCII literal needle
+    // (already ASCII-case-folded). The returned rows are a SUPERSET of every
+    // row whose name could match the needle under the canonical ordinal
+    // ignore-case matcher: an all-ASCII match span is found by SQLite's
+    // ASCII-only case-insensitive LIKE, while a span containing any non-ASCII
+    // UTF-16 unit implies the name carries non-ASCII UTF-8 bytes, which the
+    // GLOB disjunct admits unconditionally. False positives reach the
+    // canonical C++ matcher unchanged; false negatives are impossible for any
+    // host ordinal table. Callers must pass ASCII needles only (non-ASCII
+    // needles cannot be conservatively folded by SQLite LIKE).
+    bool ForEachEntryWithAsciiNameUntil(VolumeRowId volumeRowId, std::string_view asciiFoldedNeedle,
+                                        const Store::EntryVisitorUntil& visitor);
     std::optional<EntryRecord> FindEntry(VolumeRowId volumeRowId, FileId frn);
     Store::FolderAggregate GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn);
 
