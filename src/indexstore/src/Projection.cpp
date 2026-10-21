@@ -860,25 +860,20 @@ std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
                 result.swap(scratch);
             }
         }
-        std::vector<uint32_t> merged;
         if (maximumCandidates != 0 && result.size() > maximumCandidates) {
             return std::nullopt;
         }
-        const size_t maximumSize = (std::numeric_limits<size_t>::max)();
-        const size_t nonAsciiCount = filenameNonAsciiEntries_.size();
-        const size_t combinedSize = nonAsciiCount > maximumSize - result.size()
-            ? maximumSize : result.size() + nonAsciiCount;
-        const size_t reserveSize = maximumCandidates == 0
-            ? combinedSize
-            : (std::min)(maximumCandidates == maximumSize ? maximumSize : maximumCandidates + 1,
-                         combinedSize);
-        merged.reserve(reserveSize);
-        std::set_union(result.begin(), result.end(), filenameNonAsciiEntries_.begin(),
-                       filenameNonAsciiEntries_.end(), std::back_inserter(merged));
-        if (maximumCandidates != 0 && merged.size() > maximumCandidates) {
-            return std::nullopt;
-        }
-        return merged;
+        // large-index-lifecycle-and-search-scalability 6.3: the candidate set
+        // is the posting intersection alone. FoldAscii is length-preserving,
+        // non-ASCII names' folded trigrams are indexed (AddFilenameIndexEntry
+        // indexes every name's fold), and a pure-ASCII needle occurrence keeps
+        // its trigrams in the name's folded multiset -- so the intersection is
+        // already a conservative superset of every fold-matching or
+        // ordinally-matching row. The previous unconditional union with
+        // filenameNonAsciiEntries_ added only false positives, and at any
+        // Unicode population above the caller's cap it forced every lookup to
+        // nullopt (the accelerator was unusable at 200k+ rows).
+        return result;
     } catch (...) {
         // The index is an accelerator only. A transient allocation failure in
         // candidate materialization must leave the canonical scan available.

@@ -1027,6 +1027,103 @@ void TestRemoveVolumeCanLeaveAcceleratorForCallerRebuild() {
           "an invalidated accelerator yields no candidates and search falls back to the canonical scan");
 }
 
+// large-index-lifecycle-and-search-scalability 6.2/6.3: filename-accelerator
+// planner. The historical accelerator unconditionally unioned every
+// non-ASCII-named row into every candidate set, so at any scale whose Unicode
+// population exceeds the caller's cap every lookup returned nullopt and no
+// query class could ever use the index. FoldAscii is length-preserving and
+// non-ASCII names' folded trigrams are indexed, so pure-ASCII needles are
+// served by the posting intersection alone (superset guarantee); the union
+// only adds false positives.
+
+std::u16string FoldAsciiLower(const std::u16string_view value) {
+    std::u16string folded;
+    folded.reserve(value.size());
+    for (const char16_t ch : value) {
+        folded.push_back(ch >= u'A' && ch <= u'Z' ? static_cast<char16_t>(ch + (u'a' - u'A')) : ch);
+    }
+    return folded;
+}
+
+bool ContainsFolded(const std::u16string& haystackFolded, const std::u16string& needleFolded) {
+    return haystackFolded.find(needleFolded) != std::u16string::npos;
+}
+
+void PopulateUnicodeHeavyFixture(Projection& proj) {
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"ascii_dir", 0x10));
+    proj.Upsert(1, MakeEntry(101, 5, u"\u0434\u0438\u0440", 0x10));
+    proj.Upsert(1, MakeEntry(1000, 100, u"unique_target.txt", 0));
+    proj.Upsert(1, MakeEntry(1001, 101, u"\u0441\u043f\u0438\u0441\u043e\u043a_unique_target.txt", 0));
+    proj.Upsert(1, MakeEntry(1002, 101, u"\u0424\u0430\u0439\u043b_UNIQUE_TARGET.txt", 0));
+    proj.Upsert(1, MakeEntry(1003, 100, u"common_component_1.txt", 0));
+    proj.Upsert(1, MakeEntry(1004, 100, u"common_component_2.txt", 0));
+    proj.Upsert(1, MakeEntry(1005, 100, u"notes.md", 0));
+    proj.Upsert(1, MakeEntry(1006, 100, u"dotted.name.with.dots.txt", 0));
+    proj.Upsert(1, MakeEntry(1007, 100, u"ab", 0));
+    proj.Upsert(1, MakeEntry(1008, 101, u"\u65e5\u672c\u8a9e.txt", 0));
+    for (uint64_t i = 0; i < 20; ++i) {
+        proj.Upsert(1, MakeEntry(2000 + i, 101, u"\u0441\u043f\u0438\u0441\u043e\u043a_" + NumberToUtf16(i) + u".txt", 0));
+    }
+}
+
+void TestFilenameCandidatesAreConservativeSuperset() {
+    Projection proj;
+    PopulateUnicodeHeavyFixture(proj);
+    const std::u16string needles[] = {
+        u"unique_target", u"UNIQUE_TARGET", u"common_comp", u"zzz_missing",
+        u"notes", u"dots.txt", u"LIST"  // "\u0424\u0430\u0439\u043b_UNIQUE_TARGET.txt" folds to contain "_unique_target" only;
+    };
+    for (const std::u16string& raw : needles) {
+        const std::u16string folded = FoldAsciiLower(raw);
+        const auto candidates = proj.FilenameCandidateIndices(folded, 0);  // uncapped reference
+        if (!candidates.has_value()) {
+            Check(false, "an uncapped pure-ASCII needle always returns a candidate set");
+            continue;
+        }
+        std::vector<std::pair<int64_t, uint64_t>> expected;
+        proj.ForEachEntry([&](const EntryKey& key, const ProjectionEntry& entry) {
+            if (ContainsFolded(FoldAsciiLower(std::u16string(proj.Names().Get(entry.nameId))), folded)) {
+                expected.push_back({key.volumeRowId, key.frn.low});
+            }
+        });
+        std::vector<std::pair<int64_t, uint64_t>> got;
+        for (const uint32_t slot : *candidates) {
+            const ProjectionEntry& entry = proj.EntryAt(slot);
+            got.push_back({entry.volumeRowId, entry.frn.low});
+        }
+        bool superset = true;
+        for (const auto& id : expected) {
+            if (std::find(got.begin(), got.end(), id) == got.end()) {
+                superset = false;
+            }
+        }
+        Check(superset, "accelerator candidates are a conservative superset of every fold-matching row");
+    }
+    // Structural eligibility rules are unchanged.
+    Check(!proj.FilenameCandidateIndices(u"ab", 0).has_value(),
+          "needles shorter than three folded units remain ineligible");
+    Check(!proj.FilenameCandidateIndices(u"\u0441\u043f\u0438\u0441\u043e\u043a", 0).has_value(),
+          "non-ASCII folded needles remain ineligible for the ASCII trigram accelerator");
+}
+
+void TestFilenameCandidatesNarrowForSelectiveNeedlesDespiteUnicodeRows() {
+    Projection proj;
+    PopulateUnicodeHeavyFixture(proj);
+    // A deliberately small cap: non-ASCII rows that cannot match a pure-ASCII
+    // needle must not consume the cap and force the canonical scan.
+    const auto candidates = proj.FilenameCandidateIndices(u"unique_target", 8);
+    Check(candidates.has_value(),
+          "a selective pure-ASCII needle yields candidates regardless of the Unicode row count");
+    if (candidates.has_value()) {
+        Check(candidates->size() == 3,
+              "the candidate set is exactly the three fold-matching rows");
+    }
+    const auto missing = proj.FilenameCandidateIndices(u"zzz_missing", 8);
+    Check(missing.has_value() && missing->empty(),
+          "a no-match pure-ASCII needle yields an empty candidate set, not every Unicode row");
+}
+
 } // namespace
 
 int main() {
@@ -1060,6 +1157,8 @@ int main() {
     TestRemoveBatchMatchesPerEntryRemoval();
     TestRemoveVolumeKeepsFilenameAcceleratorCurrent();
     TestRemoveVolumeCanLeaveAcceleratorForCallerRebuild();
+    TestFilenameCandidatesAreConservativeSuperset();
+    TestFilenameCandidatesNarrowForSelectiveNeedlesDespiteUnicodeRows();
 
     if (fftest::FailureCount() > 0) {
         return 1;
