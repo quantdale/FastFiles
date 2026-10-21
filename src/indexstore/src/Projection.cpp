@@ -139,8 +139,8 @@ void Projection::SetMaximumMemoryBytes(const size_t maximumBytes) {
     enforcingMemoryLimit_ = wasEnforcing;
 }
 
-void Projection::EnforceMemoryLimitNow() {
-    EnforceMemoryLimit();
+bool Projection::EnforceMemoryLimitNow() {
+    return EnforceMemoryLimit();
 }
 
 void Projection::SetBulkScanActive(const bool active) noexcept {
@@ -149,7 +149,17 @@ void Projection::SetBulkScanActive(const bool active) noexcept {
         enforcingMemoryLimit_ = false;
     } else {
         enforcingMemoryLimit_ = true;
+        // large-index-lifecycle-and-search-scalability review-lane C
+        // Finding 3: ending the scan must revive the accelerator, otherwise
+        // it stays dead after every bulk scan (nothing else rebuilds it) and
+        // every selective query silently falls back to the canonical scan.
+        try {
+            RebuildFilenameIndex();
+        } catch (...) {
+            InvalidateFilenameIndex();
+        }
     }
+    bulkScanActive_ = active;
 }
 
 #ifdef FF_INDEXSTORE_TESTING
@@ -469,34 +479,52 @@ void Projection::CompactStorage() {
     denseIterationOrderValid_ = true;
 }
 
-void Projection::EnforceMemoryLimit() {
-    if (!enforcingMemoryLimit_) return;
+bool Projection::EnforceMemoryLimit() {
+    if (!enforcingMemoryLimit_) return false;
     // Leave headroom after a compaction so the next ingestion batches do not
     // immediately re-enter the full-index rebuild path.
     const size_t lowWatermark = maximumMemoryBytes_ - maximumMemoryBytes_ / 5;
-    EnforceMemoryLimitOnceTo(lowWatermark);
+    // large-index-lifecycle-and-search-scalability review-lane D P2-1:
+    // bounded multi-pass enforcement. One pass can free a single small victim
+    // (flat corpora fall back to one-file victims), which never converges
+    // under sustained ingestion; loop while above the watermark and passes
+    // keep making progress, with a hard pass bound to keep batch latency
+    // predictable (each pass is one subtree eviction + one O(N) compaction).
+    constexpr size_t kMaxEnforcementPasses = 8;
+    bool evictedAny = false;
+    for (size_t pass = 0; pass < kMaxEnforcementPasses; ++pass) {
+        if (EstimatedMemoryBytes() <= lowWatermark) break;
+        const size_t before = EstimatedMemoryBytes();
+        if (!EnforceMemoryLimitOnceTo(lowWatermark)) break;
+        evictedAny = true;
+        if (EstimatedMemoryBytes() >= before) break; // no progress guard
+    }
+    return evictedAny;
 }
 
-void Projection::EnforceMemoryLimitTo(const size_t targetBytes) {
-    if (!enforcingMemoryLimit_) return;
+bool Projection::EnforceMemoryLimitTo(const size_t targetBytes) {
+    if (!enforcingMemoryLimit_) return false;
+    bool evictedAny = false;
     while (EstimatedMemoryBytes() > targetBytes) {
         const auto victim = LeastRecentlyUsedEntry();
         if (!victim.has_value()) break;
         const size_t before = EstimatedMemoryBytes();
         EvictSubtree(*victim);
         CompactStorage();
+        evictedAny = true;
         // memory-bounded-indexed-scale 3.1: the multi-pass shrink path records
         // each pass exactly like the single-shot watermark path.
         lastEvictionBytesBefore_ = before;
         lastEvictionBytesAfter_ = EstimatedMemoryBytes();
         if (EstimatedMemoryBytes() >= before && idToIndex_.empty()) break;
     }
+    return evictedAny;
 }
 
-void Projection::EnforceMemoryLimitOnceTo(const size_t targetBytes) {
-    if (!enforcingMemoryLimit_ || EstimatedMemoryBytes() <= targetBytes) return;
+bool Projection::EnforceMemoryLimitOnceTo(const size_t targetBytes) {
+    if (!enforcingMemoryLimit_ || EstimatedMemoryBytes() <= targetBytes) return false;
     const auto victim = LeastRecentlyUsedEntry();
-    if (!victim.has_value()) return;
+    if (!victim.has_value()) return false;
     const size_t bytesBefore = EstimatedMemoryBytes();
     EvictSubtree(*victim);
     CompactStorage();
@@ -504,6 +532,7 @@ void Projection::EnforceMemoryLimitOnceTo(const size_t targetBytes) {
     // tests can distinguish "eviction ran" from "eviction changed nothing".
     lastEvictionBytesBefore_ = bytesBefore;
     lastEvictionBytesAfter_ = EstimatedMemoryBytes();
+    return true;
 }
 
 bool Projection::ReloadEvictedVolume(Store& store, const VolumeRowId volumeRowId) {
@@ -862,6 +891,13 @@ void Projection::RemoveBatch(VolumeRowId volumeRowId, const std::vector<FileId>&
     if (bulk && wasValid && keepFilenameIndexCurrent) {
         RebuildFilenameIndex();
     }
+    // large-index-lifecycle-and-search-scalability review-lane C Finding 5:
+    // keep=false must leave the accelerator invalidated regardless of batch
+    // size (the small per-entry path kept it valid, contradicting the
+    // contract).
+    if (!keepFilenameIndexCurrent) {
+        InvalidateFilenameIndex();
+    }
 }
 
 const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) const {
@@ -873,11 +909,24 @@ const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) con
 
 ProjectionEntryCursor::ProjectionEntryCursor(const Projection& projection)
     : projection_(&projection), dense_(projection.denseIterationOrderValid_),
-      iterator_(dense_ ? EntryMap::Iterator{} : projection.idToIndex_.begin()) {}
+      iterator_(dense_ ? EntryMap::Iterator{} : projection.idToIndex_.begin()),
+      entriesData_(projection.entries_.data()),
+      mapBuckets_(projection.idToIndex_.bucket_count()) {}
+
+bool ProjectionEntryCursor::Stale() const noexcept {
+    if (projection_ == nullptr) return false;
+    // large-index-lifecycle-and-search-scalability review-lane C Finding 2:
+    // entries_ reallocation/reorder or flat-table growth re-places row slots
+    // under the iterator, which would silently skip rows. In-place updates
+    // and appends within reserved capacity leave these markers untouched.
+    return projection_->entries_.data() != entriesData_ ||
+           projection_->idToIndex_.bucket_count() != mapBuckets_;
+}
 
 bool ProjectionEntryCursor::Next(const ProjectionEntry*& entry) {
     entry = nullptr;
     if (projection_ == nullptr) return false;
+    if (Stale()) return false;
     if (dense_) {
         if (denseIndex_ >= projection_->entries_.size()) return false;
         entry = &projection_->entries_[denseIndex_++];
@@ -905,15 +954,22 @@ std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
         const std::vector<uint64_t> trigrams = UniqueTrigrams(foldedNeedle);
         std::vector<const std::vector<uint32_t>*> postings;
         postings.reserve(trigrams.size());
+        bool anyTrigramMissing = false;
         for (const uint64_t trigram : trigrams) {
             const auto it = filenameTrigramPostings_.find(trigram);
             if (it == filenameTrigramPostings_.end()) {
-                result.clear();
+                // large-index-lifecycle-and-search-scalability review-lane C
+                // Finding 7: one missing needle trigram proves no row can
+                // match through its ASCII fold -- the candidate set is then
+                // exactly the exceptional merge of an empty intersection,
+                // not a re-intersection over the postings that happened to
+                // exist.
+                anyTrigramMissing = true;
                 break;
             }
             postings.push_back(&it->second);
         }
-        if (!postings.empty()) {
+        if (!anyTrigramMissing && !postings.empty()) {
             std::sort(postings.begin(), postings.end(), [](const auto* left, const auto* right) {
                 return left->size() < right->size();
             });
@@ -1102,10 +1158,41 @@ bool Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, u
     evictedVolumes_.erase(volumeRowId);
     denseIterationOrderValid_ = false;
     filenameIndexValid_ = false;
+    // large-index-lifecycle-and-search-scalability review-lane D P1-2:
+    // fail fast when the reloaded volume cannot survive the trailing
+    // enforcement. Without this guard an oversized volume is streamed in
+    // full (unbounded transient above the watermark, under the pipeline
+    // mutex) only to have enforcement evict it again -- returning false and
+    // an empty export, repeatedly. The estimate uses this projection's own
+    // measured average row cost against the early-enforcement watermark.
+    {
+        const size_t lowWatermark = maximumMemoryBytes_ - maximumMemoryBytes_ / 5;
+        const size_t baseline = EstimatedMemoryBytes();
+        const size_t rowCount = EntryCount();
+        const size_t averageRowBytes = rowCount == 0 ? 512 : baseline / rowCount;
+        const size_t projected = expectedEntryCount > (lowWatermark / (averageRowBytes == 0 ? 1 : averageRowBytes))
+            ? lowWatermark + 1
+            : baseline + expectedEntryCount * averageRowBytes;
+        if (projected > lowWatermark) {
+            evictedVolumes_.insert(volumeRowId);
+            enforcingMemoryLimit_ = wasEnforcingMemoryLimit;
+            return false;
+        }
+    }
     Reserve(EntryCount() + expectedEntryCount);
-    const bool streamed = store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) {
-        Upsert(volumeRowId, record);
-    });
+    // large-index-lifecycle-and-search-scalability review-lane D P2-2:
+    // allocation failure mid-stream must fall into the same cleanup as a
+    // failed durable read -- a partial stream left the volume looking hot and
+    // complete, silently missing rows forever. Store::ForEachEntry does not
+    // catch visitor exceptions.
+    bool streamed = false;
+    try {
+        streamed = store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) {
+            Upsert(volumeRowId, record);
+        });
+    } catch (...) {
+        streamed = false;
+    }
     if (!streamed) {
         // completion-integrity-hardening-and-release-certification 4.1.2:
         // a failed durable read may have delivered a prefix of the rows. Do
@@ -1119,7 +1206,13 @@ bool Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, u
         return false;
     }
     CompactEntriesForIterationOrder();
-    RebuildFilenameIndex();
+    // large-index-lifecycle-and-search-scalability review-lane C Finding 6:
+    // do not resurrect the accelerator while a bulk scan deliberately keeps
+    // it disabled (the incremental Upsert path would then pay quadratic
+    // posting inserts for the rest of the scan).
+    if (!bulkScanActive_) {
+        RebuildFilenameIndex();
+    }
     // performance-closure-and-multisurface-acceleration 8.3: a bulk rebuild
     // grows the name arena, the offset table, the flat child-index array, and
     // the trigram posting vectors by geometric reallocation, so each holds

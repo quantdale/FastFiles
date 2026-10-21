@@ -420,6 +420,25 @@ void IndexPipeline::RecordMetadataOnlyUpdateLocked() {
     metadataOnlyInvalidationsAvoided_.fetch_add(1, std::memory_order_relaxed);
 }
 
+void IndexPipeline::AdvanceResidencyEpochsForStructuralChangeLocked() {
+    // large-index-lifecycle-and-search-scalability review-lane D P1-1 / lane C
+    // Finding 1: memory-pressure enforcement and cold reload are structural
+    // projection events -- EvictSubtree can cold-mark ANY volume (the LRU
+    // victim is a global pick) and CompactStorage/RebuildVolumeFromStore
+    // repack every row slot, so an in-flight search's captured cursor,
+    // candidate slots, and cold-set can all be wrong afterwards. Surface the
+    // change through the SAME ProjectionResidency epoch mechanism
+    // SetProjectionMemoryBudget / UnloadVolumeFromProjection use, so searches
+    // restart with a fresh capture instead of silently serving incomplete
+    // results as Completed. Ordinary per-volume mutations never route through
+    // here (scoped searches stay insensitive to unrelated writes).
+    for (const auto& [volumeId, epoch] : volumeDataEpochs_) {
+        (void)epoch;
+        AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::ProjectionResidency);
+    }
+    AdvanceQueryVisibleEpochLocked(0, QueryMutationReason::ProjectionResidency, true);
+}
+
 bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     lifecycleEpoch_.fetch_add(1, std::memory_order_acq_rel);
     std::lock_guard<std::mutex> lock(mutex_);
@@ -766,14 +785,18 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
         } else {
             // Secondary pruning failed: durable and projection remain consistent (both retain the excluded rows),
             // but do not report success. Caller can retry the batch; the next attempt will re-evaluate pruning.
-            projection_.EnforceMemoryLimitNow();
+            if (projection_.EnforceMemoryLimitNow()) {
+                AdvanceResidencyEpochsForStructuralChangeLocked();
+            }
             MaybeReportProjectionMemoryPressureLocked();
             return false;
         }
     }
     // invoking it from Projection::Upsert turns a large volume scan into an
     // O(N) compaction storm once the bounded memory policy is reached.
-    projection_.EnforceMemoryLimitNow();
+    if (projection_.EnforceMemoryLimitNow()) {
+        AdvanceResidencyEpochsForStructuralChangeLocked();
+    }
     MaybeReportProjectionMemoryPressureLocked();
     if (!changes.empty()) {
         AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
@@ -902,12 +925,16 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
             // erases on mass rule removal.
             projection_.RemoveBatch(volumeId, excludedIds);
         } else {
-            projection_.EnforceMemoryLimitNow();
+            if (projection_.EnforceMemoryLimitNow()) {
+                AdvanceResidencyEpochsForStructuralChangeLocked();
+            }
             MaybeReportProjectionMemoryPressureLocked();
             return false;
         }
     }
-    projection_.EnforceMemoryLimitNow();
+    if (projection_.EnforceMemoryLimitNow()) {
+        AdvanceResidencyEpochsForStructuralChangeLocked();
+    }
     MaybeReportProjectionMemoryPressureLocked();
     if (!changes.empty()) {
         AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
@@ -1072,7 +1099,16 @@ ffprotocol::PooledSnapshotMap IndexPipeline::ExportDirectorySnapshotBoundedPoole
     // wrappers so the traversal and the bounded-eviction semantics exist
     // exactly once.
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!projection_.ReloadEvictedVolume(store_, id)) return {};
+    // large-index-lifecycle-and-search-scalability review-lane D P1-1: the
+    // reload (and its trailing enforcement) is a structural change -- bump
+    // residency epochs so in-flight searches re-capture instead of reading a
+    // replaced layout.
+    const bool wasCold = projection_.NeedsReload(id);
+    const bool reloaded = projection_.ReloadEvictedVolume(store_, id);
+    if (wasCold) {
+        AdvanceResidencyEpochsForStructuralChangeLocked();
+    }
+    if (!reloaded) return {};
     ffprotocol::PooledSnapshotMap result;
     projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
         if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {
@@ -1632,6 +1668,15 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                                 }
                                 entry = &projection_.EntryAt((*context.filenameCandidates)[filenameIndex++]);
                             } else if (!context.cursor.Next(entry)) {
+                                // large-index-lifecycle-and-search-scalability
+                                // review-lane C Finding 2: a disturbed layout
+                                // ends iteration early; treat it as a stale
+                                // generation (restart + re-capture), never as
+                                // exhausted (which would silently truncate).
+                                if (context.cursor.Stale()) {
+                                    stale = true;
+                                    break;
+                                }
                                 hotExhausted = true;
                                 break;
                             }
@@ -1775,6 +1820,15 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                                 }
                                 entry = &projection_.EntryAt((*context.filenameCandidates)[filenameIndex++]);
                             } else if (!context.cursor.Next(entry)) {
+                                // large-index-lifecycle-and-search-scalability
+                                // review-lane C Finding 2: a disturbed layout
+                                // ends iteration early; treat it as a stale
+                                // generation (restart + re-capture), never as
+                                // exhausted (which would silently truncate).
+                                if (context.cursor.Stale()) {
+                                    stale = true;
+                                    break;
+                                }
                                 hotExhausted = true;
                                 break;
                             }

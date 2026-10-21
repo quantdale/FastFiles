@@ -798,27 +798,53 @@ bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& 
         if (change.kind == EntryChangeKind::Upsert) {
             const auto& record = change.record;
             const std::string nameUtf8 = Utf16ToUtf8(record.name);
+            // large-index-lifecycle-and-search-scalability review-lane C
+            // Finding 4: on the INSERT arm the field mask must zero absent
+            // fields, matching Projection::UpsertPartial's missing-entry
+            // contract ("created with zero/default values only for fields
+            // that were not present"). The UPDATE arm already guards via the
+            // CASE expressions; before this, a partial upsert of a row that
+            // did not yet exist persisted the wire values for absent fields
+            // and hot vs cold planes reported different metadata.
+            const EntryFieldMask fields = change.fields;
+            const bool hasParent = HasEntryField(fields, kEntryFieldParentId);
+            const bool hasName = HasEntryField(fields, kEntryFieldName);
+            const bool hasSize = HasEntryField(fields, kEntryFieldSizeBytes);
+            const bool hasAllocated = HasEntryField(fields, kEntryFieldAllocatedSizeBytes);
+            const bool hasCreation = HasEntryField(fields, kEntryFieldCreationTime);
+            const bool hasModified = HasEntryField(fields, kEntryFieldLastModifiedTime);
+            const bool hasAccess = HasEntryField(fields, kEntryFieldLastAccessTime);
+            const bool hasAttributes = HasEntryField(fields, kEntryFieldAttributes);
             sqlite3_reset(upsert);
             sqlite3_bind_int64(upsert, 1, static_cast<sqlite3_int64>(volumeRowId));
             sqlite3_bind_int64(upsert, 2, static_cast<sqlite3_int64>(record.id.low));
             sqlite3_bind_int64(upsert, 3, static_cast<sqlite3_int64>(record.id.high));
-            sqlite3_bind_int64(upsert, 4, static_cast<sqlite3_int64>(record.parentId.low));
-            sqlite3_bind_int64(upsert, 5, static_cast<sqlite3_int64>(record.parentId.high));
-            sqlite3_bind_text(upsert, 6, nameUtf8.data(), static_cast<int>(nameUtf8.size()), SQLITE_TRANSIENT);
-            sqlite3_bind_int64(upsert, 7, static_cast<sqlite3_int64>(record.sizeBytes));
-            if (record.allocatedSizeKnown) {
+            sqlite3_bind_int64(upsert, 4,
+                static_cast<sqlite3_int64>(hasParent ? record.parentId.low : 0));
+            sqlite3_bind_int64(upsert, 5,
+                static_cast<sqlite3_int64>(hasParent ? record.parentId.high : 0));
+            sqlite3_bind_text(upsert, 6,
+                hasName ? nameUtf8.data() : "", hasName ? static_cast<int>(nameUtf8.size()) : 0,
+                SQLITE_TRANSIENT);
+            sqlite3_bind_int64(upsert, 7,
+                static_cast<sqlite3_int64>(hasSize ? record.sizeBytes : 0));
+            if (hasAllocated && record.allocatedSizeKnown) {
                 sqlite3_bind_int64(upsert, 8, static_cast<sqlite3_int64>(record.allocatedSizeBytes));
             } else {
                 // Unknown is NULL on disk -- a genuine zero is stored as 0.
                 sqlite3_bind_null(upsert, 8);
             }
-            sqlite3_bind_int64(upsert, 9, static_cast<sqlite3_int64>(record.creationTime));
-            sqlite3_bind_int64(upsert, 10, static_cast<sqlite3_int64>(record.lastModifiedTime));
-            sqlite3_bind_int64(upsert, 11, static_cast<sqlite3_int64>(record.lastAccessTime));
-            sqlite3_bind_int64(upsert, 12, static_cast<sqlite3_int64>(record.attributes));
-            const sqlite3_int64 fields = static_cast<sqlite3_int64>(change.fields);
+            sqlite3_bind_int64(upsert, 9,
+                static_cast<sqlite3_int64>(hasCreation ? record.creationTime : 0));
+            sqlite3_bind_int64(upsert, 10,
+                static_cast<sqlite3_int64>(hasModified ? record.lastModifiedTime : 0));
+            sqlite3_bind_int64(upsert, 11,
+                static_cast<sqlite3_int64>(hasAccess ? record.lastAccessTime : 0));
+            sqlite3_bind_int64(upsert, 12,
+                static_cast<sqlite3_int64>(hasAttributes ? record.attributes : 0));
+            const sqlite3_int64 mask = static_cast<sqlite3_int64>(change.fields);
             for (int parameter = 13; parameter <= 21; ++parameter) {
-                sqlite3_bind_int64(upsert, parameter, fields);
+                sqlite3_bind_int64(upsert, parameter, mask);
             }
             ok = sqlite3_step(upsert) == SQLITE_DONE;
         } else {

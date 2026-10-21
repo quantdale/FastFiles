@@ -1328,6 +1328,77 @@ void TestFilenameCandidateSupersetInvariantHoldsForAdversarialCasing() {
 
 } // namespace
 
+// large-index-lifecycle-and-search-scalability review-lane C Finding 3:
+// ending a bulk scan must revive the filename accelerator (it previously
+// stayed dead after every scan, silently disabling selective acceleration).
+void TestBulkScanCycleRevivesFilenameAccelerator() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"unique_target.txt", 0));
+    Check(proj.FilenameCandidateIndices(u"unique_target").has_value(),
+          "accelerator is live before the bulk scan");
+    proj.SetBulkScanActive(true);
+    proj.Upsert(1, MakeEntry(101, 5, u"unique_target_two.txt", 0));
+    Check(!proj.FilenameCandidateIndices(u"unique_target").has_value(),
+          "bulk scan keeps the accelerator disabled while active");
+    proj.SetBulkScanActive(false);
+    Check(proj.GetMemoryBreakdown().filenameIndexValid,
+          "ending the bulk scan revives the filename accelerator");
+    const auto candidates = proj.FilenameCandidateIndices(u"unique_target");
+    Check(candidates.has_value() && candidates->size() == 2,
+          "the revived accelerator serves every matching row ingested during the scan");
+}
+
+// large-index-lifecycle-and-search-scalability review-lane C Finding 2: a
+// cursor whose walk layout is disturbed (entries_ reallocation / flat-table
+// growth) must report Stale() instead of silently skipping rows.
+void TestCursorDetectsDisturbedLayout() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"a.txt", 0));
+    auto cursor = proj.BeginEntryCursor();
+    Check(!cursor.Stale(), "a fresh cursor is not stale");
+    const ProjectionEntry* entry = nullptr;
+    Check(cursor.Next(entry) && entry != nullptr, "a fresh cursor advances");
+    for (uint64_t id = 200; id < 400; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"grow_" + NumberToUtf16(id) + u".txt", 0));
+    }
+    Check(cursor.Stale(),
+          "layout growth under a held cursor marks it stale (no silent truncation)");
+    Check(!cursor.Next(entry), "a stale cursor stops iterating");
+}
+
+// large-index-lifecycle-and-search-scalability review-lane D P1-2/P2-3:
+// reloading a volume that cannot survive enforcement must fail FAST and leave
+// the volume cold (previously: an unbounded under-mutex stream, then a doomed
+// re-eviction).
+void TestOversizedVolumeReloadFailsFastAndStaysCold() {
+    ffindexstore::Store store;
+    const std::string dbPath = FreshDbPath("projection_oversized_reload.db");
+    Check(store.Open(dbPath), "oversized-reload store opens");
+    const auto volume = store.GetOrCreateVolume({{}, 707});
+    Check(volume.has_value(), "oversized-reload volume is created");
+    std::vector<ffindexstore::EntryChange> batch;
+    batch.push_back({ffindexstore::EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)});
+    for (uint64_t id = 100; id < 200; ++id) {
+        batch.push_back({ffindexstore::EntryChangeKind::Upsert,
+                         MakeEntry(id, 5, u"row_" + NumberToUtf16(id) + u".txt", 0)});
+    }
+    Check(store.ApplyBatch(*volume, batch), "oversized-reload rows persist");
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"D:", 0x10));
+    proj.EvictVolume(*volume); // mark the durable volume cold explicitly
+    Check(proj.NeedsReload(*volume), "the volume starts cold");
+    // A budget so small the 100-row reload cannot survive enforcement: the
+    // reload must fail before streaming and leave the volume cold.
+    proj.SetMaximumMemoryBytes(2048);
+    Check(!proj.ReloadEvictedVolume(store, *volume),
+          "an over-watermark volume reload fails (fast) instead of thrashing");
+    Check(proj.NeedsReload(*volume), "the failed reload leaves the volume cold");
+    Check(proj.GetMemoryDiagnostics().coldReloadFailedCount >= 1,
+          "the failed reload is counted for diagnostics");
+}
+
 int main() {
     TestSiblingsDoNotDuplicateSharedAncestorPath();
     TestRepeatedNamesAcrossTreeShareOneInternedId();
@@ -1365,6 +1436,9 @@ int main() {
     TestFilenameCandidatesRetainHostFoldExceptionalNames();
     TestFilenameCandidatesRetainSurrogateNamesConservatively();
     TestFilenameCandidateSupersetInvariantHoldsForAdversarialCasing();
+    TestBulkScanCycleRevivesFilenameAccelerator();
+    TestCursorDetectsDisturbedLayout();
+    TestOversizedVolumeReloadFailsFastAndStaysCold();
 
     if (fftest::FailureCount() > 0) {
         return 1;

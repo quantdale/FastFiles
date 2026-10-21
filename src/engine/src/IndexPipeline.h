@@ -401,6 +401,12 @@ private:
     void AdvanceQueryVisibleEpochLocked(ffindexstore::VolumeRowId volumeId,
                                         QueryMutationReason reason,
                                         bool dependencySetChanged = false);
+    // large-index-lifecycle-and-search-scalability review-lane D P1-1: bumps
+    // ProjectionResidency for every known volume after a structural
+    // projection change (memory-pressure eviction + compaction, cold reload)
+    // so in-flight searches restart instead of serving silently incomplete
+    // results.
+    void AdvanceResidencyEpochsForStructuralChangeLocked();
     void RecordMetadataOnlyUpdateLocked();
     static bool VolumeSettingsEqual(const ffprotocol::VolumeSetting& left,
                                     const ffprotocol::VolumeSetting& right);

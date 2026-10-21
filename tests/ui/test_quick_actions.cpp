@@ -137,8 +137,13 @@ int main() {
                     // window exhaustion and is never skipped away.
                     observations.pathsMatchExpected = (read == expected);
                     observations.cutIntentMatchesExpected = (cut == true); // published cut=true
+                    observations.cutIntentObserved = cut;
+                    observations.cutIntentExpected = true;
+                    observations.dropEffectAdvertised =
+                        IsClipboardFormatAvailable(RegisterClipboardFormatW(L"Preferred DropEffect")) != 0;
                     delivered = true;
                     exact = observations.pathsMatchExpected && observations.cutIntentMatchesExpected;
+                    if (exact) observations.attemptsBeforeExact = static_cast<uint32_t>(attempt + 1);
                 }
                 if (!exact) Sleep(25);
             }
@@ -149,10 +154,17 @@ int main() {
                 // from raw observations (advertised formats, actual
                 // GetClipboardData handles, lockability, parsed payload).
                 if (OpenClipboard(nullptr)) {
-                    const UINT probeFormats[] = {CF_HDROP, CF_UNICODETEXT, CF_TEXT, CF_DIB};
+                    const UINT dropEffectFormat = RegisterClipboardFormatW(L"Preferred DropEffect");
+                    // review-lane B P3-4: count CF_HDROP the moment it is
+                    // advertised (before handle probing) so
+                    // "hdropAdvertised => counted in advertisedFormatCount"
+                    // holds and the all-null signature stays meaningful.
+                    const UINT probeFormats[] = {CF_HDROP, dropEffectFormat, CF_UNICODETEXT, CF_TEXT, CF_DIB};
                     for (const UINT format : probeFormats) {
-                        if (!IsClipboardFormatAvailable(format)) continue;
+                        if (format == 0 || !IsClipboardFormatAvailable(format)) continue;
                         ++observations.advertisedFormatCount;
+                        if (format == CF_HDROP) observations.hdropAdvertised = true;
+                        if (format == dropEffectFormat) observations.dropEffectAdvertised = true;
                         if (format == CF_UNICODETEXT) observations.independentFormatAdvertised = true;
                         HANDLE data = GetClipboardData(format);
                         if (data == nullptr) {
@@ -166,7 +178,6 @@ int main() {
                         }
                         ++observations.readableFormatCount;
                         if (format == CF_HDROP) {
-                            observations.hdropAdvertised = true;
                             observations.hdropReadable = true;
                             std::vector<std::wstring> probePaths;
                             bool probeCut = false;
@@ -178,12 +189,15 @@ int main() {
                     }
                     CloseClipboard();
                 }
-                if (IsClipboardFormatAvailable(CF_HDROP)) observations.hdropAdvertised = true;
             }
             const auto verdict = fftest::ClassifyClipboardRoundTrip(observations);
             if (verdict == fftest::ClipboardRoundTripVerdict::Pass) {
                 Check(true, "clipboard HDROP round-trip preserved the exact paths");
                 Check(true, "clipboard Preferred DropEffect round-trip preserved the cut intent");
+                // review-lane B P3-6: record how late completion landed so a
+                // future tightening of the window has data to reason from.
+                std::cout << "clipboard round-trip PASS after " << observations.attemptsBeforeExact
+                          << " bounded-window sample(s)\n";
             } else if (verdict == fftest::ClipboardRoundTripVerdict::EnvironmentInterception) {
                 // The documented locked-down-session condition, confirmed
                 // from actual null handles across ALL advertised formats for

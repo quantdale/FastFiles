@@ -31,25 +31,30 @@ Search behavior during reload is governed by the existing read plane: search
 never reloads (cold volumes stream from SQLite; `memory-bounded-indexed-scale`
 D1/D3 contract), so a query issued while a volume is cold answers from the
 durable stream (cold latencies in `memory-cold-decision.md`) rather than
-blocking on hydration. The known thrash limit is characterized and tested: a
-volume larger than the low watermark can never re-resident
-(`ReloadEvictedVolume` returns false after the trailing
-`EnforceMemoryLimit`; `coldReloadFailedCount`); this is deliberate bounded
-behavior, not an eviction loop. Repeated publication passes (2x pooled, 2x
-owning per scale) show no growth in publish time or serialized bytes
-(payload hash identical across passes).
+blocking on hydration -- though search capture is serialized behind a reload
+via the pipeline mutex (lane D P1-2). The over-watermark reload behavior
+(a volume that cannot survive enforcement re-evicts and returns false) is
+described in `memory-bounded-indexed-scale` and pinned by reload tests; after
+review lane D P1-2 it is now FAIL-FAST (the reload estimates fit against the
+low watermark before streaming, so an oversized volume cannot consume an
+unbounded under-mutex transient and then fail). The 500 MiB figure is a
+POLICY WATERMARK, not a hard bound: the estimator discloses a residual
+(allocator/compaction/reload transients briefly exceed it).
+Repeated publication passes (2x pooled, 2x owning per scale) show no growth
+in publish time or serialized bytes (payload hash identical across passes).
 
 ## 8.2 Repeated-cycle stability (10 cycles)
 
 `rebuild_cycles[1..10]` per scale, each a full replacement rebuild through
 `RebuildVolumeFromStore` (the production mass-removal + re-ingest path):
 
-- **Rebuild speedup retained:** 1M cycles measure 4.9-9.0 s vs the pre-fix
-  158-164 s (>= 17x on the slowest cycle; 28-32x on cycles 1-4/9-10). The
-  31-34x figure survives as the steady-state result; cycles 5-8 spiked
-  (6.5-9.0 s) on host load and returned to 5.3-5.7 s without any code path
-  change -- the honest summary is "steady-state ~5 s with up to ~1.8x
-  run-to-run load noise on this host", not a clean 5.0 s flat.
+- **Rebuild revalidation (lane E E-4 correction):** 1M rebuild cycles measure
+  4.9-9.0 s vs the pre-fix 158-164 s. The honest band is **28-32x typical**
+  (6 of 10 cycles at 4.9-5.7 s), **>=17.7x worst observed** (one unattributed
+  4-cycle transient to 6.5-9.0 s; no host telemetry was collected, so the
+  cause is unverified -- memory was flat throughout). The historical 31-34x
+  figure stands as measured on the after-fix tree's 3 cycles; at `b6df9ef`
+  the steady-state summary is ~5-6 s with up to ~1.8x transient variance.
 - **Memory flat (no monotonic growth):** 200k live requested 72.4 -> 73.2 MB
   then flat; private bytes oscillate 98.9-106.8 MB (allocator/capacity noise,
   not growth: cycle 10 private is within the cycle-2..10 band). 1M live

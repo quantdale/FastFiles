@@ -1311,7 +1311,22 @@ void TestForcedEvictionSearchEquivalence() {
         MakeMftRecord(123, 11, u"axb.txt", 0, 7),
         MakeMftRecord(124, 11, u"\u017Foo.txt", 0, 8),
         MakeMftRecord(125, 11, emojiName, 0, 9),
+        // Differential-matrix cells that had no named coverage: NFC vs NFD
+        // forms of the same visible name (ordinal compare does NOT normalize,
+        // so these are distinct rows) with an ASCII tail.
+        MakeMftRecord(126, 11, u"o\u0308verlay.txt", 0, 10),
+        MakeMftRecord(127, 11, u"\u00F6verlay.txt", 0, 11),
     }), "the cold volume fixture persists through normal ingestion");
+    {
+        // Repeated-prefix posting pressure: 20 rows sharing one long prefix.
+        std::vector<ffprotocol::MftRecordV1> repeated;
+        for (uint64_t rep = 1; rep <= 20; ++rep) {
+            repeated.push_back(MakeMftRecord(200 + rep, 12,
+                std::u16string(u"repeat-common-") + U16FromWide(std::to_wstring(rep)) + u".txt", 0, 1));
+        }
+        Check(pipeline.ApplyMftBatch(coldVolume, repeated),
+              "the repeated-prefix rows persist through normal ingestion");
+    }
     const auto diagnosticsColdOnly = pipeline.GetProjectionMemoryDiagnostics();
     (void)diagnosticsColdOnly;
 
@@ -1366,6 +1381,11 @@ void TestForcedEvictionSearchEquivalence() {
         {"emoji tail needle", makeQuery(L"tailfrag"), false},
         {"long-s host-fold needle", makeQuery(L"soo"), false},
         {"upper-case selective", makeQuery(L"ALPHA"), true},
+        // Differential-matrix cells that had no named coverage.
+        {"empty query rejection parity", makeQuery(L""), false},
+        {"repeated prefix needle", makeQuery(L"repeat-common"), false},
+        {"NFD name ascii tail", makeQuery(L"verlay"), false},
+        {"NFC name needle overlay", makeQuery(L"overlay"), false},
     };
 
     // Reference pass: everything fully resident.
@@ -1378,8 +1398,14 @@ void TestForcedEvictionSearchEquivalence() {
             Check(timings.filenameIndexUsed,
                   "fully-resident eligible searches use the trigram accelerator");
         }
-        Check(response.status == ffprotocol::IndexedSearchStatus::Completed,
-              "reference-pass indexed searches complete");
+        // An empty query string is rejected by contract (InvalidRequest);
+        // every other case must complete. Either way the same verdict must
+        // hold after eviction (the equivalence loop re-checks).
+        const bool expectRejected = testCase.request.query.empty();
+        Check(response.status == (expectRejected
+                                      ? ffprotocol::IndexedSearchStatus::InvalidRequest
+                                      : ffprotocol::IndexedSearchStatus::Completed),
+              "reference-pass indexed searches complete or reject consistently");
         reference.push_back(std::move(response));
     }
     Check(reference[2].candidates.size() >= reference[0].candidates.size(),
@@ -1417,8 +1443,13 @@ void TestForcedEvictionSearchEquivalence() {
     for (size_t index = 0; index < cases.size(); ++index) {
         IndexPipeline::SearchTimings timings;
         auto response = pipeline.SearchIndexed(cases[index].request, &timings);
-        Check(response.status == ffprotocol::IndexedSearchStatus::Completed,
-              "forced-eviction indexed searches complete");
+        const bool expectRejected = cases[index].request.query.empty();
+        Check(response.status == (expectRejected
+                                      ? ffprotocol::IndexedSearchStatus::InvalidRequest
+                                      : ffprotocol::IndexedSearchStatus::Completed),
+              "forced-eviction indexed searches complete or reject consistently");
+        Check(response.status == reference[index].status,
+              cases[index].label);
         Check(signatures(response) == signatures(reference[index]),
               cases[index].label);
         Check(timings.truncated == reference[index].truncated,
@@ -1815,7 +1846,7 @@ void TestMftSecondaryFailureIsFailClosedAndRetryable() {
     Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
           "MFT rule-pruning fixture seeds its root");
 
-    SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1};
+    SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1, false, 0, {}};
     InstallSecondaryFailurePlan(pipeline, plan);
     const uint64_t epochBeforeFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
     const FileId target{2, 0};
@@ -1907,7 +1938,7 @@ void TestUsnSecondaryFailureIsBoundarySpecificAndRetryable() {
     Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
           "USN rule-pruning fixture seeds its root");
 
-    SecondaryFailurePlan plan{SecondaryBoundary::UsnRulePrune, 1};
+    SecondaryFailurePlan plan{SecondaryBoundary::UsnRulePrune, 1, false, 0, {}};
     InstallSecondaryFailurePlan(pipeline, plan);
     const auto mftOther = std::vector<ffprotocol::MftRecordV1>{
         MakeMftRecord(2, 1, u"blocked-mft.txt", 0, 10)};
@@ -2014,7 +2045,7 @@ void TestRebuildSecondaryFailureDoesNotPublishSuccess() {
     setting.enabled = true;
     setting.rules.push_back({L"C:\\blocked-rebuild.txt", false});
     pipeline.SetVolumeRules(volume, setting);
-    SecondaryFailurePlan plan{SecondaryBoundary::RebuildRulePrune, 1};
+    SecondaryFailurePlan plan{SecondaryBoundary::RebuildRulePrune, 1, false, 0, {}};
     InstallSecondaryFailurePlan(pipeline, plan);
     const uint64_t epochBeforeFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
     int callbackCount = 0;
@@ -2131,7 +2162,7 @@ void TestReconciliationRetentionOnSecondaryFailure() {
     Check(preFinishDurable.opened && preFinishDurable.hasTarget && preFinishDurable.entryCount == 3,
           "the reconciliation target exists before Finish computes removals");
 
-    SecondaryFailurePlan plan{SecondaryBoundary::ReconciliationRemoval, 1};
+    SecondaryFailurePlan plan{SecondaryBoundary::ReconciliationRemoval, 1, false, 0, {}};
     InstallSecondaryFailurePlan(pipeline, plan);
     const uint64_t epochBeforeFinish = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
     pipeline.FinishReconciliationPass(volume);
@@ -2245,7 +2276,7 @@ void TestRulePruningFailureRecoversAfterCloseAndOpen() {
         pipeline.SetVolumeRules(volume, setting);
         Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
               "restart rule-pruning fixture seeds its root");
-        SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1};
+        SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1, false, 0, {}};
         InstallSecondaryFailurePlan(pipeline, plan);
         Check(!pipeline.ApplyMftBatch(volume, {
                   MakeMftRecord(target.low, 1, u"blocked-restart.txt", 0, 10)}),
@@ -2410,6 +2441,66 @@ void TestAbortReconciliationPassDropsWithoutRemovals() {
     std::filesystem::remove(dbPath + "-shm");
 }
 
+// large-index-lifecycle-and-search-scalability review-lane D P1-1 / lane C
+// Finding 1: memory-pressure enforcement triggered by an UNRELATED batch can
+// evict and compact any volume. That structural change must surface as a
+// query-visible residency change (the same ProjectionResidency epoch
+// mechanism UnloadVolumeFromProjection uses), so in-flight and future
+// searches re-capture or cold-stream instead of silently serving incomplete
+// results as Completed.
+void TestEnforcementEvictionAdvancesQueryVisibleEpochs() {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_enforcement_epochs.db")),
+          "enforcement-epoch pipeline opens");
+    VolumeKey firstKey;
+    firstKey.serialNumber = 313;
+    const auto firstVolume = pipeline.ResolveVolume(firstKey);
+    ffprotocol::VolumeSetting firstSetting;
+    firstSetting.key = L"P:";
+    pipeline.SetVolumeRules(firstVolume, firstSetting);
+    VolumeKey secondKey;
+    secondKey.serialNumber = 314;
+    const auto secondVolume = pipeline.ResolveVolume(secondKey);
+    ffprotocol::VolumeSetting secondSetting;
+    secondSetting.key = L"Q:";
+    pipeline.SetVolumeRules(secondVolume, secondSetting);
+    Check(pipeline.ApplyMftBatch(firstVolume, {
+        MakeMftRecord(5, 5, u".", 0x10, 0),
+        MakeMftRecord(10, 5, u"first-victim.txt", 0, 10),
+    }), "first volume commits (oldest LRU timestamps)");
+    Check(pipeline.ApplyMftBatch(secondVolume, {
+        MakeMftRecord(5, 5, u".", 0x10, 0),
+        MakeMftRecord(20, 5, u"second-live.txt", 0, 10),
+    }), "second volume commits");
+    // A tiny budget forces enforcement during the NEXT batch to evict the
+    // oldest victim (first volume's subtree).
+    pipeline.SetProjectionMemoryBudget(512);
+    const uint64_t before = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    Check(pipeline.ApplyMftBatch(secondVolume, {
+        MakeMftRecord(21, 5, u"second-live-two.txt", 0, 10),
+    }), "the unrelated batch commits");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > before,
+          "enforcement-triggered eviction advances query-visible epochs "
+          "(in-flight searches must re-capture, never truncate silently)");
+    Check(pipeline.IsVolumeEvicted(firstVolume),
+          "the LRU victim's volume is cold-marked by the enforcement pass");
+    // The evicted volume's rows must still be findable through the cold
+    // stream -- completeness preserved across the residency change.
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 991;
+    request.scope = 3;
+    request.maxResults = 64;
+    request.query = L"first-victim";
+    IndexPipeline::SearchTimings timings;
+    const auto response = pipeline.SearchIndexed(request, &timings);
+    Check(response.status == ffprotocol::IndexedSearchStatus::Completed,
+          "search over the evicted volume completes through the cold stream");
+    Check(response.candidates.size() == 1 &&
+              response.candidates.front().name == L"first-victim.txt",
+          "the evicted volume's rows remain complete in results");
+    pipeline.Close();
+}
+
 int main() {
 
     TestBulkInsertTriggersAnalyzeAtTenThousandRecords();
@@ -2430,6 +2521,7 @@ int main() {
         TestIndexedSearchPropagatesAllocatedSize();
         TestIndexedSearchOndiskFilter();
         TestForcedEvictionSearchEquivalence();
+        TestEnforcementEvictionAdvancesQueryVisibleEpochs();
     TestCappedRootSearchMatchesColdAndRetainsTopN();
         TestRepeatedColdSearchesDoNotThrashMemory();
         TestColdMutationsAndRestartEquivalence();
