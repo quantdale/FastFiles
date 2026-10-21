@@ -12,7 +12,10 @@
          what the compiler consumes.
       2. Every '#include' in those translation units is resolved recursively
          against the include paths that same compile_commands.json records, so
-         the header closure is discovered rather than guessed.
+         the header closure is discovered rather than guessed. RC resource
+         references (e.g. '1 RT_MANIFEST "FastFiles.manifest"') are derived the
+         same way, because the resource compiler embeds their content into the
+         binary without any '#include' directive.
       3. The build inputs themselves are added: every CMakeLists.txt under the
          two commits, the CMake modules they reference, the compile database,
          and the version identity inputs the build identity generator reads.
@@ -297,6 +300,15 @@ try {
     foreach ($tu in $translationUnits) { $pending.Enqueue($tu) }
     $visited = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $includeMatcher = [regex]::new('(?m)^\s*#\s*include\s*"([^"]+)"|^\s*#\s*include\s*<([^>]+)>', 'Compiled')
+    # large-index-lifecycle-and-search-scalability closure campaign: RC
+    # resource references are executable inputs too (the resource compiler
+    # embeds their content; '1 RT_MANIFEST "FastFiles.manifest"' is the
+    # product's own case), but they are not '#include' directives and were
+    # silently outside the derived set -- a manifest-only change could move
+    # the shipped binary without moving the digest. Only quoted names with a
+    # known resource-file extension are treated as references, so ordinary
+    # RC string literals cannot be mistaken for files.
+    $rcResourceMatcher = [regex]::new('"([^"\r\n]+\.(?:manifest|ico|cur|bmp|jpe?g|png|gif|rc2|rct|tlb|wmf|emf|rtf))"', 'Compiled, IgnoreCase')
     while ($pending.Count -gt 0) {
         $current = $pending.Dequeue()
         if (-not $visited.Add($current)) { continue }
@@ -333,6 +345,20 @@ try {
                 continue
             }
             if ($executableImpacting.Add($resolved)) { $pending.Enqueue($resolved) }
+        }
+        # Derive RC-referenced resource files (see $rcResourceMatcher).
+        if ($current -match '(?i)\.rc$') {
+            foreach ($m in $rcResourceMatcher.Matches($text)) {
+                $resName = $m.Groups[1].Value
+                $resolved = Resolve-Include -IncludeName $resName -IncludeDirs @() `
+                    -Known $implementationPaths -FromFile $current -RepoRootResolved $repoRootResolved -IsQuoted $true
+                if ($resolved -like 'GENERATED:*') { continue }
+                if ($null -eq $resolved) {
+                    [void]$coverageFailures.Add("unresolved-rc-resource: $current -> $resName")
+                    continue
+                }
+                if ($executableImpacting.Add($resolved)) { $pending.Enqueue($resolved) }
+            }
         }
     }
 

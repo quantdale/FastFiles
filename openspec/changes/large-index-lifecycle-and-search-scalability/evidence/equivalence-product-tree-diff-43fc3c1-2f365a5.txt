@@ -1,0 +1,4 @@
+# Evidence-side product-tree delta, 43fc3c175d4a940a094e1261b1c96aa8bf0668d1..2f365a52748511420499b5d3459e5560739ea958
+# command: git diff --name-status <impl>..<evidence> -- src/ tests/ cmake/ third_party/ CMakeLists.txt CMakePresets.json VERSION
+# expected: EMPTY (no product-tree additions, deletions, or modifications).
+# exit=0 (0=clean)
