@@ -1,0 +1,58 @@
+# Tasks
+
+## 1. Live reconciliation
+
+- [x] 1.1 Re-derive branch, HEAD, `origin/main`, working tree, remote branches, lifecycle state, PR state, and hosted CI before any campaign work. Record stale-claim corrections (historical claims preserved, marked historical). Evidence: WORKSTATE checkpoint `large-index-lifecycle-and-search-scalability LIVE-RECONCILED`.
+- [x] 1.2 Reconcile PR #13 truth: MERGED 2026-10-07; the volume-root top-N review thread is resolved (fix `f0eb28a`, regression `TestCappedRootSearchMatchesColdAndRetainsTopN` verified green on `main`). No reopen needed.
+- [x] 1.3 Report merged stale feature branches for owner cleanup; do not delete branches without explicit policy. Record `main.protected=false` and the branch-protection API's plan-level HTTP 403 honestly. `HOSTED_CI = BLOCKED_EXTERNAL` unchanged (run `37661645361`, six jobs, zero steps, inspected once).
+- [x] 1.4 Create the campaign branch from actual current `main` (`feat/large-index-lifecycle-and-search-scalability-20261008`); never commit to `main` directly.
+
+## 2. Rebuild reachability
+
+- [x] 2.1 Trace every production path capable of rebuilding or replacing the projection (startup hydration, initial scan, rescan, reconciliation, reconnect, journal gap recovery, failed scan retry, cold-volume reload, memory-pressure eviction + reload, database reopen, service restart, projection rebuild APIs). Evidence: lifecycle map in WORKSTATE (production-reachability bullet).
+- [x] 2.2 Classify the repeated-rebuild path: the benchmark's repeated `RebuildAll` is BENCHMARK_ONLY as exercised; its dominant primitive (per-entry `Remove` with trigram erase inside `RemoveVolume`/mass-removal) is `PRODUCTION_REACHABLE` through `ForgetVolume`, `FinishReconciliationPass`, rule-prune loops, `EnforceMemoryLimitNow` eviction, and `ReloadEvictedVolume`. Startup `RebuildAll` is the empty-projection fast path.
+
+## 3. Rebuild profiling
+
+- [x] 3.1 Reproduce the repeated-rebuild delta on current `main` with the same harness as the historical claim (row count, fixture, indexes, output, memory policy). Evidence: `evidence/rebuild/memory-report-before.json` (1M cycles 158,877.3 / 158,252.3 / 164,348.8 ms vs first build 4,095.8 ms).
+- [x] 3.2 Build the differential isolation matrix (arms A/B1/B2/C/D/E1/E2/F1/G0/G1/G2) as a benchmark-only seam (`FF_INDEXSTORE_TESTING`, never production) and attribute the delta by measurement, not source inference. Evidence: `evidence/rebuild/rebuild-isolation-*.json` + `bench_rebuild_isolation`.
+- [x] 3.3 Record rows/sec and per-arm state (filename-index validity, eviction state, rebuild verdict) so every number is self-explaining. Classify: trigram per-entry erase = 99.7% of removal cost; child unlink and id-map residual are small; silent `RebuildFilenameIndex` invalidation under allocation pressure is a recorded robustness finding.
+
+## 4. Rebuild optimization
+
+- [x] 4.1 Implement the narrowest safe bulk-removal fix: `Projection::RemoveBatch` (wholesale accelerator invalidation + one bulk rebuild above `kPerEntryFilenameRemovalThreshold = 256`; per-entry path below), `RemoveVolume(vol, keepFilenameIndexCurrent)` routed through it, `RebuildVolumeFromStore` skipping the double rebuild, `EvictSubtree`/`EvictVolume` skipping per-entry erases (their trailing `CompactStorage` invalidates anyway). No double-buffer; memory-limit/LRU/eviction/generation semantics preserved.
+- [x] 4.2 Route production mass-removal loops through `RemoveBatch` (rule prune in `ApplyMftBatch`/`ApplyUsnBatch`/`RebuildAll`, reconciliation `FinishReconciliationPass`); keep the order-sensitive mixed USN batch per-change.
+- [x] 4.3 Add regression coverage (`TestRemoveBatchMatchesPerEntryRemoval`, `TestRemoveVolumeKeepsFilenameAcceleratorCurrent`, `TestRemoveVolumeCanLeaveAcceleratorForCallerRebuild`) and keep every pre-existing suite green (Debug 127/127, release-test 127/127).
+- [x] 4.4 Re-measure the same harness after the fix. Target: order-of-magnitude on the 1M replacement rebuild or fresh-build order. Result: **31-34x** (158-164 s -> 4.7-5.1 s, at first-build cost); removal arm 465x at 200k; memory unchanged. Evidence: `evidence/rebuild/memory-report-after-fix.json`, `evidence/rebuild/rebuild-isolation-after-fix.json`.
+
+## 5. Large-index search baseline
+
+- [x] 5.1 Benchmark the 12 query classes (selective, moderate, broad, no_match, prefix, extension, worst_substring, exact_name, short_prefix, mixed_case, unicode, high_limit_broad) at 200k/1M/2M on the current tree with machine-readable output and idle gating. Evidence: `evidence/search/search-matrix-before.json` (in collection).
+- [ ] 5.2 Record per class: p50/p90/p95, rows examined, candidates matched/materialized, filename-index usage, wire bytes, result count, top-N admission; establish the scaling law (O(1)/O(log N)/O(K)/O(N)/worse) and identify the largest user-relevant cost at realistic scale.
+
+## 6. Planner / index candidate
+
+- [x] 6.1 Determine why `filename_index_used = false` for all measured classes. Finding: `FilenameCandidateIndices` unconditionally unions `filenameNonAsciiEntries_` into every candidate set; the 10% Unicode fixture population alone exceeds `kMaximumFilenameIndexCandidates = 16,384` at 200k+, so every lookup returns nullopt.
+- [ ] 6.2 Prove or disprove the union's redundancy for pure-ASCII needles with the mandatory differential suite (every sort field, asc/desc, capped/unbounded, volume roots, Unicode, mixed case, empty term, dotted filenames, extension, ties, path sort, cancellation, stale query replacement) before changing candidate semantics. Hot/cold candidate identity and ordering equivalence is the spec contract.
+- [ ] 6.3 Implement the evidence-backed eligibility change only (conservative candidate set without the unconditional non-ASCII union if 6.2 proves it; otherwise leave the accelerator gated). Add a small cost-based selection (full scan vs index + verification) driven by measured expected work; do not build a complicated optimizer.
+- [ ] 6.4 Search acceptance: retain only if large-scale end-to-end search improves materially (avoid linear scanning for clearly selective classes or broad 1M/2M >=20% faster) with zero regression on selective/exact/Unicode/cancellation.
+
+## 7. Startup / readiness
+
+- [ ] 7.1 Measure product startup at representative index sizes (process start -> shell window -> engine connection -> projection ready -> first searchable state -> first directory content), clean vs warm, existing SQLite index, service available/unavailable. Identify whether projection hydration dominates perceived startup.
+
+## 8. Lifecycle resources
+
+- [ ] 8.1 Cold-volume reload: measure eviction, reload, query latency during reload, duplicate work, memory peak, filename-index reconstruction (a memory optimization is incomplete if reload becomes painfully slow).
+- [ ] 8.2 Repeated-cycle stability: 10 rebuilds, repeated searches, repeated snapshot publications, repeated volume eviction/reload; watch private bytes, working set, allocations, handles, threads, WAL, shared mappings for monotonic growth. Include the 1M-row default-budget straddle finding (`SetProjectionMemoryBudget` has no production caller).
+
+## 9. Review
+
+- [ ] 9.1 Independent adversarial read-only reviews: A rebuild correctness (replacement, retry, scan authority, indexes, memory limits); B complexity/performance (verify claimed complexity change); C search equivalence (differential attack on every accelerated path); D memory/resources (peak, retained pages, handles, cycles); E lifecycle mapping (benchmark vs production correspondence); F certification truth (SHAs, equivalence claims, reused evidence).
+
+## 10. Certification
+
+- [ ] 10.1 Full ladder on the final candidate: Debug + release-test full CTest, Analyze, ASan slice, strict OpenSpec, provenance, governance, project status, doc drift, local CI parity, E2E, UIA, visual, search differential suite, rebuild benchmark, large-scale search matrix, resource-cycle matrix. Record actual counts and honest skips.
+- [ ] 10.2 Record implementation/evidence identity separately (`implementation_sha`, `certified_binary_sha`, `evidence_sha`, `repository_tip_sha`); regenerate measurement artifacts at a clean embedded identity; run the executable-impacting equivalence gate after subsequent evidence commits; never claim reproducible-binary equivalence.
+- [ ] 10.3 Hosted CI: check once after the final push; `BLOCKED_EXTERNAL` if still zero-step; do not rerun repeatedly. Raw-volume completion bound stays with `legacy-protocol-correctness-and-raw-volume-cancellation-closure`.
+- [ ] 10.4 Reviewable PR on the feature branch with behavior summary, components, task links, exact validation commands. **Do not auto-merge.**

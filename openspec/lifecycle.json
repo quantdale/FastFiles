@@ -1652,6 +1652,30 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "large-index-lifecycle-and-search-scalability",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/explore-findings.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }
