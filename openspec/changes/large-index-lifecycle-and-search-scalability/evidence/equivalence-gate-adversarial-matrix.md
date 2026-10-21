@@ -33,6 +33,11 @@ gap was fixed**, with the full adversarial matrix re-run.
   binding verified by `ffbuild_identity_binding_tests`); **not** claimed
   reproducible.
 - `evidence_sha` (stage-1 inspection) = `2f365a52748511420499b5d3459e5560739ea958`.
+- **Evidence-side product-tree delta (Reviewer A P1):** the machine-readable
+  artifact `evidence/equivalence-product-tree-diff-43fc3c1-2f365a5.txt`
+  records `git diff --name-status 43fc3c1..2f365a5 -- src/ tests/ cmake/
+  third_party/ CMakeLists.txt CMakePresets.json VERSION` = **EMPTY** (exit 0),
+  closing the additions question that prose alone carried before.
 - `repository_tip_sha` at final gate run is recorded **outside the checked
   tree** (PR #14 description + final owner report) per the non-self-reference
   rule; raw JSON verdicts live in ignored `build/equiv-matrix/`.
@@ -99,7 +104,10 @@ paths exactly; **zero** tracked headers outside the closure; the 6 vendored
 `sqlite3.c` quoted toolchain includes are the only unresolved-quoted notes.
 The 313 translation-unit entries vs 204 unique files reflects sources
 compiled in more than one configuration (e.g. `Projection.cpp` with
-`FF_INDEXSTORE_TESTING`).
+`FF_INDEXSTORE_TESTING`). Reviewer-A caveat: this traversal shares the
+verifier's include-matching *model* (same `#include` form regex), so it
+proves THIS run's closure completeness, not the model's form coverage —
+include-form blind spots are addressed by the self-checks in §8.
 
 ## 4. The gap found and fixed (in-scope defect)
 
@@ -162,14 +170,71 @@ build inputs + manifest, with header/TU listings overlapping as above).
 - The resource-reference whitelist is extension-based; a future RC-referenced
   resource type outside the list would need the list extended (the `.rc`
   itself is derived as a TU, so the reference line changing is caught; only a
-  change confined to a new resource file type would be missed).
+  change confined to a new resource file type would be missed), and an RC
+  macro/concatenated resource name matches neither the whitelist nor a
+  fail-closed path (current `FastFiles.rc` is two lines — no present impact).
 - Unresolved **angle** includes are assumed to be SDK/STL and skipped; a
   project angle include that stopped resolving would be missed (project
   includes in this repo use quoted or recorded-root forms; the `-I` roots are
-  derived from the compile DB).
+  derived from the compile DB and the non-empty-root self-check now guards
+  root-capture regressions).
 - `Get-TrackedPaths` splits `ls-tree -z` output on newlines as a fallback;
   a tracked path containing a newline could confuse it (none exist; Git
-  quoting also escapes such names in this configuration).
+  quoting also escapes such names in this configuration). Case-only path
+  collisions would be collapsed by the case-insensitive set (unreachable on
+  a Windows checkout).
 - Generated (build-output) includes are out of the Git-controlled claim and
   resolved only for existence; their content is covered by the CMake
-  generator inputs (`cmake/`), not by digest.
+  generator inputs (`cmake/`), not by digest. **Provenance note:**
+  `PinnedSignaturesConfig.h` derives from configure-time pin cache values and
+  `BuildIdentity.h` from git/env state; no cache, pin, or trust input was
+  changed during this closure campaign (dev builds use the documented
+  placeholder pin state; production pins remain an external gate).
+
+## 8. Reviewer-A independent attack (2026-10-22) and hardening
+
+An independent adversarial read-only review attacked the gate and the claim.
+Verdict: **split** — the narrow modeled-set equivalence is "defensible"; the
+strong "not invalidated" sentence was **not self-defensible from the gate**
+because the derived set comes from the implementation tree alone and an
+evidence-side product-path ADDITION (e.g. a header shadowing an `-I`-root
+include, or a new `CMakeLists.txt`) moves no digest. Findings and fixes:
+
+| Severity | Finding | Fix landed in this campaign |
+|---|---|---|
+| P1 | Evidence-side additions invisible; `pathsOnlyInEvidence` vacuous in passing runs; claim backed only by WORKSTATE prose | (a) machine-readable diff artifact `equivalence-product-tree-diff-43fc3c1-2f365a5.txt` (EMPTY); (b) symmetric product-path rule in the verifier — any product-tree path added/removed in either direction fails closed (`product-path-added-in-evidence` / `product-path-removed-in-evidence`) |
+| P2 | Root-capture regressions fail open (whole-token-quoted `"-I<root>"` form unmatched; `arguments`-array DBs ignored; empty root set unguarded) | quoted-token normalisation + argv-array fallback + `no-include-roots-derived` fail-closed check |
+| P2 | No closure self-check (tracked headers/sources could silently exit the set) | `tracked-header-not-in-closure` (src/+third_party/ headers) + `product-source-not-a-derived-tu` (src/) + `test-source-not-a-derived-tu` with the exact privileged-trust exclusion pair recorded as notes |
+| P2 | Blob map fails open (`'MISSING'` digests equal on both sides) | `blob-map-entry-missing` fail-closed check on both maps |
+| P2 | Compile DB not bound to the implementation SHA; under-approximated TU sets reported `coverageVerified: true` | covered by the tracked-source/self-checks above; DB-binding provenance recorded here (DB generated from the `43fc3c1`-era tree build) |
+| P3 | `Get-BlobText` read error silently shrank the closure | distinct `FF-BLOB-READ-ERROR` sentinel -> `blob-read-error` coverage failure |
+| P3 | GENERATED existence probes the running worktree; generated-content provenance is prose | documented in §7 incl. the pin/identity provenance statement |
+
+**Recertification at the hardened verifier** (each change can only turn PASS
+into FAIL — stricter — so the pre-existing negative controls remain valid;
+the decisive set is re-run): control A re-run (must stay PASS with all
+self-checks green), **new control K** (evidence-side product-path addition
+`src/ui/src/UiStyleShadow.h` -> must FAIL via `product-path-added-in-evidence`),
+control B re-run (must stay FAIL), control F′ re-run (must stay FAIL_CLOSED).
+Results: see §9.
+
+The reviewer also noted the ground-truth traversal's shared-model caveat
+(folded into §3.2) and confirmed content-sensitivity, basename-collision
+safety, the RC seam, the configure_file coverage, and the space-path quoting
+repairs by independent inspection.
+
+## 9. Recertification results (hardened verifier)
+
+| Control | Pair | Expected | Observed | Decisive detail |
+|---|---|---|---|---|
+| A (re-run) | `43fc3c175d4a…` vs `2f365a527485…` | PASS | **VERIFIED_PASS** | 394 paths, digest `6e7642640a5a…` equal; all new self-checks green (8 notes = 2 privileged-trust test exclusions + 6 vendored includes) |
+| **K (new)** | `43fc3c175d4a…` vs `39e5f07cff5b…` (adds `src/ui/src/UiStyleShadow.h`) | FAIL_CLOSED | **VERIFIED_FAIL (fail-closed)** | equal digests **refused**: `product-path-added-in-evidence: src/ui/src/UiStyleShadow.h` — the P1 additions gap is closed |
+| B (re-run) | `43fc3c175d4a…` vs `913341d25d58…` | FAIL | **VERIFIED_FAIL** | content-changed `src/indexstore/src/Projection.cpp` (no regression) |
+| F′ (re-run) | `7b7660f19def…` self | FAIL_CLOSED | **VERIFIED_FAIL (fail-closed)** | `unresolved-quoted-include: … -> equiv_matrix_unresolvable_probe.h` (no regression) |
+
+All four verdict artifacts: `build/equiv-matrix/post2-*.json` (ignored,
+non-self-referential). The pre-existing negative controls (C, D, E, G, H1,
+H2, I, J) were validated at the fixed verifier in §5; the hardening changes
+only ADD failure conditions (PASS -> FAIL is possible, FAIL -> PASS is not),
+so those results remain valid; the decisive set above confirms no regression
+in either direction.

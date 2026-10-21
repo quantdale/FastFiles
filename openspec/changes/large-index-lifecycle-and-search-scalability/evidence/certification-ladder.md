@@ -14,7 +14,7 @@ campaign host from a clean worktree.
 | release-test CTest | `ctest --preset release-test` | **128/128 PASS** (219 s) |
 | Analyze build | `cmake --build build/analyze` (via parity) | PASS, 0 warnings |
 | ASan slice | parity `asan-slice` (4 targets + 4 tests) | PASS (76 s) |
-| strict OpenSpec | parity `openspec validate --all --strict` | PASS |
+| strict OpenSpec | parity `openspec validate --all --strict` | PASS (91 items at certification; **93/93** at closure tip incl. the successor change) |
 | Source markers + diagnostic policy + doc drift + `git diff --check` | parity `policy` | PASS |
 | Status/contracts/visual-fixtures/exact-tree | parity `hygiene-suite` | PASS |
 | Unsigned release qualification | parity `release-candidate` | PASS |
@@ -95,5 +95,12 @@ Run: `verify/qualification/Test-ExecutableTreeEquivalence.ps1
   identical, 393 paths covered (313 TUs + build inputs), derivation coverage
   verified. A binary certified at `implementation_sha` is not invalidated by
   the documentation/evidence commits that follow.
+- **SUPERSEDED DIGEST (closure campaign, 2026-10-22):** the `cc97f470…`/393
+  path verdict above was taken with a derivation that had one real gap
+  (RC-embedded `FastFiles.manifest` invisible to the `#include` closure). The
+  corrected derivation covers 394 paths with digest
+  `6e7642640a5a00783e0acd1761c1eafebe2bd612812b2ea9583775c50946a1a6`;
+  the equivalence **conclusion is unchanged** (re-proven at the fixed gate).
+  Authoritative record: `equivalence-gate-adversarial-matrix.md`.
 - No bit-for-bit binary reproducibility is claimed; this is source-tree
   equivalence only.

@@ -107,7 +107,10 @@ function Get-BlobText {
         # string[] argument by joining with spaces, which destroys the (?m)^
         # line anchors, so only a file's very first line could ever match an
         # #include and nested headers were silently excluded from the digest.
-        $text = Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue
+        $text = $null
+        # PR #14 closure (Reviewer A P3): a transient read error (AV/temp-file
+        # lock) must not silently shrink the closure to an empty blob.
+        try { $text = Get-Content -LiteralPath $stdout -Raw -ErrorAction Stop } catch { return 'FF-BLOB-READ-ERROR' }
         if ($null -eq $text) { return '' }
         return [string]$text
     } finally {
@@ -255,6 +258,16 @@ try {
         [void]$translationUnits.Add($repoRel)
         # The -I flags are the authoritative include roots for this TU.
         $command = [string]$entry.command
+        if ([string]::IsNullOrWhiteSpace($command) -and $null -ne $entry.arguments) {
+            # PR #14 closure (Reviewer A P2): a compile database may expose an
+            # argv array instead of a shell command string.
+            $command = (@($entry.arguments) -join ' ')
+        }
+        # PR #14 closure (Reviewer A P2): normalise the whole-token-quoted
+        # MSVC form "-IC:\space path" (quote BEFORE the flag) into the
+        # flag-then-quoted form the capture below understands; otherwise such
+        # roots are silently dropped and project angle includes vanish.
+        $command = $command -replace '"([/-]I)([^"]+)"', '$1"$2"'
         # MSVC/CMake emits the include flag GLUED to the path (-ID:\...), and
         # may use /I as well as -I. Matching only the spaced form silently
         # collects zero roots, which empties the header closure entirely.
@@ -317,6 +330,10 @@ try {
             # A header reachable from the derivation but absent from the
             # implementation SHA is an executable-impacting difference.
             Add-Step -Id 'header-resolution' -Status 'FAIL' -Reason 'derived-input-missing-in-implementation-sha' -Detail $current
+            continue
+        }
+        if ($text -eq 'FF-BLOB-READ-ERROR') {
+            [void]$coverageFailures.Add("blob-read-error: $current")
             continue
         }
         foreach ($m in $includeMatcher.Matches($text)) {
@@ -403,6 +420,7 @@ try {
         if (-not ($cmakeFile -match '(?i)(CMakeLists\.txt$|^cmake/)')) { continue }
         $cmakeText = Get-BlobText -Revision $ImplementationSha -Path $cmakeFile
         if ($null -eq $cmakeText) { continue }
+        if ($cmakeText -eq 'FF-BLOB-READ-ERROR') { [void]$coverageFailures.Add("blob-read-error: $cmakeFile"); continue }
         foreach ($m in [regex]::Matches([string]$cmakeText, '(?i)configure_file\s*\(\s*"?([^"\s\)]+\.in)"?')) {
             $candidate = $m.Groups[1].Value.Replace([string][char]92, '/')
             # Strip the common source-root variable prefixes: the remainder is
@@ -424,6 +442,49 @@ try {
 
     # --- Verification step: prove the derivation is complete ---
     if ($translationUnits.Count -lt 1) { [void]$coverageFailures.Add('no-translation-units-derived') }
+    # PR #14 closure (Reviewer A, 2026-10-22): self-checks that the derivation
+    # is not silently empty or under-approximated. A root-capture regression or
+    # a tracked product file that never entered the derived set must fail
+    # closed, never pass with a deceptively complete-looking record.
+    if ($includeDirs.Count -eq 0) { [void]$coverageFailures.Add('no-include-roots-derived') }
+    $sourcePattern = [regex]::new('(?i)\.(c|cpp|rc)$')
+    $headerPattern = [regex]::new('(?i)\.(h|hpp)$')
+    $knownTuSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($tu in $translationUnits) { [void]$knownTuSet.Add($tu) }
+    # Test sources compiled only by privileged-trust-gated targets are absent
+    # from the default compile database by design; every other tracked source
+    # must be a derived translation unit.
+    $testTuExclusions = @(
+        'tests/engine/test_authenticode_wintrust_integration.cpp',
+        'tests/setup/test_package_trust_wintrust_integration.cpp')
+    foreach ($p in $implementationPaths) {
+        if ($p -match '(?i)^src/' -and $sourcePattern.IsMatch($p) -and -not $knownTuSet.Contains($p)) {
+            [void]$coverageFailures.Add("product-source-not-a-derived-tu: $p")
+        }
+        if ($p -match '(?i)^tests/' -and $sourcePattern.IsMatch($p) -and -not $knownTuSet.Contains($p)) {
+            if ($testTuExclusions -notcontains $p) { [void]$coverageFailures.Add("test-source-not-a-derived-tu: $p") }
+            else { [void]$coverageNotes.Add("test-source-excluded (privileged-trust-gated target): $p") }
+        }
+        if ($p -match '(?i)^(src/|third_party/)' -and $headerPattern.IsMatch($p) -and ($executableImpacting -notcontains $p)) {
+            [void]$coverageFailures.Add("tracked-header-not-in-closure: $p")
+        }
+    }
+    # PR #14 closure (Reviewer A P1): the derived set comes from the
+    # IMPLEMENTATION tree, so an evidence-side product-path ADDITION (e.g. a
+    # header that shadows an -I-root include, or a new CMakeLists.txt) moves
+    # no digest while changing what the evidence-era build compiles. The
+    # symmetric product-path delta between the two commits must be EMPTY.
+    $productPathPattern = [regex]::new('(?i)^(src/|tests/|cmake/|third_party/)|(^|/)(CMakeLists\.txt)$|^CMakePresets\.json$|^VERSION$')
+    foreach ($p in $implementationPaths) {
+        if ($productPathPattern.IsMatch($p) -and ($evidencePaths -notcontains $p)) {
+            [void]$coverageFailures.Add("product-path-removed-in-evidence: $p")
+        }
+    }
+    foreach ($p in $evidencePaths) {
+        if ($productPathPattern.IsMatch($p) -and ($implementationPaths -notcontains $p)) {
+            [void]$coverageFailures.Add("product-path-added-in-evidence: $p")
+        }
+    }
     # A CMakeLists.txt is executable-impacting only when it can affect a
     # compiled product output: the build system's own files, the product trees
     # under src/ and third_party/, or a manifest that owns at least one derived
@@ -449,6 +510,15 @@ try {
     $evidenceSet = @($evidencePaths | Where-Object { $executableImpacting -contains $_ })
     $implementationBlobs = Get-BlobIdMap -Sha $ImplementationSha -Paths $implementationSet
     $evidenceBlobs = Get-BlobIdMap -Sha $EvidenceSha -Paths $evidenceSet
+    # PR #14 closure (Reviewer A P2): a derived path without a blob-map entry
+    # would digest as 'MISSING' on BOTH sides (equal digests, false PASS).
+    # Fail closed instead.
+    foreach ($p in $implementationSet) {
+        if (-not $implementationBlobs.ContainsKey($p)) { [void]$coverageFailures.Add("blob-map-entry-missing: implementation/$p") }
+    }
+    foreach ($p in $evidenceSet) {
+        if (-not $evidenceBlobs.ContainsKey($p)) { [void]$coverageFailures.Add("blob-map-entry-missing: evidence/$p") }
+    }
     $implementationDigests = Get-ExecutableTreeDigest -Sha $ImplementationSha -Paths $implementationSet -BlobMap $implementationBlobs
     $evidenceDigests = Get-ExecutableTreeDigest -Sha $EvidenceSha -Paths $evidenceSet -BlobMap $evidenceBlobs
     $implementationDigest = $implementationDigests.digest

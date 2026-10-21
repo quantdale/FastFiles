@@ -40,8 +40,12 @@ Evidence (first instrumented run, `run1`):
 `attempt=3 ... [SelectionItemPattern unavailable; name='explorer-in.txt'
 automationId='DetailsViewControlRootGrid' controlType='Group'
 className='NamedContainerAutomationPeer' pid=32016]` — the failing element was
-the container, not the row. (The certification-era "2/2 deterministic" failure
-is the same shape: name-only matching against the same view.)
+the container, not the row. This is **the only failure mode consistent with
+run1's element capture and the pre-fix code path** on the same host and view:
+the certification-era artifacts themselves cannot discriminate the three
+collapsed modes (the pre-fix harness discarded the exception), so the
+attribution to the container-match mode is near-certain but formally an
+inference over the collapsed message.
 
 Fixes applied to `verify/capabilities/windows-ui-automation-validation/UiAutomationValidation.psm1`
 (behavior-preserving evidence capture + targeting correction):
@@ -98,48 +102,74 @@ Stability of the failing journey (all on the final harness state):
   its `false` value is **not evidence either way** about drag engagement.
 - **probe4 (drop-side localization, 3 path strategies x 2 placements):**
   straight coarse path, fine 4px boundary crossing, and slow in-client hover
-  (1.2 s), with Explorer beside FastFiles AND overlapping its right edge (so
-  the cursor's first entry into the window is inside the client): **no
-  delivery in any of 6 combinations.** The mid-hover screenshot
-  (`probe4-hover-shot.png`) shows **no drop-feedback emphasis** on FastFiles.
-  `WindowShell::SetDropFeedback` paints the destination emphasis whenever
-  `DragEnter`/`DragOver` runs and ignores the negotiated effect, so the absent
-  feedback proves **FastFiles' IDropTarget was never reached** — its drop
-  handler never executed. **FastFiles drop receipt: NOT reached, NOT failed.**
+  (1.2 s), with Explorer beside FastFiles (probe4-result.json) AND overlapping
+  its right edge (probe5-overlap-result.json) so the cursor's first entry into
+  the window is inside the client: **no delivery in any of 6 combinations.**
+  The mid-hover screenshots show **no drop-feedback emphasis** on FastFiles.
+  Reviewer-B correction (2026-10-22): `WindowShell::SetDropFeedback` is
+  effect-agnostic (paints whenever `DragEnter`/`DragOver` runs, whatever the
+  negotiated effect) **but** `dropFeedbackValid_` suppresses painting when the
+  drop point's content x falls outside the column viewport (sidebar/details
+  pane). The probe4/probe5 hover points are inside the viewport (content
+  x ≈ 373 DIP vs ≈ 493 DIP available) where the single-pane `ViewportOutline`
+  would be conspicuous — so at those points `DragEnter`/`DragOver` did not
+  run (or ran and left before the sample; a transient enter-then-abort cannot
+  be excluded from a screenshot alone). File-name note: the two hover
+  captures shared one hardcoded filename (`probe4-hover-shot.png`); the file
+  on disk is probe5's overlap-run capture, probe4's was viewed live at run
+  time.
 - **probe6 (cross-window witness):** Explorer source (right) -> across the
   whole FastFiles window (navigated to its own `ff-target` folder) -> witness
   Explorer window (left, overlapping). Outcomes: `ffTarget=False`,
-  `dstFile=False`, `srcStill=True`, mid-path screenshot without drop
-  feedback. The drag neither delivered to FastFiles nor survived to the
-  witness window: it is not alive over FastFiles' client.
+  `dstFile=False`, `srcStill=True`. Reviewer-B correction: the mid-path
+  screenshot's sample point falls in the feedback-suppressed details-pane x
+  region, so **no drop-feedback inference is drawn from it** — the probe6
+  evidence stands on the filesystem outcomes (delivered neither to FastFiles
+  nor to the witness window: the drag was not alive over FastFiles' client by
+  the time it mattered).
 - **Desktop artifact check:** no stray copies of the dragged file on the user
   Desktop (a drop-on-desktop artifact is absent).
 
 ## 5. Classification (the four required separations)
 
-1. **Test automation failure — PROVEN AND FIXED** for the originally recorded
-   operation (`SelectionItemPattern.Select` on a name-container Group). This
-   was the certification-era failure mode.
+1. **Test automation failure — PROVEN AND FIXED** for the failure mode the
+   recorded operation exhibits under identical name-only matching (the
+   name-container `Group`; see §2 on the attribution caveat for the
+   certification-era run).
 2. **External Explorer provider limitation — NOT PROVEN.** The Explorer source
    supplies a correct ListItem with SelectionItemPattern and its OLE drag
    source delivers under the same injected primitive (probe2).
-3. **FastFiles application defect — NOT PROVEN.** The drop handling was never
-   reached (no `DragEnter`/`DragOver` at any probed point, hover or
-   mid-path), so no product drop logic failed. Context: FastFiles' intra-app
-   OLE drops pass (`drag-between-panes`), and the CF_HDROP extraction path is
-   unit/integration-covered, but **live external drop receipt has never been
-   validated end-to-end on this host** (historical `file-operations` 8.8 was
-   closed with a recorded `SKIPPED(column-items-not-exposed-to-uia)`).
-4. **Environment / session restriction or injected-input OLE boundary
-   behavior — the narrowest proven residual cause.** The codebase documents
-   from prior campaigns that "OLE drags initiated with injected input drop the
-   moment the cursor enters another top-level window"; the harness layout
-   doctrine for drag-out ("the FIRST entry point must already be inside the
-   drop target") derives from it. Distinguishing "injected drag dies at the
-   FastFiles window boundary" from "OLE never hit-tests this DirectComposition
-   window as a drop target for external sources" would require a second
-   interactive host, physical input, or product-side drag instrumentation —
-   none available under this campaign's constraints.
+3. **FastFiles application defect — NOT PROVEN, but a live co-equal
+   hypothesis.** The drop **handler** never executed (fully proven: zero
+   deliveries across 9+ attempts in 4 harness runs and 7 probe variants, the
+   dragged source never consumed, no desktop strays — the handler would have
+   created the file), and `DragEnter`/`DragOver` did not run at the
+   paint-valid probe4/probe5 hover points. Reviewer-B correction: the
+   campaign's own evidence **falsifies** the generic "injected OLE drags drop
+   at top-level window entry" doctrine as an explanation — probe2 delivered
+   Explorer->Explorer and `drag-out-to-explorer` passes with the same
+   injected primitive, crossing top-level windows in **both** source
+   directions. The failing pair is exclusively **external source -> the
+   FastFiles window**, which points at the FastFiles destination side (e.g.
+   OLE hit-test/registration of the DirectComposition window for external
+   sources) at least as strongly as at any environment class. Context: live
+   external drop receipt has never been validated end-to-end on this host
+   (historical `file-operations` 8.8 closed with a SKIP), and intra-app drops
+   (`drag-between-panes`) work — so a destination-side registration/hit-test
+   gap for external sources is unfalsified.
+4. **Residual cause CLASS (not further separable on this host).** Two
+   candidates remain and the evidence no longer favors the environment side:
+   (a) an external-source OLE delivery gap specific to the FastFiles window
+   (destination-side hit-test/registration — favored by the probe2/drag-out
+   cross-window successes, which falsify the generic injected-input boundary
+   story), and (b) an injected-input OLE behavior that manifests only for the
+   external-source -> FastFiles-window pair. Separating them needs a second
+   interactive Windows host, physical input, temporary product-side drag
+   instrumentation, or an independent drop-target witness window — none
+   available under this campaign's constraints. The historical
+   `Position-UiaExplorerBesideFastFiles` doctrine comment ("injected OLE
+   drags drop at top-level entry") is retained as prior-session observation
+   but is **not** a proven mechanism here.
 
 ## 6. UIA acceptance matrix (mission §14)
 
@@ -148,7 +178,7 @@ Stability of the failing journey (all on the final harness state):
 | FastFiles core UIA | **PASS** | certification ladder 10.1 (all FastFiles-surface scenarios green, same binaries — product tree unchanged, equivalence gate PASS) |
 | FastFiles other interactive journeys (search, navigation, drag-out, drag-panes, E2E 8/8) | **PASS** | certification ladder 10.1 + E2E boundToHead |
 | Explorer-owned source interaction (item discovery, selection, drag input arming) | **PASS** (qualified post-fix) | runs 2/3/5/6 (3/3 attempts each) + probe1 |
-| FastFiles drop receipt from an Explorer source | **BLOCKED / NOT_QUALIFIED** | drop never reached IDropTarget (probe4 hover + probe6 mid-path feedback evidence); handler never executed |
+| FastFiles drop receipt from an Explorer source | **BLOCKED / NOT_QUALIFIED** | drop handler never executed (0 deliveries across 9+ attempts; source unconsumed; no strays); `DragEnter`/`DragOver` absent at paint-valid probe4/probe5 hover points; destination-side FastFiles hypothesis remains live (§5.3) |
 | Complete Explorer-to-FastFiles drag journey | **UNQUALIFIED** | 4 harness runs x 3 attempts + 7 probe variants: 0 deliveries; scenario recorded SKIPPED/BLOCKED_ENVIRONMENT, never PASS and never suppressed |
 
 ## 7. Harness defects found and fixed in this investigation

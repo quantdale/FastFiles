@@ -3285,6 +3285,7 @@ function Invoke-UiaScenarioDragIn {
         $copied2 = $false
         $dragAttempts = 0
         $acceptedInputAttempts = 0
+        $armObservedAttempts = 0
         $foregroundBlocked = $false
         $lastDragDetail = 'no attempt was completed'
         $attemptLog = [System.Collections.Generic.List[string]]::new()
@@ -3396,7 +3397,7 @@ function Invoke-UiaScenarioDragIn {
         if (-not $copied2) {
             if ($acceptedInputAttempts -eq 3 -and -not $foregroundBlocked) {
                 $armEvidence = if ($armObservedAttempts -eq 3) { 'armObserved=true' } else { 'armObserved=false (cross-process capture was not observable)' }
-                return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "BLOCKED_ENVIRONMENT: three fresh Explorer-source attempts selected the item and every native input stage was accepted, but no destination file appeared; $armEvidence; $($attemptLog -join ' | ')"
+                return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "BLOCKED_ENVIRONMENT: three fresh Explorer-source attempts selected the item and every native input stage was accepted, but no destination file appeared; boundary=drop-delivery-into-FastFiles (source interaction proven available — see evidence/uia-explorer-drag-in-investigation.md); $armEvidence; $($attemptLog -join ' | ')"
             }
             if ($foregroundBlocked -and $acceptedInputAttempts -eq 0) {
                 $safe = Get-UiaSafeInteractiveState -Driver $driver -ProcessId $appPid
