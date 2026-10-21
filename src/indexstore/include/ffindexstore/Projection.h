@@ -242,13 +242,24 @@ public:
                        EntryFieldMask fields);
     // No-op if the entry is not present.
     void Remove(VolumeRowId volumeRowId, FileId frn);
+    // large-index-lifecycle-and-search-scalability 4.4: batch removal with
+    // one bulk filename-accelerator update instead of per-entry sorted-vector
+    // posting erases (quadratic in posting sizes for large batches).
+    // keepFilenameIndexCurrent rebuilds the accelerator once after a bulk
+    // removal; false leaves it invalidated for a caller that rebuilds it as
+    // part of an enclosing bulk operation. Observable removal semantics are
+    // identical to per-entry Remove in both modes.
+    void RemoveBatch(VolumeRowId volumeRowId, const std::vector<FileId>& frns,
+                     bool keepFilenameIndexCurrent = true);
     // tasks.md 7.4's projection half: drops every entry belonging to a
     // forgotten volume (dense-slot tombstoning, id->index and
     // parent->children rows) -- equivalent to calling Remove on each of
     // the volume's entries. Interned names are not reclaimed, exactly as
     // with individual Remove (the pool is reclaimed on the next full
     // rebuild -- design.md "Risks" name-pool eviction note).
-    void RemoveVolume(VolumeRowId volumeRowId);
+    // large-index-lifecycle-and-search-scalability 4.4: routes through
+    // RemoveBatch's bulk accelerator maintenance.
+    void RemoveVolume(VolumeRowId volumeRowId, bool keepFilenameIndexCurrent = true);
 
 #ifdef FF_INDEXSTORE_TESTING
     // large-index-lifecycle-and-search-scalability 4.2: benchmark-only

@@ -568,9 +568,15 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
                         secondaryApplied = store_.ApplyBatch(meta.rowId, ruleExcluded);
                     }
                     if (secondaryApplied) {
+                        std::vector<ffindexstore::FileId> excludedIds;
+                        excludedIds.reserve(ruleExcluded.size());
                         for (const auto& removal : ruleExcluded) {
-                            projection_.Remove(meta.rowId, removal.record.id);
+                            excludedIds.push_back(removal.record.id);
                         }
+                        // large-index-lifecycle-and-search-scalability 4.4:
+                        // one bulk accelerator update instead of per-entry
+                        // sorted-vector posting erases on mass rule removal.
+                        projection_.RemoveBatch(meta.rowId, excludedIds);
                     } else {
                         // The projection was rebuilt from the unchanged durable
                         // rows, so retaining them is consistent. Do not publish
@@ -728,9 +734,15 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
             secondaryApplied = store_.ApplyBatch(volumeId, ruleExcluded);
         }
         if (secondaryApplied) {
+            std::vector<ffindexstore::FileId> excludedIds;
+            excludedIds.reserve(ruleExcluded.size());
             for (const auto& removal : ruleExcluded) {
-                projection_.Remove(volumeId, removal.record.id);
+                excludedIds.push_back(removal.record.id);
             }
+            // large-index-lifecycle-and-search-scalability 4.4: one bulk
+            // accelerator update instead of per-entry sorted-vector posting
+            // erases on mass rule removal.
+            projection_.RemoveBatch(volumeId, excludedIds);
         } else {
             // Secondary pruning failed: durable and projection remain consistent (both retain the excluded rows),
             // but do not report success. Caller can retry the batch; the next attempt will re-evaluate pruning.
@@ -860,9 +872,15 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
             secondaryApplied = store_.ApplyBatch(volumeId, ruleExcluded);
         }
         if (secondaryApplied) {
+            std::vector<ffindexstore::FileId> excludedIds;
+            excludedIds.reserve(ruleExcluded.size());
             for (const auto& removal : ruleExcluded) {
-                projection_.Remove(volumeId, removal.record.id);
+                excludedIds.push_back(removal.record.id);
             }
+            // large-index-lifecycle-and-search-scalability 4.4: one bulk
+            // accelerator update instead of per-entry sorted-vector posting
+            // erases on mass rule removal.
+            projection_.RemoveBatch(volumeId, excludedIds);
         } else {
             projection_.EnforceMemoryLimitNow();
             MaybeReportProjectionMemoryPressureLocked();
@@ -987,9 +1005,14 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
             secondaryApplied = false;
         }
         if (secondaryApplied) {
+            std::vector<ffindexstore::FileId> removedIds;
+            removedIds.reserve(removals.size());
             for (const auto& removal : removals) {
-                projection_.Remove(id, removal.record.id);
+                removedIds.push_back(removal.record.id);
             }
+            // large-index-lifecycle-and-search-scalability 4.4: reconciliation
+            // mass removal is the same bulk case as rule pruning.
+            projection_.RemoveBatch(id, removedIds);
             searchableMutation = true;
         }
     }
@@ -2019,6 +2042,10 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
         timings->projectionRowsExamined = projectionRowsExamined;
         timings->namePoolLookups = namePoolLookups;
         timings->nameViewsConstructed = nameViewsConstructed;
+        // large-index-lifecycle-and-search-scalability 12.x: the detailed-
+        // diagnostics empty-name counter was tracked but never merged into the
+        // timings like its sibling counters.
+        timings->emptyNamesRejected = emptyNamesRejected;
         timings->hotRowsExamined = projectionRowsExamined;
         timings->coldRowsExamined = coldRowsExamined;
         timings->coldVolumesSearched = coldVolumesSearched;

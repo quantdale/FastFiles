@@ -917,6 +917,116 @@ void TestLruTimestampsSurviveIterationOrderCompaction() {
     std::filesystem::remove(dbPath.string() + "-shm", ignored);
 }
 
+// large-index-lifecycle-and-search-scalability 4.5: bulk-removal
+// equivalence. These characterize observable semantics (they pass with both
+// the legacy per-entry removal and the bulk path); the performance defect
+// they accompany is evidenced by the rebuild-isolation matrix (E1 vs B1).
+std::u16string NumberToUtf16(uint64_t value) {
+    const std::wstring wide = std::to_wstring(value);
+    return std::u16string(wide.begin(), wide.end());
+}
+
+std::vector<std::u16string> DumpRows(const Projection& proj) {
+    std::vector<std::u16string> rows;
+    proj.ForEachEntry([&](const EntryKey& key, const ProjectionEntry& entry) {
+        (void)key;
+        std::u16string line = NumberToUtf16(entry.frn.low) + u":" +
+            NumberToUtf16(entry.parentFrn.low) + u":" +
+            std::u16string(proj.Names().Get(entry.nameId));
+        rows.push_back(std::move(line));
+    });
+    std::sort(rows.begin(), rows.end());
+    return rows;
+}
+
+void PopulateRemovalFixture(Projection& proj) {
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"shared_dir", 0x10));
+    for (uint64_t i = 0; i < 400; ++i) {
+        proj.Upsert(1, MakeEntry(1000 + i, 100,
+                                 u"common_component_" + NumberToUtf16(i) + u".txt", 0));
+    }
+    proj.Upsert(1, MakeEntry(200, 5, u"keep_dir", 0x10));
+    proj.Upsert(1, MakeEntry(300, 200, u"common_component_keep.txt", 0));
+}
+
+void TestRemoveBatchMatchesPerEntryRemoval() {
+    Projection reference;
+    Projection bulk;
+    PopulateRemovalFixture(reference);
+    PopulateRemovalFixture(bulk);
+    std::vector<FileId> removed;
+    removed.reserve(400);
+    for (uint64_t i = 0; i < 400; ++i) removed.push_back(FileId{1000 + i, 0});
+    for (const FileId& id : removed) reference.Remove(1, id);
+    bulk.RemoveBatch(1, removed);
+    Check(reference.EntryCount() == bulk.EntryCount(),
+          "bulk removal leaves the same entry count as per-entry removal");
+    Check(DumpRows(reference) == DumpRows(bulk),
+          "bulk removal leaves the same rows, parents, and names");
+    Check(reference.ChildIndices(1, FileId{100, 0}).empty() &&
+              bulk.ChildIndices(1, FileId{100, 0}).empty(),
+          "bulk removal unlinks every child exactly like per-entry removal");
+    const auto referenceAggregate = reference.GetFolderAggregate(1, FileId{100, 0});
+    const auto bulkAggregate = bulk.GetFolderAggregate(1, FileId{100, 0});
+    Check(referenceAggregate.has_value() && bulkAggregate.has_value() &&
+              referenceAggregate->itemCount == bulkAggregate->itemCount &&
+              referenceAggregate->totalSizeBytes == bulkAggregate->totalSizeBytes,
+          "folder aggregates agree after bulk removal");
+    const auto referenceCandidates = reference.FilenameCandidateIndices(u"common_component_keep");
+    const auto bulkCandidates = bulk.FilenameCandidateIndices(u"common_component_keep");
+    Check(referenceCandidates.has_value() && bulkCandidates.has_value() &&
+              referenceCandidates->size() == bulkCandidates->size(),
+          "the rebuilt accelerator returns the same candidate count as the per-entry path");
+    if (bulkCandidates.has_value()) {
+        bool survivorsOnly = true;
+        for (const uint32_t slot : *bulkCandidates) {
+            if (bulk.EntryAt(slot).frn.low < 200) survivorsOnly = false;
+        }
+        Check(survivorsOnly, "bulk-path accelerator candidates reference only surviving rows");
+    }
+    // Below the bulk threshold the per-entry path keeps the accelerator
+    // current without a rebuild.
+    bulk.RemoveBatch(1, {FileId{300, 0}});
+    Check(bulk.GetMemoryBreakdown().filenameIndexValid,
+          "a small batch keeps the accelerator current via per-entry maintenance");
+}
+
+void TestRemoveVolumeKeepsFilenameAcceleratorCurrent() {
+    Projection proj;
+    PopulateRemovalFixture(proj);
+    proj.Upsert(2, MakeEntry(5, 5, u"D:", 0x10));
+    proj.Upsert(2, MakeEntry(700, 5, u"common_component_keep.txt", 0));
+    proj.RemoveVolume(1);
+    Check(proj.EntryCount() == 2, "only the surviving volume's rows remain");
+    Check(proj.Find(1, FileId{1000, 0}) == nullptr, "removed volume rows are gone");
+    Check(proj.GetMemoryBreakdown().filenameIndexValid,
+          "RemoveVolume keeps the filename accelerator current by default");
+    const auto candidates = proj.FilenameCandidateIndices(u"common_component_keep");
+    Check(candidates.has_value() && candidates->size() == 1,
+          "the rebuilt accelerator serves the surviving volume's rows");
+    if (candidates.has_value() && candidates->size() == 1) {
+        Check(proj.EntryAt((*candidates)[0]).volumeRowId == 2,
+              "accelerator candidates reference only surviving rows");
+    }
+}
+
+void TestRemoveVolumeCanLeaveAcceleratorForCallerRebuild() {
+    Projection proj;
+    PopulateRemovalFixture(proj);
+    proj.Upsert(2, MakeEntry(5, 5, u"D:", 0x10));
+    proj.Upsert(2, MakeEntry(700, 5, u"common_component_keep.txt", 0));
+    // The enclosing bulk rebuild rebuilds the accelerator once at the end,
+    // so the removal may leave it invalidated without paying a double rebuild.
+    proj.RemoveVolume(1, false);
+    Check(proj.EntryCount() == 2,
+          "caller-rebuild mode removes rows exactly like the default mode");
+    Check(!proj.GetMemoryBreakdown().filenameIndexValid,
+          "RemoveVolume(keepFilenameIndexCurrent=false) leaves the accelerator invalidated");
+    Check(!proj.FilenameCandidateIndices(u"common_component_keep").has_value(),
+          "an invalidated accelerator yields no candidates and search falls back to the canonical scan");
+}
+
 } // namespace
 
 int main() {
@@ -947,6 +1057,9 @@ int main() {
     TestDenseLruTimestampsTrackAccessOrder();
     TestLruTimestampsSurviveIterationOrderCompaction();
     TestRebuildReleasesBulkCapacitySlack();
+    TestRemoveBatchMatchesPerEntryRemoval();
+    TestRemoveVolumeKeepsFilenameAcceleratorCurrent();
+    TestRemoveVolumeCanLeaveAcceleratorForCallerRebuild();
 
     if (fftest::FailureCount() > 0) {
         return 1;
