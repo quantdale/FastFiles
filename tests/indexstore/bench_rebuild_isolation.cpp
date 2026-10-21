@@ -251,6 +251,15 @@ struct ArmResult {
     double rowsPerSecond = 0.0;
     MemorySample memoryBefore;
     MemorySample memoryAfter;
+    // large-index-lifecycle-and-search-scalability 4.3: self-explaining arms.
+    // A removal arm measured against a silently invalidated accelerator would
+    // otherwise look 'fast' for the wrong reason; every arm records the
+    // projection's accelerator/eviction state and the rebuild verdict.
+    bool filenameIndexValidBefore = false;
+    bool filenameIndexValidAfter = false;
+    bool rebuildSucceeded = true;
+    uint64_t projectionEstimatedBytesAfter = 0;
+    size_t evictedVolumeCountAfter = 0;
 };
 
 struct ScaleResult {
@@ -276,6 +285,13 @@ ArmResult MakeArm(const std::string& name, const std::string& notes, size_t rows
     arm.memoryBefore = before;
     arm.memoryAfter = after;
     return arm;
+}
+
+void CaptureProjectionState(const ffindexstore::Projection& projection, ArmResult& arm) {
+    const ffindexstore::Projection::MemoryBreakdown breakdown = projection.GetMemoryBreakdown();
+    arm.filenameIndexValidAfter = breakdown.filenameIndexValid;
+    arm.projectionEstimatedBytesAfter = breakdown.modeledCategoryBytes;
+    arm.evictedVolumeCountAfter = breakdown.evictedVolumeCount;
 }
 
 bool BuildFixtureStore(ffindexstore::Store& store, size_t scale, ffindexstore::VolumeRowId& volumeId,
@@ -377,13 +393,18 @@ int wmain(int argc, wchar_t** argv) {
         if (ArmSelected(options, "A")) {
             const MemorySample before = ReadMemory();
             const auto start = Clock::now();
-            if (!projectionA.RebuildVolumeFromStore(store, volumeId, rowCount)) {
+            const bool indexValidBeforeA = projectionA.GetMemoryBreakdown().filenameIndexValid;
+            const bool okA = projectionA.RebuildVolumeFromStore(store, volumeId, rowCount);
+            if (!okA) {
                 result.failureReason = "arm A rebuild failed";
                 result.executed = false;
             }
             result.arms.push_back(MakeArm("A_fresh_projection_build",
                 "fresh Projection, RebuildVolumeFromStore over empty state",
                 rowCount, ElapsedMs(start), before, ReadMemory()));
+            result.arms.back().filenameIndexValidBefore = indexValidBeforeA;
+            result.arms.back().rebuildSucceeded = okA;
+            CaptureProjectionState(projectionA, result.arms.back());
             std::printf("A  fresh build: %.1f ms\n", result.arms.back().elapsedMs);
             std::fflush(stdout);
         }
@@ -391,24 +412,32 @@ int wmain(int argc, wchar_t** argv) {
         // ---- B1 + B2: existing Projection + Remove all + build -------------
         if (ArmSelected(options, "B1")) {
             const MemorySample before = ReadMemory();
+            const bool indexValidBeforeB1 = projectionA.GetMemoryBreakdown().filenameIndexValid;
             const auto start = Clock::now();
             projectionA.RemoveVolume(volumeId);
             result.arms.push_back(MakeArm("B1_remove_all_production",
                 "RemoveVolume on populated projection (per-entry Remove, production semantics)",
                 rowCount, ElapsedMs(start), before, ReadMemory()));
+            result.arms.back().filenameIndexValidBefore = indexValidBeforeB1;
+            CaptureProjectionState(projectionA, result.arms.back());
             std::printf("B1 remove all: %.1f ms\n", result.arms.back().elapsedMs);
             std::fflush(stdout);
         }
         if (ArmSelected(options, "B2")) {
             const MemorySample before = ReadMemory();
             const auto start = Clock::now();
-            if (!projectionA.RebuildVolumeFromStore(store, volumeId, rowCount)) {
+            const bool indexValidBeforeB2 = projectionA.GetMemoryBreakdown().filenameIndexValid;
+            const bool okB2 = projectionA.RebuildVolumeFromStore(store, volumeId, rowCount);
+            if (!okB2) {
                 result.failureReason = "arm B2 rebuild failed";
                 result.executed = false;
             }
             result.arms.push_back(MakeArm("B2_rebuild_after_removal",
                 "RebuildVolumeFromStore after B1 (stream + iteration order + filename index + shrink)",
                 rowCount, ElapsedMs(start), before, ReadMemory()));
+            result.arms.back().filenameIndexValidBefore = indexValidBeforeB2;
+            result.arms.back().rebuildSucceeded = okB2;
+            CaptureProjectionState(projectionA, result.arms.back());
             std::printf("B2 rebuild after removal: %.1f ms\n", result.arms.back().elapsedMs);
             std::fflush(stdout);
         }
@@ -418,13 +447,16 @@ int wmain(int argc, wchar_t** argv) {
             const MemorySample before = ReadMemory();
             const auto start = Clock::now();
             projectionA = ffindexstore::Projection{};
-            if (!projectionA.RebuildVolumeFromStore(store, volumeId, rowCount)) {
+            const bool okC = projectionA.RebuildVolumeFromStore(store, volumeId, rowCount);
+            if (!okC) {
                 result.failureReason = "arm C rebuild failed";
                 result.executed = false;
             }
             result.arms.push_back(MakeArm("C_logical_clear_then_build",
                 "object-level logical clear (fresh Projection assigned) then rebuild",
                 rowCount, ElapsedMs(start), before, ReadMemory()));
+            result.arms.back().rebuildSucceeded = okC;
+            CaptureProjectionState(projectionA, result.arms.back());
             std::printf("C  clear + build: %.1f ms\n", result.arms.back().elapsedMs);
             std::fflush(stdout);
         }
@@ -446,6 +478,8 @@ int wmain(int argc, wchar_t** argv) {
             ArmResult arm = MakeArm("D_build_into_new_then_swap",
                 "fresh build beside populated projection, then move-assign swap (double-buffer window sampled)",
                 rowCount, elapsed, before, peak);
+            arm.rebuildSucceeded = ok;
+            CaptureProjectionState(projectionA, arm);
             result.arms.push_back(arm);
             std::printf("D  build + swap: %.1f ms (double-buffer private %.1f MB)\n", elapsed,
                         static_cast<double>(peak.privateBytes) / (1024.0 * 1024.0));
@@ -455,7 +489,8 @@ int wmain(int argc, wchar_t** argv) {
         // ---- E1 + E2: removal without filename-accelerator maintenance -----
         if (ArmSelected(options, "E1") || ArmSelected(options, "E2")) {
             ffindexstore::Projection projectionE;
-            if (!projectionE.RebuildVolumeFromStore(store, volumeId, rowCount)) {
+            const bool okEPop = projectionE.RebuildVolumeFromStore(store, volumeId, rowCount);
+            if (!okEPop) {
                 result.failureReason = "arm E population failed";
                 result.executed = false;
             }
@@ -463,6 +498,7 @@ int wmain(int argc, wchar_t** argv) {
                 projectionE.SetRemovalMaintenanceMode(
                     ffindexstore::Projection::RemovalMaintenanceMode::SkipFilenameMaintenance);
                 const MemorySample before = ReadMemory();
+                const bool indexValidBeforeE1 = projectionE.GetMemoryBreakdown().filenameIndexValid;
                 const auto start = Clock::now();
                 projectionE.RemoveVolume(volumeId);
                 const double elapsed = ElapsedMs(start);
@@ -471,6 +507,8 @@ int wmain(int argc, wchar_t** argv) {
                 result.arms.push_back(MakeArm("E1_remove_skip_filename_maintenance",
                     "RemoveVolume with per-entry trigram/non-ASCII accelerator removal skipped",
                     rowCount, elapsed, before, ReadMemory()));
+                result.arms.back().filenameIndexValidBefore = indexValidBeforeE1;
+                CaptureProjectionState(projectionE, result.arms.back());
                 std::printf("E1 remove (skip filename maintenance): %.1f ms\n", elapsed);
                 std::fflush(stdout);
             }
@@ -480,13 +518,16 @@ int wmain(int argc, wchar_t** argv) {
                 }
                 const MemorySample before = ReadMemory();
                 const auto start = Clock::now();
-                if (!projectionE.RebuildVolumeFromStore(store, volumeId, rowCount)) {
+                const bool okE2 = projectionE.RebuildVolumeFromStore(store, volumeId, rowCount);
+                if (!okE2) {
                     result.failureReason = "arm E2 rebuild failed";
                     result.executed = false;
                 }
                 result.arms.push_back(MakeArm("E2_rebuild_accelerator_once",
                     "rebuild after E1: filename accelerator rebuilt once in bulk at the end",
                     rowCount, ElapsedMs(start), before, ReadMemory()));
+                result.arms.back().rebuildSucceeded = okE2;
+                CaptureProjectionState(projectionE, result.arms.back());
                 std::printf("E2 rebuild once: %.1f ms\n", result.arms.back().elapsedMs);
                 std::fflush(stdout);
             }
@@ -495,13 +536,15 @@ int wmain(int argc, wchar_t** argv) {
         // ---- F1: removal without parent/child unlink -----------------------
         if (ArmSelected(options, "F1")) {
             ffindexstore::Projection projectionF;
-            if (!projectionF.RebuildVolumeFromStore(store, volumeId, rowCount)) {
+            const bool okFPop = projectionF.RebuildVolumeFromStore(store, volumeId, rowCount);
+            if (!okFPop) {
                 result.failureReason = "arm F population failed";
                 result.executed = false;
             }
             projectionF.SetRemovalMaintenanceMode(
                 ffindexstore::Projection::RemovalMaintenanceMode::SkipChildUnlink);
             const MemorySample before = ReadMemory();
+            const bool indexValidBeforeF1 = projectionF.GetMemoryBreakdown().filenameIndexValid;
             const auto start = Clock::now();
             projectionF.RemoveVolume(volumeId);
             const double elapsed = ElapsedMs(start);
@@ -510,6 +553,8 @@ int wmain(int argc, wchar_t** argv) {
             result.arms.push_back(MakeArm("F1_remove_skip_child_unlink",
                 "RemoveVolume with per-entry parent/child unlink skipped (trigram removal retained)",
                 rowCount, elapsed, before, ReadMemory()));
+            result.arms.back().filenameIndexValidBefore = indexValidBeforeF1;
+            CaptureProjectionState(projectionF, result.arms.back());
             std::printf("F1 remove (skip child unlink): %.1f ms\n", elapsed);
             std::fflush(stdout);
         }
@@ -535,16 +580,20 @@ int wmain(int argc, wchar_t** argv) {
                 result.arms.push_back(MakeArm("G0_no_trigram_population",
                     "Upsert population with <=2-char names (no trigram postings, single NameId per kind)",
                     rowCount, gPopulate, gBefore, ReadMemory()));
+                CaptureProjectionState(projectionG, result.arms.back());
                 std::printf("G0 no-trigram population: %.1f ms\n", gPopulate);
                 std::fflush(stdout);
             }
             if (ArmSelected(options, "G1")) {
                 const MemorySample before = ReadMemory();
+                const bool indexValidBeforeG1 = projectionG.GetMemoryBreakdown().filenameIndexValid;
                 const auto start = Clock::now();
                 projectionG.RemoveVolume(volumeId);
                 result.arms.push_back(MakeArm("G1_no_trigram_remove",
                     "RemoveVolume on the no-trigram fixture (production semantics)",
                     rowCount, ElapsedMs(start), before, ReadMemory()));
+                result.arms.back().filenameIndexValidBefore = indexValidBeforeG1;
+                CaptureProjectionState(projectionG, result.arms.back());
                 std::printf("G1 no-trigram remove: %.1f ms\n", result.arms.back().elapsedMs);
                 std::fflush(stdout);
             } else if (ArmSelected(options, "G2")) {
@@ -574,6 +623,7 @@ int wmain(int argc, wchar_t** argv) {
                 result.arms.push_back(MakeArm("G2_no_trigram_remove_skip_child_unlink",
                     "RemoveVolume on the no-trigram fixture with child unlink skipped (residual ceiling)",
                     rowCount, elapsed, before, ReadMemory()));
+                CaptureProjectionState(projectionG2, result.arms.back());
                 std::printf("G2 no-trigram remove (skip child unlink): %.1f ms\n", elapsed);
                 std::fflush(stdout);
             }
@@ -617,6 +667,16 @@ int wmain(int argc, wchar_t** argv) {
             output << "          \"rows\": " << arm.rows << ",\n";
             output << "          \"elapsed_ms\": " << arm.elapsedMs << ",\n";
             output << "          \"rows_per_second\": " << arm.rowsPerSecond << ",\n";
+            output << "          \"filename_index_valid_before\": "
+                   << (arm.filenameIndexValidBefore ? "true" : "false") << ",\n";
+            output << "          \"filename_index_valid_after\": "
+                   << (arm.filenameIndexValidAfter ? "true" : "false") << ",\n";
+            output << "          \"rebuild_succeeded\": "
+                   << (arm.rebuildSucceeded ? "true" : "false") << ",\n";
+            output << "          \"projection_estimated_bytes_after\": "
+                   << arm.projectionEstimatedBytesAfter << ",\n";
+            output << "          \"evicted_volume_count_after\": "
+                   << arm.evictedVolumeCountAfter << ",\n";
             output << "          \"working_set_before_bytes\": " << arm.memoryBefore.workingSetBytes << ",\n";
             output << "          \"private_before_bytes\": " << arm.memoryBefore.privateBytes << ",\n";
             output << "          \"working_set_after_bytes\": " << arm.memoryAfter.workingSetBytes << ",\n";
