@@ -39,12 +39,12 @@
 
 ## 7. Startup / readiness
 
-- [ ] 7.1 Measure product startup at representative index sizes (process start -> shell window -> engine connection -> projection ready -> first searchable state -> first directory content), clean vs warm, existing SQLite index, service available/unavailable. Identify whether projection hydration dominates perceived startup.
+- [ ] 7.1 Measure product startup at representative index sizes (process start -> shell window -> engine connection -> projection ready -> first searchable state -> first directory content), clean vs warm, existing SQLite index, service available/unavailable. Identify whether projection hydration dominates perceived startup. PARTIAL: engine-readiness chain measured at 200k/1M (durable open 326/1,929 ms; hydration 857-990 ms/4.9-5.7 s steady; first snapshot 66/291 ms; teardown releases to ~6 MB) in `evidence/lifecycle-reload-resources.md`; real-UI startup probe pending final binaries (certification phase).
 
 ## 8. Lifecycle resources
 
-- [ ] 8.1 Cold-volume reload: measure eviction, reload, query latency during reload, duplicate work, memory peak, filename-index reconstruction (a memory optimization is incomplete if reload becomes painfully slow).
-- [ ] 8.2 Repeated-cycle stability: 10 rebuilds, repeated searches, repeated snapshot publications, repeated volume eviction/reload; watch private bytes, working set, allocations, handles, threads, WAL, shared mappings for monotonic growth. Include the 1M-row default-budget straddle finding (`SetProjectionMemoryBudget` has no production caller).
+- [x] 8.1 Cold-volume reload: measure eviction, reload, query latency during reload, duplicate work, memory peak, filename-index reconstruction (a memory optimization is incomplete if reload becomes painfully slow). Evidence: `evidence/lifecycle-reload-resources.md` (reload 1,290 ms @200k / 6,601 ms @1M through the production `RebuildVolumeFromStore` path; search never reloads (cold stream contract); oversized-volume no-reload bound characterized; publication passes stable).
+- [x] 8.2 Repeated-cycle stability: 10 rebuilds, repeated searches, repeated snapshot publications, repeated volume eviction/reload; watch private bytes, working set, allocations, handles, threads, WAL, shared mappings for monotonic growth. Include the 1M-row default-budget straddle finding (`SetProjectionMemoryBudget` has no production caller). Evidence: `evidence/lifecycle-reload-resources.md` + `evidence/memory-cold-decision.md` (10 cycles per scale byte-flat after cycle 2; rebuild speedup retained at the final tip; +1 alloc/cycle classified as bench bookkeeping with zero byte growth; 500 MiB policy mapped and the 2M regime documented).
 
 ## 9. Review
 
