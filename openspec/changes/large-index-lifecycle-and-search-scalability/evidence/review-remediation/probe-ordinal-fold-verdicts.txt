@@ -1,0 +1,38 @@
+RUN: cmd /c probe_ordinal\probe2.exe
+ASCII sanity: 'A' vs 'a'                 U+0041 vs U+0061 ignorecase => CSTR_EQUAL
+                                         U+0041 vs U+0061 CASE-SENS   => CSTR_LESS
+long s U+017F vs 's'                     U+017F vs U+0073 ignorecase => CSTR_GREATER
+                                         U+017F vs U+0073 CASE-SENS   => CSTR_GREATER
+long s U+017F vs 'S'                     U+017F vs U+0053 ignorecase => CSTR_GREATER
+                                         U+017F vs U+0053 CASE-SENS   => CSTR_GREATER
+Kelvin U+212A vs 'k'                     U+212A vs U+006B ignorecase => CSTR_GREATER
+                                         U+212A vs U+006b CASE-SENS   => CSTR_GREATER
+Kelvin U+212A vs 'K'                     U+212A vs U+004B ignorecase => CSTR_GREATER
+                                         U+212A vs U+004b CASE-SENS   => CSTR_GREATER
+dotless i U+0131 vs 'i'                  U+0131 vs U+0069 ignorecase => CSTR_GREATER
+                                         U+0131 vs U+0069 CASE-SENS   => CSTR_GREATER
+dotless i U+0131 vs 'I'                  U+0131 vs U+0049 ignorecase => CSTR_GREATER
+                                         U+0131 vs U+0049 CASE-SENS   => CSTR_GREATER
+dotted I U+0130 vs 'i'                   U+0130 vs U+0069 ignorecase => CSTR_GREATER
+                                         U+0130 vs U+0069 CASE-SENS   => CSTR_GREATER
+dotted I U+0130 vs 'I'                   U+0130 vs U+0049 ignorecase => CSTR_GREATER
+                                         U+0130 vs U+0049 CASE-SENS   => CSTR_GREATER
+sharp s U+00DF vs 's'                    U+00DF vs U+0073 ignorecase => CSTR_GREATER
+                                         U+00DF vs U+0073 CASE-SENS   => CSTR_GREATER
+ligature fi U+FB01 vs 'f'                U+FB01 vs U+0066 ignorecase => CSTR_GREATER
+                                         U+FB01 vs U+0066 CASE-SENS   => CSTR_GREATER
+micro U+00B5 vs 'm'                      U+00B5 vs U+006D ignorecase => CSTR_GREATER
+                                         U+00B5 vs U+006d CASE-SENS   => CSTR_GREATER
+fullwidth A U+FF21 vs 'A'                U+FF21 vs U+0041 ignorecase => CSTR_GREATER
+                                         U+FF21 vs U+0041 CASE-SENS   => CSTR_GREATER
+E-acute U+00C9 vs U+00E9 (non-ascii fold?) U+00C9 vs U+00E9 ignorecase => CSTR_EQUAL
+                                         U+00C9 vs U+00e9 CASE-SENS   => CSTR_LESS
+Greek final sigma vs sigma               U+03C2 vs U+03C3 ignorecase => CSTR_GREATER
+                                         U+03C2 vs U+03c3 CASE-SENS   => CSTR_LESS
+Kelvin U+212A vs U+212B (Angstrom)       U+212A vs U+212B ignorecase => CSTR_LESS
+                                         U+212A vs U+212b CASE-SENS   => CSTR_LESS
+hay=[U+017F]oo.txt needle=soo            contains => no-match
+hay=[U+017F]oo.txt needle=SOO            contains => no-match
+hay=cap[U+0131]tal needle=capital        contains => no-match
+hay=[U+212A]elvin needle=kelvin          contains => no-match
+CompareStringW(LOCALE_INVARIANT,NORM_IGNORECASE) U+017F vs 's' => CSTR_GREATER

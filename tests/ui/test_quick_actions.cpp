@@ -122,19 +122,25 @@ int main() {
             fftest::ClipboardRoundTripObservations observations;
             observations.writePublished = true;
             bool delivered = false;
-            for (int attempt = 0; attempt < 80 && !delivered; ++attempt) {
+            bool exact = false;
+            for (int attempt = 0; attempt < 80 && !exact; ++attempt) {
                 bool cut = false;
                 const auto read = ffui::ReadFilesFromClipboard(nullptr, cut);
-                if (read.empty() && !cut) {
-                    // Nothing delivered yet: retry inside the bounded window.
-                    Sleep(25);
-                    continue;
+                if (!read.empty() || cut) {
+                    // Something was delivered. Record it, but keep sampling:
+                    // this host delivers the published formats with SKEW
+                    // (observed under CTest: CF_HDROP exact while the
+                    // Preferred DropEffect had not landed yet), so an
+                    // incomplete first delivery may complete inside the
+                    // window. Only an EXACT match (paths AND cut intent) ever
+                    // passes; a persistent wrong delivery still FAILs at
+                    // window exhaustion and is never skipped away.
+                    observations.pathsMatchExpected = (read == expected);
+                    observations.cutIntentMatchesExpected = (cut == true); // published cut=true
+                    delivered = true;
+                    exact = observations.pathsMatchExpected && observations.cutIntentMatchesExpected;
                 }
-                // Something was delivered: evaluate now and stop. A wrong
-                // delivery is a real data defect and may never be skipped.
-                observations.pathsMatchExpected = (read == expected);
-                observations.cutIntentMatchesExpected = (cut == true); // published cut=true
-                delivered = true;
+                if (!exact) Sleep(25);
             }
             observations.sequenceChangedSincePublication =
                 GetClipboardSequenceNumber() != sequenceAtWrite;

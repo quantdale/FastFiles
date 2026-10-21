@@ -1,0 +1,2 @@
+ok: the last fixture row is present and touchFAIL: a host-fold-exceptional long-s name is retained for the ASCII needle (no false negative)
+FAIL: surrogate-bearing names are conservatively retained in every ASCII candidate set
