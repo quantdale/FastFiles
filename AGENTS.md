@@ -263,3 +263,9 @@ Four-space indent, opening brace on the same line, `PascalCase` for types and pu
 ## Commit & pull request guidelines
 
 History favors imperative, outcome-oriented subjects (e.g. `Wire engine ingestion pipeline`) and scoped summaries (e.g. `index-storage-and-scanning: ...`). Keep commits focused; explain non-obvious security or recovery behavior in the body. PRs should summarize behavior, identify affected components, link the relevant issue/OpenSpec task, and list exact validation commands. Include screenshots for visible UI changes and call out privilege, installer, schema, or migration impacts.
+
+## Cross-project UX, DX, and AX principles
+
+Cut taglines, helper text and secondary labels. If a screen needs them to make sense, fix the layout.
+
+Make the best decision that will elevate all three: the user experience (UX), developer experience (DX), and agent experience (AX) always, without breaking anything.
