@@ -72,22 +72,20 @@ inline bool NameRequiresCandidateSideSet(const char16_t* name, size_t length) {
 // Mirrors Projection::SetTestingFoldExceptionalUnit: lets tests simulate a
 // host ordinal table where specific units fold to ASCII (the fold-exceptional
 // class), so the side-set rule can be exercised red-first on any host. The
-// override is consulted BEFORE the host probe and is fail-closed for the
-// injected unit; production code never injects.
-inline std::atomic<uint8_t>* FoldOverrideCache() {
-    static std::atomic<uint8_t> cache[65536] = {};
-    return cache;
-}
-
+// seam writes THROUGH to the memoized probe cache (the classification reads
+// only that cache), so an injected verdict replaces the host probe for that
+// unit. NOTE (reviewer-A P3, corrected comment): injecting exceptional=false
+// forces the unit NON-exceptional and therefore OVERRIDES a genuine host
+// probe -- it is a simulation control, not a fail-closed operation.
+// Production code never injects.
 inline void SetTestingFoldExceptionalUnit(unsigned short unit, bool exceptional) {
-    FoldOverrideCache()[unit].store(exceptional ? 2 : 1, std::memory_order_release);
     FoldProbeCache()[unit].store(exceptional ? 2 : 1, std::memory_order_release);
 }
 
 inline void ResetTestingFoldExceptionalUnits() {
+    std::atomic<uint8_t>* cache = FoldProbeCache();
     for (unsigned int unit = 0; unit < 65536; ++unit) {
-        FoldOverrideCache()[unit].store(0, std::memory_order_release);
-        FoldProbeCache()[unit].store(0, std::memory_order_release);
+        cache[unit].store(0, std::memory_order_release);
     }
 }
 

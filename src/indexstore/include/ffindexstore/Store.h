@@ -271,6 +271,15 @@ public:
     // canonical C++ matcher unchanged; false negatives are impossible for any
     // host ordinal table. Callers must pass ASCII needles only (non-ASCII
     // needles cannot be conservatively folded by SQLite LIKE).
+    //
+    // durable-cold-search 4.x (reviewer-A contract narrowing): the superset
+    // guarantee is scoped to ASCII needles. A non-ASCII needle is OUT OF
+    // CONTRACT for this API: on hosts where a non-ASCII unit folds to ASCII,
+    // such a needle can canonically match pure-ASCII names that neither the
+    // candidate rung nor the prefilter fallback streams. The production
+    // caller (IndexPipeline) routes non-ASCII needles to the full canonical
+    // stream (ForEachEntryUntil). The rung folds defensively and treats any
+    // non-ASCII byte as ineligible.
     bool ForEachEntryWithAsciiNameUntil(VolumeRowId volumeRowId, std::string_view asciiFoldedNeedle,
                                         const Store::EntryVisitorUntil& visitor);
     std::optional<EntryRecord> FindEntry(VolumeRowId volumeRowId, FileId frn);

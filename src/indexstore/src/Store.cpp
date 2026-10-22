@@ -1671,14 +1671,27 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
     // caller re-verifies each row with CompareStringOrdinal either way.
     // Any failure or ineligible shape falls through to the canonical stream
     // below (correctness never depends on the index being usable).
-    const bool needleEligible = asciiFoldedNeedle.size() >= 3 &&
-        std::all_of(asciiFoldedNeedle.begin(), asciiFoldedNeedle.end(),
+    // reviewer-A P2: fold defensively here. The API contract is an
+    // ASCII-FOLDED needle, but an unfolded caller must not silently miss
+    // FTS hits (the folded column is matched case-sensitively by design).
+    std::string foldedNeedle(asciiFoldedNeedle);
+    for (char& ch : foldedNeedle) {
+        if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch + 0x20);
+    }
+    // Reviewer-A contract note: the eligibility gate is ASCII-only. A
+    // non-ASCII needle is OUT OF CONTRACT for this API (the production
+    // caller routes non-ASCII needles to the full canonical stream); such a
+    // needle is ineligible here and falls back, but a fold-exceptional
+    // non-ASCII needle can canonically match pure-ASCII names on some hosts,
+    // so the superset claim is explicitly scoped to ASCII needles.
+    const bool needleEligible = foldedNeedle.size() >= 3 &&
+        std::all_of(foldedNeedle.begin(), foldedNeedle.end(),
                     [](char ch) { return static_cast<unsigned char>(ch) < 0x80; });
     if (needleEligible) {
         std::string match;
-        match.reserve(asciiFoldedNeedle.size() + 2);
+        match.reserve(foldedNeedle.size() + 2);
         match.push_back('"');
-        for (const char ch : asciiFoldedNeedle) {
+        for (const char ch : foldedNeedle) {
             if (ch == '"') match.push_back('"');
             match.push_back(ch);
         }

@@ -431,6 +431,9 @@ void TestDurableCandidateSupersetAcrossAdversarialNames() {
         {109, u"plain_sand_probe.txt"},
         {110, u"upper_XYZ_probe.txt"},
         {111, u"zzz_no_hit.txt"},
+        // reviewer-A P2: a fold-exceptional unit NOT at name index 0, so a
+        // first-unit-only classification bug cannot pass the mechanism proof.
+        {112, u"mid_\u017Fand_tail.txt"},
     };
     std::vector<EntryChange> batch;
     for (const auto& [id, name] : names) {
@@ -440,7 +443,7 @@ void TestDurableCandidateSupersetAcrossAdversarialNames() {
 
     const std::vector<std::u16string> needles = {
         u"report", u"sand_probe", u"_file", u"component", u"zzz_never",
-        u"a.b.c", u"abcabc", u"co", u"XYZ_probe", u"\u0441\u043f\u0438\u0441\u043e\u043a",
+        u"a.b.c", u"abcabc", u"co", u"XYZ_probe", u"nd_tail", u"\u0441\u043f\u0438\u0441\u043e\u043a",
     };
     auto reader = store.OpenReadSession();
     bool supersetHolds = true;
@@ -468,9 +471,18 @@ void TestDurableCandidateSupersetAcrossAdversarialNames() {
             if (streamed.find(id) == streamed.end()) supersetHolds = false;
         }
         if (needle == u"sand_probe") {
-            longsRowVisited = streamed.find(105) != streamed.end();
+            // reviewer-A P2: EXACT set assertions (not mere membership), so
+            // an over- or under-inclusive stream cannot pass.
+            const std::set<uint64_t> expectedSand{105, 106, 109, 112};
+            longsRowVisited = streamed == expectedSand;
             longsRowFoldedLacksNeedle = FoldAsciiForTest(u"\u017Fand_probe.txt").find("sand_probe")
                 == std::string::npos;
+        }
+        if (needle == u"zzz_never") {
+            // Exactly the sharp side-set (fold-exceptional 105/112 + surrogate
+            // 106) and nothing else on this host.
+            const std::set<uint64_t> expectedNoHit{105, 106, 112};
+            if (streamed != expectedNoHit) supersetHolds = false;
         }
     }
     Check(supersetHolds, "CanonicalMatches is a subset of the streamed candidates for every needle");
