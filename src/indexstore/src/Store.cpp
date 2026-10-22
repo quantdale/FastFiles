@@ -397,6 +397,7 @@ namespace {
 std::atomic<int> gCandidateFaultRemaining{0};
 std::atomic<bool> gCandidateFaultHardExit{false};
 std::atomic<int> gCandidateCapOverride{0};
+std::atomic<bool> gCandidateMaintenanceDisabled{false};
 
 // Cost-based cap (task 3.2; reviewer-C P1-class finding). The 3-scale matrix
 // (evidence/artifacts/) shows the candidate route regressing broad needles
@@ -506,6 +507,7 @@ std::string FoldAsciiUtf8(const std::string& utf8) {
 bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volumeRowId,
                           uint64_t frnLow, uint64_t frnHigh,
                           const std::string& nameUtf8, const std::u16string& nameUtf16, bool updateName) {
+    if (gCandidateMaintenanceDisabled.load(std::memory_order_acquire)) return true;
     if (CandidateFaultFire()) return false;
     sqlite3_reset(stmts.mapUpsert);
     sqlite3_bind_int64(stmts.mapUpsert, 1, volumeRowId);
@@ -547,6 +549,7 @@ bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volum
 }
 
 bool CandidateIndexRemove(CandidateStatements& stmts, int64_t volumeRowId, uint64_t frnLow, uint64_t frnHigh) {
+    if (gCandidateMaintenanceDisabled.load(std::memory_order_acquire)) return true;
     if (CandidateFaultFire()) return false;
     const int64_t termRowid = CandidateTermRowid(stmts, volumeRowId, frnLow, frnHigh);
     if (termRowid < 0) return true;  // never indexed (or already removed)
@@ -1197,6 +1200,10 @@ void SetTestingCandidateMaintenanceFault(int nthOperation, bool hardProcessExit)
 
 void SetTestingCandidateCapOverride(size_t cap) {
     gCandidateCapOverride.store(cap > 0 ? static_cast<int>(cap) : 0, std::memory_order_release);
+}
+
+void SetTestingCandidateMaintenanceDisabled(bool disabled) {
+    gCandidateMaintenanceDisabled.store(disabled, std::memory_order_release);
 }
 
 bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& changes) {

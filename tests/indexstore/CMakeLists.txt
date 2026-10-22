@@ -46,3 +46,9 @@ add_dependencies(ffindexstore_bench_rebuild_isolation fastfiles_build_identity)
 
 set_tests_properties(ffindexstore_store_tests ffindexstore_projection_tests ffindexstore_flat_hash_map_tests ffindexstore_read_session_tests
                      PROPERTIES TIMEOUT 120)
+
+# durable-cold-search 4.2: candidate-index resource measurements (bench-only;
+# never a CTest gate). Runs the production Store schema with the maintenance
+# A/B seam.
+add_executable(ffindexstore_bench_candidate_resources bench_candidate_index_resources.cpp)
+target_link_libraries(ffindexstore_bench_candidate_resources PRIVATE ffindexstore sqlite3 psapi)

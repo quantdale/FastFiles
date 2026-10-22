@@ -74,6 +74,12 @@ void SetTestingCandidateMaintenanceFault(int nthOperation, bool hardProcessExit)
 // (0 restores the production cap).
 void SetTestingCandidateCapOverride(size_t cap);
 
+// Task 4.2 measurement seam: disable candidate-index maintenance so the
+// resource A/B (ingestion overhead, disk delta, WAL delta) can measure the
+// same production code with and without the index. Production never calls
+// this; entries correctness is unaffected (maintenance is derived state).
+void SetTestingCandidateMaintenanceDisabled(bool disabled);
+
 class Store {
 public:
     Store() = default;
