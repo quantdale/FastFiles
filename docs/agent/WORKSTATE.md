@@ -1,5 +1,13 @@
 # Fast Files — Agent Workstate
 
+## Current resume checkpoint — durable-cold-search: LOCALLY_CERTIFIED at `b203cf1` (parity 11/11, Debug+release 128/128, equivalence PASS); STACKED DRAFT PR #15 PUBLISHED; hosted BLOCKED — 2026-10-22
+
+- **Final candidate:** `feat/durable-cold-search-and-hybrid-residency` at `b203cf1f74dd0e07ffa4d9fe269006a89b647f79` (clean, pushed; worktree `build/worktrees/durable-cold-search`). Chain: `d3884eec` (PR#14 head) -> `b834175` (measurement+decision) -> `7c8faea` (core impl) -> `3aa64bf` (safety gates) -> `5ae557b` (evidence remediation) -> `435241d` (B-P1) -> `c951722` (A remediation) -> `2968077` (cap) -> `e6b9c51` (resources) -> `b203cf1` (harness fixes).
+- **Certification:** Local CI parity **11/11**; Debug CTest **128/128**; release-test CTest **128/128** (own runs; store suite 809 checks incl. 7 new gates); strict OpenSpec 93/93; lifecycle PASS; equivalence gate PASS (`product_tree(b203cf1f74dd)` self-consistent, digest `7faf7550a0b8…`, 397 paths — re-run required for any later evidence commit). `HOSTED_CI = BLOCKED_EXTERNAL` (runs `39752901736`/`39752896555` at `b203cf1`, six jobs zero steps, inspected ONCE).
+- **Result:** 2M cold production path: selective **3.1 ms** (1123x), no_match **1.4 ms** (1528x), exact_name **2.7 ms** (1394x) — sub-200ms target MET; cost cap (16,384) keeps every broad class <= baseline. Resources: 124 MB/1M disk, WAL 3.4 MB (production policy), RAM flat, ingestion e2e 1.49x. Crash: graceful + REAL kill-during-commit both verified. Migration: v2->v3 11.2 s@1M, fail-closed downgrade, idempotent v1 path (B-P1 fixed).
+- **GitHub:** draft PR **#15** stacked on PR #14's branch (base `feat/large-index-lifecycle-and-search-scalability-20261008`, OPEN/DRAFT); PR #14 untouched (OPEN, `d3884eec`, unmerged). NO AUTO-MERGE on either.
+- **NEXT EXACT ACTION:** owner review of PR #15 (and PR #14 first); remaining disclosed gaps: task 3.3 migration measurement at 2M/5M, task 4.1 5M differential arm, E2E/UIA/visual not re-run for this zero-UI-change diff (classified, not hidden), hosted CI external. `EXPLORER_TO_FASTFILES_E2E = UNQUALIFIED` unchanged (separate frontier; no drag code in this branch).
+
 ## Current resume checkpoint — durable-cold-search-index-and-hybrid-residency: PHASE A + DECISION GATE COMPLETE (Alternative A/FTS5 SELECTED); PHASE D IMPLEMENTATION NEXT — 2026-10-22
 
 - **Campaign:** durable cold-search acceleration (successor to PR #14). Owner-authorized autonomous implementation on the stacked branch `feat/durable-cold-search-and-hybrid-residency` (worktree `build/worktrees/durable-cold-search`, based on PR #14 HEAD `d3884eec`; PR #14 OPEN/UNMERGED and untouched). History: `b834175` (measurement + decision).
