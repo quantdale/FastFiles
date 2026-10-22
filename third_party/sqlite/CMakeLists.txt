@@ -28,6 +28,8 @@ if(MSVC)
   # dependency", not first-party code).
   target_compile_options(sqlite3 PRIVATE /W0 /wd4100 /wd4267)
   # Silence the same source's warnings without disabling the whole-project
-  # /WX for anyone consuming this target.
-  set_source_files_properties(sqlite3.c PROPERTIES COMPILE_FLAGS "/W0")
+  # /WX for anyone consuming this target. /analyze- too: the FTS5 code paths
+  # pull winnt.h rotation intrinsics whose SAL declarations trip C28301
+  # under /analyze (SDK-side noise, observed in the parity analyze step).
+  set_source_files_properties(sqlite3.c PROPERTIES COMPILE_FLAGS "/W0 /analyze-")
 endif()

@@ -323,5 +323,5 @@ target_compile_definitions(ffengine_bench_fts5_candidate_probe PRIVATE
 target_link_libraries(ffengine_bench_fts5_candidate_probe PRIVATE psapi)
 if(MSVC)
   target_compile_options(ffengine_bench_fts5_candidate_probe PRIVATE /wd4100 /wd4267)
-  set_source_files_properties(${CMAKE_SOURCE_DIR}/third_party/sqlite/sqlite3.c PROPERTIES COMPILE_FLAGS "/W0")
+  set_source_files_properties(${CMAKE_SOURCE_DIR}/third_party/sqlite/sqlite3.c PROPERTIES COMPILE_FLAGS "/W0 /analyze-")
 endif()
