@@ -1854,38 +1854,11 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
         match.push_back('"');
         size_t candidateHits = 0;
         bool admissionKnown = false;
-        {
-            Statement termsCount(db_,
-                "SELECT COUNT(*) FROM ("
-                "  SELECT 1 FROM entry_name_terms t"
-                "  JOIN entry_name_index_map m ON m.term_rowid = t.rowid"
-                "  WHERE entry_name_terms MATCH ?1 AND m.volume_id = ?2 LIMIT ?3);");
-            Statement exceptionCount(db_,
-                "SELECT COUNT(*) FROM ("
-                "  SELECT 1 FROM entry_name_exceptions x"
-                "  JOIN entry_name_index_map m ON m.term_rowid = x.term_rowid"
-                "  WHERE m.volume_id = ?2 LIMIT ?3);");
-            if (termsCount.Valid() && exceptionCount.Valid()) {
-                sqlite3_bind_text(termsCount, 1, match.data(), static_cast<int>(match.size()), SQLITE_TRANSIENT);
-                sqlite3_bind_int64(termsCount, 2, static_cast<sqlite3_int64>(volumeRowId));
-                sqlite3_bind_int64(termsCount, 3, static_cast<sqlite3_int64>(cap + 1));
-                sqlite3_bind_int64(exceptionCount, 2, static_cast<sqlite3_int64>(volumeRowId));
-                sqlite3_bind_int64(exceptionCount, 3, static_cast<sqlite3_int64>(cap + 1));
-                if (sqlite3_step(termsCount) == SQLITE_ROW &&
-                    sqlite3_step(exceptionCount) == SQLITE_ROW) {
-                    candidateHits = static_cast<size_t>(sqlite3_column_int64(termsCount, 0)) +
-                                    static_cast<size_t>(sqlite3_column_int64(exceptionCount, 0));
-                    admissionKnown = true;
-                }
-            }
-        }
         if (gTestingGlobalAdmission.load(std::memory_order_acquire)) {
             // 5.3 testing arm ONLY: the pre-fix global (non-volume-scoped,
             // exception-blind) pre-count. Reproduces the campaign's Case
             // A/C/D defects on demand so the regression tests can prove they
             // discriminate. Never reachable in production.
-            candidateHits = 0;
-            admissionKnown = false;
             Statement countStmt(db_,
                 "SELECT COUNT(*) FROM (SELECT 1 FROM entry_name_terms WHERE entry_name_terms MATCH ?1 LIMIT ?2);");
             if (countStmt.Valid()) {
@@ -1894,6 +1867,80 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
                 if (sqlite3_step(countStmt) == SQLITE_ROW) {
                     candidateHits = static_cast<size_t>(sqlite3_column_int64(countStmt, 0));
                     admissionKnown = true;
+                }
+            }
+        } else {
+            // Stage 1 (cheap global bound): if the WHOLE database admits at
+            // most cap candidates then every volume does too, so the route
+            // is safe without any volume-scoped probe. This preserves the
+            // pre-planner fast path exactly for globally-selective needles
+            // (the target classes): one bounded count, early-stopped at
+            // cap+1 for both extremes. The side-set part is bounded too, so
+            // a fold-exceptional-heavy host cannot silently over-admit
+            // (mission case C).
+            {
+                Statement globalTerms(db_,
+                    "SELECT COUNT(*) FROM (SELECT 1 FROM entry_name_terms WHERE entry_name_terms MATCH ?1 LIMIT ?2);");
+                Statement globalExceptions(db_,
+                    "SELECT COUNT(*) FROM (SELECT 1 FROM entry_name_exceptions LIMIT ?2);");
+                if (globalTerms.Valid() && globalExceptions.Valid()) {
+                    sqlite3_bind_text(globalTerms, 1, match.data(), static_cast<int>(match.size()), SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(globalTerms, 2, static_cast<sqlite3_int64>(cap + 1));
+                    sqlite3_bind_int64(globalExceptions, 2, static_cast<sqlite3_int64>(cap + 1));
+                    if (sqlite3_step(globalTerms) == SQLITE_ROW &&
+                        sqlite3_step(globalExceptions) == SQLITE_ROW) {
+                        candidateHits = static_cast<size_t>(sqlite3_column_int64(globalTerms, 0)) +
+                                        static_cast<size_t>(sqlite3_column_int64(globalExceptions, 0));
+                        admissionKnown = true;
+                    }
+                }
+            }
+            if (!admissionKnown || candidateHits > cap) {
+                // Stage 2 (volume-aware; only for globally-broad needles):
+                // the counted workload must be the work the candidate query
+                // will ACTUALLY do for the REQUESTED volume -- FTS postings
+                // admitted for this volume UNION this volume's
+                // exception-side-set rows. A global count is not an adequate
+                // approximation (PR #15 finalization campaign P2 defect): a
+                // globally-broad but locally-selective needle was pushed to
+                // the canonical scan by OTHER volumes' rows. CROSS JOIN pins
+                // the driver: the FTS postings (and the tiny side-set)
+                // stream OUTWARD and probe the map's term_rowid primary
+                // key. The implicit-join form lets SQLite drive from the
+                // volume's map index instead, which costs O(volume rows)
+                // per query (measured: a 2M-row volume regressed selective
+                // queries ~40x before this pin) -- the exact "expensive
+                // count" failure mode the campaign forbids. Each part is
+                // LIMIT-bounded at cap+1; their sum can over-count (a row
+                // present in both sets), the conservative direction for
+                // admission.
+                candidateHits = 0;
+                admissionKnown = false;
+                {
+                    Statement termsCount(db_,
+                        "SELECT COUNT(*) FROM ("
+                        "  SELECT 1 FROM (SELECT rowid AS rid FROM entry_name_terms"
+                        "   WHERE entry_name_terms MATCH ?1) t"
+                        "  CROSS JOIN entry_name_index_map m ON m.term_rowid = t.rid"
+                        "  WHERE m.volume_id = ?2 LIMIT ?3);");
+                    Statement exceptionCount(db_,
+                        "SELECT COUNT(*) FROM ("
+                        "  SELECT 1 FROM entry_name_exceptions x"
+                        "  CROSS JOIN entry_name_index_map m ON m.term_rowid = x.term_rowid"
+                        "  WHERE m.volume_id = ?2 LIMIT ?3);");
+                    if (termsCount.Valid() && exceptionCount.Valid()) {
+                        sqlite3_bind_text(termsCount, 1, match.data(), static_cast<int>(match.size()), SQLITE_TRANSIENT);
+                        sqlite3_bind_int64(termsCount, 2, static_cast<sqlite3_int64>(volumeRowId));
+                        sqlite3_bind_int64(termsCount, 3, static_cast<sqlite3_int64>(cap + 1));
+                        sqlite3_bind_int64(exceptionCount, 2, static_cast<sqlite3_int64>(volumeRowId));
+                        sqlite3_bind_int64(exceptionCount, 3, static_cast<sqlite3_int64>(cap + 1));
+                        if (sqlite3_step(termsCount) == SQLITE_ROW &&
+                            sqlite3_step(exceptionCount) == SQLITE_ROW) {
+                            candidateHits = static_cast<size_t>(sqlite3_column_int64(termsCount, 0)) +
+                                            static_cast<size_t>(sqlite3_column_int64(exceptionCount, 0));
+                            admissionKnown = true;
+                        }
+                    }
                 }
             }
         }

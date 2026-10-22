@@ -351,6 +351,21 @@ ffindexstore::VolumeKey MakeVolumeKeyForSuperset(uint32_t serial) {
 }
 
 
+struct PlannerDecision {
+    bool routeUsed = false;
+    size_t counted = 0;
+};
+
+ffindexstore::StoreReadSessionOptions ProbeOptions(
+    std::vector<PlannerDecision>& decisions) {
+    ffindexstore::StoreReadSessionOptions options;
+    options.candidatePlannerProbe = [&decisions](bool routeUsed, size_t counted) {
+        decisions.push_back({routeUsed, counted});
+    };
+    return options;
+}
+
+
 // --- durable-cold-search-index-and-hybrid-residency 4.1 ------------------
 // Canonical-superset differential for the durable candidate rung: for every
 // needle, every canonical match (per-alignment CompareStringOrdinal, the
@@ -512,9 +527,11 @@ void TestDurableCandidateSupersetAcrossAdversarialNames() {
 // Task 3.2 (reviewer-C P1-class finding): candidate sets at or above the
 // cost cap MUST fall back to the canonical scan (the pre-candidate code
 // path), which makes broad-needle regression structurally impossible. The
-// seam shrinks the cap so the fixture stays small: with cap=1 the
-// two-hit needle takes the fallback (whose stream is the CONSERVATIVE
-// prefilter class) while the one-hit needle stays on the candidate route
+// seam shrinks the cap so the fixture stays small. The cap now represents
+// the REAL workload (campaign 5.3): FTS hits PLUS side-set rows, so with
+// cap=2 the two-hit needle plus its side-set row (3 > 2) takes the fallback
+// (whose stream is the CONSERVATIVE prefilter class) while the one-hit
+// needle plus its side-set row (2 <= 2) stays on the candidate route
 // (whose stream is the exact sharp union).
 void TestCandidateCapFallsBackToCanonicalScan() {
     using namespace ffindexstore;
@@ -530,13 +547,16 @@ void TestCandidateCapFallsBackToCanonicalScan() {
     batch.push_back({EntryChangeKind::Upsert, MakeEntry(203, 5, u"ſcap_odd.txt")});
     Check(store.ApplyBatch(vol, batch), "cap fixture: rows commit");
 
-    auto reader = store.OpenReadSession();
-    SetTestingCandidateCapOverride(1);
+    std::vector<PlannerDecision> decisions;
+    auto reader = store.OpenReadSession(ProbeOptions(decisions));
+    SetTestingCandidateCapOverride(2);
     std::set<uint64_t> broadStream;
     Check(reader->ForEachEntryWithAsciiNameUntil(vol, "cap_report", [&](const EntryRecord& entry) {
         broadStream.insert(entry.id.low);
         return true;
     }), "cap: broad needle stream completes");
+    Check(!decisions.empty() && !decisions.back().routeUsed && decisions.back().counted == 3,
+          "cap: the over-cap workload (2 FTS hits + 1 side-set row) is counted and rejected");
     // Fallback shape: literal hits PLUS the conservative non-ASCII class
     // (the GLOB disjunct admits every non-ASCII name), i.e. a SUPERSET of
     // the candidate route's exact union -- proof the fallback ran.
@@ -549,6 +569,8 @@ void TestCandidateCapFallsBackToCanonicalScan() {
         narrowStream.insert(entry.id.low);
         return true;
     }), "cap: narrow needle stream completes");
+    Check(!decisions.empty() && decisions.back().routeUsed && decisions.back().counted == 2,
+          "cap: the under-cap workload (1 FTS hit + 1 side-set row) is admitted");
     const std::set<uint64_t> expectedNarrow{202, 203};
     Check(narrowStream == expectedNarrow,
           "an under-cap needle stays on the candidate route (exact sharp union)");
@@ -566,22 +588,8 @@ void TestCandidateCapFallsBackToCanonicalScan() {
 // PRE-FIX deliver-as-you-go stream so the atomicity test is provably
 // discriminating under the injected mid-stream fault.
 
-struct PlannerDecision {
-    bool routeUsed = false;
-    size_t counted = 0;
-};
-
 bool IsSideSetName(const std::u16string& name) {
     return ffindexstore::foldclassification::NameRequiresCandidateSideSet(name.c_str(), name.size());
-}
-
-ffindexstore::StoreReadSessionOptions ProbeOptions(
-    std::vector<PlannerDecision>& decisions) {
-    ffindexstore::StoreReadSessionOptions options;
-    options.candidatePlannerProbe = [&decisions](bool routeUsed, size_t counted) {
-        decisions.push_back({routeUsed, counted});
-    };
-    return options;
 }
 
 // Case A (globally broad, locally selective) + Case D (many small volumes,
