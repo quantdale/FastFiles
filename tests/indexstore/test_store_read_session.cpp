@@ -507,8 +507,57 @@ void TestDurableCandidateSupersetAcrossAdversarialNames() {
           "reopen coverage includes both side-set and FTS-derived matches");
 }
 
+
+// Task 3.2 (reviewer-C P1-class finding): candidate sets at or above the
+// cost cap MUST fall back to the canonical scan (the pre-candidate code
+// path), which makes broad-needle regression structurally impossible. The
+// seam shrinks the cap so the fixture stays small: with cap=1 the
+// two-hit needle takes the fallback (whose stream is the CONSERVATIVE
+// prefilter class) while the one-hit needle stays on the candidate route
+// (whose stream is the exact sharp union).
+void TestCandidateCapFallsBackToCanonicalScan() {
+    using namespace ffindexstore;
+    ffindexstore::foldclassification::SetTestingFoldExceptionalUnit(0x017F, true);
+    const std::string dbPath = FreshDbPath("ffindexstore_candidate_cap.db");
+    Store store;
+    Check(store.Open(dbPath), "cap fixture: store opens");
+    const VolumeRowId vol = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(2));
+    std::vector<EntryChange> batch;
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(200, 5, u"cap_report_one.txt")});
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(201, 5, u"cap_report_two.txt")});
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(202, 5, u"cap_solo_hit.txt")});
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(203, 5, u"ſcap_odd.txt")});
+    Check(store.ApplyBatch(vol, batch), "cap fixture: rows commit");
+
+    auto reader = store.OpenReadSession();
+    SetTestingCandidateCapOverride(1);
+    std::set<uint64_t> broadStream;
+    Check(reader->ForEachEntryWithAsciiNameUntil(vol, "cap_report", [&](const EntryRecord& entry) {
+        broadStream.insert(entry.id.low);
+        return true;
+    }), "cap: broad needle stream completes");
+    // Fallback shape: literal hits PLUS the conservative non-ASCII class
+    // (the GLOB disjunct admits every non-ASCII name), i.e. a SUPERSET of
+    // the candidate route's exact union -- proof the fallback ran.
+    const std::set<uint64_t> expectedFallback{200, 201, 203};
+    Check(broadStream == expectedFallback,
+          "an over-cap needle falls back to the canonical scan stream");
+
+    std::set<uint64_t> narrowStream;
+    Check(reader->ForEachEntryWithAsciiNameUntil(vol, "cap_solo_hit", [&](const EntryRecord& entry) {
+        narrowStream.insert(entry.id.low);
+        return true;
+    }), "cap: narrow needle stream completes");
+    const std::set<uint64_t> expectedNarrow{202, 203};
+    Check(narrowStream == expectedNarrow,
+          "an under-cap needle stays on the candidate route (exact sharp union)");
+    SetTestingCandidateCapOverride(0);
+    ffindexstore::foldclassification::ResetTestingFoldExceptionalUnits();
+}
+
 int main() {
     TestDurableCandidateSupersetAcrossAdversarialNames();
+    TestCandidateCapFallsBackToCanonicalScan();
     TestIndependentSnapshotOverlapsWriter();
     TestReadSessionFaultsFailClosed();
     TestAsciiNamePrefilterIsConservativeAndPrecise();

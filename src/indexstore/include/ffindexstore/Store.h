@@ -69,6 +69,11 @@ struct VolumeMetadata {
 // uncommitted transaction (never a graceful rollback).
 void SetTestingCandidateMaintenanceFault(int nthOperation, bool hardProcessExit);
 
+// Task 3.2 testing seam: shrink the candidate-fallback cap so the
+// cost-based scan fallback is unit-testable without a 16k-row fixture
+// (0 restores the production cap).
+void SetTestingCandidateCapOverride(size_t cap);
+
 class Store {
 public:
     Store() = default;

@@ -396,6 +396,23 @@ namespace {
 // Testing seam state (see Store.h). Production never arms these.
 std::atomic<int> gCandidateFaultRemaining{0};
 std::atomic<bool> gCandidateFaultHardExit{false};
+std::atomic<int> gCandidateCapOverride{0};
+
+// Cost-based cap (task 3.2; reviewer-C P1-class finding). The 3-scale matrix
+// (evidence/artifacts/) shows the candidate route regressing broad needles
+// at 2M (candidate fetch+join exceeds sequential-scan cost once the
+// candidate set is large: unicode 0.6x, high_limit_broad 0.7x) while
+// selective/exact/no-match stay 100-1500x. The cap is the hot path's
+// kMaximumFilenameIndexCandidates value (16,384): queries whose candidate
+// set reaches the cap take the canonical scan (the same nullopt->scan
+// contract as FilenameCandidateIndices), which makes regression impossible
+// -- the fallback IS the pre-candidate code path.
+constexpr size_t kCandidateFallbackCap = 16384;
+
+size_t CandidateFallbackCap() {
+    const int override = gCandidateCapOverride.load(std::memory_order_acquire);
+    return override > 0 ? static_cast<size_t>(override) : kCandidateFallbackCap;
+}
 
 bool CandidateFaultShouldFire() {
     int remaining = gCandidateFaultRemaining.load(std::memory_order_acquire);
@@ -1178,6 +1195,10 @@ void SetTestingCandidateMaintenanceFault(int nthOperation, bool hardProcessExit)
     gCandidateFaultHardExit.store(hardProcessExit, std::memory_order_release);
 }
 
+void SetTestingCandidateCapOverride(size_t cap) {
+    gCandidateCapOverride.store(cap > 0 ? static_cast<int>(cap) : 0, std::memory_order_release);
+}
+
 bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& changes) {
     if (db_ == nullptr) {
         return false;
@@ -1688,6 +1709,30 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
         std::all_of(foldedNeedle.begin(), foldedNeedle.end(),
                     [](char ch) { return static_cast<unsigned char>(ch) < 0x80; });
     if (needleEligible) {
+        // Bounded candidate pre-count: the LIMIT stops the count at cap+1,
+        // so the probe is cheap for both extremes (few hits = tiny count;
+        // huge hit set = early stop).
+        const size_t cap = CandidateFallbackCap();
+        size_t candidateHits = 0;
+        {
+            std::string matchProbe;
+            matchProbe.reserve(foldedNeedle.size() + 2);
+            matchProbe.push_back('"');
+            for (const char ch : foldedNeedle) {
+                if (ch == '"') matchProbe.push_back('"');
+                matchProbe.push_back(ch);
+            }
+            matchProbe.push_back('"');
+            Statement countStmt(db_,
+                "SELECT COUNT(*) FROM (SELECT 1 FROM entry_name_terms WHERE entry_name_terms MATCH ?1 LIMIT ?2);");
+            if (countStmt.Valid()) {
+                sqlite3_bind_text(countStmt, 1, matchProbe.data(), static_cast<int>(matchProbe.size()), SQLITE_TRANSIENT);
+                sqlite3_bind_int64(countStmt, 2, static_cast<sqlite3_int64>(cap + 1));
+                if (sqlite3_step(countStmt) == SQLITE_ROW) {
+                    candidateHits = static_cast<size_t>(sqlite3_column_int64(countStmt, 0));
+                }
+            }
+        }
         std::string match;
         match.reserve(foldedNeedle.size() + 2);
         match.push_back('"');
@@ -1704,7 +1749,7 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
             "WHERE e.volume_id=?1 AND m.term_rowid IN ("
             "  SELECT rowid FROM entry_name_terms WHERE entry_name_terms MATCH ?2"
             "  UNION SELECT term_rowid FROM entry_name_exceptions);");
-        if (candidates.Valid()) {
+        if (candidates.Valid() && candidateHits <= cap) {
             sqlite3_bind_int64(candidates, 1, static_cast<sqlite3_int64>(volumeRowId));
             sqlite3_bind_text(candidates, 2, match.data(), static_cast<int>(match.size()), SQLITE_TRANSIENT);
             int stepResult;

@@ -18,7 +18,7 @@ before the measurement phase (group 1) has produced its decision record.
 ## 3. Implementation (only after 2.x selection and owner authorization)
 
 - [x] 3.1 Implement the selected candidate generator incrementally (additive schema, versioned), with crash-consistent updates and rebuild-on-open fallback. DONE (`7c8faea` + `3aa64bf`): additive `user_version=3` schema (FTS5 trigram + FRN map + sharp side-set + meta with host-fold signature), in-transaction maintenance, idempotent rebuild-before-version-bump migration, rebuild-on-open with mapped-rows/fold-signature/state validity checks, fail-closed downgrade refusal. Crash consistency proven by BOTH evidence classes: graceful fault rollback (`TestCandidateMaintenanceFaultRollsBackWholeBatch`) and real kill-during-commit (`TestCandidateMaintenanceHardExitRecoversOnReopen`, child ExitProcess mid-transaction + WAL-recovery reopen).
-- [ ] 3.2 Wire cost-based planner selection (candidate cap + fallback to canonical scan preserved).
+- [x] 3.2 Wire cost-based planner selection (candidate cap + fallback to canonical scan preserved). DONE: bounded pre-count (LIMIT cap+1) gates the candidate route at 16,384 candidates (the hot path's kMaximumFilenameIndexCandidates contract); over-cap needles take the canonical scan (the pre-candidate code path), so broad-class regression is structurally impossible. Sealed by the 3-scale matrix (2M: broad classes 0.6-1.0x BEFORE the cap = reviewer-C finding) and TestCandidateCapFallsBackToCanonicalScan (tiny-cap seam; exact fallback/candidate stream shapes asserted).
 - [ ] 3.3 Migration + rollback tooling with measured v2->v3 cost at 2M-5M rows and crash-recovery tests.
 
 ## 4. Acceptance
