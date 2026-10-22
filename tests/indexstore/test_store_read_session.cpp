@@ -4,6 +4,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <string>
@@ -555,9 +556,339 @@ void TestCandidateCapFallsBackToCanonicalScan() {
     ffindexstore::foldclassification::ResetTestingFoldExceptionalUnits();
 }
 
+// --- durable-cold-search-index-and-hybrid-residency 5.3/5.4 ----------------
+// PR #15 finalization campaign: multi-volume candidate admission (cases A-F)
+// and atomic candidate delivery (partial-stream failure semantics). The
+// planner probe reports the admission decision and the counted workload;
+// the SetTestingCandidateGlobalAdmission arm reproduces the PRE-FIX global
+// pre-count so every admission test is provably discriminating (red-first
+// both ways), and SetTestingCandidateStagedDelivery(false) reproduces the
+// PRE-FIX deliver-as-you-go stream so the atomicity test is provably
+// discriminating under the injected mid-stream fault.
+
+struct PlannerDecision {
+    bool routeUsed = false;
+    size_t counted = 0;
+};
+
+bool IsSideSetName(const std::u16string& name) {
+    return ffindexstore::foldclassification::NameRequiresCandidateSideSet(name.c_str(), name.size());
+}
+
+ffindexstore::StoreReadSessionOptions ProbeOptions(
+    std::vector<PlannerDecision>& decisions) {
+    ffindexstore::StoreReadSessionOptions options;
+    options.candidatePlannerProbe = [&decisions](bool routeUsed, size_t counted) {
+        decisions.push_back({routeUsed, counted});
+    };
+    return options;
+}
+
+// Case A (globally broad, locally selective) + Case D (many small volumes,
+// collectively over the cap): a needle whose GLOBAL hit set exceeds the cap
+// must still take the candidate route when the REQUESTED volume's workload
+// is small. The noise row (non-ASCII, no needle) is admitted only by the
+// canonical fallback's GLOB disjunct, so the delivered SET also
+// distinguishes route from fallback on hosts without fold-exceptional units.
+void TestCandidateAdmissionIsVolumeScoped() {
+    using namespace ffindexstore;
+    const std::string dbPath = FreshDbPath("ffindexstore_multivolume_admission.db");
+    Store store;
+    Check(store.Open(dbPath), "multivolume fixture: store opens");
+    const VolumeRowId volA = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(11));
+    const VolumeRowId volB = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(12));
+    const VolumeRowId volC = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(13));
+    const std::u16string noiseName = u"\u6771\u4EAC_noise.txt";
+    std::vector<EntryChange> batchA;
+    batchA.push_back({EntryChangeKind::Upsert, MakeEntry(100, 5, u"mv_hit_alpha.txt")});
+    batchA.push_back({EntryChangeKind::Upsert, MakeEntry(101, 5, noiseName)});
+    std::vector<EntryChange> batchB;
+    for (uint64_t index = 0; index < 3; ++index) {
+        batchB.push_back({EntryChangeKind::Upsert,
+                          MakeEntry(200 + index, 5,
+                                    u"mv_hit_beta_" + std::u16string(1, static_cast<char16_t>(u'a' + index)) + u".txt")});
+    }
+    std::vector<EntryChange> batchC;
+    for (uint64_t index = 0; index < 12; ++index) {
+        batchC.push_back({EntryChangeKind::Upsert,
+                          MakeEntry(300 + index, 5,
+                                    u"mv_hit_gamma_" + std::u16string(1, static_cast<char16_t>(u'a' + index % 26)) + u".txt")});
+    }
+    Check(store.ApplyBatch(volA, batchA), "multivolume fixture: volume A commits");
+    Check(store.ApplyBatch(volB, batchB), "multivolume fixture: volume B commits");
+    Check(store.ApplyBatch(volC, batchC), "multivolume fixture: volume C commits");
+
+    SetTestingCandidateCapOverride(8);
+    std::vector<PlannerDecision> decisions;
+    auto reader = store.OpenReadSession(ProbeOptions(decisions));
+    Check(reader != nullptr && reader->IsOpen(), "multivolume read session opens");
+    if (!reader) return;
+
+    // Case A: volume A has ONE matching row; volumes B/C contribute 15
+    // global hits (16 > cap=8 globally, 1 <= cap locally).
+    const bool noiseSideSet = IsSideSetName(noiseName);
+    std::set<uint64_t> streamedA;
+    Check(reader->ForEachEntryWithAsciiNameUntil(volA, "mv_hit", [&](const EntryRecord& entry) {
+        streamedA.insert(entry.id.low);
+        return true;
+    }), "multivolume case A: stream completes");
+    Check(!decisions.empty() && decisions.back().routeUsed &&
+              decisions.back().counted == (noiseSideSet ? 2 : 1),
+          "case A: volume-local workload is counted and admitted, not the global 16");
+    std::set<uint64_t> expectedA{100};
+    if (noiseSideSet) expectedA.insert(101);
+    Check(streamedA == expectedA,
+          "case A: the candidate route streams exactly the sharp union (noise row only via side-set)");
+
+    // Case D: every volume is locally selective (3 <= cap) even though the
+    // global set (16) exceeds the cap.
+    std::set<uint64_t> streamedB;
+    Check(reader->ForEachEntryWithAsciiNameUntil(volB, "mv_hit", [&](const EntryRecord& entry) {
+        streamedB.insert(entry.id.low);
+        return true;
+    }), "multivolume case D: stream completes");
+    Check(!decisions.empty() && decisions.back().routeUsed && decisions.back().counted == 3,
+          "case D: per-volume count (3) admits the route despite the global cap");
+    Check(streamedB == std::set<uint64_t>({200, 201, 202}),
+          "case D: the candidate route streams exactly volume B's three rows");
+    SetTestingCandidateCapOverride(0);
+
+    // Red-first mechanism proof: the PRE-FIX global pre-count sends BOTH
+    // queries to the canonical scan (global 16 > cap 8) and its stream
+    // includes the GLOB-admitted noise row for volume A.
+    SetTestingCandidateCapOverride(8);
+    std::vector<PlannerDecision> legacyDecisions;
+    SetTestingCandidateGlobalAdmission(true);
+    auto legacyReader = store.OpenReadSession(ProbeOptions(legacyDecisions));
+    std::set<uint64_t> legacyStreamedA;
+    Check(legacyReader != nullptr && legacyReader->ForEachEntryWithAsciiNameUntil(
+              volA, "mv_hit", [&](const EntryRecord& entry) {
+                  legacyStreamedA.insert(entry.id.low);
+                  return true;
+              }), "legacy admission: stream completes");
+    SetTestingCandidateGlobalAdmission(false);
+    SetTestingCandidateCapOverride(0);
+    Check(!legacyDecisions.empty() && !legacyDecisions.back().routeUsed,
+          "red-first proof: the global pre-count rejects the route the volume-aware count admits");
+    Check(legacyStreamedA.find(101) != legacyStreamedA.end(),
+          "red-first proof: the fallback stream shape differs (GLOB noise row) from the candidate route");
+}
+
+// Case C (exception-heavy volume): the admission workload must include the
+// volume's exception-side-set rows even when they carry no FTS hit.
+void TestCandidateAdmissionCountsExceptionCandidates() {
+    using namespace ffindexstore;
+    foldclassification::SetTestingFoldExceptionalUnit(0x017F, true);  // simulated host: long-s folds
+    const std::string dbPath = FreshDbPath("ffindexstore_exception_admission.db");
+    Store store;
+    Check(store.Open(dbPath), "exception fixture: store opens");
+    const VolumeRowId vol = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(21));
+    std::vector<EntryChange> batch;
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(300, 5, u"ex_hit_one.txt")});
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(301, 5, u"ex_hit_two.txt")});
+    for (uint64_t index = 0; index < 10; ++index) {
+        batch.push_back({EntryChangeKind::Upsert,
+                         MakeEntry(310 + index, 5,
+                                   u"\u017Fexcep_" + std::u16string(1, static_cast<char16_t>(u'a' + index)) + u".txt")});
+    }
+    Check(store.ApplyBatch(vol, batch), "exception fixture: rows commit");
+
+    SetTestingCandidateCapOverride(8);
+    std::vector<PlannerDecision> decisions;
+    auto reader = store.OpenReadSession(ProbeOptions(decisions));
+    Check(reader != nullptr && reader->IsOpen(), "exception read session opens");
+    if (!reader) return;
+    Check(reader->ForEachEntryWithAsciiNameUntil(vol, "ex_hit", [](const EntryRecord&) {
+        return true;
+    }), "exception case: stream completes");
+    // The bounded probe saturates each part at cap+1 (=9): 2 FTS hits + 9 of
+    // the 10 side-set rows = 11 > cap 8. The decision is exact (either part
+    // saturating already proves over-cap); the side-set rows are what make
+    // the count exceed the cap here.
+    Check(!decisions.empty() && !decisions.back().routeUsed && decisions.back().counted == 11,
+          "case C: side-set rows are counted (2 FTS + 9 bounded side-set = 11 > cap 8) -> fallback");
+
+    // Red-first mechanism proof: the exception-blind pre-count sees only the
+    // 2 FTS hits (<= cap) and wrongly admits the route.
+    std::vector<PlannerDecision> legacyDecisions;
+    SetTestingCandidateGlobalAdmission(true);
+    auto legacyReader = store.OpenReadSession(ProbeOptions(legacyDecisions));
+    Check(legacyReader != nullptr && legacyReader->ForEachEntryWithAsciiNameUntil(
+              vol, "ex_hit", [](const EntryRecord&) { return true; }),
+          "legacy admission: stream completes");
+    SetTestingCandidateGlobalAdmission(false);
+    SetTestingCandidateCapOverride(0);
+    Check(!legacyDecisions.empty() && legacyDecisions.back().routeUsed &&
+              legacyDecisions.back().counted == 2,
+          "red-first proof: the exception-blind count (2) mis-admits a 12-row workload");
+    foldclassification::ResetTestingFoldExceptionalUnits();
+}
+
+// Case B/E (locally broad / one enormous volume): the per-volume workload is
+// over the cap and the canonical fallback is taken; the count is the
+// volume's own, not the global sum.
+void TestCandidateAdmissionLocallyBroadFallsBack() {
+    using namespace ffindexstore;
+    const std::string dbPath = FreshDbPath("ffindexstore_broad_admission.db");
+    Store store;
+    Check(store.Open(dbPath), "broad fixture: store opens");
+    const VolumeRowId volA = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(31));
+    const VolumeRowId volB = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(32));
+    std::vector<EntryChange> batchA;
+    for (uint64_t index = 0; index < 20; ++index) {
+        batchA.push_back({EntryChangeKind::Upsert,
+                          MakeEntry(400 + index, 5,
+                                    u"mv_broad_" + std::u16string(1, static_cast<char16_t>(u'a' + index % 26)) + u".txt")});
+    }
+    std::vector<EntryChange> batchB;
+    for (uint64_t index = 0; index < 5; ++index) {
+        batchB.push_back({EntryChangeKind::Upsert,
+                          MakeEntry(500 + index, 5,
+                                    u"mv_broad_other_" + std::u16string(1, static_cast<char16_t>(u'a' + index)) + u".txt")});
+    }
+    Check(store.ApplyBatch(volA, batchA), "broad fixture: volume A commits");
+    Check(store.ApplyBatch(volB, batchB), "broad fixture: volume B commits");
+
+    SetTestingCandidateCapOverride(8);
+    std::vector<PlannerDecision> decisions;
+    auto reader = store.OpenReadSession(ProbeOptions(decisions));
+    Check(reader != nullptr && reader->IsOpen(), "broad read session opens");
+    if (!reader) return;
+    size_t streamed = 0;
+    Check(reader->ForEachEntryWithAsciiNameUntil(volA, "mv_broad", [&](const EntryRecord&) {
+        ++streamed;
+        return true;
+    }), "broad case: stream completes");
+    Check(!decisions.empty() && !decisions.back().routeUsed && decisions.back().counted == 9,
+          "case B/E: volume-local workload saturates the bounded probe (9 = cap+1 > cap 8) -> fallback");
+    Check(streamed == 20, "case B/E: fallback streams exactly the volume's 20 prefiltered rows (per-volume, not 25)");
+    SetTestingCandidateCapOverride(0);
+}
+
+// Campaign section 12: a candidate query that fails AFTER reading some rows
+// must never leak duplicate/partial rows into a completed search. Staged
+// delivery buffers before any visitor call, so the fall-back re-derives the
+// complete set atomically; the legacy arm (delivery OFF) reproduces the
+// pre-fix duplicate hazard under the same deterministic fault.
+void TestCandidateStreamFailureIsAtomic() {
+    using namespace ffindexstore;
+    const std::string dbPath = FreshDbPath("ffindexstore_atomic_stream.db");
+    Store store;
+    Check(store.Open(dbPath), "atomic fixture: store opens");
+    const VolumeRowId vol = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(41));
+    std::vector<EntryChange> batch;
+    for (uint64_t index = 0; index < 4; ++index) {
+        batch.push_back({EntryChangeKind::Upsert,
+                         MakeEntry(600 + index, 5,
+                                   u"atomic_hit_" + std::u16string(1, static_cast<char16_t>(u'a' + index)) + u".txt")});
+    }
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(610, 5, u"\u6771\u4EAC_atomic_noise.txt")});
+    Check(store.ApplyBatch(vol, batch), "atomic fixture: rows commit");
+
+    // The injected fault fires on the 3rd candidate row read (rows 1-2 have
+    // already been read from SQLite). The counter is per-run state.
+    const auto runWithFault = [&](bool staged, std::vector<uint64_t>& delivered) {
+        delivered.clear();
+        auto counter = std::make_shared<int>(0);
+        StoreReadSessionOptions options;
+        options.faultInjector = [counter](ReadSessionFaultPoint point) {
+            if (point == ReadSessionFaultPoint::CandidateStreamError) {
+                return ++(*counter) >= 3;
+            }
+            return false;
+        };
+        options.candidatePlannerProbe = [](bool, size_t) {};
+        auto reader = store.OpenReadSession(options);
+        SetTestingCandidateStagedDelivery(staged);
+        const bool streamed = reader != nullptr && reader->ForEachEntryWithAsciiNameUntil(
+            vol, "atomic_hit", [&](const EntryRecord& entry) {
+                delivered.push_back(entry.id.low);
+                return true;
+            });
+        SetTestingCandidateStagedDelivery(true);
+        return streamed;
+    };
+
+    std::vector<uint64_t> delivered;
+    Check(runWithFault(true, delivered), "staged arm: the stream still completes (via canonical fallback)");
+    std::set<uint64_t> unique(delivered.begin(), delivered.end());
+    Check(unique.size() == delivered.size(),
+          "staged arm: NO duplicate rows are delivered after the mid-stream failure");
+    Check(unique.size() == 5,
+          "staged arm: the delivered set is COMPLETE (4 hits + conservative noise class)");
+    for (uint64_t id = 600; id < 604; ++id) {
+        Check(unique.find(id) != unique.end(), "staged arm: every candidate row is present");
+    }
+
+    // Red-first mechanism proof: the pre-fix deliver-as-you-go arm leaks
+    // duplicates under the SAME fault (rows delivered before the failure are
+    // re-delivered by the canonical re-stream).
+    std::vector<uint64_t> legacyDelivered;
+    Check(runWithFault(false, legacyDelivered), "legacy arm: the stream completes");
+    std::set<uint64_t> legacyUnique(legacyDelivered.begin(), legacyDelivered.end());
+    Check(legacyDelivered.size() > legacyUnique.size(),
+          "red-first proof: the legacy arm delivers duplicates (the hazard staged delivery removes)");
+}
+
+// Campaign case F: cancellation / early stop during candidate streaming.
+void TestCandidateStreamCancellationStopsCleanly() {
+    using namespace ffindexstore;
+    const std::string dbPath = FreshDbPath("ffindexstore_cancel_stream.db");
+    Store store;
+    Check(store.Open(dbPath), "cancel fixture: store opens");
+    const VolumeRowId vol = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(51));
+    std::vector<EntryChange> batch;
+    for (uint64_t index = 0; index < 3; ++index) {
+        batch.push_back({EntryChangeKind::Upsert,
+                         MakeEntry(700 + index, 5,
+                                   u"cancel_hit_" + std::u16string(1, static_cast<char16_t>(u'a' + index)) + u".txt")});
+    }
+    Check(store.ApplyBatch(vol, batch), "cancel fixture: rows commit");
+
+    std::vector<PlannerDecision> decisions;
+    auto reader = store.OpenReadSession(ProbeOptions(decisions));
+    Check(reader != nullptr && reader->IsOpen(), "cancel read session opens");
+    if (!reader) return;
+    size_t delivered = 0;
+    Check(reader->ForEachEntryWithAsciiNameUntil(vol, "cancel_hit", [&](const EntryRecord&) {
+        ++delivered;
+        return false;  // caller cancellation / result cap reached
+    }), "an early visitor stop on the candidate route is a successful bounded read");
+    Check(delivered == 1, "early stop delivers exactly the rows the visitor accepted");
+    Check(!decisions.empty() && decisions.back().routeUsed,
+          "the cancelled query was on the candidate route (admission decided before delivery)");
+
+    // Mid-stream fault while staging: the fallback delivers the COMPLETE
+    // set atomically -- every row exactly once, no partial-prefix leak.
+    std::vector<uint64_t> leaked;
+    StoreReadSessionOptions faultOptions;
+    auto faultCounter = std::make_shared<int>(0);
+    faultOptions.faultInjector = [faultCounter](ReadSessionFaultPoint point) {
+        if (point == ReadSessionFaultPoint::CandidateStreamError) {
+            return ++(*faultCounter) >= 2;
+        }
+        return false;
+    };
+    auto faultedReader = store.OpenReadSession(faultOptions);
+    const bool faultStreamed = faultedReader != nullptr && faultedReader->ForEachEntryWithAsciiNameUntil(
+        vol, "cancel_hit", [&](const EntryRecord& entry) {
+            leaked.push_back(entry.id.low);
+            return true;
+        });
+    const std::set<uint64_t> leakedUnique(leaked.begin(), leaked.end());
+    Check(faultStreamed && leakedUnique.size() == 3 && leaked.size() == 3,
+          "mid-stream candidate failure falls back atomically (complete set, zero duplicates)");
+}
+
+
 int main() {
     TestDurableCandidateSupersetAcrossAdversarialNames();
     TestCandidateCapFallsBackToCanonicalScan();
+    TestCandidateAdmissionIsVolumeScoped();
+    TestCandidateAdmissionCountsExceptionCandidates();
+    TestCandidateAdmissionLocallyBroadFallsBack();
+    TestCandidateStreamFailureIsAtomic();
+    TestCandidateStreamCancellationStopsCleanly();
     TestIndependentSnapshotOverlapsWriter();
     TestReadSessionFaultsFailClosed();
     TestAsciiNamePrefilterIsConservativeAndPrecise();

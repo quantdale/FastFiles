@@ -52,3 +52,11 @@ set_tests_properties(ffindexstore_store_tests ffindexstore_projection_tests ffin
 # A/B seam.
 add_executable(ffindexstore_bench_candidate_resources bench_candidate_index_resources.cpp)
 target_link_libraries(ffindexstore_bench_candidate_resources PRIVATE ffindexstore sqlite3 psapi)
+
+# durable-cold-search 5.1: fresh-process Store::Open() phase profiling
+# (startup / host-fold signature campaign; bench-only, never a CTest gate).
+# Embeds ffsetup::kBuildIdentityAscii and a runtime-computed executable
+# SHA-256 so every artifact carries authoritative source/executable identity.
+add_executable(ffindexstore_bench_store_open bench_store_open.cpp)
+target_link_libraries(ffindexstore_bench_store_open PRIVATE ffindexstore ffsetup sqlite3 psapi bcrypt)
+add_dependencies(ffindexstore_bench_store_open fastfiles_build_identity)

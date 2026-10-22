@@ -393,11 +393,20 @@ namespace {
 
 // --- durable cold candidate index maintenance (v3) -----------------------
 
+// 5.1: open-phase timing helper (startup profiling; see
+// Store::OpenPhaseTimings).
+inline double ElapsedMs(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
+}
+
 // Testing seam state (see Store.h). Production never arms these.
 std::atomic<int> gCandidateFaultRemaining{0};
 std::atomic<bool> gCandidateFaultHardExit{false};
 std::atomic<int> gCandidateCapOverride{0};
 std::atomic<bool> gCandidateMaintenanceDisabled{false};
+std::atomic<bool> gTestingGlobalAdmission{false};
+std::atomic<bool> gTestingStagedDelivery{true};
 
 // Cost-based cap (task 3.2; reviewer-C P1-class finding). The 3-scale matrix
 // (evidence/artifacts/) shows the candidate route regressing broad needles
@@ -464,7 +473,8 @@ struct CandidateStatements {
     Statement clearTerm;
     Statement clearMap;
 
-    explicit CandidateStatements(sqlite3* db)
+    explicit CandidateStatements(sqlite3* db,
+                                 ffindexstore::Store::OpenPhaseTimings* phaseTimings = nullptr)
         : mapUpsert(db, kCandidateUpsertMapSql),
           lookup(db, kCandidateLookupRowidSql),
           termsUpdate(db, "UPDATE entry_name_terms SET name_folded=? WHERE rowid=?;"),
@@ -472,7 +482,12 @@ struct CandidateStatements {
           markException(db, "INSERT OR IGNORE INTO entry_name_exceptions(term_rowid) VALUES(?);"),
           clearException(db, "DELETE FROM entry_name_exceptions WHERE term_rowid=?;"),
           clearTerm(db, "DELETE FROM entry_name_terms WHERE rowid=?;"),
-          clearMap(db, "DELETE FROM entry_name_index_map WHERE term_rowid=?;") {}
+          clearMap(db, "DELETE FROM entry_name_index_map WHERE term_rowid=?;"),
+          timings(phaseTimings) {}
+
+    // 5.2 (task 3.3): optional per-sub-phase accumulators (rebuild/
+    // migration decomposition only; nullptr everywhere in production).
+    ffindexstore::Store::OpenPhaseTimings* timings;
 
     bool Valid() const {
         return mapUpsert.Valid() && lookup.Valid() && termsUpdate.Valid() && termsInsert.Valid()
@@ -509,6 +524,8 @@ bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volum
                           const std::string& nameUtf8, const std::u16string& nameUtf16, bool updateName) {
     if (gCandidateMaintenanceDisabled.load(std::memory_order_acquire)) return true;
     if (CandidateFaultFire()) return false;
+    auto* const timings = stmts.timings;
+    const auto mapStart = std::chrono::steady_clock::now();
     sqlite3_reset(stmts.mapUpsert);
     sqlite3_bind_int64(stmts.mapUpsert, 1, volumeRowId);
     sqlite3_bind_int64(stmts.mapUpsert, 2, static_cast<sqlite3_int64>(frnLow));
@@ -516,8 +533,13 @@ bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volum
     if (sqlite3_step(stmts.mapUpsert) != SQLITE_DONE) return false;
     const int64_t termRowid = CandidateTermRowid(stmts, volumeRowId, frnLow, frnHigh);
     if (termRowid < 0) return false;
+    if (timings != nullptr) {
+        timings->candidateMapMs += ElapsedMs(mapStart);
+        ++timings->candidateRowsProcessed;
+    }
     if (!updateName) return true;
 
+    const auto termsStart = std::chrono::steady_clock::now();
     const std::string folded = FoldAsciiUtf8(nameUtf8);
     // fts5 virtual tables do not support the UPSERT conflict clause; the
     // rowid-keyed UPDATE-then-INSERT pair is the supported idiom and stays
@@ -532,9 +554,11 @@ bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volum
         sqlite3_bind_text(stmts.termsInsert, 2, folded.data(), static_cast<int>(folded.size()), SQLITE_TRANSIENT);
         if (sqlite3_step(stmts.termsInsert) != SQLITE_DONE) return false;
     }
+    if (timings != nullptr) timings->candidateTermsMs += ElapsedMs(termsStart);
 
     // Sharp side-set: host fold-exceptional + surrogate names are always
     // candidates (the P2-A superset contract). Classification fails closed.
+    const auto exceptionStart = std::chrono::steady_clock::now();
     const bool exceptional = ffindexstore::foldclassification::NameRequiresCandidateSideSet(
         nameUtf16.c_str(), nameUtf16.size());
     sqlite3_reset(stmts.markException);
@@ -545,6 +569,7 @@ bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volum
         sqlite3_bind_int64(stmts.clearException, 1, termRowid);
         if (sqlite3_step(stmts.clearException) != SQLITE_DONE) return false;
     }
+    if (timings != nullptr) timings->candidateExceptionMs += ElapsedMs(exceptionStart);
     return true;
 }
 
@@ -597,7 +622,7 @@ bool CandidateIndexRemoveVolume(sqlite3* db, int64_t volumeRowId) {
 // Per-volume transactions bound WAL growth; the meta marker is only flipped
 // to ready after every volume is built, so an interrupted rebuild is always
 // detected and redone at the next open.
-bool RebuildCandidateIndex(sqlite3* db) {
+bool RebuildCandidateIndex(sqlite3* db, Store::OpenPhaseTimings* timings = nullptr) {
     if (!ExecSql(db, "BEGIN IMMEDIATE;")) return false;
     if (!ExecSql(db, "DELETE FROM entry_name_exceptions;") ||
         !ExecSql(db, "DELETE FROM entry_name_terms;") ||
@@ -625,7 +650,7 @@ bool RebuildCandidateIndex(sqlite3* db) {
         }
     }
     for (const int64_t volumeRowId : volumes) {
-        CandidateStatements candidateStmts(db);
+        CandidateStatements candidateStmts(db, timings);
         if (!candidateStmts.Valid()) return false;
         if (!ExecSql(db, "BEGIN IMMEDIATE;")) return false;
         Statement rows(db,
@@ -662,11 +687,18 @@ bool RebuildCandidateIndex(sqlite3* db) {
         // The ready marker also pins the HOST fold signature: the persisted
         // side-set classification is only valid for the host table it was
         // built against (lane-B P1).
+        const auto foldStart = std::chrono::steady_clock::now();
+        const uint64_t hostFoldSignature =
+            ffindexstore::foldclassification::HostFoldSignature();
+        if (timings != nullptr) {
+            timings->hostFoldSignatureMs += ElapsedMs(foldStart);
+            timings->hostFoldSignature = hostFoldSignature;
+        }
         Statement mark(db, "UPDATE entry_name_index_meta SET state=1, fold_signature=? WHERE volume_id=1;");
         finalOk = mark.Valid();
         if (finalOk) {
             sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(
-                static_cast<int64_t>(ffindexstore::foldclassification::HostFoldSignature())));
+                static_cast<int64_t>(hostFoldSignature)));
             finalOk = sqlite3_step(mark) == SQLITE_DONE;
         }
     }
@@ -678,13 +710,36 @@ bool RebuildCandidateIndex(sqlite3* db) {
 }
 
 } // namespace
-bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
+bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed,
+                 OpenPhaseTimings* outTimings) {
     if (outIntegrityFailed != nullptr) {
         *outIntegrityFailed = false;
     }
+    if (outTimings != nullptr) {
+        *outTimings = OpenPhaseTimings{};
+    }
     Close();
 
-    if (sqlite3_open_v2(dbPathUtf8.c_str(), &db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+    // 5.1: totalMs is recorded on every return path via RAII.
+    const auto openStart = std::chrono::steady_clock::now();
+    struct TotalGuard {
+        OpenPhaseTimings* timings;
+        std::chrono::steady_clock::time_point start;
+        ~TotalGuard() {
+            if (timings != nullptr) {
+                timings->totalMs = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - start).count();
+            }
+        }
+    } totalGuard{outTimings, openStart};
+
+    const auto connectionStart = std::chrono::steady_clock::now();
+    const int connectionResult =
+        sqlite3_open_v2(dbPathUtf8.c_str(), &db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+    if (outTimings != nullptr) {
+        outTimings->connectionOpenMs = ElapsedMs(connectionStart);
+    }
+    if (connectionResult != SQLITE_OK) {
         Close();
         return false;
     }
@@ -696,7 +751,11 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     // verdict licenses the caller's delete-and-rescan fallback; an
     // Inconclusive verdict fails the open with outIntegrityFailed left
     // false so a transient lock/IO condition can never destroy the index.
+    const auto integrityStart = std::chrono::steady_clock::now();
     const IntegrityVerdict verdict = RunIntegrityCheckDetailed();
+    if (outTimings != nullptr) {
+        outTimings->integrityCheckMs = ElapsedMs(integrityStart);
+    }
     if (verdict != IntegrityVerdict::Ok) {
         if (verdict == IntegrityVerdict::Corrupt && outIntegrityFailed != nullptr) {
             *outIntegrityFailed = true;
@@ -715,29 +774,58 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
         return false;
     }
 
-    if (!ExecSql(db_, kSchemaSql)) {
-        Close();
-        return false;
+    const auto pragmaStart = std::chrono::steady_clock::now();
+    const bool pragmaOk = ExecSql(db_, "PRAGMA journal_mode=WAL;")
+        && ExecSql(db_, "PRAGMA synchronous=NORMAL;")
+        && ExecSql(db_, "PRAGMA foreign_keys=ON;");
+    if (outTimings != nullptr) {
+        outTimings->pragmaConfigMs = ElapsedMs(pragmaStart);
     }
-    // durable-cold-search-index-and-hybrid-residency 3.1: additive v3
-    // structures (idempotent; content built below before any version bump).
-    if (!ExecSql(db_, kSchemaV3Sql)) {
+    if (!pragmaOk) {
         Close();
         return false;
     }
 
+    const auto schemaStart = std::chrono::steady_clock::now();
+    // durable-cold-search-index-and-hybrid-residency 3.1: additive v3
+    // structures (idempotent; content built below before any version bump).
+    const bool schemaOk = ExecSql(db_, kSchemaSql) && ExecSql(db_, kSchemaV3Sql);
+    if (outTimings != nullptr) {
+        outTimings->schemaInitMs = ElapsedMs(schemaStart);
+    }
+    if (!schemaOk) {
+        Close();
+        return false;
+    }
+
+    const auto versionStart = std::chrono::steady_clock::now();
     Statement versionStmt(db_, "PRAGMA user_version;");
     int existingVersion = 0;
     if (versionStmt.Valid() && sqlite3_step(versionStmt) == SQLITE_ROW) {
         existingVersion = sqlite3_column_int(versionStmt, 0);
     }
+    sqlite3_reset(versionStmt);
+    if (outTimings != nullptr) {
+        outTimings->schemaVersionReadMs = ElapsedMs(versionStart);
+        outTimings->priorSchemaVersion = existingVersion;
+    }
+    // 5.1: one timed rebuild wrapper for every rebuild/migration site.
+    const auto timedRebuild = [&]() -> bool {
+        const auto rebuildStart = std::chrono::steady_clock::now();
+        const bool rebuilt = RebuildCandidateIndex(db_, outTimings);
+        if (outTimings != nullptr) {
+            outTimings->candidateRebuildMs += ElapsedMs(rebuildStart);
+            if (rebuilt) outTimings->candidateIndexRebuilt = true;
+        }
+        return rebuilt;
+    };
     bool candidateIndexReady = false;
     if (existingVersion == 0) {
         // Fresh database (or pre-versioning database with no v2 data to
         // migrate). The candidate index is built from whatever entries
         // exist before the version marker is bumped, so an interrupted
         // migration is redone at the next open.
-        if (!RebuildCandidateIndex(db_)) {
+        if (!timedRebuild()) {
             Close();
             return false;
         }
@@ -777,7 +865,7 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
                 return false;
             }
         }
-        if (!RebuildCandidateIndex(db_)) {
+        if (!timedRebuild()) {
             Close();
             return false;
         }
@@ -792,7 +880,7 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
         // v2 -> v3: pure additive derived state. The entries table is never
         // rewritten; the candidate index is built and only then is the
         // version marker bumped (lane-E crash matrix C2a-C2d).
-        if (!RebuildCandidateIndex(db_)) {
+        if (!timedRebuild()) {
             Close();
             return false;
         }
@@ -815,6 +903,9 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
         // Version-3 open: the index is maintained transactionally with
         // entries, so state is only suspect after an interrupted rebuild.
         // The meta marker plus the mapped-rows cross-check detect it.
+        const auto consistencyStart = std::chrono::steady_clock::now();
+        double foldSignatureMs = 0.0;
+        double signatureCompareMs = 0.0;
         Statement metaStmt(db_,
             "SELECT state, fold_signature, (SELECT COUNT(*) FROM entry_name_index_map), "
             "(SELECT COUNT(*) FROM entries) "
@@ -828,11 +919,27 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
             // The signature check is what makes the host-bound side-set
             // safe across machines: a database written where a unit was
             // ordinary cannot serve candidates on a host that folds it.
-            const sqlite3_int64 hostSignature = static_cast<sqlite3_int64>(
-                static_cast<int64_t>(ffindexstore::foldclassification::HostFoldSignature()));
+            const auto foldStart = std::chrono::steady_clock::now();
+            const uint64_t hostFoldSignature =
+                ffindexstore::foldclassification::HostFoldSignature();
+            foldSignatureMs = ElapsedMs(foldStart);
+            const auto compareStart = std::chrono::steady_clock::now();
+            const sqlite3_int64 hostSignature =
+                static_cast<sqlite3_int64>(static_cast<int64_t>(hostFoldSignature));
             rebuildNeeded = (state != 1) || (mapped != entries) || (foldSignature != hostSignature);
+            signatureCompareMs = ElapsedMs(compareStart);
+            if (outTimings != nullptr) {
+                outTimings->hostFoldSignature = hostFoldSignature;
+            }
         }
-        if (rebuildNeeded && !RebuildCandidateIndex(db_)) {
+        if (outTimings != nullptr) {
+            outTimings->hostFoldSignatureMs += foldSignatureMs;
+            outTimings->signatureCompareMs += signatureCompareMs;
+            outTimings->consistencyCheckMs +=
+                ElapsedMs(consistencyStart) - foldSignatureMs - signatureCompareMs;
+        }
+        sqlite3_reset(metaStmt);
+        if (rebuildNeeded && !timedRebuild()) {
             Close();
             return false;
         }
@@ -1204,6 +1311,14 @@ void SetTestingCandidateCapOverride(size_t cap) {
 
 void SetTestingCandidateMaintenanceDisabled(bool disabled) {
     gCandidateMaintenanceDisabled.store(disabled, std::memory_order_release);
+}
+
+void SetTestingCandidateGlobalAdmission(bool globalOnly) {
+    gTestingGlobalAdmission.store(globalOnly, std::memory_order_release);
+}
+
+void SetTestingCandidateStagedDelivery(bool staged) {
+    gTestingStagedDelivery.store(staged, std::memory_order_release);
 }
 
 bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& changes) {
@@ -1716,30 +1831,19 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
         std::all_of(foldedNeedle.begin(), foldedNeedle.end(),
                     [](char ch) { return static_cast<unsigned char>(ch) < 0x80; });
     if (needleEligible) {
-        // Bounded candidate pre-count: the LIMIT stops the count at cap+1,
-        // so the probe is cheap for both extremes (few hits = tiny count;
-        // huge hit set = early stop).
+        // durable-cold-search-index-and-hybrid-residency 5.3: volume-aware
+        // bounded candidate admission. The counted workload must be the work
+        // the candidate query will ACTUALLY do for the REQUESTED volume:
+        // FTS postings admitted for this volume UNION this volume's
+        // exception-side-set rows. A global count is not an adequate
+        // approximation (PR #15 finalization campaign P2 defect): a
+        // globally-broad but locally-selective needle was pushed to the
+        // canonical scan by OTHER volumes' rows, and exception-side-set
+        // candidates were never counted at all. Both counts are
+        // LIMIT-bounded at cap+1 so the probe stays cheap for every extreme;
+        // their sum can over-count (a row present in both sets), which is
+        // the conservative direction for admission.
         const size_t cap = CandidateFallbackCap();
-        size_t candidateHits = 0;
-        {
-            std::string matchProbe;
-            matchProbe.reserve(foldedNeedle.size() + 2);
-            matchProbe.push_back('"');
-            for (const char ch : foldedNeedle) {
-                if (ch == '"') matchProbe.push_back('"');
-                matchProbe.push_back(ch);
-            }
-            matchProbe.push_back('"');
-            Statement countStmt(db_,
-                "SELECT COUNT(*) FROM (SELECT 1 FROM entry_name_terms WHERE entry_name_terms MATCH ?1 LIMIT ?2);");
-            if (countStmt.Valid()) {
-                sqlite3_bind_text(countStmt, 1, matchProbe.data(), static_cast<int>(matchProbe.size()), SQLITE_TRANSIENT);
-                sqlite3_bind_int64(countStmt, 2, static_cast<sqlite3_int64>(cap + 1));
-                if (sqlite3_step(countStmt) == SQLITE_ROW) {
-                    candidateHits = static_cast<size_t>(sqlite3_column_int64(countStmt, 0));
-                }
-            }
-        }
         std::string match;
         match.reserve(foldedNeedle.size() + 2);
         match.push_back('"');
@@ -1748,27 +1852,134 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
             match.push_back(ch);
         }
         match.push_back('"');
-        Statement candidates(db_,
-            "SELECT e.frn_low, e.frn_high, e.parent_frn_low, e.parent_frn_high, e.name, e.size_bytes, "
-            "e.allocated_size_bytes, e.creation_time, e.last_modified_time, e.last_access_time, e.attributes "
-            "FROM entries e JOIN entry_name_index_map m "
-            "ON m.volume_id=e.volume_id AND m.frn_low=e.frn_low AND m.frn_high=e.frn_high "
-            "WHERE e.volume_id=?1 AND m.term_rowid IN ("
-            "  SELECT rowid FROM entry_name_terms WHERE entry_name_terms MATCH ?2"
-            "  UNION SELECT term_rowid FROM entry_name_exceptions);");
-        if (candidates.Valid() && candidateHits <= cap) {
-            sqlite3_bind_int64(candidates, 1, static_cast<sqlite3_int64>(volumeRowId));
-            sqlite3_bind_text(candidates, 2, match.data(), static_cast<int>(match.size()), SQLITE_TRANSIENT);
-            int stepResult;
-            while ((stepResult = sqlite3_step(candidates)) == SQLITE_ROW) {
-                if (ShouldFail(ReadSessionFaultPoint::Stream)) {
-                    failed_ = true;
-                    return false;
+        size_t candidateHits = 0;
+        bool admissionKnown = false;
+        {
+            Statement termsCount(db_,
+                "SELECT COUNT(*) FROM ("
+                "  SELECT 1 FROM entry_name_terms t"
+                "  JOIN entry_name_index_map m ON m.term_rowid = t.rowid"
+                "  WHERE entry_name_terms MATCH ?1 AND m.volume_id = ?2 LIMIT ?3);");
+            Statement exceptionCount(db_,
+                "SELECT COUNT(*) FROM ("
+                "  SELECT 1 FROM entry_name_exceptions x"
+                "  JOIN entry_name_index_map m ON m.term_rowid = x.term_rowid"
+                "  WHERE m.volume_id = ?2 LIMIT ?3);");
+            if (termsCount.Valid() && exceptionCount.Valid()) {
+                sqlite3_bind_text(termsCount, 1, match.data(), static_cast<int>(match.size()), SQLITE_TRANSIENT);
+                sqlite3_bind_int64(termsCount, 2, static_cast<sqlite3_int64>(volumeRowId));
+                sqlite3_bind_int64(termsCount, 3, static_cast<sqlite3_int64>(cap + 1));
+                sqlite3_bind_int64(exceptionCount, 2, static_cast<sqlite3_int64>(volumeRowId));
+                sqlite3_bind_int64(exceptionCount, 3, static_cast<sqlite3_int64>(cap + 1));
+                if (sqlite3_step(termsCount) == SQLITE_ROW &&
+                    sqlite3_step(exceptionCount) == SQLITE_ROW) {
+                    candidateHits = static_cast<size_t>(sqlite3_column_int64(termsCount, 0)) +
+                                    static_cast<size_t>(sqlite3_column_int64(exceptionCount, 0));
+                    admissionKnown = true;
                 }
-                if (!visitor(ReadEntryRecord(candidates))) return true;
             }
-            if (stepResult == SQLITE_DONE) return true;
-            // Fall through to the canonical stream on any query failure.
+        }
+        if (gTestingGlobalAdmission.load(std::memory_order_acquire)) {
+            // 5.3 testing arm ONLY: the pre-fix global (non-volume-scoped,
+            // exception-blind) pre-count. Reproduces the campaign's Case
+            // A/C/D defects on demand so the regression tests can prove they
+            // discriminate. Never reachable in production.
+            candidateHits = 0;
+            admissionKnown = false;
+            Statement countStmt(db_,
+                "SELECT COUNT(*) FROM (SELECT 1 FROM entry_name_terms WHERE entry_name_terms MATCH ?1 LIMIT ?2);");
+            if (countStmt.Valid()) {
+                sqlite3_bind_text(countStmt, 1, match.data(), static_cast<int>(match.size()), SQLITE_TRANSIENT);
+                sqlite3_bind_int64(countStmt, 2, static_cast<sqlite3_int64>(cap + 1));
+                if (sqlite3_step(countStmt) == SQLITE_ROW) {
+                    candidateHits = static_cast<size_t>(sqlite3_column_int64(countStmt, 0));
+                    admissionKnown = true;
+                }
+            }
+        }
+        // A failed pre-count is not evidence of a small workload: take the
+        // canonical scan (cost-conservative) rather than trusting a zero.
+        const bool useCandidateRoute = admissionKnown && candidateHits <= cap;
+        if (options_.candidatePlannerProbe) {
+            options_.candidatePlannerProbe(useCandidateRoute, candidateHits);
+        }
+        if (useCandidateRoute) {
+            // 5.4: staged (atomic) candidate delivery. Rows are buffered
+            // BEFORE any visitor delivery, so a query failure after partial
+            // reads can never leak duplicate or partial rows into the
+            // caller's result set -- the canonical stream below then
+            // re-derives the complete set from scratch with zero deliveries
+            // already made (PR #15 finalization campaign: the engine must
+            // never see partial/duplicated results as a successful
+            // canonical-equivalent search). The buffer is bounded by the
+            // admitted cap; a real workload above the cap abandons atomically
+            // and takes the canonical scan, so the cap keeps its cost
+            // meaning even if the pre-count ever under-counts.
+            std::vector<EntryRecord> staged;
+            const bool stagedDelivery = gTestingStagedDelivery.load(std::memory_order_acquire);
+            bool candidateRunOk = true;
+            {
+                Statement candidates(db_,
+                    "SELECT e.frn_low, e.frn_high, e.parent_frn_low, e.parent_frn_high, e.name, e.size_bytes, "
+                    "e.allocated_size_bytes, e.creation_time, e.last_modified_time, e.last_access_time, e.attributes "
+                    "FROM entries e JOIN entry_name_index_map m "
+                    "ON m.volume_id=e.volume_id AND m.frn_low=e.frn_low AND m.frn_high=e.frn_high "
+                    "WHERE e.volume_id=?1 AND m.term_rowid IN ("
+                    "  SELECT rowid FROM entry_name_terms WHERE entry_name_terms MATCH ?2"
+                    "  UNION SELECT term_rowid FROM entry_name_exceptions);");
+                if (!candidates.Valid()) {
+                    candidateRunOk = false;
+                } else {
+                    sqlite3_bind_int64(candidates, 1, static_cast<sqlite3_int64>(volumeRowId));
+                    sqlite3_bind_text(candidates, 2, match.data(), static_cast<int>(match.size()), SQLITE_TRANSIENT);
+                    int stepResult = SQLITE_ERROR;
+                    while ((stepResult = sqlite3_step(candidates)) == SQLITE_ROW) {
+                        if (ShouldFail(ReadSessionFaultPoint::Stream)) {
+                            failed_ = true;
+                            return false;
+                        }
+                        if (ShouldFail(ReadSessionFaultPoint::CandidateStreamError)) {
+                            // Deterministic mid-stream SQLite error (task
+                            // 5.4 fault injection).
+                            if (stagedDelivery) {
+                                candidateRunOk = false;  // abandon ATOMICALLY
+                                break;
+                            }
+                            stepResult = SQLITE_ERROR;  // legacy arm: fall through below
+                            break;
+                        }
+                        if (stagedDelivery) {
+                            if (staged.size() >= cap) {
+                                candidateRunOk = false;
+                                break;
+                            }
+                            staged.push_back(ReadEntryRecord(candidates));
+                        } else {
+                            // 5.4 testing arm ONLY (delivery off): the
+                            // pre-fix deliver-as-you-go streaming.
+                            if (!visitor(ReadEntryRecord(candidates))) return true;
+                        }
+                    }
+                    if (stagedDelivery) {
+                        if (candidateRunOk && stepResult != SQLITE_DONE) {
+                            candidateRunOk = false;
+                        }
+                    } else if (stepResult == SQLITE_DONE) {
+                        return true;
+                    }
+                }
+            }
+            if (candidateRunOk && stagedDelivery) {
+                for (const EntryRecord& record : staged) {
+                    if (!visitor(record)) return true;
+                }
+                return true;
+            }
+            // Atomic fall-through: nothing has been delivered to the
+            // visitor, so the canonical stream below cannot duplicate rows
+            // or corrupt capped top-N admission. (The legacy testing arm may
+            // arrive here with rows already delivered -- that is the exact
+            // pre-fix hazard the staged arm exists to eliminate.)
         }
     }
 

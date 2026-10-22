@@ -2377,7 +2377,24 @@ int wmain(int argc, wchar_t** argv) {
             largestPublishedSnapshotRows = std::max(largestPublishedSnapshotRows, run.rows);
         }
     }
-    output << "{\n  \"schema\":\"fastfiles-large-index-scalability-v2\",\n  \"machine\":";
+    output << "{\n  \"schema\":\"fastfiles-large-index-scalability-v2\",\n";
+    // durable-cold-search-index-and-hybrid-residency 5.5 (campaign section
+    // 14): authoritative source/executable identity is embedded in the
+    // artifact itself. source_sha/source_state/preset are caller-asserted
+    // and labeled as such; build_identity binds the binary to the source
+    // tree (ffsetup identity, refreshed at build time).
+    output << "  \"identity\":{";
+    output << "\"source_sha\":"; WriteJsonString(output, options.sourceSha);
+    output << ",\"source_state\":"; WriteJsonString(output, options.sourceState);
+    output << ",\"source_state_asserted_by\":\"caller\"";
+    output << ",\"preset\":"; WriteJsonString(output, options.preset);
+    output << ",\"build_identity\":\"" << ffsetup::kBuildIdentityAscii << "\"";
+    output << ",\"command_line\":"; WriteJsonString(output, options.commandLine);
+    output << ",\"generated_epoch_seconds\":" << static_cast<long long>(std::time(nullptr));
+    output << ",\"candidate_index_version\":3";
+    output << ",\"fixture_generation\":\"deterministic index-derived names (no RNG seed)\"";
+    output << ",\"projection_memory_budget_bytes\":" << (500ull * 1024ull * 1024ull);
+    output << "},\n  \"machine\":";
     WriteMachine(output, machine);
     output << ",\n  \"snapshot_maximum_payload_bytes\":" << ffprotocol::kSnapshotMaximumPayloadBytes
            << ",\n  \"snapshot_capacity_estimate_rows\":" << largestRows

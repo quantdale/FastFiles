@@ -25,11 +25,23 @@ enum class ReadSessionFaultPoint : uint8_t {
     Stream,
     FindEntry,
     Aggregate,
+    // durable-cold-search-index-and-hybrid-residency 5.4: deterministic
+    // mid-candidate-stream SQLite-error injection (step failure AFTER some
+    // candidate rows were read) so the partial-stream fallback semantics are
+    // testable without corrupting a database.
+    CandidateStreamError,
 };
 using ReadSessionFaultInjector = std::function<bool(ReadSessionFaultPoint)>;
 
+// durable-cold-search-index-and-hybrid-residency 5.3 testing seam
+// (multi-volume admission observability; production callers leave it empty):
+// reports the candidate planner's admission decision and the counted
+// candidate workload for the requested volume.
+using CandidatePlannerProbe = std::function<void(bool candidateRouteUsed, size_t countedCandidates)>;
+
 struct StoreReadSessionOptions {
     ReadSessionFaultInjector faultInjector;
+    CandidatePlannerProbe candidatePlannerProbe;
 };
 
 class StoreReadSession;
@@ -80,6 +92,22 @@ void SetTestingCandidateCapOverride(size_t cap);
 // this; entries correctness is unaffected (maintenance is derived state).
 void SetTestingCandidateMaintenanceDisabled(bool disabled);
 
+// durable-cold-search-index-and-hybrid-residency 5.3/5.4 testing seams
+// (always compiled, never called in production; the SetSearchTestHooks
+// precedent). They reproduce the PRE-FIX planner/streaming behavior so the
+// admission and partial-stream regression tests are provably discriminating
+// (red-first both ways):
+//   - global admission reproduces the global (non-volume-scoped,
+//     exception-blind) pre-count: globally-broad/locally-selective needles
+//     fall back to the canonical scan;
+//   - staged delivery OFF reproduces deliver-as-you-go candidate streaming
+//     with fall-through on a mid-stream query failure (the duplicate-row
+//     hazard). Either way the delivered RESULT SET must stay canonical-
+//     equivalent; only the legacy delivery arm may violate that, and only
+//     under the injected fault.
+void SetTestingCandidateGlobalAdmission(bool globalOnly);
+void SetTestingCandidateStagedDelivery(bool staged);
+
 class Store {
 public:
     Store() = default;
@@ -103,7 +131,39 @@ public:
     // busy, OOM -- anything but a positive corruption report) fails the
     // open *without* setting outIntegrityFailed, because "unproven" is not
     // "corrupt" and must never qualify the database for deletion.
-    bool Open(const std::string& dbPathUtf8, bool* outIntegrityFailed = nullptr);
+    // durable-cold-search-index-and-hybrid-residency 5.1: optional
+    // per-phase open timings for startup profiling (bench/diagnostics only;
+    // production callers pass nullptr and pay ~10 clock reads per open).
+    // Every field is zero/false unless requested. Phases follow the
+    // campaign's startup decomposition: connection creation, integrity
+    // check, PRAGMA configuration, schema initialization, schema-version
+    // read, host-fold signature computation, stored-signature comparison,
+    // candidate-index consistency checks, and candidate-index rebuild.
+    struct OpenPhaseTimings {
+        double connectionOpenMs = 0.0;
+        double integrityCheckMs = 0.0;
+        double pragmaConfigMs = 0.0;
+        double schemaInitMs = 0.0;
+        double schemaVersionReadMs = 0.0;
+        double hostFoldSignatureMs = 0.0;
+        double signatureCompareMs = 0.0;
+        double consistencyCheckMs = 0.0;
+        double candidateRebuildMs = 0.0;
+        // 3.3: fine-grained rebuild/migration decomposition. The
+        // three maintenance sub-phases are interleaved per row inside
+        // CandidateIndexUpsert, so they are accumulated separately while the
+        // row loop streams.
+        double candidateMapMs = 0.0;
+        double candidateTermsMs = 0.0;
+        double candidateExceptionMs = 0.0;
+        uint64_t candidateRowsProcessed = 0;
+        double totalMs = 0.0;
+        uint64_t hostFoldSignature = 0;
+        int priorSchemaVersion = 0;
+        bool candidateIndexRebuilt = false;
+    };
+    bool Open(const std::string& dbPathUtf8, bool* outIntegrityFailed = nullptr,
+              OpenPhaseTimings* outTimings = nullptr);
     void Close();
     bool IsOpen() const noexcept { return db_ != nullptr; }
 

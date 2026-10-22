@@ -13,9 +13,11 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -97,6 +99,9 @@ struct WalWatcher {
         stop = true;
         if (thread.joinable()) thread.join();
     }
+    // durable-cold-search 5.7: every exit path must join the watcher thread
+    // (a joinable std::thread in its destructor terminates the process).
+    ~WalWatcher() { Stop(); }
 };
 
 struct ArmResult {
@@ -107,6 +112,141 @@ struct ArmResult {
     uint64_t dbBytes = 0;
     uint64_t walBytes = 0;
 };
+
+// durable-cold-search-index-and-hybrid-residency 5.7 (campaign section 21):
+// combined production lifecycle arms on top of a full ingest -- rename-heavy
+// upserts, mass removal, full-volume replacement (remove + reinsert), and
+// ForgetVolume -- A/B on candidate-index maintenance so FTS5 deletion /
+// maintenance complexity is measured, not assumed. The predecessor's
+// projection-only 31-34x removal fix says nothing about the persistent
+// structures; this is the regression guard for them.
+struct LifecycleResult {
+    double renameMs = 0.0;
+    double massRemoveMs = 0.0;
+    double reinsertMs = 0.0;
+    double forgetVolumeMs = 0.0;
+    uint64_t walPeak = 0;
+    uint64_t privatePeak = 0;
+    uint64_t dbBytesAfter = 0;
+};
+
+constexpr size_t kLifecycleRenameRows = 100000;
+
+LifecycleResult RunLifecycleArm(const std::wstring& dbPath, size_t scale, bool maintenanceEnabled) {
+    DeleteFileW(dbPath.c_str());
+    DeleteFileW((dbPath + L"-wal").c_str());
+    DeleteFileW((dbPath + L"-shm").c_str());
+
+    LifecycleResult result;
+    ffindexstore::SetTestingCandidateMaintenanceDisabled(!maintenanceEnabled);
+    {
+        ffindexstore::Store store;
+        if (!store.Open(ToUtf8(dbPath))) return result;
+        const auto volume = store.GetOrCreateVolume(ffindexstore::VolumeKey{{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, 888});
+        if (!volume.has_value()) return result;
+        WalWatcher watcher;
+        watcher.Start(dbPath);
+        uint64_t privatePeak = PrivateBytes();
+        constexpr size_t kBatch = 5000;
+        const auto upsertRange = [&](size_t begin, size_t end, bool renamed) {
+            std::vector<ffindexstore::EntryChange> batch;
+            for (size_t index = begin; index < end; ++index) {
+                ffindexstore::EntryRecord record;
+                record.id = {static_cast<uint64_t>(index + 1), 0};
+                record.parentId = {5, 0};
+                record.name = renamed ? (u"renamed_" + FileName(index)) : FileName(index);
+                record.sizeBytes = 4096;
+                record.allocatedSizeKnown = true;
+                record.allocatedSizeBytes = 4096;
+                batch.push_back({ffindexstore::EntryChangeKind::Upsert, record});
+            }
+            return store.ApplyBatch(*volume, batch);
+        };
+        // Base ingest (ordinary insert batches).
+        for (size_t offset = 0; offset < scale; offset += kBatch) {
+            const size_t end = (offset + kBatch < scale) ? offset + kBatch : scale;
+            if (!upsertRange(offset, end, false)) {
+                std::fprintf(stderr, "lifecycle ingest failed at %zu\n", offset);
+                return result;
+            }
+            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+            const uint64_t now = PrivateBytes();
+            if (now > privatePeak) privatePeak = now;
+        }
+        // Rename-heavy workload.
+        {
+            const size_t renameRows = (std::min)(scale, kLifecycleRenameRows);
+            const auto start = std::chrono::steady_clock::now();
+            for (size_t offset = 0; offset < renameRows; offset += kBatch) {
+                const size_t end = (offset + kBatch < renameRows) ? offset + kBatch : renameRows;
+                if (!upsertRange(offset, end, true)) {
+                    std::fprintf(stderr, "lifecycle rename failed at %zu\n", offset);
+                    return result;
+                }
+            }
+            result.renameMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+        }
+        // Mass removal of every row.
+        {
+            const auto start = std::chrono::steady_clock::now();
+            for (size_t offset = 0; offset < scale; offset += kBatch) {
+                const size_t end = (offset + kBatch < scale) ? offset + kBatch : scale;
+                std::vector<ffindexstore::EntryChange> batch;
+                for (size_t index = offset; index < end; ++index) {
+                    ffindexstore::EntryRecord record;
+                    record.id = {static_cast<uint64_t>(index + 1), 0};
+                    batch.push_back({ffindexstore::EntryChangeKind::Remove, record});
+                }
+                if (!store.ApplyBatch(*volume, batch)) {
+                    std::fprintf(stderr, "lifecycle mass-remove failed at %zu\n", offset);
+                    return result;
+                }
+            }
+            result.massRemoveMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+        }
+        // Full-volume replacement: reinsert every row.
+        {
+            const auto start = std::chrono::steady_clock::now();
+            for (size_t offset = 0; offset < scale; offset += kBatch) {
+                const size_t end = (offset + kBatch < scale) ? offset + kBatch : scale;
+                if (!upsertRange(offset, end, false)) {
+                    std::fprintf(stderr, "lifecycle reinsert failed at %zu\n", offset);
+                    return result;
+                }
+            }
+            result.reinsertMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+        }
+        const uint64_t now = PrivateBytes();
+        if (now > privatePeak) privatePeak = now;
+        // ForgetVolume (the UI forget-unavailable-volume production path).
+        {
+            const auto start = std::chrono::steady_clock::now();
+            // ForgetVolume only accepts UNAVAILABLE volumes (the production
+            // forget-unavailable-volume command), so mark it first.
+            const uint64_t nowTimestamp = static_cast<uint64_t>(std::time(nullptr));
+            if (!store.SetVolumeAvailable(*volume, false, nowTimestamp) ||
+                !store.ForgetVolume(*volume)) {
+                std::fprintf(stderr, "lifecycle ForgetVolume failed\n");
+                return result;
+            }
+            result.forgetVolumeMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+        }
+        watcher.Stop();
+        result.walPeak = watcher.peak;
+        result.privatePeak = privatePeak;
+    }
+    ffindexstore::SetTestingCandidateMaintenanceDisabled(false);
+    result.dbBytesAfter = FileSize(dbPath);
+    return result;
+}
 
 ArmResult RunArm(const std::wstring& dbPath, size_t scale, bool maintenanceEnabled) {
     DeleteFileW(dbPath.c_str());
@@ -169,12 +309,14 @@ int wmain(int argc, wchar_t** argv) {
     std::wstring outputPath = L"candidate-resources.json";
     std::string sourceSha;
     std::string sourceState;
+    bool lifecycle = false;
     for (int index = 1; index < argc; ++index) {
         const std::wstring argument = argv[index];
         if (argument == L"--scale" && index + 1 < argc) scale = static_cast<size_t>(_wtol(argv[++index]));
         else if (argument == L"--output" && index + 1 < argc) outputPath = argv[++index];
         else if (argument == L"--source-sha" && index + 1 < argc) sourceSha = ToUtf8(argv[++index]);
         else if (argument == L"--source-state" && index + 1 < argc) sourceState = ToUtf8(argv[++index]);
+        else if (argument == L"--lifecycle") lifecycle = true;
         else { std::fwprintf(stderr, L"Unknown argument: %s\n", argument.c_str()); return 2; }
     }
 
@@ -229,7 +371,7 @@ int wmain(int argc, wchar_t** argv) {
     _wfopen_s(&out, outputPath.c_str(), L"wb");
     if (out != nullptr) {
         std::fprintf(out,
-            "{\"schema\":\"fastfiles-candidate-resources-v1\","
+            "{\"schema\":\"fastfiles-candidate-resources-v2\","
             "\"source_sha\":\"%s\",\"source_state\":\"%s\",\"scale\":%zu,"
             "\"arm_on\":{\"ingest_ms\":%.1f,\"rows_per_sec\":%.1f,\"wal_peak_bytes\":%llu,"
             "\"private_peak_bytes\":%llu,\"db_bytes\":%llu,\"wal_bytes\":%llu},"
@@ -237,7 +379,7 @@ int wmain(int argc, wchar_t** argv) {
             "\"private_peak_bytes\":%llu,\"db_bytes\":%llu,\"wal_bytes\":%llu},"
             "\"index_overhead\":{\"ingest_delta_ms\":%.1f,\"db_delta_bytes\":%lld,"
             "\"wal_peak_delta_bytes\":%lld,\"bytes_per_1m_rows\":%.1f},"
-            "\"migration_ms\":%.1f,\"rebuild_on_open_ms\":%.1f}\n",
+            "\"migration_ms\":%.1f,\"rebuild_on_open_ms\":%.1f",
             sourceSha.c_str(), sourceState.c_str(), scale,
             on.ingestMs, on.rowsPerSec, (unsigned long long)on.walPeak,
             (unsigned long long)on.privatePeak, (unsigned long long)on.dbBytes, (unsigned long long)on.walBytes,
@@ -248,6 +390,27 @@ int wmain(int argc, wchar_t** argv) {
             (long long)((long long)on.walPeak - (long long)off.walPeak),
             static_cast<double>(on.dbBytes - off.dbBytes) * 1000000.0 / static_cast<double>(scale),
             migrationMs, rebuildOnOpenMs);
+        if (lifecycle) {
+            std::fprintf(out, ",\"lifecycle\":{\"rename_rows\":%zu", kLifecycleRenameRows);
+            for (int arm = 0; arm < 2; ++arm) {
+                const bool maintenance = arm == 0;
+                std::printf("lifecycle arm %s...\n", maintenance ? "ON" : "OFF");
+                const LifecycleResult lifecycleResult =
+                    RunLifecycleArm(maintenance ? onPath : offPath, scale, maintenance);
+                std::fprintf(out,
+                    ",\"%s\":{\"rename_ms\":%.1f,\"mass_remove_ms\":%.1f,"
+                    "\"reinsert_ms\":%.1f,\"forget_volume_ms\":%.1f,"
+                    "\"wal_peak_bytes\":%llu,\"private_peak_bytes\":%llu,\"db_bytes_after\":%llu}",
+                    maintenance ? "maintenance_on" : "maintenance_off",
+                    lifecycleResult.renameMs, lifecycleResult.massRemoveMs,
+                    lifecycleResult.reinsertMs, lifecycleResult.forgetVolumeMs,
+                    (unsigned long long)lifecycleResult.walPeak,
+                    (unsigned long long)lifecycleResult.privatePeak,
+                    (unsigned long long)lifecycleResult.dbBytesAfter);
+            }
+            std::fprintf(out, "}");
+        }
+        std::fprintf(out, "}\n");
         std::fclose(out);
     }
     std::printf("wrote %ls\n", outputPath.c_str());
