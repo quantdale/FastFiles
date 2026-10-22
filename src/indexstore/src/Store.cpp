@@ -734,9 +734,28 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
         // bumped; if the ALTER fails the database is left untouched and the
         // open fails closed (the existing integrity-check/rebuild fallback
         // in Main.cpp then applies).
-        if (!ExecSql(db_, kMigrateV1ToV2Sql)) {
-            Close();
-            return false;
+        //
+        // durable-cold-search reviewer-B P1: the ALTER must be IDEMPOTENT.
+        // A crash or failure between the ALTER and the version bump leaves
+        // user_version=1 with the column already present; re-running the raw
+        // ALTER then fails with a duplicate-column error and would brick
+        // every subsequent open. Guard on column existence instead.
+        {
+            bool allocatedColumnExists = false;
+            Statement columnStmt(db_, "PRAGMA table_info(entries);");
+            if (columnStmt.Valid()) {
+                while (sqlite3_step(columnStmt) == SQLITE_ROW) {
+                    const char* columnName = reinterpret_cast<const char*>(sqlite3_column_text(columnStmt, 1));
+                    if (columnName != nullptr && std::strcmp(columnName, "allocated_size_bytes") == 0) {
+                        allocatedColumnExists = true;
+                        break;
+                    }
+                }
+            }
+            if (!allocatedColumnExists && !ExecSql(db_, kMigrateV1ToV2Sql)) {
+                Close();
+                return false;
+            }
         }
         if (!RebuildCandidateIndex(db_)) {
             Close();

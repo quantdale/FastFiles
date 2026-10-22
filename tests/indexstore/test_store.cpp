@@ -1290,6 +1290,33 @@ int RunHardExitChild(const std::string& dbPath) {
     return applied ? 2 : 4;
 }
 
+// durable-cold-search reviewer-B P1: a version-1 database whose ALTER
+// already ran (crash/failure between the ALTER and the version bump) must
+// still open and migrate. Before the idempotence guard this state bricked
+// every subsequent open with a duplicate-column ALTER failure.
+void TestSchemaV1MigrationIsIdempotentAfterPartialRun() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_migrate_v1_partial.db");
+    Check(CreateVersion1Fixture(dbPath), "v1-partial: fixture database is created");
+    {
+        // Simulate the interrupted migration: column added, marker NOT bumped.
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "v1-partial: raw sqlite opens");
+        char* error = nullptr;
+        const bool ok = sqlite3_exec(raw, "ALTER TABLE entries ADD COLUMN allocated_size_bytes INTEGER;",
+                                     nullptr, nullptr, &error) == SQLITE_OK;
+        Check(ok, (std::string("v1-partial: pre-run ALTER applied: ") + (error ? error : "")).c_str());
+        sqlite3_close(raw);
+    }
+    Store store;
+    bool integrityFailed = false;
+    Check(store.Open(dbPath, &integrityFailed), "v1-partial: open survives the pre-run ALTER (no duplicate-column brick)");
+    Check(store.CountEntries(1) == 1, "v1-partial: entries preserved through the idempotent migration");
+    store.Close();
+    Store reopened;
+    Check(reopened.Open(dbPath, &integrityFailed), "v1-partial: database reopens after full migration");
+    Check(reopened.CountEntries(1) == 1, "v1-partial: entries preserved across reopen");
+}
+
 int main(int argc, char** argv) {
     if (argc >= 3 && std::strcmp(argv[1], "--hard-exit-child") == 0) {
         return RunHardExitChild(argv[2]);
@@ -1316,6 +1343,7 @@ int main(int argc, char** argv) {
     TestIntegrityVerdictClassifier();
     TestLockedDatabaseFailsOpenWithoutIntegrityFlag();
     TestCorruptDatabaseSetsIntegrityFailedFlag();
+    TestSchemaV1MigrationIsIdempotentAfterPartialRun();
     TestCandidateIndexMigratesFromV2Database();
     TestCandidateMaintenanceFaultRollsBackWholeBatch();
     TestCandidateMaintenanceHardExitRecoversOnReopen();
