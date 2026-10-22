@@ -1,12 +1,15 @@
 #include "ffindexstore/Store.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <limits>
 #include <utility>
+#include <vector>
 
+#include "FoldClassification.h"
 #include "sqlite3.h"
 
 namespace ffindexstore {
@@ -19,7 +22,18 @@ namespace {
 // ALTER TABLE for version-1 databases; a fresh database is created at
 // version 2 directly. A mismatched newer version is refused rather than
 // guessed at.
-constexpr int kCurrentSchemaVersion = 2;
+//
+// durable-cold-search-index-and-hybrid-residency 3.1: version 3 adds the
+// ADDITIVE durable cold candidate index: entry_name_terms (FTS5 trigram over
+// the ASCII-folded name), entry_name_index_map (stable row identity:
+// (volume_id, frn) -> fts rowid), entry_name_exceptions (sharp side-set:
+// host fold-exceptional + surrogate names), and entry_name_index_meta
+// (rebuild state markers). The candidate structures are DERIVED STATE: the
+// entries table remains authoritative and any unproven index state falls
+// back to the canonical stream (never silent false negatives). A v2
+// application opening a v3 database is refused by the existing
+// newer-version guard below (fail closed; no downgrade is attempted).
+constexpr int kCurrentSchemaVersion = 3;
 
 constexpr char kSchemaSql[] =
     "CREATE TABLE IF NOT EXISTS volumes ("
@@ -61,6 +75,45 @@ constexpr char kSchemaSql[] =
 // WAL/integrity-checked open path.
 constexpr char kMigrateV1ToV2Sql[] =
     "ALTER TABLE entries ADD COLUMN allocated_size_bytes INTEGER;";
+
+// durable-cold-search-index-and-hybrid-residency 3.1: additive v3 tables.
+// CREATE IF NOT EXISTS makes this idempotent across interrupted migrations;
+// content is (re)built by BuildCandidateIndexFromEntries before the
+// user_version marker is bumped.
+//   - entry_name_terms: FTS5 trigram index over the ASCII-folded name with
+//     NO folding inside FTS (case_sensitive 1). Trigram substring semantics
+//     match the product's infix literal search; SQLite's own case folding is
+//     deliberately bypassed because it is neither the ASCII fold nor the
+//     Windows ordinal fold.
+//   - entry_name_index_map: (volume_id, frn_low, frn_high) -> term_rowid.
+//     The fts5 table has only an implicit rowid, and entries is WITHOUT
+//     ROWID, so this map is the stable join identity (lane-B P1: dense slot
+//     indices may repack; FRN identity does not). Rowid-keyed fts
+//     UPDATE/DELETE keeps maintenance O(log n) per row -- no per-row fts
+//     scans (the predecessor's quadratic-erasure trap, avoided).
+//   - entry_name_exceptions: sharp side-set of term_rowids whose names must
+//     always be candidates (host fold-exceptional + surrogate units).
+//   - entry_name_index_meta: per-volume rebuild state (0 = ready, otherwise
+//     rebuild required before the index may be consulted).
+constexpr char kSchemaV3Sql[] =
+    "CREATE TABLE IF NOT EXISTS entry_name_index_map ("
+    "  volume_id INTEGER NOT NULL,"
+    "  frn_low INTEGER NOT NULL,"
+    "  frn_high INTEGER NOT NULL DEFAULT 0,"
+    "  term_rowid INTEGER PRIMARY KEY,"
+    "  UNIQUE(volume_id, frn_low, frn_high)"
+    ");"
+    "CREATE VIRTUAL TABLE IF NOT EXISTS entry_name_terms USING fts5("
+    "  name_folded, tokenize=\"trigram case_sensitive 1\");"
+    "CREATE TABLE IF NOT EXISTS entry_name_exceptions ("
+    "  term_rowid INTEGER PRIMARY KEY"
+    ");"
+    "CREATE TABLE IF NOT EXISTS entry_name_index_meta ("
+    "  volume_id INTEGER PRIMARY KEY,"
+    "  state INTEGER NOT NULL DEFAULT 0"
+    ");"
+
+;
 
 uint64_t NowEpochSeconds() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
@@ -335,6 +388,239 @@ bool Store::RunIntegrityCheck() {
     return RunIntegrityCheckDetailed() == IntegrityVerdict::Ok;
 }
 
+namespace {
+
+// --- durable cold candidate index maintenance (v3) -----------------------
+//
+// All helpers operate INSIDE the caller's transaction (ApplyBatch's
+// BEGIN IMMEDIATE or the open-time rebuild transaction) so the candidate
+// structures can never disagree with entries after a crash: either both
+// changed or neither did. The map row is maintained for EVERY entry
+// (including empty names) so the invariant
+//     COUNT(entry_name_index_map) == COUNT(entries)
+// is a cheap integrity cross-check at open time.
+
+constexpr char kCandidateUpsertMapSql[] =
+    "INSERT INTO entry_name_index_map(volume_id, frn_low, frn_high) VALUES(?,?,?) "
+    "ON CONFLICT(volume_id, frn_low, frn_high) DO NOTHING;";
+constexpr char kCandidateLookupRowidSql[] =
+    "SELECT term_rowid FROM entry_name_index_map WHERE volume_id=? AND frn_low=? AND frn_high=?;";
+
+// Cached prepared statements for the maintenance path. Preparing once per
+// batch (not once per row) keeps the per-row cost at bind+step; a per-row
+// prepare was measured at ~3x fixture-ingest cost at 200k rows.
+struct CandidateStatements {
+    Statement mapUpsert;
+    Statement lookup;
+    Statement termsUpdate;
+    Statement termsInsert;
+    Statement markException;
+    Statement clearException;
+    Statement clearTerm;
+    Statement clearMap;
+
+    explicit CandidateStatements(sqlite3* db)
+        : mapUpsert(db, kCandidateUpsertMapSql),
+          lookup(db, kCandidateLookupRowidSql),
+          termsUpdate(db, "UPDATE entry_name_terms SET name_folded=? WHERE rowid=?;"),
+          termsInsert(db, "INSERT INTO entry_name_terms(rowid, name_folded) VALUES(?,?);"),
+          markException(db, "INSERT OR IGNORE INTO entry_name_exceptions(term_rowid) VALUES(?);"),
+          clearException(db, "DELETE FROM entry_name_exceptions WHERE term_rowid=?;"),
+          clearTerm(db, "DELETE FROM entry_name_terms WHERE rowid=?;"),
+          clearMap(db, "DELETE FROM entry_name_index_map WHERE term_rowid=?;") {}
+
+    bool Valid() const {
+        return mapUpsert.Valid() && lookup.Valid() && termsUpdate.Valid() && termsInsert.Valid()
+            && markException.Valid() && clearException.Valid() && clearTerm.Valid() && clearMap.Valid();
+    }
+};
+
+int64_t CandidateTermRowid(CandidateStatements& stmts, int64_t volumeRowId, uint64_t frnLow, uint64_t frnHigh) {
+    sqlite3_reset(stmts.lookup);
+    sqlite3_bind_int64(stmts.lookup, 1, volumeRowId);
+    sqlite3_bind_int64(stmts.lookup, 2, static_cast<sqlite3_int64>(frnLow));
+    sqlite3_bind_int64(stmts.lookup, 3, static_cast<sqlite3_int64>(frnHigh));
+    if (sqlite3_step(stmts.lookup) != SQLITE_ROW) return -1;
+    return sqlite3_column_int64(stmts.lookup, 0);
+}
+
+// ASCII-folded UTF-8 copy of the name (FoldAscii semantics: only ASCII A-Z
+// folds; UTF-8 multibyte sequences pass through byte-for-byte, which keeps
+// the folded column's trigram windows identical to the UTF-16-unit windows
+// of the folded name).
+std::string FoldAsciiUtf8(const std::string& utf8) {
+    std::string folded = utf8;
+    for (char& ch : folded) {
+        if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch + 0x20);
+    }
+    return folded;
+}
+
+// Upsert the candidate-index row for one entry. When updateName is false the
+// map row is only ensured to exist (partial upserts without a name field
+// leave the indexed name untouched, matching the entries upsert contract).
+bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volumeRowId,
+                          uint64_t frnLow, uint64_t frnHigh,
+                          const std::string& nameUtf8, const std::u16string& nameUtf16, bool updateName) {
+    sqlite3_reset(stmts.mapUpsert);
+    sqlite3_bind_int64(stmts.mapUpsert, 1, volumeRowId);
+    sqlite3_bind_int64(stmts.mapUpsert, 2, static_cast<sqlite3_int64>(frnLow));
+    sqlite3_bind_int64(stmts.mapUpsert, 3, static_cast<sqlite3_int64>(frnHigh));
+    if (sqlite3_step(stmts.mapUpsert) != SQLITE_DONE) return false;
+    const int64_t termRowid = CandidateTermRowid(stmts, volumeRowId, frnLow, frnHigh);
+    if (termRowid < 0) return false;
+    if (!updateName) return true;
+
+    const std::string folded = FoldAsciiUtf8(nameUtf8);
+    // fts5 virtual tables do not support the UPSERT conflict clause; the
+    // rowid-keyed UPDATE-then-INSERT pair is the supported idiom and stays
+    // O(log n) through the map identity.
+    sqlite3_reset(stmts.termsUpdate);
+    sqlite3_bind_text(stmts.termsUpdate, 1, folded.data(), static_cast<int>(folded.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmts.termsUpdate, 2, termRowid);
+    if (sqlite3_step(stmts.termsUpdate) != SQLITE_DONE) return false;
+    if (sqlite3_changes(db) == 0) {
+        sqlite3_reset(stmts.termsInsert);
+        sqlite3_bind_int64(stmts.termsInsert, 1, termRowid);
+        sqlite3_bind_text(stmts.termsInsert, 2, folded.data(), static_cast<int>(folded.size()), SQLITE_TRANSIENT);
+        if (sqlite3_step(stmts.termsInsert) != SQLITE_DONE) return false;
+    }
+
+    // Sharp side-set: host fold-exceptional + surrogate names are always
+    // candidates (the P2-A superset contract). Classification fails closed.
+    const bool exceptional = ffindexstore::foldclassification::NameRequiresCandidateSideSet(
+        nameUtf16.c_str(), nameUtf16.size());
+    sqlite3_reset(stmts.markException);
+    sqlite3_bind_int64(stmts.markException, 1, termRowid);
+    if (sqlite3_step(stmts.markException) != SQLITE_DONE) return false;
+    if (!exceptional) {
+        sqlite3_reset(stmts.clearException);
+        sqlite3_bind_int64(stmts.clearException, 1, termRowid);
+        if (sqlite3_step(stmts.clearException) != SQLITE_DONE) return false;
+    }
+    return true;
+}
+
+bool CandidateIndexRemove(CandidateStatements& stmts, int64_t volumeRowId, uint64_t frnLow, uint64_t frnHigh) {
+    const int64_t termRowid = CandidateTermRowid(stmts, volumeRowId, frnLow, frnHigh);
+    if (termRowid < 0) return true;  // never indexed (or already removed)
+    sqlite3_reset(stmts.clearException);
+    sqlite3_bind_int64(stmts.clearException, 1, termRowid);
+    if (sqlite3_step(stmts.clearException) != SQLITE_DONE) return false;
+    sqlite3_reset(stmts.clearTerm);
+    sqlite3_bind_int64(stmts.clearTerm, 1, termRowid);
+    if (sqlite3_step(stmts.clearTerm) != SQLITE_DONE) return false;
+    sqlite3_reset(stmts.clearMap);
+    sqlite3_bind_int64(stmts.clearMap, 1, termRowid);
+    return sqlite3_step(stmts.clearMap) == SQLITE_DONE;
+}
+
+// Whole-volume candidate cleanup (ForgetVolume). fts5 rows are removed
+// rowid-by-rowid (the map is the identity anchor); the map/exception tables
+// are cleaned set-based afterwards. Runs inside the caller's transaction.
+bool CandidateIndexRemoveVolume(sqlite3* db, int64_t volumeRowId) {
+    std::vector<int64_t> rowids;
+    {
+        Statement rows(db, "SELECT term_rowid FROM entry_name_index_map WHERE volume_id=?;");
+        if (!rows.Valid()) return false;
+        sqlite3_bind_int64(rows, 1, volumeRowId);
+        while (sqlite3_step(rows) == SQLITE_ROW) rowids.push_back(sqlite3_column_int64(rows, 0));
+    }
+    for (const int64_t rowid : rowids) {
+        Statement clearTerm(db, "DELETE FROM entry_name_terms WHERE rowid=?;");
+        if (!clearTerm.Valid()) return false;
+        sqlite3_bind_int64(clearTerm, 1, rowid);
+        if (sqlite3_step(clearTerm) != SQLITE_DONE) return false;
+    }
+    Statement clearExceptions(db,
+        "DELETE FROM entry_name_exceptions WHERE term_rowid IN "
+        "(SELECT term_rowid FROM entry_name_index_map WHERE volume_id=?);");
+    if (!clearExceptions.Valid()) return false;
+    sqlite3_bind_int64(clearExceptions, 1, volumeRowId);
+    if (sqlite3_step(clearExceptions) != SQLITE_DONE) return false;
+    Statement clearMap(db, "DELETE FROM entry_name_index_map WHERE volume_id=?;");
+    if (!clearMap.Valid()) return false;
+    sqlite3_bind_int64(clearMap, 1, volumeRowId);
+    return sqlite3_step(clearMap) == SQLITE_DONE;
+}
+
+// Full idempotent rebuild of the derived structures (migration + recovery).
+// Per-volume transactions bound WAL growth; the meta marker is only flipped
+// to ready after every volume is built, so an interrupted rebuild is always
+// detected and redone at the next open.
+bool RebuildCandidateIndex(sqlite3* db) {
+    if (!ExecSql(db, "BEGIN IMMEDIATE;")) return false;
+    if (!ExecSql(db, "DELETE FROM entry_name_exceptions;") ||
+        !ExecSql(db, "DELETE FROM entry_name_terms;") ||
+        !ExecSql(db, "DELETE FROM entry_name_index_map;") ||
+        !ExecSql(db, "DELETE FROM entry_name_index_meta;")) {
+        ExecSql(db, "ROLLBACK;");
+        return false;
+    }
+    if (!ExecSql(db, "INSERT INTO entry_name_index_meta(volume_id, state) VALUES(1, 0) "
+                     "ON CONFLICT(volume_id) DO UPDATE SET state=0;")) {
+        ExecSql(db, "ROLLBACK;");
+        return false;
+    }
+    if (!ExecSql(db, "COMMIT;")) {
+        ExecSql(db, "ROLLBACK;");
+        return false;
+    }
+
+    std::vector<int64_t> volumes;
+    {
+        Statement volumesStmt(db, "SELECT id FROM volumes;");
+        if (!volumesStmt.Valid()) return false;
+        while (sqlite3_step(volumesStmt) == SQLITE_ROW) {
+            volumes.push_back(sqlite3_column_int64(volumesStmt, 0));
+        }
+    }
+    for (const int64_t volumeRowId : volumes) {
+        CandidateStatements candidateStmts(db);
+        if (!candidateStmts.Valid()) return false;
+        if (!ExecSql(db, "BEGIN IMMEDIATE;")) return false;
+        Statement rows(db,
+            "SELECT frn_low, frn_high, name FROM entries WHERE volume_id=?;");
+        bool ok = rows.Valid();
+        if (ok) {
+            sqlite3_bind_int64(rows, 1, volumeRowId);
+            int stepResult = SQLITE_ERROR;
+            while (ok && (stepResult = sqlite3_step(rows)) == SQLITE_ROW) {
+                const uint64_t frnLow = static_cast<uint64_t>(sqlite3_column_int64(rows, 0));
+                const uint64_t frnHigh = static_cast<uint64_t>(sqlite3_column_int64(rows, 1));
+                const char* name = reinterpret_cast<const char*>(sqlite3_column_text(rows, 2));
+                const int nameBytes = sqlite3_column_bytes(rows, 2);
+                const std::string nameUtf8(name ? name : "", name ? static_cast<size_t>(nameBytes) : 0);
+                ok = CandidateIndexUpsert(db, candidateStmts, volumeRowId, frnLow, frnHigh, nameUtf8,
+                                          Utf8ToUtf16(nameUtf8.c_str(), static_cast<int>(nameUtf8.size())), true);
+            }
+            if (ok && stepResult != SQLITE_DONE) ok = false;
+        }
+        if (!ok) {
+            ExecSql(db, "ROLLBACK;");
+            return false;
+        }
+        if (!ExecSql(db, "COMMIT;")) {
+            ExecSql(db, "ROLLBACK;");
+            return false;
+        }
+    }
+
+    if (!ExecSql(db, "BEGIN IMMEDIATE;")) return false;
+    Statement countStmt(db, "SELECT COUNT(*) FROM entry_name_index_map;");
+    bool finalOk = countStmt.Valid() && sqlite3_step(countStmt) == SQLITE_ROW;
+    if (finalOk) {
+        Statement mark(db, "UPDATE entry_name_index_meta SET state=1 WHERE volume_id=1;");
+        finalOk = mark.Valid() && sqlite3_step(mark) == SQLITE_DONE;
+    }
+    if (!finalOk || !ExecSql(db, "COMMIT;")) {
+        ExecSql(db, "ROLLBACK;");
+        return false;
+    }
+    return true;
+}
+
+} // namespace
 bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     if (outIntegrityFailed != nullptr) {
         *outIntegrityFailed = false;
@@ -376,19 +662,35 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
         Close();
         return false;
     }
+    // durable-cold-search-index-and-hybrid-residency 3.1: additive v3
+    // structures (idempotent; content built below before any version bump).
+    if (!ExecSql(db_, kSchemaV3Sql)) {
+        Close();
+        return false;
+    }
 
     Statement versionStmt(db_, "PRAGMA user_version;");
     int existingVersion = 0;
     if (versionStmt.Valid() && sqlite3_step(versionStmt) == SQLITE_ROW) {
         existingVersion = sqlite3_column_int(versionStmt, 0);
     }
+    bool candidateIndexReady = false;
     if (existingVersion == 0) {
+        // Fresh database (or pre-versioning database with no v2 data to
+        // migrate). The candidate index is built from whatever entries
+        // exist before the version marker is bumped, so an interrupted
+        // migration is redone at the next open.
+        if (!RebuildCandidateIndex(db_)) {
+            Close();
+            return false;
+        }
         char pragma[64];
         std::snprintf(pragma, sizeof(pragma), "PRAGMA user_version=%d;", kCurrentSchemaVersion);
         if (!ExecSql(db_, pragma)) {
             Close();
             return false;
         }
+        candidateIndexReady = true;
     } else if (existingVersion == 1) {
         // allocated-size-storage-accuracy D4: in-place migration of an
         // existing version-1 database. Runs before the version marker is
@@ -399,16 +701,58 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
             Close();
             return false;
         }
+        if (!RebuildCandidateIndex(db_)) {
+            Close();
+            return false;
+        }
         char pragma[64];
         std::snprintf(pragma, sizeof(pragma), "PRAGMA user_version=%d;", kCurrentSchemaVersion);
         if (!ExecSql(db_, pragma)) {
             Close();
             return false;
         }
+        candidateIndexReady = true;
+    } else if (existingVersion == 2) {
+        // v2 -> v3: pure additive derived state. The entries table is never
+        // rewritten; the candidate index is built and only then is the
+        // version marker bumped (lane-E crash matrix C2a-C2d).
+        if (!RebuildCandidateIndex(db_)) {
+            Close();
+            return false;
+        }
+        char pragma[64];
+        std::snprintf(pragma, sizeof(pragma), "PRAGMA user_version=%d;", kCurrentSchemaVersion);
+        if (!ExecSql(db_, pragma)) {
+            Close();
+            return false;
+        }
+        candidateIndexReady = true;
     } else if (existingVersion != kCurrentSchemaVersion) {
         // A newer-than-understood schema is refused rather than guessed at.
+        // A v2-era application opening a v3 database lands here and fails
+        // closed (no downgrade, no data loss).
         Close();
         return false;
+    }
+
+    if (!candidateIndexReady) {
+        // Version-3 open: the index is maintained transactionally with
+        // entries, so state is only suspect after an interrupted rebuild.
+        // The meta marker plus the mapped-rows cross-check detect it.
+        Statement metaStmt(db_,
+            "SELECT state, (SELECT COUNT(*) FROM entry_name_index_map), (SELECT COUNT(*) FROM entries) "
+            "FROM entry_name_index_meta WHERE volume_id=1;");
+        bool rebuildNeeded = true;
+        if (metaStmt.Valid() && sqlite3_step(metaStmt) == SQLITE_ROW) {
+            const int state = sqlite3_column_int(metaStmt, 0);
+            const sqlite3_int64 mapped = sqlite3_column_int64(metaStmt, 1);
+            const sqlite3_int64 entries = sqlite3_column_int64(metaStmt, 2);
+            rebuildNeeded = (state != 1) || (mapped != entries);
+        }
+        if (rebuildNeeded && !RebuildCandidateIndex(db_)) {
+            Close();
+            return false;
+        }
     }
 
     dbPathUtf8_ = dbPathUtf8;
@@ -742,6 +1086,12 @@ bool Store::ForgetVolume(VolumeRowId volumeRowId) {
         }
     }
     if (ok) {
+        // durable-cold-search-index-and-hybrid-residency 3.1: candidate
+        // structures are derived state and must vanish with the entries
+        // (same transaction).
+        ok = CandidateIndexRemoveVolume(db_, volumeRowId);
+    }
+    if (ok) {
         Statement deleteVolume(db_, "DELETE FROM volumes WHERE id=?;");
         ok = deleteVolume.Valid();
         if (ok) {
@@ -794,6 +1144,11 @@ bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& 
     }
 
     bool ok = true;
+    CandidateStatements candidateStmts(db_);
+    if (!candidateStmts.Valid()) {
+        ExecSql(db_, "ROLLBACK;");
+        return false;
+    }
     for (const auto& change : changes) {
         if (change.kind == EntryChangeKind::Upsert) {
             const auto& record = change.record;
@@ -847,12 +1202,24 @@ bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& 
                 sqlite3_bind_int64(upsert, parameter, mask);
             }
             ok = sqlite3_step(upsert) == SQLITE_DONE;
+            // durable-cold-search-index-and-hybrid-residency 3.1: maintain
+            // the candidate index in the SAME transaction (crash-safe by
+            // construction). name-less partial upserts only ensure the map
+            // row (the indexed name stays untouched, matching the entries
+            // CASE contract).
+            if (ok) {
+                ok = CandidateIndexUpsert(db_, candidateStmts, volumeRowId, record.id.low, record.id.high,
+                                          nameUtf8, record.name, hasName);
+            }
         } else {
             sqlite3_reset(remove);
             sqlite3_bind_int64(remove, 1, static_cast<sqlite3_int64>(volumeRowId));
             sqlite3_bind_int64(remove, 2, static_cast<sqlite3_int64>(change.record.id.low));
             sqlite3_bind_int64(remove, 3, static_cast<sqlite3_int64>(change.record.id.high));
             ok = sqlite3_step(remove) == SQLITE_DONE;
+            if (ok) {
+                ok = CandidateIndexRemove(candidateStmts, volumeRowId, change.record.id.low, change.record.id.high);
+            }
         }
         if (!ok) {
             break;
@@ -1224,6 +1591,54 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
         Close();
         return false;
     }
+
+    // durable-cold-search-index-and-hybrid-residency 3.2: candidate rung.
+    // For an eligible literal (ASCII, folded length >= 3) the durable FTS5
+    // candidate index produces the row set
+    //     { names containing the folded needle as a substring }
+    //     UNION { host fold-exceptional / surrogate names }
+    // which is a conservative superset of the canonical matches (the probe
+    // evidence in evidence/architecture-decision-record.md), so visiting
+    // exactly those rows is contract-equivalent to the full stream -- the
+    // caller re-verifies each row with CompareStringOrdinal either way.
+    // Any failure or ineligible shape falls through to the canonical stream
+    // below (correctness never depends on the index being usable).
+    const bool needleEligible = asciiFoldedNeedle.size() >= 3 &&
+        std::all_of(asciiFoldedNeedle.begin(), asciiFoldedNeedle.end(),
+                    [](char ch) { return static_cast<unsigned char>(ch) < 0x80; });
+    if (needleEligible) {
+        std::string match;
+        match.reserve(asciiFoldedNeedle.size() + 2);
+        match.push_back('"');
+        for (const char ch : asciiFoldedNeedle) {
+            if (ch == '"') match.push_back('"');
+            match.push_back(ch);
+        }
+        match.push_back('"');
+        Statement candidates(db_,
+            "SELECT e.frn_low, e.frn_high, e.parent_frn_low, e.parent_frn_high, e.name, e.size_bytes, "
+            "e.allocated_size_bytes, e.creation_time, e.last_modified_time, e.last_access_time, e.attributes "
+            "FROM entries e JOIN entry_name_index_map m "
+            "ON m.volume_id=e.volume_id AND m.frn_low=e.frn_low AND m.frn_high=e.frn_high "
+            "WHERE e.volume_id=?1 AND m.term_rowid IN ("
+            "  SELECT rowid FROM entry_name_terms WHERE entry_name_terms MATCH ?2"
+            "  UNION SELECT term_rowid FROM entry_name_exceptions);");
+        if (candidates.Valid()) {
+            sqlite3_bind_int64(candidates, 1, static_cast<sqlite3_int64>(volumeRowId));
+            sqlite3_bind_text(candidates, 2, match.data(), static_cast<int>(match.size()), SQLITE_TRANSIENT);
+            int stepResult;
+            while ((stepResult = sqlite3_step(candidates)) == SQLITE_ROW) {
+                if (ShouldFail(ReadSessionFaultPoint::Stream)) {
+                    failed_ = true;
+                    return false;
+                }
+                if (!visitor(ReadEntryRecord(candidates))) return true;
+            }
+            if (stepResult == SQLITE_DONE) return true;
+            // Fall through to the canonical stream on any query failure.
+        }
+    }
+
     Statement stmt(db_,
         "SELECT frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, allocated_size_bytes, "
         "creation_time, last_modified_time, last_access_time, attributes FROM entries WHERE volume_id=? "

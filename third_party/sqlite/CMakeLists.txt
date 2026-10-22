@@ -2,6 +2,13 @@
 # SQLITE_THREADSAFE=1 (serialized mode): the engine's ingestion pipeline,
 # reconciliation sweeps, and diagnostic reads (filesystem-index-store design.md
 # D1) all touch the same sqlite3* connection pool from different threads.
+#
+# durable-cold-search-index-and-hybrid-residency 3.1: SQLITE_ENABLE_FTS5 is
+# now enabled — the durable cold candidate index (entry_name_terms) is an
+# FTS5 trigram table maintained inside the store's write transactions. The
+# historical "SQLITE_ENABLE_FTS3=0" define is REMOVED: in the amalgamation
+# the macro's mere DEFINITION enables FTS3/4 (lane A P2), so it did the
+# opposite of its apparent intent. No other compile option changes.
 add_library(sqlite3 STATIC sqlite3.c)
 source_group("SQLite" FILES sqlite3.c sqlite3.h)
 target_sources(sqlite3 PRIVATE sqlite3.h)
@@ -12,7 +19,7 @@ target_compile_definitions(sqlite3 PUBLIC
   SQLITE_DEFAULT_WAL_SYNCHRONOUS=1
   SQLITE_OMIT_DEPRECATED
   SQLITE_OMIT_LOAD_EXTENSION
-  SQLITE_ENABLE_FTS3=0
+  SQLITE_ENABLE_FTS5
 )
 
 if(MSVC)
