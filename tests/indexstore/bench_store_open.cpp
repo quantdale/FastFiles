@@ -198,13 +198,20 @@ std::u16string FileName(size_t index) {
     return u"backup_" + ToU16(index) + u".7z";
 }
 
-bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint64_t seed) {
+bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint64_t seed,
+                  bool maintenanceEnabled) {
     DeleteFileW(dbPath.c_str());
     DeleteFileW((dbPath + L"-wal").c_str());
     DeleteFileW((dbPath + L"-shm").c_str());
+    // 5.12 (task 3.3c): --maintenance-off builds an entries-only fixture so
+    // 5M-scale migration/rebuild cost can be measured without paying the
+    // engine-pipeline ingest path (the derived structures are exactly what
+    // the migration then builds).
+    ffindexstore::SetTestingCandidateMaintenanceDisabled(!maintenanceEnabled);
     ffindexstore::Store store;
     if (!store.Open(ToUtf8(dbPath))) {
         std::fprintf(stderr, "fixture open failed\n");
+        ffindexstore::SetTestingCandidateMaintenanceDisabled(false);
         return false;
     }
     std::vector<ffindexstore::VolumeRowId> volumeIds;
@@ -218,6 +225,7 @@ bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint6
         const auto id = store.GetOrCreateVolume(key);
         if (!id.has_value()) {
             std::fprintf(stderr, "fixture volume creation failed\n");
+            ffindexstore::SetTestingCandidateMaintenanceDisabled(false);
             return false;
         }
         volumeIds.push_back(*id);
@@ -241,10 +249,12 @@ bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint6
             volumeIds[(offset / kBatch) % volumeIds.size()];
         if (!store.ApplyBatch(targetVolume, batch)) {
             std::fprintf(stderr, "fixture ingest failed at %zu\n", offset);
+            ffindexstore::SetTestingCandidateMaintenanceDisabled(false);
             return false;
         }
         store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
     }
+    ffindexstore::SetTestingCandidateMaintenanceDisabled(false);
     return true;
 }
 
@@ -794,6 +804,7 @@ int wmain(int argc, wchar_t** argv) {
     uint64_t fixtureSeed = 1;
     size_t processCount = 5;
     size_t warmOpens = 0;
+    bool fixtureMaintenanceOff = false;
     bool buildFixtureMode = false;
     bool measureMode = false;
     bool childMode = false;
@@ -817,6 +828,7 @@ int wmain(int argc, wchar_t** argv) {
         else if (argument == L"--warm-opens") warmOpens = static_cast<size_t>(_wtol(next().c_str()));
         else if (argument == L"--measure") measureMode = true;
         else if (argument == L"--measure-child") childMode = true;
+        else if (argument == L"--maintenance-off") fixtureMaintenanceOff = true;
         else {
             std::fprintf(stderr, "unknown argument\n");
             return 2;
@@ -830,7 +842,7 @@ int wmain(int argc, wchar_t** argv) {
         return 2;
     }
     if (buildFixtureMode) {
-        return BuildFixture(dbPath, fixtureRows, fixtureVolumes, fixtureSeed) ? 0 : 1;
+        return BuildFixture(dbPath, fixtureRows, fixtureVolumes, fixtureSeed, !fixtureMaintenanceOff) ? 0 : 1;
     }
     if (childMode) {
         return RunChild(dbPath, testCase, warmOpens);
