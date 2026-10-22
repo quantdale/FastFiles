@@ -9,7 +9,7 @@ Windows 11 machine, single 1920x1080 display.
 
 | Source | Artifact |
 |---|---|
-| Fresh cold baseline (200k/1M/2M, 12 classes, hot+cold) | `build/worktrees/baseline-200k-1m-2m.json` (284 search runs; identity embedded) |
+| Fresh cold baseline (200k/1M/2M, 12 classes, hot+cold) | `evidence/artifacts/baseline-200k-1m-2m.json` (284 search runs; provenance in `artifact-provenance-manifest.md` — reviewer-F P1 correction: the harness JSON does NOT embed identity) |
 | Alternative A prototype (FTS5 trigram candidates, dual side-set arms) | `build/worktrees/fts5-probe-{200k,1m,2m}.json` + `tests/engine/bench_fts5_candidate_probe.cpp` |
 | Alternatives B/D models (postings + sorted-key arms) | `build/worktrees/secondary-index-200k-1m-2m.json` (3 architectures x 3 scales) |
 | Research lanes A-F | `evidence/lane-reports/lane-{A..F}.md` |
