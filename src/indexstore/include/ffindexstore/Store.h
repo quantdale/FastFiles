@@ -60,6 +60,15 @@ struct VolumeMetadata {
 // "concurrent readers not blocked by an in-progress write"); callers that
 // need cross-call atomicity (e.g. read-modify-write of volume metadata)
 // must serialize those calls themselves.
+// durable-cold-search-index-and-hybrid-residency 4.x testing seam (always
+// compiled, never called in production; the SetSearchTestHooks precedent):
+// deterministically fail the Nth candidate-index maintenance operation
+// inside ApplyBatch (1-based; 0 disables). With hardProcessExit the seam
+// terminates the calling process AT that point instead of returning failure,
+// so the kill-during-commit tests exercise real process death inside an
+// uncommitted transaction (never a graceful rollback).
+void SetTestingCandidateMaintenanceFault(int nthOperation, bool hardProcessExit);
+
 class Store {
 public:
     Store() = default;

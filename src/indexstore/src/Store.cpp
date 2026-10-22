@@ -110,7 +110,8 @@ constexpr char kSchemaV3Sql[] =
     ");"
     "CREATE TABLE IF NOT EXISTS entry_name_index_meta ("
     "  volume_id INTEGER PRIMARY KEY,"
-    "  state INTEGER NOT NULL DEFAULT 0"
+    "  state INTEGER NOT NULL DEFAULT 0,"
+    "  fold_signature INTEGER NOT NULL DEFAULT 0"
     ");"
 
 ;
@@ -391,6 +392,32 @@ bool Store::RunIntegrityCheck() {
 namespace {
 
 // --- durable cold candidate index maintenance (v3) -----------------------
+
+// Testing seam state (see Store.h). Production never arms these.
+std::atomic<int> gCandidateFaultRemaining{0};
+std::atomic<bool> gCandidateFaultHardExit{false};
+
+bool CandidateFaultShouldFire() {
+    int remaining = gCandidateFaultRemaining.load(std::memory_order_acquire);
+    while (remaining > 0) {
+        if (gCandidateFaultRemaining.compare_exchange_weak(remaining, remaining - 1,
+                                                          std::memory_order_acq_rel)) {
+            return remaining == 1;
+        }
+    }
+    return false;
+}
+
+// True exactly at the armed operation (fault). At that point the seam either
+// reports failure (graceful mode) or hard-kills the process (kill-during-
+// commit mode).
+bool CandidateFaultFire() {
+    if (!CandidateFaultShouldFire()) return false;
+    if (gCandidateFaultHardExit.load(std::memory_order_acquire)) {
+        ExitProcess(0xDEAD);
+    }
+    return true;
+}
 //
 // All helpers operate INSIDE the caller's transaction (ApplyBatch's
 // BEGIN IMMEDIATE or the open-time rebuild transaction) so the candidate
@@ -462,6 +489,7 @@ std::string FoldAsciiUtf8(const std::string& utf8) {
 bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volumeRowId,
                           uint64_t frnLow, uint64_t frnHigh,
                           const std::string& nameUtf8, const std::u16string& nameUtf16, bool updateName) {
+    if (CandidateFaultFire()) return false;
     sqlite3_reset(stmts.mapUpsert);
     sqlite3_bind_int64(stmts.mapUpsert, 1, volumeRowId);
     sqlite3_bind_int64(stmts.mapUpsert, 2, static_cast<sqlite3_int64>(frnLow));
@@ -502,6 +530,7 @@ bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volum
 }
 
 bool CandidateIndexRemove(CandidateStatements& stmts, int64_t volumeRowId, uint64_t frnLow, uint64_t frnHigh) {
+    if (CandidateFaultFire()) return false;
     const int64_t termRowid = CandidateTermRowid(stmts, volumeRowId, frnLow, frnHigh);
     if (termRowid < 0) return true;  // never indexed (or already removed)
     sqlite3_reset(stmts.clearException);
@@ -610,8 +639,16 @@ bool RebuildCandidateIndex(sqlite3* db) {
     Statement countStmt(db, "SELECT COUNT(*) FROM entry_name_index_map;");
     bool finalOk = countStmt.Valid() && sqlite3_step(countStmt) == SQLITE_ROW;
     if (finalOk) {
-        Statement mark(db, "UPDATE entry_name_index_meta SET state=1 WHERE volume_id=1;");
-        finalOk = mark.Valid() && sqlite3_step(mark) == SQLITE_DONE;
+        // The ready marker also pins the HOST fold signature: the persisted
+        // side-set classification is only valid for the host table it was
+        // built against (lane-B P1).
+        Statement mark(db, "UPDATE entry_name_index_meta SET state=1, fold_signature=? WHERE volume_id=1;");
+        finalOk = mark.Valid();
+        if (finalOk) {
+            sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(
+                static_cast<int64_t>(ffindexstore::foldclassification::HostFoldSignature())));
+            finalOk = sqlite3_step(mark) == SQLITE_DONE;
+        }
     }
     if (!finalOk || !ExecSql(db, "COMMIT;")) {
         ExecSql(db, "ROLLBACK;");
@@ -740,14 +777,21 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
         // entries, so state is only suspect after an interrupted rebuild.
         // The meta marker plus the mapped-rows cross-check detect it.
         Statement metaStmt(db_,
-            "SELECT state, (SELECT COUNT(*) FROM entry_name_index_map), (SELECT COUNT(*) FROM entries) "
+            "SELECT state, fold_signature, (SELECT COUNT(*) FROM entry_name_index_map), "
+            "(SELECT COUNT(*) FROM entries) "
             "FROM entry_name_index_meta WHERE volume_id=1;");
         bool rebuildNeeded = true;
         if (metaStmt.Valid() && sqlite3_step(metaStmt) == SQLITE_ROW) {
             const int state = sqlite3_column_int(metaStmt, 0);
-            const sqlite3_int64 mapped = sqlite3_column_int64(metaStmt, 1);
-            const sqlite3_int64 entries = sqlite3_column_int64(metaStmt, 2);
-            rebuildNeeded = (state != 1) || (mapped != entries);
+            const sqlite3_int64 foldSignature = sqlite3_column_int64(metaStmt, 1);
+            const sqlite3_int64 mapped = sqlite3_column_int64(metaStmt, 2);
+            const sqlite3_int64 entries = sqlite3_column_int64(metaStmt, 3);
+            // The signature check is what makes the host-bound side-set
+            // safe across machines: a database written where a unit was
+            // ordinary cannot serve candidates on a host that folds it.
+            const sqlite3_int64 hostSignature = static_cast<sqlite3_int64>(
+                static_cast<int64_t>(ffindexstore::foldclassification::HostFoldSignature()));
+            rebuildNeeded = (state != 1) || (mapped != entries) || (foldSignature != hostSignature);
         }
         if (rebuildNeeded && !RebuildCandidateIndex(db_)) {
             Close();
@@ -1108,6 +1152,11 @@ bool Store::ForgetVolume(VolumeRowId volumeRowId) {
         ExecSql(db_, "ROLLBACK;");
     }
     return ok;
+}
+
+void SetTestingCandidateMaintenanceFault(int nthOperation, bool hardProcessExit) {
+    gCandidateFaultRemaining.store(nthOperation > 0 ? nthOperation : 0, std::memory_order_release);
+    gCandidateFaultHardExit.store(hardProcessExit, std::memory_order_release);
 }
 
 bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& changes) {

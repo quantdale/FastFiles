@@ -68,4 +68,54 @@ inline bool NameRequiresCandidateSideSet(const char16_t* name, size_t length) {
     return false;
 }
 
+// --- testing seam (durable-cold-search-index-and-hybrid-residency 4.1) ----
+// Mirrors Projection::SetTestingFoldExceptionalUnit: lets tests simulate a
+// host ordinal table where specific units fold to ASCII (the fold-exceptional
+// class), so the side-set rule can be exercised red-first on any host. The
+// override is consulted BEFORE the host probe and is fail-closed for the
+// injected unit; production code never injects.
+inline std::atomic<uint8_t>* FoldOverrideCache() {
+    static std::atomic<uint8_t> cache[65536] = {};
+    return cache;
+}
+
+inline void SetTestingFoldExceptionalUnit(unsigned short unit, bool exceptional) {
+    FoldOverrideCache()[unit].store(exceptional ? 2 : 1, std::memory_order_release);
+    FoldProbeCache()[unit].store(exceptional ? 2 : 1, std::memory_order_release);
+}
+
+inline void ResetTestingFoldExceptionalUnits() {
+    for (unsigned int unit = 0; unit < 65536; ++unit) {
+        FoldOverrideCache()[unit].store(0, std::memory_order_release);
+        FoldProbeCache()[unit].store(0, std::memory_order_release);
+    }
+}
+
+// Host fold signature (lane-B P1, durable-cold-search 4.x): the persisted
+// side-set classification is HOST-BOUND. A database written on one host must
+// not serve candidates on a host whose ordinal table differs (a stale
+// classification would under-admit candidates = false negatives). The
+// signature is an exhaustive probe of every non-ASCII BMP unit against the
+// 128 ASCII units (the same CompareStringOrdinal calls the classification
+// uses), hashed with FNV-1a. Computed at most once per process (cached);
+// ~8.4M cheap API calls on a cold process, free afterwards. A mismatching
+// stored signature forces a candidate-index rebuild at open.
+inline uint64_t HostFoldSignature() {
+    static uint64_t signature = []() -> uint64_t {
+        std::atomic<uint8_t>* cache = FoldProbeCache();
+        for (unsigned int unit = 0x80; unit < 0x10000; ++unit) {
+            if (unit >= 0xD800 && unit <= 0xDFFF) continue;  // structural, host-independent
+            (void)UnitMayFoldToAscii(static_cast<unsigned short>(unit));
+        }
+        uint64_t hash = 1469598103934665603ull;
+        for (unsigned int unit = 0; unit < 0x10000; ++unit) {
+            const uint8_t verdict = cache[unit].load(std::memory_order_acquire);
+            hash ^= verdict;
+            hash *= 1099511628211ull;
+        }
+        return hash;
+    }();
+    return signature;
+}
+
 }  // namespace ffindexstore::foldclassification
