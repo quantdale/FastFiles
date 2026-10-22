@@ -302,3 +302,26 @@ target_link_libraries(ffengine_bench_allocation_isolation PRIVATE ffprotocol)
 set_tests_properties(ffengine_legacy_scan_failure_binding_tests PROPERTIES TIMEOUT 180)
 set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_idle_manager_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_active_path_resilience_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests ffengine_pooled_snapshot_lifetime_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)
+
+# durable-cold-search-index-and-hybrid-residency 1.2: Alternative-A prototype
+# probe (FTS5 candidate generation), bench-only and never registered with
+# CTest. It compiles its OWN copy of the vendored SQLite amalgamation WITH
+# SQLITE_ENABLE_FTS5 (the production sqlite3 target deliberately does not
+# enable FTS5) and keeps the vendored /W0 warning posture for that source.
+add_executable(ffengine_bench_fts5_candidate_probe
+  bench_fts5_candidate_probe.cpp
+  ${CMAKE_SOURCE_DIR}/third_party/sqlite/sqlite3.c
+)
+target_include_directories(ffengine_bench_fts5_candidate_probe PRIVATE ${CMAKE_SOURCE_DIR}/third_party/sqlite)
+target_compile_definitions(ffengine_bench_fts5_candidate_probe PRIVATE
+  SQLITE_THREADSAFE=1
+  SQLITE_DEFAULT_WAL_SYNCHRONOUS=1
+  SQLITE_OMIT_DEPRECATED
+  SQLITE_OMIT_LOAD_EXTENSION
+  SQLITE_ENABLE_FTS5
+)
+target_link_libraries(ffengine_bench_fts5_candidate_probe PRIVATE psapi)
+if(MSVC)
+  target_compile_options(ffengine_bench_fts5_candidate_probe PRIVATE /wd4100 /wd4267)
+  set_source_files_properties(${CMAKE_SOURCE_DIR}/third_party/sqlite/sqlite3.c PROPERTIES COMPILE_FLAGS "/W0")
+endif()

@@ -65,9 +65,9 @@ These constrain the design space and come from the completed
 | Date | Decision | Status |
 |---|---|---|
 | 2026-10-21 | Proposal + decision record created at PR #14 closure; alternatives A-E recorded; measurement-first mandated; no alternative selected | RECORDED |
-| (future) | Task group 1 measurements complete | PENDING |
-| (future) | Alternative selected/rejected with measured rationale | PENDING |
-| (future) | Schema/migration/rollback design for the selected alternative | PENDING |
+| 2026-10-22 | Task group 1 measurements complete: fresh 200k/1M/2M cold baseline reproduced (2M selective 3513 ms / broad 27483 ms / extension 38709 ms); FTS5 candidate prototype (dual side-set arms) 0 false negatives x 3 scales x 10 classes and 41-76x candidate-gen win on target classes at 2M; B/D model bench measured (69-71 MB/1M postings, 42.9 MB/1M sorted-keys); lane-A..F reports landed | COMPLETE |
+| 2026-10-22 | **Alternative A (SQLite FTS5 trigram candidate index) SELECTED**; B deferred as fallback; C deferred (out of scope); D rejected (correctness: prefix ranges miss infix matches); E rejected (control arm). Full evidence: `evidence/architecture-decision-record.md` | DECIDED |
+| (future) | Phase D implementation + acceptance results | PENDING |
 
 ## 5. Explicit non-decisions
 
