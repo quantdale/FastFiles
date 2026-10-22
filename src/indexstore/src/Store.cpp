@@ -93,8 +93,11 @@ constexpr char kMigrateV1ToV2Sql[] =
 //     scans (the predecessor's quadratic-erasure trap, avoided).
 //   - entry_name_exceptions: sharp side-set of term_rowids whose names must
 //     always be candidates (host fold-exceptional + surrogate units).
-//   - entry_name_index_meta: per-volume rebuild state (0 = ready, otherwise
-//     rebuild required before the index may be consulted).
+//   - entry_name_index_meta: candidate-index readiness marker (review lane
+//     A-4: despite the table name it is a SINGLE global sentinel row,
+//     volume_id=1: state=0 -> rebuild required before the index may be
+//     consulted, state=1 -> ready; the row also pins the host fold
+//     signature).
 constexpr char kSchemaV3Sql[] =
     "CREATE TABLE IF NOT EXISTS entry_name_index_map ("
     "  volume_id INTEGER NOT NULL,"
@@ -413,9 +416,10 @@ std::atomic<bool> gTestingStagedDelivery{true};
 // at 2M (candidate fetch+join exceeds sequential-scan cost once the
 // candidate set is large: unicode 0.6x, high_limit_broad 0.7x) while
 // selective/exact/no-match stay 100-1500x. The cap is the hot path's
-// kMaximumFilenameIndexCandidates value (16,384): queries whose candidate
-// set reaches the cap take the canonical scan (the same nullopt->scan
-// contract as FilenameCandidateIndices), which makes regression impossible
+// kMaximumFilenameIndexCandidates value (16,384): a candidate workload that
+// would EXCEED the cap takes the canonical scan (review lane B P3: admitted
+// exactly at the cap, rejected above it -- the same `> cap` contract as
+// Projection::FilenameCandidateIndices), which makes regression impossible
 // -- the fallback IS the pre-candidate code path.
 constexpr size_t kCandidateFallbackCap = 16384;
 
@@ -768,12 +772,7 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed,
     // 1.5), synchronous=NORMAL under WAL is safe for this workload (a
     // NORMAL-mode WAL commit followed by a crash loses at most the most
     // recent transactions, which resumable scan/journal already tolerate).
-    if (!ExecSql(db_, "PRAGMA journal_mode=WAL;") || !ExecSql(db_, "PRAGMA synchronous=NORMAL;")
-        || !ExecSql(db_, "PRAGMA foreign_keys=ON;")) {
-        Close();
-        return false;
-    }
-
+    // (review lane A-2: these PRAGMAs run exactly once, timed below.)
     const auto pragmaStart = std::chrono::steady_clock::now();
     const bool pragmaOk = ExecSql(db_, "PRAGMA journal_mode=WAL;")
         && ExecSql(db_, "PRAGMA synchronous=NORMAL;")
@@ -1306,7 +1305,11 @@ void SetTestingCandidateMaintenanceFault(int nthOperation, bool hardProcessExit)
 }
 
 void SetTestingCandidateCapOverride(size_t cap) {
-    gCandidateCapOverride.store(cap > 0 ? static_cast<int>(cap) : 0, std::memory_order_release);
+    // Review lane B P3: clamp instead of silently narrowing size_t -> int
+    // (an out-of-range override must never quietly restore the production
+    // cap).
+    const size_t bounded = (cap > static_cast<size_t>(INT_MAX)) ? static_cast<size_t>(INT_MAX) : cap;
+    gCandidateCapOverride.store(bounded > 0 ? static_cast<int>(bounded) : 0, std::memory_order_release);
 }
 
 void SetTestingCandidateMaintenanceDisabled(bool disabled) {
@@ -1785,6 +1788,33 @@ std::string LikePatternForLiteralNeedle(const std::string_view needle) {
 }
 } // namespace
 
+bool StoreReadSession::CandidateIndexUsable() {
+    if (candidateReadinessChecked_) return candidateIndexUsable_;
+    candidateReadinessChecked_ = true;
+    candidateIndexUsable_ = false;
+    if (!IsOpen()) return false;
+    // 5.6 (review lane B): the derived structures are trustworthy in THIS
+    // session's snapshot only when the ready marker is set AND the pinned
+    // host fold signature matches this host. The rebuild path clears the
+    // marker in its first transaction and re-flips it only after every
+    // volume is rebuilt, so a snapshot taken mid-rebuild sees state=0 and
+    // every query correctly degrades to the canonical stream instead of
+    // consulting a partial index (silent-truncation class). The same
+    // one-row check catches a database built on a host with different
+    // ordinal folding. Any failure fails closed (no candidate route).
+    Statement metaStmt(db_,
+        "SELECT state, fold_signature FROM entry_name_index_meta WHERE volume_id=1;");
+    if (!metaStmt.Valid()) return false;
+    const int step = sqlite3_step(metaStmt);
+    if (step != SQLITE_ROW) return false;
+    const int state = sqlite3_column_int(metaStmt, 0);
+    const sqlite3_int64 foldSignature = sqlite3_column_int64(metaStmt, 1);
+    const sqlite3_int64 hostSignature = static_cast<sqlite3_int64>(static_cast<int64_t>(
+        ffindexstore::foldclassification::HostFoldSignature()));
+    candidateIndexUsable_ = (state == 1) && (foldSignature == hostSignature);
+    return candidateIndexUsable_;
+}
+
 bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
     const VolumeRowId volumeRowId, const std::string_view asciiFoldedNeedle,
     const Store::EntryVisitorUntil& visitor) {
@@ -1830,7 +1860,15 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
     const bool needleEligible = foldedNeedle.size() >= 3 &&
         std::all_of(foldedNeedle.begin(), foldedNeedle.end(),
                     [](char ch) { return static_cast<unsigned char>(ch) < 0x80; });
-    if (needleEligible) {
+    const bool candidateRouteAvailable = needleEligible && CandidateIndexUsable();
+    if (options_.candidatePlannerProbe && !candidateRouteAvailable) {
+        // The planner made its decision: the candidate route is not usable
+        // (ineligible needle or not-ready/foreign-host index). Report it so
+        // tests can distinguish "route refused" from "route silently not
+        // attempted".
+        options_.candidatePlannerProbe(false, 0);
+    }
+    if (candidateRouteAvailable) {
         // durable-cold-search-index-and-hybrid-residency 5.3: volume-aware
         // bounded candidate admission. The counted workload must be the work
         // the candidate query will ACTUALLY do for the REQUESTED volume:

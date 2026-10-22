@@ -351,6 +351,23 @@ public:
     // caller (IndexPipeline) routes non-ASCII needles to the full canonical
     // stream (ForEachEntryUntil). The rung folds defensively and treats any
     // non-ASCII byte as ineligible.
+    //
+    // durable-cold-search 5.6 (review lane B): the candidate rung is only
+    // used when the derived structures are READY in this session's snapshot
+    // (meta state=1 AND the host fold signature matches). Readiness is
+    // validated once per session against the fixed snapshot and cached; a
+    // window where a concurrent rebuild has cleared or partially rebuilt the
+    // derived structures -- or a host-semantic mismatch -- can therefore
+    // never silently truncate results: the call degrades to the canonical
+    // stream. Fail-closed on any readiness-query failure as well.
+    //
+    // Latency contract (review lane B P3): on the candidate route the rows
+    // are staged (fully read from SQLite) before the first visitor call, so
+    // an early visitor stop cannot abort SQLite work mid-fetch as
+    // ForEachEntryUntil can. The staged set is bounded by the admission cap
+    // (16,384 rows by default), so the extra work per cancelled query is
+    // bounded; return semantics (early stop => true, exactly the accepted
+    // rows delivered) are unchanged.
     bool ForEachEntryWithAsciiNameUntil(VolumeRowId volumeRowId, std::string_view asciiFoldedNeedle,
                                         const Store::EntryVisitorUntil& visitor);
     std::optional<EntryRecord> FindEntry(VolumeRowId volumeRowId, FileId frn);
@@ -361,12 +378,17 @@ private:
     StoreReadSession(std::string dbPathUtf8, StoreReadSessionOptions options);
     bool Open();
     bool ShouldFail(ReadSessionFaultPoint point) const;
+    // 5.6 (review lane B): one-shot query-time readiness validation for the
+    // candidate rung (see ForEachEntryWithAsciiNameUntil).
+    bool CandidateIndexUsable();
 
     sqlite3* db_ = nullptr;
     std::string dbPathUtf8_;
     StoreReadSessionOptions options_;
     bool transactionActive_ = false;
     bool failed_ = false;
+    bool candidateReadinessChecked_ = false;
+    bool candidateIndexUsable_ = false;
 };
 
 } // namespace ffindexstore

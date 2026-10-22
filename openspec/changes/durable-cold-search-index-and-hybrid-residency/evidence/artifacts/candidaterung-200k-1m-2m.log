@@ -1,0 +1,164 @@
+FastFiles large-index scalability benchmark (3 dataset scales)
+Building 200000 synthetic entries...
+  [200000] fixture open 70.59 ms
+  [200000] durable insert start (target 200000 records)
+  [200000] durable insert progress 106496/200000 (3.86 s)
+  [200000] durable insert progress 200000/200000 (11.95 s)
+  [200000] durable insert complete 11.95 s (200000 records)
+  [200000] projection rebuild start
+  [200000] projection rebuild complete 3.49 s
+  [200000] snapshot export/publication start
+  [200000] snapshot export/publication complete: export 320.56 ms, serialize 34.57 ms, publish 0.22 ms, UI map/parse 161.11 ms, bytes 24501854, published
+  projection probe   95.59 ms, rows 0
+  selective          median 1.32 ms, results 1
+  moderate           median 301.46 ms, results 4096
+  broad              median 464.40 ms, results 4096
+  no_match           median 1.05 ms, results 0
+  prefix             median 409.92 ms, results 4096
+  extension          median 383.53 ms, results 4096
+  worst_substring    median 417.34 ms, results 4096
+  exact_name         median 1.46 ms, results 1
+  short_prefix       median 628.60 ms, results 4096
+  mixed_case         median 419.74 ms, results 4096
+  unicode            median 222.34 ms, results 4096
+  high_limit_broad   median 194.95 ms, results 4096
+  forced eviction: estimated 69785958 -> 845976 bytes
+  selective          COLD 1.88 ms, results 1, coldRows 1, stream 1.16 ms
+  moderate           COLD 1221.00 ms, results 4096, coldRows 19688, stream 1213.31 ms
+  broad              COLD 3414.68 ms, results 4096, coldRows 59062, stream 3406.15 ms
+  no_match           COLD 1.49 ms, results 0, coldRows 0, stream 0.41 ms
+  prefix             COLD 1004.63 ms, results 4096, coldRows 19688, stream 999.31 ms
+  extension          COLD 4911.60 ms, results 4096, coldRows 200000, stream 4905.60 ms
+  worst_substring    COLD 2259.06 ms, results 4096, coldRows 39376, stream 2254.89 ms
+  exact_name         COLD 2.91 ms, results 1, coldRows 1, stream 1.90 ms
+  short_prefix       COLD 3267.61 ms, results 4096, coldRows 200000, stream 3259.59 ms
+  mixed_case         COLD 2061.89 ms, results 4096, coldRows 39375, stream 2055.11 ms
+  unicode            COLD 1303.71 ms, results 4096, coldRows 200000, stream 1297.13 ms
+  high_limit_broad   COLD 3989.83 ms, results 4096, coldRows 59062, stream 3983.86 ms
+  sustained-write broad fallback 16419.35 ms, results 4096, restarts 4, rows 59062
+  fallback cancellation: reached=yes, cancelled=yes, rows=0, 13575.76 ms
+  contention held 1128.86 ms: ingestion 0.66 (progress), aggregate 435.79 (progress), snapshot 1045.40 (progress), second query 1128.59 (progress), cancellation 0.27 ms
+  [200000] cleanup start
+  [200000] cleanup complete
+Completed 200000; database 38.4 MB, generation 11.9 s, rebuild 3.5 s
+Building 1000000 synthetic entries...
+  [1000000] fixture open 9.89 ms
+  [1000000] durable insert start (target 1000000 records)
+  [1000000] durable insert progress 106496/1000000 (2.23 s)
+  [1000000] durable insert progress 204800/1000000 (8.55 s)
+  [1000000] durable insert progress 303104/1000000 (14.59 s)
+  [1000000] durable insert progress 401408/1000000 (20.58 s)
+  [1000000] durable insert progress 507904/1000000 (29.12 s)
+  [1000000] durable insert progress 606208/1000000 (47.38 s)
+  [1000000] durable insert progress 704512/1000000 (65.59 s)
+  [1000000] durable insert progress 802816/1000000 (79.20 s)
+  [1000000] durable insert progress 901120/1000000 (90.46 s)
+  [1000000] durable insert progress 1000000/1000000 (105.28 s)
+  [1000000] durable insert complete 105.28 s (1000000 records)
+  [1000000] projection rebuild start
+  [1000000] projection rebuild complete 0.11 s
+  [1000000] snapshot export/publication start
+  [1000000] snapshot export/publication complete: export 111.53 ms, serialize 0.00 ms, publish 9.94 ms, UI map/parse 0.05 ms, bytes 4, published
+  projection probe   22.47 ms, rows 0
+  selective          median 5.12 ms, results 1
+  moderate           median 4996.03 ms, results 4096
+  broad              median 17485.35 ms, results 4096
+  no_match           median 1.48 ms, results 0
+  prefix             median 5871.71 ms, results 4096
+  extension          median 22582.94 ms, results 4096
+  worst_substring    median 11570.88 ms, results 4096
+  exact_name         median 4.00 ms, results 1
+  short_prefix       median 18539.36 ms, results 4096
+  mixed_case         median 9156.60 ms, results 4096
+  unicode            median 6460.27 ms, results 4096
+  high_limit_broad   median 14716.85 ms, results 4096
+  forced eviction: estimated 128 -> 128 bytes
+  selective          COLD 2.91 ms, results 1, coldRows 1, stream 2.07 ms
+  moderate           COLD 5399.67 ms, results 4096, coldRows 98438, stream 5394.52 ms
+  broad              COLD 14457.51 ms, results 4096, coldRows 295312, stream 14452.49 ms
+  no_match           COLD 1.48 ms, results 0, coldRows 0, stream 0.46 ms
+  prefix             COLD 4566.90 ms, results 4096, coldRows 98438, stream 4561.15 ms
+  extension          COLD 19479.17 ms, results 4096, coldRows 1000000, stream 19475.98 ms
+  worst_substring    COLD 9685.84 ms, results 4096, coldRows 196876, stream 9681.30 ms
+  exact_name         COLD 9.90 ms, results 1, coldRows 1, stream 8.45 ms
+  short_prefix       COLD 13621.98 ms, results 4096, coldRows 1000000, stream 13618.09 ms
+  mixed_case         COLD 8932.83 ms, results 4096, coldRows 196875, stream 8927.55 ms
+  unicode            COLD 5583.05 ms, results 4096, coldRows 1000000, stream 5578.83 ms
+  high_limit_broad   COLD 13188.99 ms, results 4096, coldRows 295312, stream 13184.19 ms
+  contention held 5348.80 ms: ingestion 8.88 (progress), aggregate 1723.17 (progress), snapshot 62.34 (progress), second query 5348.57 (progress), cancellation 0.52 ms
+  [1000000] cleanup start
+  [1000000] cleanup complete
+Completed 1000000; database 190.4 MB, generation 105.3 s, rebuild 0.1 s
+Building 2000000 synthetic entries...
+  [2000000] fixture open 5.50 ms
+  [2000000] durable insert start (target 2000000 records)
+  [2000000] durable insert progress 106496/2000000 (1.75 s)
+  [2000000] durable insert progress 204800/2000000 (4.17 s)
+  [2000000] durable insert progress 303104/2000000 (8.90 s)
+  [2000000] durable insert progress 401408/2000000 (12.23 s)
+  [2000000] durable insert progress 507904/2000000 (18.35 s)
+  [2000000] durable insert progress 606208/2000000 (23.06 s)
+  [2000000] durable insert progress 704512/2000000 (29.97 s)
+  [2000000] durable insert progress 802816/2000000 (35.52 s)
+  [2000000] durable insert progress 901120/2000000 (43.33 s)
+  [2000000] durable insert progress 1007616/2000000 (51.20 s)
+  [2000000] durable insert progress 1105920/2000000 (59.84 s)
+  [2000000] durable insert progress 1204224/2000000 (70.56 s)
+  [2000000] durable insert progress 1302528/2000000 (78.50 s)
+  [2000000] durable insert progress 1400832/2000000 (86.77 s)
+  [2000000] durable insert progress 1507328/2000000 (98.60 s)
+  [2000000] durable insert progress 1605632/2000000 (109.03 s)
+  [2000000] durable insert progress 1703936/2000000 (119.17 s)
+  [2000000] durable insert progress 1802240/2000000 (132.49 s)
+  [2000000] durable insert progress 1900544/2000000 (142.97 s)
+  [2000000] durable insert progress 2000000/2000000 (154.40 s)
+  [2000000] durable insert complete 154.40 s (2000000 records)
+  [2000000] projection rebuild start
+  [2000000] projection rebuild complete 0.08 s
+  [2000000] snapshot export/publication start
+  [2000000] snapshot export/publication complete: export 80.79 ms, serialize 0.00 ms, publish 0.08 ms, UI map/parse 0.01 ms, bytes 4, published
+  projection probe   12.64 ms, rows 0
+  selective          median 2.51 ms, results 1
+  moderate           median 10054.79 ms, results 4096
+  broad              median 27261.67 ms, results 4096
+  no_match           median 0.82 ms, results 0
+  prefix             median 9041.10 ms, results 4096
+  extension          median 35209.25 ms, results 4096
+  worst_substring    median 18631.54 ms, results 4096
+  exact_name         median 2.82 ms, results 1
+  short_prefix       median 27505.21 ms, results 4096
+  mixed_case         median 18201.15 ms, results 4096
+  unicode            median 11189.62 ms, results 4096
+  high_limit_broad   median 28129.37 ms, results 4096
+  forced eviction: estimated 128 -> 128 bytes
+  selective          COLD 3.13 ms, results 1, coldRows 1, stream 2.31 ms
+  moderate           COLD 12443.45 ms, results 4096, coldRows 196875, stream 12436.62 ms
+  broad              COLD 31552.43 ms, results 4096, coldRows 590624, stream 31545.70 ms
+  no_match           COLD 1.37 ms, results 0, coldRows 0, stream 0.32 ms
+  prefix             COLD 11551.02 ms, results 4096, coldRows 196875, stream 11543.24 ms
+  extension          COLD 41143.48 ms, results 4096, coldRows 2000000, stream 41139.58 ms
+  worst_substring    COLD 19619.03 ms, results 4096, coldRows 393750, stream 19615.31 ms
+  exact_name         COLD 2.68 ms, results 1, coldRows 1, stream 2.02 ms
+  short_prefix       COLD 36378.67 ms, results 4096, coldRows 2000000, stream 36372.32 ms
+  mixed_case         COLD 23261.73 ms, results 4096, coldRows 393749, stream 23257.02 ms
+  unicode            COLD 17740.15 ms, results 4096, coldRows 2000000, stream 17732.37 ms
+  high_limit_broad   COLD 36509.78 ms, results 4096, coldRows 590624, stream 36504.61 ms
+  contention held 10000.08 ms: ingestion 2.10 (progress), aggregate 4429.79 (progress), snapshot 123.99 (progress), second query 14462.96 (blocked), cancellation 0.26 ms
+  [2000000] cleanup start
+  [2000000] cleanup complete
+Completed 2000000; database 387.7 MB, generation 154.4 s, rebuild 0.1 s
+  snapshot rows 100: model 0.04 ms, serialize 0.01 ms, publish 0.08 ms, UI map/parse 0.05 ms, bytes 12260, published
+  snapshot rows 1000: model 0.23 ms, serialize 0.08 ms, publish 0.07 ms, UI map/parse 0.31 ms, bytes 123860, published
+  snapshot rows 10000: model 1.69 ms, serialize 1.22 ms, publish 0.10 ms, UI map/parse 3.01 ms, bytes 1257860, published
+  snapshot rows 50000: model 10.89 ms, serialize 6.75 ms, publish 0.39 ms, UI map/parse 19.09 ms, bytes 6377860, published
+  snapshot rows 100000: model 13.53 ms, serialize 7.96 ms, publish 0.97 ms, UI map/parse 30.04 ms, bytes 12777860, published
+  snapshot rows 250000: model 47.92 ms, serialize 20.58 ms, publish 2.54 ms, UI map/parse 75.73 ms, bytes 32277860, published
+  snapshot rows 500000: model 109.43 ms, serialize 56.57 ms, publish 6.88 ms, UI map/parse 160.91 ms, bytes 64777860, published
+  snapshot rows 1100234: model 216.91 ms, serialize 112.54 ms, publish 10.93 ms, UI map/parse 322.45 ms, bytes 143008748, published
+  snapshot rows 1650351: model 398.35 ms, serialize 175.58 ms, publish 19.67 ms, UI map/parse 416.36 ms, bytes 215624192, published
+  snapshot rows 1980421: model 473.82 ms, serialize 217.92 ms, publish 26.88 ms, UI map/parse 679.10 ms, bytes 259193432, published
+  snapshot rows 2200468: model 515.37 ms, serialize 0.00 ms, publish 0.00 ms, UI map/parse 0.00 ms, bytes 288239636, rejected-oversize
+  snapshot rows 2200469: model 481.40 ms, serialize 0.00 ms, publish 0.00 ms, UI map/parse 0.00 ms, bytes 288239768, rejected-oversize
+Wrote C:\Users\Michael Roy\Documents\FastFiles\build\worktrees\candidaterung-200k-1m-2m.json
+Largest published snapshot probe: 1980421 rows (theoretical capacity estimate 2200468 rows, maximum payload 268435456 bytes)
+EXIT=0

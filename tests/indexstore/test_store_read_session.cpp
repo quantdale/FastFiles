@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ffindexstore/Store.h"
+#include "sqlite3.h"
 #include "../../src/indexstore/src/FoldClassification.h"
 #include "../TestSupport.h"
 
@@ -634,19 +635,21 @@ void TestCandidateAdmissionIsVolumeScoped() {
 
     // Case A: volume A has ONE matching row; volumes B/C contribute 15
     // global hits (16 > cap=8 globally, 1 <= cap locally).
-    const bool noiseSideSet = IsSideSetName(noiseName);
+    // Review lane B P3 (correlated-oracle fix): the expectations below are
+    // HARD-CODED, and the side-set premise is asserted rather than absorbed:
+    // a CJK unit cannot fold-equal an ASCII unit under any plausible host
+    // table, so if this ever fires the test must be revised, not auto-tuned.
+    Check(!IsSideSetName(noiseName),
+          "premise: the CJK noise row is not side-set on this host (fail-loud if a host table folds CJK to ASCII)");
     std::set<uint64_t> streamedA;
     Check(reader->ForEachEntryWithAsciiNameUntil(volA, "mv_hit", [&](const EntryRecord& entry) {
         streamedA.insert(entry.id.low);
         return true;
     }), "multivolume case A: stream completes");
-    Check(!decisions.empty() && decisions.back().routeUsed &&
-              decisions.back().counted == (noiseSideSet ? 2 : 1),
-          "case A: volume-local workload is counted and admitted, not the global 16");
-    std::set<uint64_t> expectedA{100};
-    if (noiseSideSet) expectedA.insert(101);
-    Check(streamedA == expectedA,
-          "case A: the candidate route streams exactly the sharp union (noise row only via side-set)");
+    Check(!decisions.empty() && decisions.back().routeUsed && decisions.back().counted == 1,
+          "case A: volume-local workload (exactly 1) is counted and admitted, not the global 16");
+    Check(streamedA == std::set<uint64_t>({100}),
+          "case A: the candidate route streams exactly the sharp union (noise row excluded: not side-set)");
 
     // Case D: every volume is locally selective (3 <= cap) even though the
     // global set (16) exceeds the cap.
@@ -868,8 +871,15 @@ void TestCandidateStreamCancellationStopsCleanly() {
 
     // Mid-stream fault while staging: the fallback delivers the COMPLETE
     // set atomically -- every row exactly once, no partial-prefix leak.
+    // Review lane B P3: the planner probe is asserted too, so this half
+    // proves the CANDIDATE ROUTE was actually taken before the fault (a
+    // vacuous unconditional-fallback pass cannot satisfy it).
     std::vector<uint64_t> leaked;
     StoreReadSessionOptions faultOptions;
+    std::vector<PlannerDecision> faultDecisions;
+    faultOptions.candidatePlannerProbe = [&faultDecisions](bool routeUsed, size_t counted) {
+        faultDecisions.push_back({routeUsed, counted});
+    };
     auto faultCounter = std::make_shared<int>(0);
     faultOptions.faultInjector = [faultCounter](ReadSessionFaultPoint point) {
         if (point == ReadSessionFaultPoint::CandidateStreamError) {
@@ -884,8 +894,107 @@ void TestCandidateStreamCancellationStopsCleanly() {
             return true;
         });
     const std::set<uint64_t> leakedUnique(leaked.begin(), leaked.end());
+    Check(!faultDecisions.empty() && faultDecisions.back().routeUsed,
+          "the faulted query WAS on the candidate route (route proven before the fault)");
     Check(faultStreamed && leakedUnique.size() == 3 && leaked.size() == 3,
           "mid-stream candidate failure falls back atomically (complete set, zero duplicates)");
+}
+
+// --- durable-cold-search-index-and-hybrid-residency 5.6 (review lane B) ------
+// Query-time readiness re-validation: the candidate rung must never consult a
+// derived index that is not READY in the session's snapshot (mid-rebuild
+// window: state=0 with partially-populated structures) or that was built
+// under a different host fold signature. Either condition must degrade the
+// query to the canonical stream (complete results), never silently truncate.
+// Red-first: before the readiness gate the rung consulted the partial index
+// and delivered a truncated set as a successful search.
+void TestCandidateRungDegradesWhenIndexNotReady() {
+    using namespace ffindexstore;
+    const std::string dbPath = FreshDbPath("ffindexstore_readiness_gate.db");
+    Store store;
+    Check(store.Open(dbPath), "readiness fixture: store opens");
+    const VolumeRowId vol = *store.GetOrCreateVolume(MakeVolumeKeyForSuperset(61));
+    std::vector<EntryChange> batch;
+    for (uint64_t index = 0; index < 3; ++index) {
+        batch.push_back({EntryChangeKind::Upsert,
+                         MakeEntry(800 + index, 5,
+                                   u"ready_hit_" + std::u16string(1, static_cast<char16_t>(u'a' + index)) + u".txt")});
+    }
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(810, 5, u"\u6771\u4EAC_ready_noise.txt")});
+    Check(store.ApplyBatch(vol, batch), "readiness fixture: rows commit");
+
+    // Premise (fail-loud): the CJK noise row is NOT side-set on this host,
+    // so the candidate route's exact set is {800,801,802} while the
+    // canonical fallback's conservative stream is {800,801,802,810}.
+    const std::u16string noiseName = u"\u6771\u4EAC_ready_noise.txt";
+    Check(!IsSideSetName(noiseName),
+          "premise: the CJK noise row is not side-set on this host");
+    const std::set<uint64_t> candidateSet{800, 801, 802};
+    const std::set<uint64_t> canonicalSet{800, 801, 802, 810};
+
+    const auto tamper = [&](const char* sql) {
+        sqlite3* raw = nullptr;
+        const bool ok = sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK &&
+                        sqlite3_exec(raw, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
+        if (raw != nullptr) sqlite3_close(raw);
+        return ok;
+    };
+    const auto collect = [&](std::vector<PlannerDecision>& decisions,
+                             std::set<uint64_t>& delivered, bool& streamed) {
+        decisions.clear();
+        delivered.clear();
+        auto reader = store.OpenReadSession(ProbeOptions(decisions));
+        streamed = reader != nullptr && reader->ForEachEntryWithAsciiNameUntil(
+            vol, "ready_hit", [&](const EntryRecord& entry) {
+                delivered.insert(entry.id.low);
+                return true;
+            });
+    };
+
+    // Baseline: ready index -> candidate route, exact sharp union.
+    std::vector<PlannerDecision> decisions;
+    std::set<uint64_t> delivered;
+    bool streamed = false;
+    collect(decisions, delivered, streamed);
+    Check(streamed && !decisions.empty() && decisions.back().routeUsed,
+          "ready index: the candidate route serves the query");
+    Check(delivered == candidateSet,
+          "ready index: exact sharp union (hits only; noise row not side-set)");
+
+    // Mid-rebuild window simulation: the rebuild's first transaction clears
+    // the marker, and its per-volume rebuild has deleted some indexed terms
+    // but not yet repopulated them. Row 800's terms row is deleted here: a
+    // pre-gate candidate rung would serve a TRUNCATED set as success (red-
+    // first discrimination); the readiness gate must fall back instead.
+    Check(tamper("DELETE FROM entry_name_terms WHERE rowid="
+                 "(SELECT term_rowid FROM entry_name_index_map WHERE frn_low=800);"
+                 "UPDATE entry_name_index_meta SET state=0;"),
+          "readiness fixture: mid-rebuild state simulated (marker cleared + partial terms)");
+    collect(decisions, delivered, streamed);
+    Check(streamed && !decisions.empty() && !decisions.back().routeUsed,
+          "mid-rebuild state: the candidate route is refused (canonical fallback)");
+    Check(delivered == canonicalSet && delivered.find(800) != delivered.end(),
+          "mid-rebuild state: results are COMPLETE incl. row 800 (no silent truncation) - red-first gate");
+
+    // Host-semantic mismatch: ready marker but wrong fold signature.
+    Check(tamper("UPDATE entry_name_index_meta SET state=1, fold_signature=fold_signature+1;"),
+          "readiness fixture: fold signature tampered (host mismatch)");
+    collect(decisions, delivered, streamed);
+    Check(streamed && !decisions.empty() && !decisions.back().routeUsed,
+          "host mismatch: the candidate route is refused (canonical fallback)");
+    Check(delivered == canonicalSet,
+          "host mismatch: results are COMPLETE (no silent truncation)");
+
+    // Restored: marker and content both repaired -> the route serves again.
+    Check(tamper("INSERT INTO entry_name_terms(rowid, name_folded) "
+                 "SELECT term_rowid, 'ready_hit_a.txt' FROM entry_name_index_map WHERE frn_low=800;"
+                 "UPDATE entry_name_index_meta SET fold_signature=fold_signature-1;"),
+          "readiness fixture: marker and terms row restored");
+    collect(decisions, delivered, streamed);
+    Check(streamed && !decisions.empty() && decisions.back().routeUsed,
+          "restored marker: the candidate route serves the query again");
+    Check(delivered == candidateSet,
+          "restored marker: exact sharp union again");
 }
 
 
@@ -897,6 +1006,7 @@ int main() {
     TestCandidateAdmissionLocallyBroadFallsBack();
     TestCandidateStreamFailureIsAtomic();
     TestCandidateStreamCancellationStopsCleanly();
+    TestCandidateRungDegradesWhenIndexNotReady();
     TestIndependentSnapshotOverlapsWriter();
     TestReadSessionFaultsFailClosed();
     TestAsciiNamePrefilterIsConservativeAndPrecise();

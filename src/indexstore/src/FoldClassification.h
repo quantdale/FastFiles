@@ -78,6 +78,11 @@ inline bool NameRequiresCandidateSideSet(const char16_t* name, size_t length) {
 // forces the unit NON-exceptional and therefore OVERRIDES a genuine host
 // probe -- it is a simulation control, not a fail-closed operation.
 // Production code never injects.
+// Review lane A-5: the seam does NOT invalidate the memoized
+// HostFoldSignature() static. A test that computes the signature (e.g. via
+// Store::Open) BEFORE injecting a verdict gets a stored signature that
+// disagrees with the classification actually used; inject BEFORE the first
+// open in a test process, or accept the rebuild-on-open consequence.
 inline void SetTestingFoldExceptionalUnit(unsigned short unit, bool exceptional) {
     FoldProbeCache()[unit].store(exceptional ? 2 : 1, std::memory_order_release);
 }
