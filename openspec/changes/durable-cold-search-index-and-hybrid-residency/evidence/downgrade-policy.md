@@ -98,3 +98,14 @@ with a disclosed harness-identity qualification, not final-sha evidence.
   closed database.
 - Downgrade with *preservation of candidate structures* is not offered — the
   derived index is rebuilt on return to v3 (cost measured per scale).
+
+## Current clean-source acceptance supplement
+
+At implementation `5d7e98a`, 5M migration totals67.564/66.882s (n=2),
+real interrupted-migration recovery62.740s, integrity `ok` and
+entries/map/terms counts5M. PR14 Store.cpp rebuilt against its older SQLite
+library rejects v3 without integrity failure; after the documented atomic
+rollback it opens all5M entries. Full ordered entry-tuple comparison proves
+all5M rows preserved. Current artifacts are in `artifacts/final-acceptance/`;
+these supersede the dirty-harness timing qualification for final acceptance.
+This is store compatibility, not a full installed-app rollback test.

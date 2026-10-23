@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffuia_core-smoke",
+  "category": "uia",
+  "command": "build/debug-diagnostic/src/ui/FastFiles.exe",
+  "commit": "5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac",
+  "tree": "cec82cef9d62d842c6c50bf36a7c88a79dbac9ac",
+  "exactTreeBound": true,
+  "executableHash": "eb85fdae4f924afeddde2e5b510ffe2b0756ecfb1cef68dbbdaeb9ec09116678",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-10-23T13:50:42.4753026Z",
+  "endUtc": "2026-10-23T14:00:55.5553861Z",
+  "requestedIterations": 25,
+  "completedIterations": 25,
+  "passed": 25,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "totalIterations": 25,
+  "iterationLedger": [],
+  "phaseDurations": {},
+  "assertionCounts": {
+    "total": 0,
+    "failed": 0
+  },
+  "semanticPostconditions": {},
+  "displayMatrix": [
+    {
+      "requested": {},
+      "observed": {
+        "Theme": "Light",
+        "DpiPercent": 100,
+        "Contrast": "Unknown",
+        "Viewport": "Wide",
+        "PaneTopology": "Unmeasured",
+        "DetailsPane": "Unmeasured"
+      },
+      "realized": true,
+      "unrealizedFields": []
+    }
+  ],
+  "unrealizedDimensions": [],
+  "capabilities": [
+    "uia-core-smoke",
+    "uia-keyboard-navigation",
+    "dual-pane"
+  ],
+  "cleanup": {
+    "pass": true,
+    "status": "PASS",
+    "method": "none-required",
+    "residue": [],
+    "orphanCount": 0,
+    "orphanPids": []
+  },
+  "minDurationMs": 23856.12,
+  "medianDurationMs": 24483.2,
+  "p95DurationMs": 25374.17,
+  "maxDurationMs": 25389.89,
+  "firstFailure": null,
+  "artifactHashes": {
+    "uia-core.md": "4a31af5cbf9dcc848400d963795948a489fe782d63dfa166081ebb0045f8340d"
+  },
+  "disposition": "PASS"
+}

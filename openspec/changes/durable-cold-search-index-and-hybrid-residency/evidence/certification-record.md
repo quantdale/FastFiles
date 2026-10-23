@@ -1,3 +1,8 @@
+> HISTORICAL RECORD (628de6d-era). Current acceptance is documented in
+> [final-acceptance-owner-report.md](final-acceptance-owner-report.md).
+> Old count-only equivalence and diff-only Gallery attribution are superseded;
+> this file is not current-source certification.
+
 # Certification record — durable-cold-search-index-and-hybrid-residency
 
 Candidate: `feat/durable-cold-search-and-hybrid-residency` at

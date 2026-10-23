@@ -70,3 +70,11 @@ base 5M run uses established query sort fields only.
 Final independent adversarial review remains INCOMPLETE: the three-lane
 review wave failed with provider 402 quota/balance errors before verdicts.
 No review success or owner acceptance is inferred from that failure.
+
+## Clean final-candidate rerun
+
+At implementation `5d7e98a`, 5M13/13 and200k extended23/23 pass again.
+Raw artifacts `artifacts/final-acceptance/oracle-5m-final.json` and
+`oracle-200k-extended-final.json` embed that identity and every route/scan
+premise. The earlier exploratory/v1 outputs are not pooled. Coverage
+boundaries above remain unchanged.

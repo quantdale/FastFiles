@@ -37,10 +37,12 @@ production checkpoint cadence is RunStoreMaintenance (scheduler wake ~10 min
 + lifecycle events + 10-min idle), NOT per-batch; the remove/replace arms
 that produced the 960 MB worst case checkpointed only once per phase. See
 `lane-reports/acceptance-lanes/lane-D-wal-analysis.md`.
-WAL growth is bounded by the checkpoint policy; the uncheckpointed
-number is recorded to show why the policy matters. Per-batch WAL is bounded
-by the <=1 MiB wire batch; migration/rebuild runs in per-volume transactions
-(peak observed small at 1M; 2M/5M migration WAL remains a disclosed gap).
+The checkpoint threshold is a trigger, NOT a strict WAL-file bound: active
+readers, transaction size and retained file allocation matter. A <=1MiB wire
+frame does not bound modified SQLite pages. Current watched5M migration
+(preparation plus one migration) sampled648,352,072B WAL at100ms intervals;
+see `final-acceptance-owner-report.md`. No universal free-space reserve is
+proven. Migration/rebuild retain per-volume transactionality.
 
 ## Memory
 

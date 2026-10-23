@@ -1,6 +1,18 @@
 # Fast Files — Agent Workstate
 
-## Current resume checkpoint — 5M cliff ROOT CAUSE ISOLATED: projection enforcement, fallback fixed red-first; final-candidate remeasurement/certification next
+## Current resume checkpoint — PR15 acceptance implementation validated at5d7e98a; honest qualified handoff (Gallery/review/WAL/2M gaps remain)
+
+- Implementation baseline **`5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac`**. Full owner report: `openspec/changes/durable-cold-search-index-and-hybrid-residency/evidence/final-acceptance-owner-report.md` (A–N). Derive branch/HEAD/remotes/hosted status live; no self-referential evidence SHA.
+- Clean final-source results: ordinary5M ingestion132.368s (prior5266s historical observation); dominant cliff PROVEN projection enforcement12.8s vs store0.17s/batch, red-first whole-volume cold fallback after unsuccessful fine-grained eviction. Exact5M capped identity/order/caps12classes+cancellation PASS with fullcanonical5M scan and route assertions; extended200k23/23. No hot5M or uncapped/full targeted5M claim.
+- Migration n=2 clean5M67.564/66.882s; real interrupted recovery62.740s, integrity/counts5M. Actual PR14 Store.cpp + older SQLite probe rejectsv3 without integrity failure; atomic rollback then opens5M, full5M entry tuples equal. Sampled migration/preparation WAL648,352,072B. Task3.3c closed.
+- Final ladder at5d7e98a: Debug129/129, release-test129/129, Analyze clean, ASan4/4, parity11/11 incl strictOpenSpec/governance/hygiene; E2E8/8; UIAcore25/25, visualmatrix25/25, UIAfull23PASS/5SKIP/0FAIL; visualcatalog17PASS/3GalleryFAILs. Gallery inherited A/B attributed; separate PR16 fix20/20x2 is NOT integrated intoPR15, so5.12 open.
+- Two COMPLETE final-source200k/1M benchmark JSON runs1+3 preserved (n=2 cold). Timed-out run2 excluded, log retained; host variance disclosed. Task5.7 remains open for final-source2M repeats, not reusing628de6d timings as current.
+- Independent final review wave failed provider402 quota/balance exhaustion before verdicts. Tasks5.10/5.14 open; no provider switch/billing changes. Resource4.2 open for large-reader/SQLITE_FULL/large-removal crash WAL cells; no universal reserve/cap assertion. Lifecycle staysactive, not completed.
+- Disk safety: <4GiB preflight refused migration monitor; only exact campaign-owned disposable copies and a logged interrupted profile database were deleted, freeing~4.3GiB before successful monitoring. Original fixtures/user data untouched. No real disk exhaustion.
+- Final handoff procedure: validate docs/drift/lifecycle, commit evidence, executable-tree equivalence5d7e98a->evidence tip, fetch/reconcile/push ONLY existing PR15 successor branch (NOTmain/PR14), inspect corresponding hosted run ONCE, update PR15 body, report pushedSHA+actualCI. No merge. Do not edit tracked files after CI to embed it.
+- NEXT ENGINEERING FRONTIER after handoff: finish remaining acceptance (independent review when provider restored, final2M repeated cells and targeted WAL operational matrix); integrate/owner-disposition PR16 Gallery dependency. Do not restart solved oracle/ingestion investigations or claim full closure.
+
+## Historical checkpoint — 5M cliff ROOT CAUSE ISOLATED: projection enforcement, fallback fixed red-first; final-candidate remeasurement/certification next
 
 - `0dba633` clean gates: Debug 129/129, release-test 129/129; Analyze clean; local parity 11/11 incl ASan4/4, strict OpenSpec, governance/hygiene. These are commit-bound historical gates, NOT certification of subsequent projection changes.
 - Oracle v2 (exploratory build) passes 5M 12 established classes + cancellation, comparing exact identities/order/caps against an asserted full 5M-row canonical scan; 200k extended23/23. V1 is invalidated. `evidence/exact-order-oracle.md` records scope and unexecuted cells. Clean final-SHA rerun pending.

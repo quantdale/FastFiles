@@ -1,3 +1,8 @@
+> HISTORICAL RECORD (628de6d-era). Current acceptance is documented in
+> [final-acceptance-owner-report.md](final-acceptance-owner-report.md).
+> Old count-only equivalence and diff-only Gallery attribution are superseded;
+> this file is not current-source certification.
+
 # Staged 5M acceptance — campaign section 19 (task 4.1, stages A-D) + 5M resource cell (task 4.2)
 
 Artifact: `build/campaign/bench-5m.json` (identity-embedded: source
