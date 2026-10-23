@@ -1046,6 +1046,7 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
 
     bool searchableMutation = false;
     bool secondaryApplied = true;
+    size_t committedRemovals = 0;
     if (!removals.empty()) {
 #ifdef FF_INDEX_PIPELINE_TESTING
         const bool injectedFailure = ShouldInjectSecondaryPruningFailureLocked(
@@ -1054,30 +1055,58 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
         const bool injectedFailure = false;
 #endif
         if (!injectedFailure) {
-            secondaryApplied = store_.ApplyBatch(id, removals);
+            // wal-lifecycle: the mass removal is applied in bounded chunks,
+            // each its own committed transaction, with a checkpoint decision
+            // between chunks -- a multi-million-row reconciliation can no
+            // longer accumulate a single-transaction WAL the size of the
+            // whole removal set (the 960 MB-class burst). Removals are
+            // idempotent derived state: a crash or failure between chunks
+            // leaves exactly the committed prefix applied and the pass's
+            // obligation retained below, so the next pass re-derives the
+            // rest. The projection mirrors the committed prefix in ONE bulk
+            // pass afterwards (per-chunk projection passes would re-trigger
+            // the filename-accelerator rebuild per chunk).
+            constexpr size_t kReconciliationRemovalChunkRows = 5'000;
+            std::vector<ffindexstore::FileId> committedIds;
+            committedIds.reserve(removals.size());
+            for (size_t begin = 0; begin < removals.size(); begin += kReconciliationRemovalChunkRows) {
+                const size_t end = (std::min)(begin + kReconciliationRemovalChunkRows, removals.size());
+                std::vector<ffindexstore::EntryChange> chunk(
+                    removals.begin() + static_cast<std::ptrdiff_t>(begin),
+                    removals.begin() + static_cast<std::ptrdiff_t>(end));
+                if (!store_.ApplyBatch(id, chunk)) {
+                    secondaryApplied = false;
+                    break;
+                }
+                for (size_t index = begin; index < end; ++index) {
+                    committedIds.push_back(removals[index].record.id);
+                }
+                store_.CheckpointIfWalExceeds(kWalForceCheckpointThresholdBytes);
+            }
+            committedRemovals = committedIds.size();
+            if (!committedIds.empty()) {
+                // large-index-lifecycle-and-search-scalability 4.4: reconciliation
+                // mass removal is the same bulk case as rule pruning.
+                projection_.RemoveBatch(id, committedIds);
+                searchableMutation = true;
+            }
         } else {
             secondaryApplied = false;
-        }
-        if (secondaryApplied) {
-            std::vector<ffindexstore::FileId> removedIds;
-            removedIds.reserve(removals.size());
-            for (const auto& removal : removals) {
-                removedIds.push_back(removal.record.id);
-            }
-            // large-index-lifecycle-and-search-scalability 4.4: reconciliation
-            // mass removal is the same bulk case as rule pruning.
-            projection_.RemoveBatch(id, removedIds);
-            searchableMutation = true;
         }
     }
 
     if (secondaryApplied || removals.empty()) {
         reconciliationSeen_.erase(it);
     } else {
-        // Secondary durable removal failed: retain the current pass's obligation
-        // so the next reconciliation or retry still owes the same deletions.
-        // Do not advance searchable epoch; the failure is not a searchable mutation.
-        searchableMutation = false;
+        // Durable removal did not fully apply: retain the current pass's
+        // obligation so the next reconciliation or retry still owes the
+        // remaining deletions (already-committed chunks are idempotently
+        // re-derived and no-ops). A partially-applied pass DID mutate the
+        // searchable set for its committed prefix and must advance the
+        // epoch; a wholly-unapplied pass advances nothing.
+        if (committedRemovals == 0) {
+            searchableMutation = false;
+        }
     }
 
     if (searchableMutation) {

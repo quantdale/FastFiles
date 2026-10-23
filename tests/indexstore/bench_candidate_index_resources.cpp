@@ -131,6 +131,12 @@ struct LifecycleResult {
 };
 
 constexpr size_t kLifecycleRenameRows = 100000;
+// wal-lifecycle: the PRODUCTION checkpoint threshold
+// (IndexPipeline::kWalForceCheckpointThresholdBytes = 4000 pages x 4096 B =
+// ~15.6 MiB). The historical 32 MiB literal here was not the production
+// value (acceptance lane D) and the per-PHASE cadence understated policy
+// behavior; both are corrected so WAL peaks measure the shipped policy.
+constexpr unsigned long long kWalCheckpointThresholdBytes = 4000ull * 4096ull;
 
 LifecycleResult RunLifecycleArm(const std::wstring& dbPath, size_t scale, bool maintenanceEnabled) {
     DeleteFileW(dbPath.c_str());
@@ -169,7 +175,7 @@ LifecycleResult RunLifecycleArm(const std::wstring& dbPath, size_t scale, bool m
                 std::fprintf(stderr, "lifecycle ingest failed at %zu\n", offset);
                 return result;
             }
-            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+            store.CheckpointIfWalExceeds(kWalCheckpointThresholdBytes);
             const uint64_t now = PrivateBytes();
             if (now > privatePeak) privatePeak = now;
         }
@@ -183,10 +189,15 @@ LifecycleResult RunLifecycleArm(const std::wstring& dbPath, size_t scale, bool m
                     std::fprintf(stderr, "lifecycle rename failed at %zu\n", offset);
                     return result;
                 }
+                // wal-lifecycle: per-batch checkpoint cadence (the ingest
+                // loop's policy), not per-phase -- the historical per-phase
+                // cadence let WAL accumulate across a whole phase and
+                // produced the 960 MB-class measurement.
+                store.CheckpointIfWalExceeds(kWalCheckpointThresholdBytes);
             }
             result.renameMs = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - start).count();
-            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+            store.CheckpointIfWalExceeds(kWalCheckpointThresholdBytes);
         }
         // Mass removal of every row.
         {
@@ -203,10 +214,11 @@ LifecycleResult RunLifecycleArm(const std::wstring& dbPath, size_t scale, bool m
                     std::fprintf(stderr, "lifecycle mass-remove failed at %zu\n", offset);
                     return result;
                 }
+                store.CheckpointIfWalExceeds(kWalCheckpointThresholdBytes);
             }
             result.massRemoveMs = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - start).count();
-            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+            store.CheckpointIfWalExceeds(kWalCheckpointThresholdBytes);
         }
         // Full-volume replacement: reinsert every row.
         {
@@ -217,10 +229,11 @@ LifecycleResult RunLifecycleArm(const std::wstring& dbPath, size_t scale, bool m
                     std::fprintf(stderr, "lifecycle reinsert failed at %zu\n", offset);
                     return result;
                 }
+                store.CheckpointIfWalExceeds(kWalCheckpointThresholdBytes);
             }
             result.reinsertMs = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - start).count();
-            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+            store.CheckpointIfWalExceeds(kWalCheckpointThresholdBytes);
         }
         const uint64_t now = PrivateBytes();
         if (now > privatePeak) privatePeak = now;
@@ -237,7 +250,7 @@ LifecycleResult RunLifecycleArm(const std::wstring& dbPath, size_t scale, bool m
             }
             result.forgetVolumeMs = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - start).count();
-            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+            store.CheckpointIfWalExceeds(kWalCheckpointThresholdBytes);
         }
         watcher.Stop();
         result.walPeak = watcher.peak;

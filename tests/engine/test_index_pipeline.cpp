@@ -2286,6 +2286,59 @@ void TestRepeatedSecondaryFailure() {
     std::filesystem::remove(dbPath + "-shm");
 }
 
+// wal-lifecycle: reconciliation mass removal applies in 5,000-row committed
+// chunks (bounded-WAL transactions). Characterization guard for the chunk
+// loop: a multi-chunk removal converges exactly like the historical
+// single-transaction path (obligation cleared, durable + projection agree,
+// idempotent re-run). The WAL-bounding property itself is evidenced by the
+// lifecycle bench WAL matrix (evidence/wal-lifecycle.md).
+void TestReconciliationMassRemovalConvergesAcrossChunks() {
+    const std::string dbPath = FreshDbPath("engine_test_reconcile_chunks.db");
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "chunked-removal fixture opens");
+    VolumeKey key;
+    key.serialNumber = 71;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    pipeline.SetVolumeRules(volume, setting);
+
+    std::vector<ffprotocol::MftRecordV1> seed;
+    seed.push_back(MakeMftRecord(1, 1, u".", 0x10, 0));
+    for (uint64_t id = 1000; id < 13'000; ++id) {
+        seed.push_back(MakeMftRecord(id, 1, u"chunk_row.txt", 0, static_cast<uint64_t>(id)));
+    }
+    Check(pipeline.ApplyMftBatch(volume, seed), "12,000 seeded rows apply");
+
+    pipeline.BeginReconciliationPass(volume);
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u".", 0x10, 0)}),
+          "reconciliation observes only the root");
+    pipeline.FinishReconciliationPass(volume);
+    Check(!pipeline.IsReconciliationPassActive(volume),
+          "a fully-applied multi-chunk removal clears the obligation");
+    const auto durable = ReadDurableEntryState(dbPath, volume, FileId{1, 0});
+    Check(durable.opened && durable.entryCount == 1,
+          "durable state converges to the root across all removal chunks");
+    const auto snapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    Check(!SnapshotHasName(snapshot, L"chunk_row.txt"),
+          "the projection mirrors every committed removal chunk");
+
+    // Idempotence: re-running the pass after convergence is a no-op.
+    pipeline.BeginReconciliationPass(volume);
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u".", 0x10, 0)}),
+          "second reconciliation observes the root");
+    pipeline.FinishReconciliationPass(volume);
+    Check(!pipeline.IsReconciliationPassActive(volume), "the second pass converges immediately");
+    const auto durableAfter = ReadDurableEntryState(dbPath, volume, FileId{1, 0});
+    Check(durableAfter.opened && durableAfter.entryCount == 1,
+          "durable state stays converged after the idempotent re-run");
+    pipeline.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
+}
+
 void TestRulePruningFailureRecoversAfterCloseAndOpen() {
     const std::string dbPath = FreshDbPath("engine_test_rule_pruning_restart.db");
     VolumeKey key;
@@ -2559,6 +2612,7 @@ int main() {
     TestRebuildSecondaryFailureDoesNotPublishSuccess();
     TestReconciliationRetentionOnSecondaryFailure();
     TestRepeatedSecondaryFailure();
+    TestReconciliationMassRemovalConvergesAcrossChunks();
     TestRulePruningFailureRecoversAfterCloseAndOpen();
     TestUsnUpsertDuringReconciliationPassSurvivesFinish();
     TestRuleExcludedUsnUpsertStaysOutOfSeenSet();
