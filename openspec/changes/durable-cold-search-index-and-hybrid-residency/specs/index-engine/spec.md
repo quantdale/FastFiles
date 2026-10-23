@@ -63,8 +63,7 @@ after an unclean shutdown.
   recorded at the last committed transaction or is rebuilt before use
 - **AND** no query observes candidates for rows that do not exist
 
-### Requirement: Schema migration shall be measured, with a fail-closed,
-data-preserving downgrade policy
+### Requirement: Schema migration shall have a measured, data-preserving downgrade policy
 
 Any schema addition SHALL be versioned and additive, with a measured migration
 cost at 2M-5M rows, a rebuild-on-open fallback when migration is interrupted,

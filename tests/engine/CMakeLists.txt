@@ -276,6 +276,10 @@ add_executable(ffengine_bench_identity_ordering_oracle
 target_include_directories(ffengine_bench_identity_ordering_oracle PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_bench_identity_ordering_oracle PRIVATE ffindexstore ffprotocol ffsearch ffsetup sqlite3 psapi Rpcrt4 Shell32 Ole32)
 add_dependencies(ffengine_bench_identity_ordering_oracle fastfiles_build_identity)
+# Small comparator negative controls only; the large fixture run is never a
+# default CTest workload.
+add_test(NAME ffengine_identity_ordering_oracle_self_tests
+  COMMAND ffengine_bench_identity_ordering_oracle --self-test)
 
 # Informational only: compares bounded secondary filename-index candidates
 # against the canonical matcher. It is intentionally not registered with

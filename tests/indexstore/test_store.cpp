@@ -1229,11 +1229,13 @@ void TestOperatorRollbackToV2IsLosslessAndRebuilds() {
         Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite opens for rollback");
         char* error = nullptr;
         const bool rolledBack = sqlite3_exec(raw,
+            "BEGIN IMMEDIATE;"
             "DROP TABLE IF EXISTS entry_name_exceptions;"
             "DROP TABLE IF EXISTS entry_name_index_meta;"
             "DROP TABLE IF EXISTS entry_name_index_map;"
             "DROP TABLE IF EXISTS entry_name_terms;"
-            "PRAGMA user_version=2;",
+            "PRAGMA user_version=2;"
+            "COMMIT;",
             nullptr, nullptr, &error) == SQLITE_OK;
         Check(rolledBack,
               (std::string("operator rollback SQL applies: ") + (error ? error : "")).c_str());

@@ -40,21 +40,29 @@ On a **disposable/closed** database (the application must not be running;
 prefer a backup copy), execute exactly:
 
 ```sql
+BEGIN IMMEDIATE;
 DROP TABLE IF EXISTS entry_name_exceptions;
 DROP TABLE IF EXISTS entry_name_index_meta;
 DROP TABLE IF EXISTS entry_name_index_map;
 DROP TABLE IF EXISTS entry_name_terms;
 PRAGMA user_version=2;
+COMMIT;
 ```
 
-This drops only the v3 derived candidate structures and resets the version
+Take a verified backup and stop every application/engine using the database
+first. Execute the entire transaction with a fail-fast SQLite client; on ANY
+error execute ROLLBACK and do not install the older application. Do not edit
+or delete live WAL/SHM sidecars. Do not run this recipe on an unknown future
+schema: it is specific to this change's v3 derived structures.
+
+This atomically drops only the v3 derived candidate structures and resets the version
 marker. It never rewrites `entries`/`volumes`. The previous release then opens
 the database normally; when the newer release returns, its v2->v3 migration
 rebuilds the candidate index (measured cost: `5m-migration-v2` cells).
 
 Evidence: `ffindexstore_store_tests` ->
 `TestOperatorRollbackToV2IsLosslessAndRebuilds` — rollback SQL applies, all
-12 entries survive byte-for-byte at the row level, and re-opening with the
+12 seeded entries remain, and re-opening with the
 current binary re-migrates and the rebuilt candidate rung streams every
 canonical match. The same SQL is exercised by the in-tree v2 simulations
 (`tests/indexstore/bench_store_open.cpp`, `test_store.cpp`,

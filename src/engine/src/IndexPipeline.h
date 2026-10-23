@@ -47,6 +47,11 @@ public:
     };
     struct SearchTestHooks {
         std::function<void(SearchPhase)> onPhase;
+        // durable-cold-search-index-and-hybrid-residency 4.1: independent
+        // reference arm bypasses ALL name prefilters (not just FTS), and
+        // observes actual candidate admission. Production leaves both empty.
+        bool forceCanonicalColdScan = false;
+        ffindexstore::CandidatePlannerProbe candidatePlannerProbe;
     };
 
     // Optional attribution seam for the explicit scalability benchmark. The

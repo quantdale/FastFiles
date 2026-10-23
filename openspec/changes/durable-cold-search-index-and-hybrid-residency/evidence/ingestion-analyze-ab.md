@@ -6,7 +6,7 @@ Campaign sections 11-15 (task: 5M ingestion collapse). Baseline `3e081f5`
 (`--scales 200000,1000000 --output ... --preset release-test`), sequential
 runs on the same host.
 
-## Root cause (proven, mechanism level)
+## Root cause: reachable quadratic ANALYZE work (proven mechanism; dominance qualified)
 
 **Full-database `ANALYZE` on ~6 of every 7 ingestion batches.**
 `IndexPipeline::MaybeAnalyzeAfterBulkInsertLocked` gated `store_.Analyze()`
@@ -16,8 +16,11 @@ on a 10,000-record threshold but reset the counter with `%=`; with
 table (entries + `entry_name_terms*` + map + exceptions), so sustained
 ingestion did O(n) extra work per batch = **O(n^2) total** — matching the
 historical windowed series (`build/campaign/bench-5m.log`): smooth per-row
-growth 38->150 us/row over 0-3.1M, then a cliff at ~3.105M rows when the
-ANALYZE working set outgrew cache (~2,500 us/row near 5M). The same
+growth 38->150 us/row over 0-3.1M, then a cliff at ~3.105M rows (~2,500 us/row near 5M). Cache-pressure
+attribution for that cliff is a HYPOTHESIS: stage timers/cache counters were
+not captured, and the historical run shared the host with certification
+builds. The A/B demonstrates material benefit, not a complete decomposition
+of all 5,266 seconds or proof that FTS merge work is insignificant. The same
 statistics churn had already forced the `97b9ceb` CROSS JOIN plan pin
 (mid-ingest plan flips), i.e. the per-batch ANALYZE was both the ingestion
 cost AND a query-plan instability source.
@@ -93,7 +96,10 @@ the old behavior; `build/ab-red-run.log` / `build/ab-green-run.log`).
   the pins; result identities unchanged (plan pins only).
 - **Verdict: RETAIN.** The candidate eliminates the quadratic ingestion
   term (3.9x at 1M; expected far larger at 5M where the old curve was
-  13.7x linear) while every measured query class is faster or at parity.
+  13.7x linear) while every measured query class is faster or at parity. These sequential
+whole-run n=1 measurements do not isolate host drift or establish a
+statistical performance guarantee. Pending independent review and larger
+scale remeasurement remain acceptance requirements.
 
 ## Open/deferred
 

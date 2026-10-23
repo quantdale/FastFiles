@@ -1403,6 +1403,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
         ffindexstore::ProjectionEntryCursor cursor;
         std::optional<std::vector<uint32_t>> filenameCandidates;
         std::function<void(SearchPhase)> phaseHook;
+        bool forceCanonicalColdScan = false;
     };
     ffsearch::SearchResponse search;
     ffsearch::SearchDiagnostics searchDiagnostics;
@@ -1454,6 +1455,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
             context.dependencySetEpoch = dependencySetEpoch_.load(std::memory_order_acquire);
             context.allVolumes = searchRequest.scope == ffsearch::SearchScope::AllIndexedLocations;
             context.phaseHook = searchTestHooks_.onPhase;
+            context.forceCanonicalColdScan = searchTestHooks_.forceCanonicalColdScan;
 
             std::unordered_map<ffindexstore::VolumeRowId, std::wstring> configuredPrefixes;
             std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
@@ -1526,7 +1528,8 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                 context.orderedCold.assign(context.coldVolumes.begin(), context.coldVolumes.end());
                 std::sort(context.orderedCold.begin(), context.orderedCold.end());
                 searchedColdVolumes = searchedColdVolumes || !context.orderedCold.empty();
-                context.reader = store_.OpenReadSession({readSessionFaultInjector_});
+                context.reader = store_.OpenReadSession(
+                    {readSessionFaultInjector_, searchTestHooks_.candidatePlannerProbe});
                 if (!context.reader) {
                     readerFailures_.fetch_add(1, std::memory_order_relaxed);
                     unavailable = true;
@@ -1937,7 +1940,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         ++candidateObjectsMaterialized;
                         return !stale && !isCancelled();
                     };
-                const bool streamed = coldNamePrefilter.has_value()
+                const bool streamed = !context.forceCanonicalColdScan && coldNamePrefilter.has_value()
                     ? context.reader->ForEachEntryWithAsciiNameUntil(coldVolumeId, *coldNamePrefilter,
                                                                      coldVisitor)
                     : context.reader->ForEachEntryUntil(coldVolumeId, coldVisitor);
@@ -2067,7 +2070,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         ++candidateObjectsMaterialized;
                         return !isCancelled() && !accumulator.Cancelled() && !streamFailed;
                     };
-                const bool streamed = durableNamePrefilter.has_value()
+                const bool streamed = !context.forceCanonicalColdScan && durableNamePrefilter.has_value()
                     ? context.reader->ForEachEntryWithAsciiNameUntil(volumeId, *durableNamePrefilter,
                                                                      durableVisitor)
                     : context.reader->ForEachEntryUntil(volumeId, durableVisitor);

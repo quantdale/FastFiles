@@ -2314,9 +2314,25 @@ void TestReconciliationMassRemovalConvergesAcrossChunks() {
     pipeline.BeginReconciliationPass(volume);
     Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u".", 0x10, 0)}),
           "reconciliation observes only the root");
+    const uint64_t epochBeforePartial = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    // Fail 501 operations into chunk two. Chunk one must remain committed,
+    // chunk two must roll back atomically, and retry must owe the remainder.
+    ffindexstore::SetTestingCandidateMaintenanceFault(5'501, false);
+    pipeline.FinishReconciliationPass(volume);
+    ffindexstore::SetTestingCandidateMaintenanceFault(0, false);
+    Check(pipeline.IsReconciliationPassActive(volume),
+          "partial chunk failure retains the reconciliation obligation");
+    const auto partial = ReadDurableEntryState(dbPath, volume, FileId{1, 0});
+    Check(partial.opened && partial.entryCount == 7'001,
+          "only the first 5,000-row chunk commits; the faulted second chunk rolls back");
+    const auto partialAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(partialAggregate.has_value() && partialAggregate->itemCount == 7'000,
+          "projection mirrors exactly the committed removal prefix on failure");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epochBeforePartial,
+          "a partially committed removal advances the searchable epoch");
     pipeline.FinishReconciliationPass(volume);
     Check(!pipeline.IsReconciliationPassActive(volume),
-          "a fully-applied multi-chunk removal clears the obligation");
+          "retry finishes the remaining chunks and clears the obligation");
     const auto durable = ReadDurableEntryState(dbPath, volume, FileId{1, 0});
     Check(durable.opened && durable.entryCount == 1,
           "durable state converges to the root across all removal chunks");

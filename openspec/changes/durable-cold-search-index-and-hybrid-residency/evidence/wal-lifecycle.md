@@ -20,9 +20,9 @@ Two distinct mechanisms, now both measured:
    `build/campaign/lifecycle-2m.json`).
 2. **Production class:** `FinishReconciliationPass` applied an entire
    reconciliation mass-removal in ONE `ApplyBatch` transaction; a WAL
-   cannot truncate uncommitted frames, so a multi-million-row removal grew
-   the WAL inside a single transaction (structural ~480 B x rows class
-   regardless of any threshold). `Store::ForgetVolume` and per-volume
+   cannot checkpoint uncommitted frames. Large-transaction WAL growth is
+   therefore reachable, but the ~480 B/row figure is an observed whole-
+   lifecycle ratio, NOT a measured production reconciliation bound. `Store::ForgetVolume` and per-volume
    rebuild/migration are single-transaction by the same shape.
 
 ## Corrections implemented
@@ -64,17 +64,19 @@ Two distinct mechanisms, now both measured:
 | forget volume | 22.3 s | 22.2 s |
 | maintenance OFF WAL peak | 121,033,272 B | 121,033,272 B (identical) |
 
-- The peak drops **3.5x** at a measured 21-48% write-phase cost from
-  checkpointing itself. The residual 274 MB reflects per-transaction frame
-  batches plus checkpoint behavior under continuous writing; the structural
-  single-transaction giant is gone from the reconciliation path.
-- **Disk-reserve guidance (documented requirement):** worst-case WAL remains
-  bounded by the largest single transaction (~480 B x rows for
-  ForgetVolume/per-volume rebuild/migration transactions) plus the
-  checkpoint threshold; operators should keep ~1 GB free per multi-million-
-  row volume during mass maintenance. This is documented rather than
-  weakened: those operations stay single-transaction on purpose
-  (transactionality is not traded for disk).
+- The aggregate lifecycle peak drops **3.5x** with per-batch checks;
+  rename/removal/reinsert time differences are +21%/+35%/+48% (n=1).
+  Host drift and checkpoint cost are not separately profiled. The watcher
+  spans all phases INCLUDING atomic ForgetVolume: the residual 274 MB
+  cannot be attributed to removal chunks or continuous writing without
+  per-phase peaks. This does NOT measure the production reconciliation
+  path; that path has semantic tests, not a measured peak bound yet.
+- **Disk-reserve planning observation, NOT a safety bound:** the historical
+  workload reached ~960 MB WAL at 2M rows; allowing only 1 GB free is NOT
+  demonstrated sufficient. Database growth, rollback/rebuild space, the
+  largest transaction and readers pinning old snapshots all affect reserve.
+  No universal bytes/row limit or enforced free-space guarantee is claimed.
+  Atomic ForgetVolume/rebuild/migration retain their transactionality.
 
 ## Crash/recovery status
 
@@ -82,8 +84,11 @@ Two distinct mechanisms, now both measured:
   real kill-during-commit recovery (store tests) at 10-100-row scale;
   interrupted-migration kill/recovery at 1M/2M (one full migration).
 - Chunked removal crash semantics: committed-prefix + retained-obligation
-  (tested convergence semantics); a crash between chunks is equivalent to a
-  failed pass — the next reconciliation re-derives the remainder.
+  (tested convergence and injected failure 501 operations into chunk two:
+  5,000 committed removals, next chunk fully rolled back, projection agrees,
+  obligation retained, epoch advances, retry converges). A restart requires
+  a new BeginReconciliationPass/rescan; the in-memory seen set is NOT durable.
+  Real process-kill mid-chunk recovery is a separate unexecuted cell.
 - NOT_EXECUTED (deferred, honestly): a kill mid-2M-removal recovery cell and
   a `SQLITE_FULL` fault cell (safe fault-injection or a size-capped
   disposable volume required; never the system volume). SQLite WAL
@@ -95,7 +100,7 @@ Two distinct mechanisms, now both measured:
 - `CheckpointIfWalExceeds`'s RESTART escalation can fail with SQLITE_BUSY
   under active readers and the caller discards the result (pre-existing,
   lane D P2). Under sustained concurrent readers the WAL can exceed the
-  nominal threshold until a quiet period; the reserve guidance covers it.
+  nominal threshold until a quiet period; no finite WAL bound is established under indefinitely pinned readers.
   Fixing this (busy handler / bounded retry) is left as a disclosed follow-up.
 - 5M-scale WAL cells NOT_EXECUTED (the 2M matrix is the measured bound);
   the removed per-batch ANALYZE reduces 5M write churn substantially.
