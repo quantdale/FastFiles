@@ -317,7 +317,7 @@ Store::FolderAggregate QueryFolderAggregate(sqlite3* db, VolumeRowId volumeRowId
         "  WHERE volume_id=? AND frn_low=? AND frn_high=?"
         "  UNION ALL"
         "  SELECT e.volume_id, e.frn_low, e.frn_high, e.size_bytes, e.allocated_size_bytes, s.depth + 1"
-        "  FROM entries e"
+        "  FROM entries e INDEXED BY idx_entries_parent"
         "  JOIN subtree s ON e.volume_id=s.volume_id"
         "    AND e.parent_frn_low=s.frn_low AND e.parent_frn_high=s.frn_high"
         "    AND NOT (e.frn_low = e.parent_frn_low AND e.frn_high = e.parent_frn_high)"
@@ -1635,7 +1635,7 @@ Store::FolderAggregate Store::GetFolderAggregate(VolumeRowId volumeRowId, FileId
         "  WHERE volume_id=? AND frn_low=? AND frn_high=?"
         "  UNION ALL"
         "  SELECT e.volume_id, e.frn_low, e.frn_high, e.size_bytes, e.allocated_size_bytes, s.depth + 1"
-        "  FROM entries e"
+        "  FROM entries e INDEXED BY idx_entries_parent"
         "  JOIN subtree s ON e.volume_id=s.volume_id"
         "    AND e.parent_frn_low=s.frn_low AND e.parent_frn_high=s.frn_high"
         "    AND NOT (e.frn_low = e.parent_frn_low AND e.frn_high = e.parent_frn_high)"
@@ -2004,14 +2004,22 @@ bool StoreReadSession::ForEachEntryWithAsciiNameUntil(
             const bool stagedDelivery = gTestingStagedDelivery.load(std::memory_order_acquire);
             bool candidateRunOk = true;
             {
+                // Plan pin (same rationale as the Stage-2 pre-count): drive
+                // from the FTS postings UNION the tiny side-set, then probe
+                // the map's term_rowid key and the entries primary key. The
+                // implicit-join form lets SQLite drive from the volume's
+                // entries and costs O(volume rows) per query whenever the
+                // planner's row estimates are unfavorable -- measured as the
+                // eligible-class latency floor appearing on statistics-free
+                // databases (analyze-maintenance-scheduling campaign).
                 Statement candidates(db_,
                     "SELECT e.frn_low, e.frn_high, e.parent_frn_low, e.parent_frn_high, e.name, e.size_bytes, "
                     "e.allocated_size_bytes, e.creation_time, e.last_modified_time, e.last_access_time, e.attributes "
-                    "FROM entries e JOIN entry_name_index_map m "
-                    "ON m.volume_id=e.volume_id AND m.frn_low=e.frn_low AND m.frn_high=e.frn_high "
-                    "WHERE e.volume_id=?1 AND m.term_rowid IN ("
-                    "  SELECT rowid FROM entry_name_terms WHERE entry_name_terms MATCH ?2"
-                    "  UNION SELECT term_rowid FROM entry_name_exceptions);");
+                    "FROM (SELECT rowid AS rid FROM entry_name_terms WHERE entry_name_terms MATCH ?2"
+                    " UNION SELECT term_rowid FROM entry_name_exceptions) t"
+                    " CROSS JOIN entry_name_index_map m ON m.term_rowid = t.rid"
+                    " CROSS JOIN entries e ON e.volume_id=m.volume_id AND e.frn_low=m.frn_low AND e.frn_high=m.frn_high"
+                    " WHERE e.volume_id=?1;");
                 if (!candidates.Valid()) {
                     candidateRunOk = false;
                 } else {

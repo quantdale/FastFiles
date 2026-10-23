@@ -973,33 +973,41 @@ DatasetResult::ContentionResult RunContentionProbe(ffengine::IndexPipeline& pipe
     ffprotocol::IndexedSearchResponse secondResponse;
 
     std::thread ingestion([&] {
+        if (detailedDiagnostics) std::printf("  [diag] ingestion enter\n"); std::fflush(stdout);
         const auto start = Clock::now();
         ingestionSucceeded = pipeline.ApplyMftBatch(volumeId, {
             MakeMftRecord(10'000'000 + static_cast<uint64_t>(scale), 5,
                           L"contention_writer.txt", 0, 7, 777),
         });
         ingestionMs = ElapsedMs(start);
+        if (detailedDiagnostics) std::printf("  [diag] ingestion done\n"); std::fflush(stdout);
         ingestionDone.store(true, std::memory_order_release);
     });
     std::thread aggregate([&] {
+        if (detailedDiagnostics) std::printf("  [diag] aggregate enter\n"); std::fflush(stdout);
         const auto start = Clock::now();
         (void)pipeline.GetFolderAggregate(volumeId, ffindexstore::FileId{5, 0});
         aggregateMs = ElapsedMs(start);
+        if (detailedDiagnostics) std::printf("  [diag] aggregate done %.1f ms\n", aggregateMs); std::fflush(stdout);
         aggregateDone.store(true, std::memory_order_release);
     });
     std::thread snapshot([&] {
+        if (detailedDiagnostics) std::printf("  [diag] snapshot enter\n"); std::fflush(stdout);
         const auto start = Clock::now();
         (void)pipeline.ExportDirectorySnapshot(volumeId, L"C:");
         snapshotMs = ElapsedMs(start);
+        if (detailedDiagnostics) std::printf("  [diag] snapshot done %.1f ms\n", snapshotMs); std::fflush(stdout);
         snapshotDone.store(true, std::memory_order_release);
     });
     std::thread secondSearch([&] {
+        if (detailedDiagnostics) std::printf("  [diag] secondSearch enter\n"); std::fflush(stdout);
         ffprotocol::IndexedSearchRequest request = firstRequest;
         request.requestId += 1;
         request.query = L"report";
         const auto start = Clock::now();
         secondResponse = pipeline.SearchIndexed(request);
         secondSearchMs = ElapsedMs(start);
+        if (detailedDiagnostics) std::printf("  [diag] secondSearch done %.1f ms\n", secondSearchMs); std::fflush(stdout);
         secondSearchDone.store(true, std::memory_order_release);
     });
 
@@ -1017,16 +1025,22 @@ DatasetResult::ContentionResult RunContentionProbe(ffengine::IndexPipeline& pipe
     const bool snapshotFinishedWhileHeld = snapshotDone.load(std::memory_order_acquire);
     const bool secondSearchFinishedWhileHeld = secondSearchDone.load(std::memory_order_acquire);
 
+    if (detailedDiagnostics) std::printf("  [diag-contention] deadline passed; releasing\n"); std::fflush(stdout);
     cancelFirst.store(true, std::memory_order_release);
     const auto cancellationStart = Clock::now();
     coldStreamBarrier.Release();
     firstSearch.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] firstSearch joined\n"); std::fflush(stdout);
     result.cancellationMs = ElapsedMs(cancellationStart);
     result.cancelledSearch = firstResponse.status == ffprotocol::IndexedSearchStatus::Cancelled;
     ingestion.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] ingestion joined\n"); std::fflush(stdout);
     aggregate.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] aggregate joined\n"); std::fflush(stdout);
     snapshot.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] snapshot joined\n"); std::fflush(stdout);
     secondSearch.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] secondSearch joined\n"); std::fflush(stdout);
     pipeline.SetSearchTestHooks({});
 
     result.ingestionCompletedWhileHeld = ingestionFinishedWhileHeld && ingestionSucceeded;
