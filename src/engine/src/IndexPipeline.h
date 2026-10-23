@@ -454,11 +454,14 @@ private:
     // than risk dropping a record whose inclusion is genuinely undecided).
     bool IsEntryIncludedLocked(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId frn);
 
-    // address-engineering-audit-findings 5.1: keep planner statistics fresh
-    // without adding ANALYZE work to every small journal update. The counter
-    // is retained when ANALYZE fails so a later ingestion batch retries it.
+    // analyze-maintenance-scheduling: keep planner statistics fresh without
+    // any ANALYZE work in the ingestion path (the historical per-batch trigger
+    // made sustained bulk ingestion quadratic). Ingestion accumulates the
+    // refresh debt; RunStoreMaintenance runs ANALYZE once the threshold is
+    // reached and RETAINS the debt when ANALYZE fails so a later pass retries.
     static constexpr uint64_t kAnalyzeRecordThreshold = 10'000;
-    void MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount);
+    void NoteBulkInsertForPlannerStatsLocked(size_t recordCount);
+    void FlushPendingPlannerStatsLocked();
     void MaybeReportProjectionMemoryPressureLocked();
     uint64_t recordsSinceAnalyze_ = 0;
     bool projectionMemoryWarningIssued_ = false;

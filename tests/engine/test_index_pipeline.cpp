@@ -138,16 +138,23 @@ ffprotocol::IndexedSearchResponse SearchForName(IndexPipeline& pipeline, uint64_
     return pipeline.SearchIndexed(request);
 }
 
-void TestBulkInsertTriggersAnalyzeAtTenThousandRecords() {
+// analyze-maintenance-scheduling: sustained bulk ingestion must NOT run a
+// full-database ANALYZE per batch (the historical 10k-threshold remainder
+// bookkeeping ran ANALYZE on ~6 of every 7 batches with 8,192-row wire
+// batches -- O(n^2) over a large ingest; the 5M collapse). Planner
+// statistics are refreshed at maintenance cadence instead, gated by the
+// same threshold (no stats before 10,000 records -- preserved).
+void TestBulkIngestionDefersAnalyzeToMaintenance() {
     const std::string dbPath = FreshDbPath("engine_test_analyze_threshold.db");
     IndexPipeline pipeline;
-    Check(pipeline.Open(dbPath), "the pipeline opens for ANALYZE threshold validation");
+    Check(pipeline.Open(dbPath), "the pipeline opens for ANALYZE scheduling validation");
     VolumeKey key;
     key.serialNumber = 1;
     const auto volume = pipeline.ResolveVolume(key);
 
-    const auto applyBatches = [&](ffindexstore::VolumeRowId targetVolume, uint64_t firstId, size_t batchCount,
-                                  size_t recordsPerBatch, const std::u16string& name) {
+    const auto applyBatches = [](IndexPipeline& targetPipeline, ffindexstore::VolumeRowId targetVolume,
+                                  uint64_t firstId, size_t batchCount, size_t recordsPerBatch,
+                                  const std::u16string& name) {
         for (size_t batchIndex = 0; batchIndex < batchCount; ++batchIndex) {
             std::vector<ffprotocol::MftRecordV1> batch;
             batch.reserve(recordsPerBatch);
@@ -156,24 +163,44 @@ void TestBulkInsertTriggersAnalyzeAtTenThousandRecords() {
                 const uint64_t id = firstId;
                 batch.push_back(MakeMftRecord(id, id, name, 0, offset));
             }
-            if (!pipeline.ApplyMftBatch(targetVolume, batch)) {
+            if (!targetPipeline.ApplyMftBatch(targetVolume, batch)) {
                 return false;
             }
         }
         return true;
     };
 
-    Check(applyBatches(volume, 1'000, 1, 9'999, u"entry"),
-          "9,999 records apply in one ingestion batch");
+    // 4 batches x 5,000 rows = 20,000 records: the threshold is crossed
+    // three times over, yet no ANALYZE may run inside the ingestion path.
+    Check(applyBatches(pipeline, volume, 1'000, 4, 5'000, u"entry"),
+          "20,000 records apply across four ingestion batches");
     pipeline.Close();
-    Check(!HasSqlitePlannerStats(dbPath), "ANALYZE is not triggered before 10,000 inserted records");
+    Check(!HasSqlitePlannerStats(dbPath),
+          "sustained bulk ingestion does not run per-batch ANALYZE (deferred to maintenance)");
 
-    Check(pipeline.Open(dbPath), "the pipeline reopens for the threshold-crossing batches");
+    // Fresh ingest crossing the threshold, then the maintenance pass the
+    // scheduler would run (same process -- the production cadence).
+    Check(pipeline.Open(dbPath), "the pipeline reopens for the deferred refresh");
     const auto reopenedVolume = pipeline.ResolveVolume(key);
-    Check(applyBatches(reopenedVolume, 20'000, 1, 10'000, u"threshold"),
-          "10,000 records apply in one ingestion batch");
+    Check(applyBatches(pipeline, reopenedVolume, 30'000, 4, 5'000, u"entry"),
+          "a further 20,000 records apply across four ingestion batches");
+    pipeline.RunStoreMaintenance();
     pipeline.Close();
-    Check(HasSqlitePlannerStats(dbPath), "ANALYZE creates planner statistics at 10,000 inserted records");
+    Check(HasSqlitePlannerStats(dbPath),
+          "maintenance refreshes planner statistics once the threshold accumulated");
+
+    // Threshold semantics preserved: below-threshold ingestion still does not
+    // create planner statistics, even across maintenance.
+    const std::string smallDbPath = FreshDbPath("engine_test_analyze_threshold_small.db");
+    IndexPipeline smallPipeline;
+    Check(smallPipeline.Open(smallDbPath), "the pipeline opens for the below-threshold case");
+    const auto smallVolume = smallPipeline.ResolveVolume(key);
+    Check(applyBatches(smallPipeline, smallVolume, 1'000, 1, 9'999, u"entry"),
+          "9,999 records apply in one ingestion batch");
+    smallPipeline.RunStoreMaintenance();
+    smallPipeline.Close();
+    Check(!HasSqlitePlannerStats(smallDbPath),
+          "ANALYZE is not triggered before 10,000 inserted records");
 }
 
 void TestVolumeResolutionIsStable() {
@@ -2503,7 +2530,7 @@ void TestEnforcementEvictionAdvancesQueryVisibleEpochs() {
 
 int main() {
 
-    TestBulkInsertTriggersAnalyzeAtTenThousandRecords();
+    TestBulkIngestionDefersAnalyzeToMaintenance();
     TestVolumeResolutionIsStable();
     TestApplyMftBatchAndExportSnapshot();
     TestMftV2BatchIngestsAllocatedSizeAndExportsToSnapshot();

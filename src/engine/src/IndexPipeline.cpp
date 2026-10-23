@@ -525,6 +525,7 @@ void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHo
     }
     store_.CheckpointPassive();
     store_.CheckpointIfWalExceeds(kWalForceCheckpointThresholdBytes);
+    FlushPendingPlannerStatsLocked();
     if (userIdle) {
         const uint64_t nowEpochSeconds = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count());
@@ -533,27 +534,33 @@ void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHo
     RecordMetadataOnlyUpdateLocked();
 }
 
-void IndexPipeline::MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount) {
+void IndexPipeline::NoteBulkInsertForPlannerStatsLocked(size_t recordCount) {
     if (recordCount == 0) {
         return;
     }
+    // analyze-maintenance-scheduling: ingestion only ACCUMULATES the pending
+    // statistics-refresh debt. Running ANALYZE here made sustained bulk
+    // ingestion quadratic (a full-database ANALYZE on ~6 of every 7 batches
+    // with 8,192-row wire batches -- the 5M ingestion collapse); the refresh
+    // runs at maintenance cadence instead (RunStoreMaintenance), gated by the
+    // same threshold. address-engineering-audit-findings 5.1: the counter is
+    // retained when ANALYZE fails so a later maintenance pass retries it.
     const uint64_t count = static_cast<uint64_t>(recordCount);
     if (recordsSinceAnalyze_ > std::numeric_limits<uint64_t>::max() - count) {
         recordsSinceAnalyze_ = kAnalyzeRecordThreshold;
     } else {
         recordsSinceAnalyze_ += count;
     }
+}
+
+void IndexPipeline::FlushPendingPlannerStatsLocked() {
     if (recordsSinceAnalyze_ < kAnalyzeRecordThreshold) {
         return;
     }
-    // address-engineering-audit-findings 5.1: ANALYZE runs only after the
-    // durable batch commits. A failed maintenance operation never makes an
-    // already-committed ingestion look failed; retaining the threshold makes
-    // the next batch retry the statistics refresh.
     if (store_.Analyze()) {
-        recordsSinceAnalyze_ %= kAnalyzeRecordThreshold;
+        recordsSinceAnalyze_ = 0;
+        RecordMetadataOnlyUpdateLocked();
     }
-    RecordMetadataOnlyUpdateLocked();
 }
 
 void IndexPipeline::MaybeReportProjectionMemoryPressureLocked() {
@@ -732,7 +739,7 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
     if (!store_.ApplyBatch(volumeId, changes)) {
         return false;
     }
-    MaybeAnalyzeAfterBulkInsertLocked(changes.size());
+    NoteBulkInsertForPlannerStatsLocked(changes.size());
     for (const auto& change : changes) {
         projection_.Upsert(volumeId, change.record);
     }
@@ -862,7 +869,7 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
             ++upsertCount;
         }
     }
-    MaybeAnalyzeAfterBulkInsertLocked(upsertCount);
+    NoteBulkInsertForPlannerStatsLocked(upsertCount);
     for (const auto& change : changes) {
         if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
             projection_.UpsertPartial(volumeId, change.record, change.fields);
