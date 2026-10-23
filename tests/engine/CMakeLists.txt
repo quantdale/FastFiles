@@ -281,6 +281,19 @@ add_dependencies(ffengine_bench_identity_ordering_oracle fastfiles_build_identit
 add_test(NAME ffengine_identity_ordering_oracle_self_tests
   COMMAND ffengine_bench_identity_ordering_oracle --self-test)
 
+# Diagnostic profile of the exact production ingestion fixture, with per-batch
+# stage timing compiled out of every other target (including the engine).
+add_executable(ffengine_bench_ingestion_profile
+  bench_ingestion_profile.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+)
+target_compile_definitions(ffengine_bench_ingestion_profile PRIVATE FF_INGESTION_PROFILE=1)
+target_include_directories(ffengine_bench_ingestion_profile PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_bench_ingestion_profile PRIVATE ffindexstore ffprotocol ffsearch ffsetup psapi Rpcrt4 Shell32 Ole32)
+add_dependencies(ffengine_bench_ingestion_profile fastfiles_build_identity)
+
 # Informational only: compares bounded secondary filename-index candidates
 # against the canonical matcher. It is intentionally not registered with
 # CTest because its scales are selected for engineering evidence, not a

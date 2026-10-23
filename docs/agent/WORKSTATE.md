@@ -1,6 +1,15 @@
 # Fast Files — Agent Workstate
 
-## Current resume checkpoint — acceptance resume: oracle v1 INVALIDATED; route-asserting canonical oracle v2 in validation
+## Current resume checkpoint — 5M cliff ROOT CAUSE ISOLATED: projection enforcement, fallback fixed red-first; final-candidate remeasurement/certification next
+
+- `0dba633` clean gates: Debug 129/129, release-test 129/129; Analyze clean; local parity 11/11 incl ASan4/4, strict OpenSpec, governance/hygiene. These are commit-bound historical gates, NOT certification of subsequent projection changes.
+- Oracle v2 (exploratory build) passes 5M 12 established classes + cancellation, comparing exact identities/order/caps against an asserted full 5M-row canonical scan; 200k extended23/23. V1 is invalidated. `evidence/exact-order-oracle.md` records scope and unexecuted cells. Clean final-SHA rerun pending.
+- The clean 5M ingestion at `0dba633` disproved ANALYZE-as-whole-cause: cliff repeats at 3.1M, stopped at900s. New diagnostic-only `ffengine_bench_ingestion_profile` reuses EXACT fixture: after cliff, store ~0.17s/batch, projection upsert ~0.03s, enforcement ~12.8s; eight tiny evictions+whole-projection compactions per batch fail to shrink below watermark. Dominant cliff stage is PROVEN, not FTS. `Projection::EnforceMemoryLimit` now falls back to whole-volume cold eviction AFTER eight unsuccessful fine-grained passes. Default budget unchanged. Tiny-victim test RED (budget assertion), GREEN + projection/pipeline/concurrency suites. Instrumented5M completes136.262s, final projection estimate234.2MB. See `evidence/ingestion-memory-cliff.md`.
+- Partial reconciliation failure test verified committed-prefix semantics: failure at operation5501 leaves5000 removals committed, faulted chunk rolled back, 7000 projected children remain, epoch advances, obligation retained, retry converges.
+- Final independent review remains BLOCKED by provider402 quota exhaustion (three failed lanes, no verdicts); no alternate provider/billing mutation. PR16 separate UI fix open/pushed, Gallery20/20x2 on that branch; PR15 still unintegrated Gallery dependency. PR14/main untouched.
+- NEXT EXACT ACTION: commit current diagnostic+projection slice; build clean release-test; ordinary uninstrumented5M ingestion and entries-only5M arm; clean5M oracle; clean5M migration/recovery; repeated200k/1M cells; rerun final local ladder after last executable change; reconcile claims/tasks/lifecycle; commit/push existing PR15 branch normally, inspect hosted once. Do not auto-merge or call review complete.
+
+## Historical checkpoint — acceptance resume: oracle v1 INVALIDATED; route-asserting canonical oracle v2 in validation
 
 - Git reconciliation: PR #15 worktree at `0019b37` (remote still `b68767a`), seven campaign commits local; PR #14 remains `d3884eec`, clean and untouched. PR #16 UI-only fix `e75a230` is pushed/open, separate from PR #15; Gallery 20/20 x2 reported on that branch, not on PR #15. Derive live refs on resume.
 - Completed implementation slices since the prior checkpoint: migration policy/tests (`3e081f5`); ANALYZE deferral (`13a35c4`) plus candidate-stream/recursive-CTE plan pins (`898d954`); evidence (`dc08c35`); chunked reconciliation removal (`86e48c3`); initial oracle (`0019b37`). Focused suites reported green; full final certification NOT YET RUN.

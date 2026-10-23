@@ -213,8 +213,10 @@ public:
     // O(N) operation for every record.
     // large-index-lifecycle-and-search-scalability review-lane D P2-1/P1-1:
     // enforcement loops with bounded passes until the low watermark is
-    // reached or no pass makes progress (a single pass could free one small
-    // victim per batch boundary in flat corpora and never converge). Returns
+    // reached or no pass makes progress. If these fine-grained passes cannot
+    // reach the watermark, whole-volume cold eviction restores the budget
+    // instead of repeating tiny victims/full compactions on every batch.
+    // The durable store remains authoritative. Returns
     // true when at least one eviction pass ran: every eviction ends in
     // CompactStorage, which repacks ALL row slots and can cold-mark any
     // volume, so callers must treat that as a query-visible structural

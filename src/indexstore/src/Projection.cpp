@@ -499,6 +499,26 @@ bool Projection::EnforceMemoryLimit() {
         evictedAny = true;
         if (EstimatedMemoryBytes() >= before) break; // no progress guard
     }
+    // durable-cold-search-index-and-hybrid-residency: many tiny directories
+    // can consume all eight passes while ingestion adds more rows than those
+    // victims release. Repeating eight whole-projection compactions per batch
+    // caused the measured 3.1M-row cliff (12-13 seconds enforcement versus
+    // ~0.17 seconds durable write per 8,192 rows), and did NOT bound memory.
+    // Fall back to cold residency for the LRU victim's entire volume. Every
+    // iteration removes a whole volume, rather than one small subtree; the
+    // durable store and existing cold search remain authoritative. This
+    // sacrifices hot residency only after the fine-grained policy fails to
+    // reach its watermark; no memory-budget increase or data loss is needed.
+    while (EstimatedMemoryBytes() > lowWatermark) {
+        const auto victim = LeastRecentlyUsedEntry();
+        if (!victim.has_value()) break;
+        const size_t before = EstimatedMemoryBytes();
+        EvictVolume(victim->volumeRowId);
+        evictedAny = true;
+        lastEvictionBytesBefore_ = before;
+        lastEvictionBytesAfter_ = EstimatedMemoryBytes();
+        if (lastEvictionBytesAfter_ >= before) break;
+    }
     return evictedAny;
 }
 

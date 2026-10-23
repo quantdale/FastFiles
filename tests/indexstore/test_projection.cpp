@@ -1399,7 +1399,27 @@ void TestOversizedVolumeReloadFailsFastAndStaysCold() {
           "the failed reload is counted for diagnostics");
 }
 
+// durable-cold-search-index-and-hybrid-residency: eight tiny LRU victims
+// must not leave a large retained working set over budget indefinitely.
+void TestTinyVictimsCannotSustainAnOverBudgetProjection() {
+    Projection proj;
+    proj.SetMaximumMemoryBytes(64 * 1024);
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    for (uint64_t id = 100; id < 120; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"empty_directory", 0x10));
+    }
+    for (uint64_t id = 1000; id < 11000; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"row.txt", 0));
+    }
+    Check(proj.EstimatedMemoryBytes() > 64 * 1024, "tiny-victim fixture exceeds the budget");
+    Check(proj.EnforceMemoryLimitNow(), "tiny-victim enforcement evicts resident data");
+    Check(proj.EstimatedMemoryBytes() <= 64 * 1024,
+          "enforcement reaches the budget instead of repeating eight tiny compactions per batch");
+    Check(proj.NeedsReload(1), "whole-volume fallback marks the durable volume cold");
+}
+
 int main() {
+    TestTinyVictimsCannotSustainAnOverBudgetProjection();
     TestSiblingsDoNotDuplicateSharedAncestorPath();
     TestRepeatedNamesAcrossTreeShareOneInternedId();
     TestPathIsReconstructedOnDemand();

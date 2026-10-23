@@ -5,6 +5,9 @@
 #include <cwctype>
 #include <limits>
 #include <utility>
+#ifdef FF_INGESTION_PROFILE
+#include <cstdio>
+#endif
 
 #include "ffprotocol/Diagnostics.h"
 #include "ffsearch/Path.h"
@@ -736,13 +739,22 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
     std::lock_guard<std::mutex> lock(mutex_);
     // design.md D4: commit to the durable store first; the projection is
     // only touched once that commit has actually succeeded.
+#ifdef FF_INGESTION_PROFILE
+    const auto profileStart = std::chrono::steady_clock::now();
+#endif
     if (!store_.ApplyBatch(volumeId, changes)) {
         return false;
     }
+#ifdef FF_INGESTION_PROFILE
+    const auto profileStoreEnd = std::chrono::steady_clock::now();
+#endif
     NoteBulkInsertForPlannerStatsLocked(changes.size());
     for (const auto& change : changes) {
         projection_.Upsert(volumeId, change.record);
     }
+#ifdef FF_INGESTION_PROFILE
+    const auto profileProjectionEnd = std::chrono::steady_clock::now();
+#endif
     MaybeReportProjectionMemoryPressureLocked();
 
     // Optimization: fuse the two rule-evaluation passes and cache the
@@ -801,6 +813,9 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
     }
     // invoking it from Projection::Upsert turns a large volume scan into an
     // O(N) compaction storm once the bounded memory policy is reached.
+#ifdef FF_INGESTION_PROFILE
+    const auto profileEnforcementStart = std::chrono::steady_clock::now();
+#endif
     if (projection_.EnforceMemoryLimitNow()) {
         AdvanceResidencyEpochsForStructuralChangeLocked();
     }
@@ -808,6 +823,16 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
     if (!changes.empty()) {
         AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
     }
+#ifdef FF_INGESTION_PROFILE
+    const auto profileEnd = std::chrono::steady_clock::now();
+    const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    const auto memory = projection_.GetMemoryDiagnostics();
+    std::fprintf(stderr, "PROFILE rows=%zu store_ms=%.3f projection_ms=%.3f rules_ms=%.3f enforcement_ms=%.3f estimated=%zu evictions=%zu\n",
+        changes.size(), ms(profileStart, profileStoreEnd), ms(profileStoreEnd, profileProjectionEnd),
+        ms(profileProjectionEnd, profileEnforcementStart), ms(profileEnforcementStart, profileEnd),
+        memory.estimatedBytes, static_cast<size_t>(memory.subtreeEvictionCount));
+    std::fflush(stderr);
+#endif
     return true;
 }
 
