@@ -263,6 +263,20 @@ target_link_libraries(ffengine_bench_large_index_scalability PRIVATE ffindexstor
 # refresh the generated identity first or the report could claim a stale tree.
 add_dependencies(ffengine_bench_large_index_scalability fastfiles_build_identity)
 
+# durable-cold-search-index-and-hybrid-residency 4.1 exact differential oracle:
+# candidate-index results vs the readiness-gate-forced canonical stream,
+# compared as exact ordered sequences (identity/ordering/caps/truncation).
+# Informational/evidence tool, not a CTest gate (5M-scale runtime).
+add_executable(ffengine_bench_identity_ordering_oracle
+  bench_identity_ordering_oracle.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+)
+target_include_directories(ffengine_bench_identity_ordering_oracle PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_bench_identity_ordering_oracle PRIVATE ffindexstore ffprotocol ffsearch ffsetup sqlite3 psapi Rpcrt4 Shell32 Ole32)
+add_dependencies(ffengine_bench_identity_ordering_oracle fastfiles_build_identity)
+
 # Informational only: compares bounded secondary filename-index candidates
 # against the canonical matcher. It is intentionally not registered with
 # CTest because its scales are selected for engineering evidence, not a
