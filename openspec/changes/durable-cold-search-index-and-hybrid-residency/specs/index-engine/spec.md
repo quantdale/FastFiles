@@ -63,17 +63,40 @@ after an unclean shutdown.
   recorded at the last committed transaction or is rebuilt before use
 - **AND** no query observes candidates for rows that do not exist
 
-### Requirement: Schema migration and rollback shall be measured and reversible
+### Requirement: Schema migration shall be measured, with a fail-closed,
+data-preserving downgrade policy
 
 Any schema addition SHALL be versioned and additive, with a measured migration
-cost at 2M-5M rows, a documented rollback that loses no indexed data, and a
-rebuild-on-open fallback when migration is interrupted.
+cost at 2M-5M rows, a rebuild-on-open fallback when migration is interrupted,
+and a documented downgrade policy: **FAIL_CLOSED_DOWNGRADE**. A binary that
+does not understand the on-disk schema version SHALL refuse to open the
+database (no integrity failure recorded, no deletion performed), and all
+indexed entries SHALL remain intact. Reversal to the previous schema version
+SHALL be an operator-invoked, documented procedure that drops only derived
+candidate structures and resets the schema version marker, never rewriting
+the entries table; the procedure and its verification are recorded in the
+campaign evidence (`evidence/downgrade-policy.md`).
 
 #### Scenario: Interrupted migration
 
 - **WHEN** migration from the previous schema version is interrupted by a crash
 - **THEN** the store opens at the previous schema version with all entries
   intact and either resumes or rebuilds the candidate structure
+
+#### Scenario: Downgrade refusal (FAIL_CLOSED_DOWNGRADE)
+
+- **WHEN** a build whose understood schema version is older opens a database
+  written by a newer schema version
+- **THEN** the open fails closed with no integrity failure and zero deletion
+- **AND** all entries are readable once the newer binary is restored
+
+#### Scenario: Operator rollback to the previous schema version
+
+- **WHEN** an operator runs the documented rollback procedure (drop the
+  derived candidate structures; set the schema version marker to the previous
+  version) before reinstalling the previous release
+- **THEN** the previous release opens the database normally with every entry
+  intact, and the candidate index is rebuilt when the newer release returns
 
 ### Requirement: The durable index shall not raise the default memory budget
 

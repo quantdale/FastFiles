@@ -49,7 +49,7 @@ These constrain the design space and come from the completed
    durable generator.
 2. **Equivalence:** cold-with-index results byte-identical to hot results for
    all 12 query classes at 200k/1M/2M (and 5M for the selected candidate).
-3. **Migration:** v2 -> v3 cost at 2M-5M; rollback path; crash-consistency
+3. **Migration:** v2 -> v3 cost at 2M-5M; downgrade policy (FAIL_CLOSED_DOWNGRADE refusal + documented operator rollback of derived structures only); crash-consistency
    (kill-during-update recovery; index never disagrees with entries);
    rebuild-on-open as the fallback recovery.
 4. **Resources:** planner/index cache memory bounds; disk bytes per 1M rows;

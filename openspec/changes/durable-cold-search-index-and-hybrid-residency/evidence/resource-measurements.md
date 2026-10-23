@@ -27,9 +27,17 @@ is 124 MB/1M. Cross-check at 2M (full pipeline bench): database 147.2 MB ->
 | Policy | 1M peak |
 |---|---:|
 | Uncheckpointed (bench artifact) | 376 MB |
-| **Production policy (32 MiB threshold)** | **3.4 MB** |
+| **Checkpoint policy (bench 32 MiB literal)** | **3.4 MB** |
 
-WAL growth is bounded by the production checkpoint policy; the uncheckpointed
+CORRECTION (acceptance lane D): the production threshold is
+`kWalForceCheckpointThresholdBytes` = 4000*4096 = **15.6 MiB**
+(`IndexPipeline.cpp`, comment "~16 MB"); the 32 MiB figure above is a literal
+in `bench_candidate_index_resources.cpp`, not the production value. The
+production checkpoint cadence is RunStoreMaintenance (scheduler wake ~10 min
++ lifecycle events + 10-min idle), NOT per-batch; the remove/replace arms
+that produced the 960 MB worst case checkpointed only once per phase. See
+`lane-reports/acceptance-lanes/lane-D-wal-analysis.md`.
+WAL growth is bounded by the checkpoint policy; the uncheckpointed
 number is recorded to show why the policy matters. Per-batch WAL is bounded
 by the <=1 MiB wire batch; migration/rebuild runs in per-volume transactions
 (peak observed small at 1M; 2M/5M migration WAL remains a disclosed gap).
@@ -58,8 +66,11 @@ ingestion for 1123-1528x cold-query wins on the target classes.
 - v2->v3 migration (drop-simulation + rebuild): **11.2 s**
 - rebuild-on-open (fold-signature mismatch = host change): **23.7 s**
   (includes the one-time exhaustive host-fold probe in a cold process)
-- 2M/5M migration timing: **DISCLOSED GAP** (task 3.3's measurement half;
-  the mechanism is identical and per-volume-transaction bounded).
+- 2M/5M migration timing: **MEASURED** (2M 23.5 s; 5M 108-137 s over two
+  fresh-process runs, `evidence/artifacts/5m-migration-v2.json` — harness
+  identity `628de6d+dirty-harness`, disclosed in `downgrade-policy.md`;
+  clean-tip re-measurement is a final-ladder item). 5M migration WAL peak
+  remains a disclosed gap.
 
 ## Disposition
 

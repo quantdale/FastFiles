@@ -1143,6 +1143,125 @@ void TestCandidateIndexMigratesFromV2Database() {
     }
 }
 
+// durable-cold-search-index-and-hybrid-residency 3.3c downgrade-policy
+// evidence: a schema version the binary does not understand is REFUSED
+// fail-closed (the exact guard a v2-era binary hits against a v3 database:
+// `existingVersion != kCurrentSchemaVersion`), with no integrity failure
+// recorded and zero deletion, and the entries stay readable once the
+// understood version is restored. This backs the FAIL_CLOSED_DOWNGRADE
+// policy in specs/index-engine/spec.md.
+void TestUnknownSchemaVersionFailsClosedWithoutDataLoss() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_downgrade_refuse.db");
+    {
+        Store store;
+        Check(store.Open(dbPath), "downgrade test: store opens at v3");
+        const VolumeRowId vol = *store.GetOrCreateVolume(TestVolumeKey(7));
+        std::vector<EntryChange> batch;
+        for (int index = 0; index < 25; ++index) {
+            batch.push_back({EntryChangeKind::Upsert,
+                             MakeEntry(500 + static_cast<uint32_t>(index), 5, u"keep_me.txt")});
+        }
+        Check(store.ApplyBatch(vol, batch), "downgrade test: seed commits");
+        store.Close();
+    }
+    // Advance the version marker past the understood schema. This is the same
+    // refusal branch a v2-era application reaches when it meets user_version=3.
+    {
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite opens for the version bump");
+        Check(sqlite3_exec(raw, "PRAGMA user_version=4;", nullptr, nullptr, nullptr) == SQLITE_OK,
+              "schema marker advanced past the understood version");
+        sqlite3_close(raw);
+    }
+    {
+        Store refused;
+        bool integrityFailed = false;
+        Check(!refused.Open(dbPath, &integrityFailed),
+              "an unknown schema version is refused (fail-closed downgrade policy)");
+        Check(!integrityFailed,
+              "the refusal records no integrity failure (it is a policy refusal, not corruption)");
+        Check(refused.CountEntries(1) == 0, "the refused handle exposes no data");
+    }
+    // No deletion happened: every entry is still in the file.
+    {
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite verifies preservation");
+        sqlite3_stmt* stmt = nullptr;
+        Check(sqlite3_prepare_v2(raw, "SELECT COUNT(*) FROM entries;", -1, &stmt, nullptr) == SQLITE_OK,
+              "entries count query prepares");
+        Check(sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 25,
+              "FAIL_CLOSED_DOWNGRADE preserves every entry (nothing deleted on refusal)");
+        sqlite3_finalize(stmt);
+        Check(sqlite3_exec(raw, "PRAGMA user_version=3;", nullptr, nullptr, nullptr) == SQLITE_OK,
+              "schema marker restored to the understood version");
+        sqlite3_close(raw);
+    }
+    {
+        Store restored;
+        Check(restored.Open(dbPath), "the database reopens once the understood version is restored");
+        Check(restored.CountEntries(1) == 25, "all entries read back after restoration");
+    }
+}
+
+// 3.3c: the documented OPERATOR ROLLBACK procedure (drop only the derived
+// candidate structures; reset user_version; never rewrite entries) must be
+// lossless and must let the previous release's schema open the database --
+// and re-upgrading must rebuild the candidate index. This is the exact SQL
+// recorded in evidence/downgrade-policy.md (mirrors the in-tree simulation
+// at tests/indexstore/bench_store_open.cpp).
+void TestOperatorRollbackToV2IsLosslessAndRebuilds() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_operator_rollback.db");
+    {
+        Store store;
+        Check(store.Open(dbPath), "rollback test: store opens at v3");
+        const VolumeRowId vol = *store.GetOrCreateVolume(TestVolumeKey(8));
+        std::vector<EntryChange> batch;
+        for (int index = 0; index < 12; ++index) {
+            batch.push_back({EntryChangeKind::Upsert,
+                             MakeEntry(700 + static_cast<uint32_t>(index), 5, u"rollback_row.txt")});
+        }
+        Check(store.ApplyBatch(vol, batch), "rollback test: seed commits");
+        store.Close();
+    }
+    // Operator rollback to the previous schema version (documented procedure).
+    {
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite opens for rollback");
+        char* error = nullptr;
+        const bool rolledBack = sqlite3_exec(raw,
+            "DROP TABLE IF EXISTS entry_name_exceptions;"
+            "DROP TABLE IF EXISTS entry_name_index_meta;"
+            "DROP TABLE IF EXISTS entry_name_index_map;"
+            "DROP TABLE IF EXISTS entry_name_terms;"
+            "PRAGMA user_version=2;",
+            nullptr, nullptr, &error) == SQLITE_OK;
+        Check(rolledBack,
+              (std::string("operator rollback SQL applies: ") + (error ? error : "")).c_str());
+        sqlite3_stmt* stmt = nullptr;
+        Check(sqlite3_prepare_v2(raw, "SELECT COUNT(*) FROM entries;", -1, &stmt, nullptr) == SQLITE_OK,
+              "entries count query prepares after rollback");
+        Check(sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 12,
+              "operator rollback preserves every entry (derived structures only)");
+        sqlite3_finalize(stmt);
+        sqlite3_close(raw);
+    }
+    // Re-opening with the current binary migrates back and rebuilds the index.
+    {
+        Store store;
+        bool integrityFailed = false;
+        Check(store.Open(dbPath, &integrityFailed), "the rolled-back database reopens and re-migrates");
+        Check(!integrityFailed, "rollback + re-migration records no integrity failure");
+        Check(store.CountEntries(1) == 12, "every entry survives rollback and re-migration");
+        auto reader = store.OpenReadSession();
+        size_t streamed = 0;
+        Check(reader->ForEachEntryWithAsciiNameUntil(1, "rollback_row", [&](const EntryRecord&) {
+            ++streamed;
+            return true;
+        }), "the rebuilt candidate index streams after rollback + re-migration");
+        Check(streamed == 12, "the rebuilt candidate index finds every canonical match");
+    }
+}
+
 // 4.x: a candidate-maintenance failure inside ApplyBatch must roll back the
 // ENTIRE batch (entries and candidate structures together) -- the two must
 // never disagree after a committed (or aborted) transaction.
@@ -1345,6 +1464,8 @@ int main(int argc, char** argv) {
     TestCorruptDatabaseSetsIntegrityFailedFlag();
     TestSchemaV1MigrationIsIdempotentAfterPartialRun();
     TestCandidateIndexMigratesFromV2Database();
+    TestUnknownSchemaVersionFailsClosedWithoutDataLoss();
+    TestOperatorRollbackToV2IsLosslessAndRebuilds();
     TestCandidateMaintenanceFaultRollsBackWholeBatch();
     TestCandidateMaintenanceHardExitRecoversOnReopen();
     TestCandidateIndexRebuildsAfterTamper();

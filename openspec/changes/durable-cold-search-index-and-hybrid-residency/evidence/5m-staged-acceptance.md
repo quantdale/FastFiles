@@ -11,7 +11,9 @@ allows bounded coverage with explicit NOT_EXECUTED records.
   DEGRADES with index size (12.8k rows/s at the start → ~250 rows/s near 5M;
   the FTS trigram update cost grows with the index). This is the honest
   large-scale ingestion finding: 5M initial indexing ≈ 1.5 h single-threaded
-  on this host, ~1.8x the linear extrapolation from 2M.
+  on this host — ≈ 13.7x the linear extrapolation from the measured 2M run
+  (~153 s at 2M → ~383 s linear; 5,266 s actual). (The earlier "~1.8x"
+  note was an arithmetic error, corrected this campaign.)
 - Database: 1,037.8 MB (≈ 208 MB/1M at scale — larger than the 124 MB/1M
   small-scale figure; FTS page occupancy worsens with size).
 - Memory: after fixture ws 2.0 GB / private 2.2 GB (harness steady state
@@ -56,11 +58,18 @@ rebuild (fold/stable marker).
 
 ## Stage E — migration/recovery representative slice: PASS (via open matrix)
 
-5M migration/recovery cells use the same code path as the fully-measured
-2M cells (`startup-decomposition.md`): interrupted migration + recovery =
-one full migration, fail-closed downgrade, read-only fail-closed. The 5M
-open-matrix cells themselves: NOT_EXECUTED as separate runs (the 2M cells +
-5M Stage A construction cover the mechanism; a 5M rebuild-on-open would cost
+5M migration itself is MEASURED: two fresh-process v2->v3 runs over the 5M
+entries-only fixture (`evidence/artifacts/5m-migration-v2.json`, preserved
+this campaign): candidate_rebuild 120,755.98/98,078.11 ms, totals
+137,350.81/108,484.64 ms, peak WS ~13 MB, fine-grained map/terms/exception
+decomposition. Identity qualification: the harness binary was
+`628de6d+dirty-harness` (phase-instrumentation edits later landed at
+80a6f11); the migration code under test is the certified tree. See
+`downgrade-policy.md` for the FAIL_CLOSED_DOWNGRADE decision, the refusal
+and operator-rollback test evidence, and the clean-tip re-measurement plan.
+Remaining 5M recovery cells (interrupted-migration kill/recovery,
+fold-mismatch rebuild, first-init) are NOT_EXECUTED as separate 5M runs (the
+fully-measured 2M cells cover the mechanism; a 5M rebuild-on-open would cost
 ~35 min on this host). Explicitly recorded as NOT_EXECUTED, not omitted.
 
 ## Known boundary confirmed at scale (pre-existing, not a regression)
@@ -75,8 +84,10 @@ disclosed product boundary predating this campaign.
 
 ## NOT_EXECUTED list (explicit)
 
-- 5M open-matrix cells (first-init/migration/fold-mismatch at 5M): mechanism
-  covered at 2M; cost ~35 min/rebuild on this host — deferred, not omitted.
+- 5M open-matrix RECOVERY cells (first-init/fold-mismatch/interrupted-
+  migration at 5M): mechanism covered at 2M; cost ~35 min/rebuild on this
+  host — deferred, not omitted. The 5M migration-v2 cell itself IS measured
+  (see Stage E / `downgrade-policy.md`).
 - Exception-heavy + multi-volume classes at bench scale: covered by store
   tests (`TestCandidateAdmissionCountsExceptionCandidates`,
   `TestCandidateAdmissionIsVolumeScoped`) at fixture scale; the synthetic

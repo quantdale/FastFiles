@@ -69,9 +69,11 @@ record per alternative:
 4. **Schema migration and rollback.** Any schema v3 must be additive and
    versioned: migration cost at 2M-5M rows, crash-consistent index updates
    (the index must never disagree with the entries table after a crash —
-   transactional coupling or rebuild-on-open), rollback to v2 with no data
-   loss, and disk-size tradeoffs (measured index bytes per 1M rows per
-   alternative).
+   transactional coupling or rebuild-on-open), a documented,
+   data-preserving downgrade policy (FAIL_CLOSED_DOWNGRADE refusal +
+   operator-invoked rollback that drops only derived structures — never an
+   automatic in-binary downgrade, which is not supported), and disk-size
+   tradeoffs (measured index bytes per 1M rows per alternative).
 5. **Bounded memory footprint.** The durable index is a disk structure, but
    caches/planners built on it must stay within documented bounds; no
    alternative may silently raise the default 500 MiB projection budget.
@@ -105,7 +107,8 @@ cold, machine-readable artifacts with embedded identity):
   UI change is implied.
 - **Risk:** schema migration on multi-million-row user indexes is the
   highest-risk operation this product would yet ship; crash-consistency and
-  rollback are mandatory acceptance items, not stretch goals.
+  a data-preserving downgrade policy (fail-closed refusal + documented
+  operator rollback) are mandatory acceptance items, not stretch goals.
 - **Non-goals:** raising default memory consumption; changing canonical match
   semantics; hot-path redesign; any change to the certified PR #14 behavior.
 - **Relationship to PR #14:** none — PR #14 remains a self-contained,
