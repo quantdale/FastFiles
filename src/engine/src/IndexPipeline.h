@@ -199,6 +199,7 @@ public:
     void SetSecondaryPruningFaultInjector(SecondaryPruningFaultInjector injector);
 #endif
     ReadPlaneDiagnostics GetReadPlaneDiagnostics() const noexcept;
+    ffindexstore::Store::CheckpointDiagnostics GetCheckpointDiagnostics() const;
 
     // task 1.6: scheduled WAL maintenance, intended to be called on a
     // low-frequency timer (the engine calls it from VolumeSessionManager's

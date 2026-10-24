@@ -1255,6 +1255,70 @@ void TestDuplicateTerminalsWithoutScanInFlightAreRefused() {
 // batch failed to apply has a guaranteed coverage hole at the frozen
 // cursor; its later ScanComplete must not mark the volume indexed. The
 // volume must still be markable by a subsequent clean scan.
+uint64_t CurrentFileTimeForTest();
+
+void TestDeferredReconciliationSurvivesFinalizationFailure() {
+    using namespace std::chrono_literals;
+    for (const bool failTimestamp : {false, true}) {
+        ffengine::IndexPipeline pipeline;
+        const auto path = FreshDbPath(failTimestamp ? "engine_finalize_timestamp.db" : "engine_finalize_deferred.db");
+        Check(pipeline.Open(path), "metadata-finalization fixture opens");
+        ffindexstore::VolumeKey key;
+        key.serialNumber = failTimestamp ? 1764 : 1763;
+        const auto volume = pipeline.ResolveVolume(key);
+        Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(5, 5, u"", 0x10, 0)}), "metadata-finalization root commits");
+        Check(pipeline.SetScanCursor(volume, {1, 2, 3}), "metadata-finalization has a resumable initial cursor");
+        const auto previousTime = failTimestamp ? CurrentFileTimeForTest() : 0;
+        if (failTimestamp) {
+            Check(pipeline.MarkScanComplete(volume), "timestamp fixture has previous initial authority");
+            Check(pipeline.SetLastReconciliationTime(volume, previousTime), "timestamp fixture has prior cadence value");
+            pipeline.BeginReconciliationPass(volume);
+            Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(5, 5, u"", 0x10, 0)}), "timestamp fixture sees authoritative root");
+        }
+        ffengine::PrivilegedConnection connection;
+        ffengine::VolumeSessionManager manager(pipeline, connection);
+        auto capture = CreatePipeCapture();
+        Check(capture != nullptr, "metadata-finalization capture pipe opens");
+        if (!capture) return;
+        AttachCaptureServer(connection, *capture);
+        AddSession(manager, volume);
+        auto& session = manager.sessionsByEphemeralId_.at(7);
+        session.scanInProgress = true;
+        session.reconciliationScan = failTimestamp;
+        session.deferredReconciliation = !failTimestamp;
+        connection.state_ = ffengine::ConnectionState::Active;
+        connection.negotiatedMajor_ = 2;
+        connection.negotiatedMinor_ = 2;
+        manager.active_ = true;
+        manager.Start();
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(path.c_str(), &raw) == SQLITE_OK, "metadata-only fault connection opens");
+        const auto sql = failTimestamp ?
+            "CREATE TRIGGER fail_finalize BEFORE UPDATE OF last_reconciliation_time ON volumes BEGIN SELECT RAISE(ABORT,'test finalization'); END;" :
+            "CREATE TRIGGER fail_finalize BEFORE UPDATE OF scan_complete ON volumes BEGIN SELECT RAISE(ABORT,'test finalization'); END;";
+        Check(sqlite3_exec(raw, sql, nullptr, nullptr, nullptr) == SQLITE_OK, "trigger targets actual metadata finalization write");
+        connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+        {
+            std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+            const auto retry = manager.failedScanRetries_.find(7);
+            Check(retry != manager.failedScanRetries_.end() && retry->second.reconciliation,
+                  "finalization failure preserves strongest owed full reconciliation intent");
+            if (retry != manager.failedScanRetries_.end()) {
+                retry->second.due = std::chrono::steady_clock::now() - 1ms;
+                ++manager.scanRetryGeneration_;
+            }
+        }
+        Check(pipeline.GetVolumeMetadata(volume)->lastReconciliationTime == previousTime,
+              "metadata failure does not advertise successful reconciliation time");
+        Check(sqlite3_exec(raw, "DROP TRIGGER fail_finalize;", nullptr, nullptr, nullptr) == SQLITE_OK, "transient metadata failure is removed");
+        sqlite3_close(raw);
+        manager.wakeCv_.notify_one();
+        const auto issued = ReadCapturedScanStartWithTimeout(capture->client, 2s);
+        Check(issued && issued->cursor.empty(), "real bounded retry scheduler issues cursor-free full rescan");
+        manager.Stop();
+    }
+}
+
 void TestReconciliationRemovalFailureRetainsRetryAuthority() {
     ffengine::IndexPipeline pipeline;
     const auto path = FreshDbPath("engine_reconciliation_removal_retry.db");
@@ -3469,6 +3533,7 @@ int main() {
     TestDisableTransfersOwnedRetryToDurableFloor();
     TestDisappearanceTransfersOwnedRetryToDurableFloor();
     TestDuplicateTerminalsWithoutScanInFlightAreRefused();
+    TestDeferredReconciliationSurvivesFinalizationFailure();
     TestReconciliationRemovalFailureRetainsRetryAuthority();
     TestBatchFailedScanCompletionIsNotAuthoritative();
     TestPausedCompletionIsNotAuthoritative();

@@ -14,6 +14,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -82,13 +83,13 @@ uint64_t PrivateBytes() {
 struct WalWatcher {
     std::wstring walPath;
     uint64_t peak = 0;
-    bool stop = false;
+    std::atomic<bool> stop{false};
     std::thread thread;
 
     void Start(const std::wstring& dbPath) {
         walPath = dbPath + L"-wal";
         thread = std::thread([this]() {
-            while (!stop) {
+            while (!stop.load(std::memory_order_relaxed)) {
                 const uint64_t size = FileSize(walPath);
                 if (size > peak) peak = size;
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -96,7 +97,7 @@ struct WalWatcher {
         });
     }
     void Stop() {
-        stop = true;
+        stop.store(true, std::memory_order_relaxed);
         if (thread.joinable()) thread.join();
     }
     // durable-cold-search 5.7: every exit path must join the watcher thread
@@ -104,7 +105,13 @@ struct WalWatcher {
     ~WalWatcher() { Stop(); }
 };
 
+struct MaintenanceScope {
+    explicit MaintenanceScope(bool enabled) { ffindexstore::SetTestingCandidateMaintenanceDisabled(!enabled); }
+    ~MaintenanceScope() { ffindexstore::SetTestingCandidateMaintenanceDisabled(false); }
+};
+
 struct ArmResult {
+    bool completed = false;
     double ingestMs = 0.0;
     double rowsPerSec = 0.0;
     uint64_t walPeak = 0;
@@ -121,6 +128,7 @@ struct ArmResult {
 // projection-only 31-34x removal fix says nothing about the persistent
 // structures; this is the regression guard for them.
 struct LifecycleResult {
+    bool completed = false;
     double renameMs = 0.0;
     double massRemoveMs = 0.0;
     double reinsertMs = 0.0;
@@ -144,7 +152,7 @@ LifecycleResult RunLifecycleArm(const std::wstring& dbPath, size_t scale, bool m
     DeleteFileW((dbPath + L"-shm").c_str());
 
     LifecycleResult result;
-    ffindexstore::SetTestingCandidateMaintenanceDisabled(!maintenanceEnabled);
+    MaintenanceScope maintenance(maintenanceEnabled);
     {
         ffindexstore::Store store;
         if (!store.Open(ToUtf8(dbPath))) return result;
@@ -256,7 +264,7 @@ LifecycleResult RunLifecycleArm(const std::wstring& dbPath, size_t scale, bool m
         result.walPeak = watcher.peak;
         result.privatePeak = privatePeak;
     }
-    ffindexstore::SetTestingCandidateMaintenanceDisabled(false);
+    result.completed = true;
     result.dbBytesAfter = FileSize(dbPath);
     return result;
 }
@@ -267,11 +275,12 @@ ArmResult RunArm(const std::wstring& dbPath, size_t scale, bool maintenanceEnabl
     DeleteFileW((dbPath + L"-shm").c_str());
 
     ArmResult result;
-    ffindexstore::SetTestingCandidateMaintenanceDisabled(!maintenanceEnabled);
+    MaintenanceScope maintenance(maintenanceEnabled);
     {
         ffindexstore::Store store;
         if (!store.Open(ToUtf8(dbPath))) return result;
         const auto volume = store.GetOrCreateVolume(ffindexstore::VolumeKey{{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, 777});
+        if (!volume) return result;
         WalWatcher watcher;
         watcher.Start(dbPath);
         const uint64_t privateBefore = PrivateBytes();
@@ -293,12 +302,12 @@ ArmResult RunArm(const std::wstring& dbPath, size_t scale, bool maintenanceEnabl
             }
             if (!store.ApplyBatch(*volume, batch)) {
                 std::fprintf(stderr, "arm ingest failed at %zu\n", offset);
-                break;
+                return result;
             }
             // Mirror the production pipeline WAL policy (IndexPipeline calls
             // CheckpointIfWalExceeds at batch boundaries); without it the WAL
             // peak reflects an uncheckpointed bench, not production.
-            store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
+            if (!store.CheckpointIfWalExceeds(kWalCheckpointThresholdBytes)) return result;
             const uint64_t now = PrivateBytes();
             if (now > privatePeak) privatePeak = now;
         }
@@ -309,7 +318,7 @@ ArmResult RunArm(const std::wstring& dbPath, size_t scale, bool maintenanceEnabl
         result.walPeak = watcher.peak;
         result.privatePeak = privatePeak;
     }
-    ffindexstore::SetTestingCandidateMaintenanceDisabled(false);
+    result.completed = true;
     result.dbBytes = FileSize(dbPath);
     result.walBytes = FileSize(dbPath + L"-wal");
     return result;
@@ -333,33 +342,37 @@ int wmain(int argc, wchar_t** argv) {
         else { std::fwprintf(stderr, L"Unknown argument: %s\n", argument.c_str()); return 2; }
     }
 
+    if (scale == 0) return 2;
     const std::wstring onPath = outputPath + L".on.db";
     const std::wstring offPath = outputPath + L".off.db";
     std::printf("arm ON (candidate maintenance enabled)...\n");
     const ArmResult on = RunArm(onPath, scale, true);
     std::printf("arm OFF (entries only)...\n");
     const ArmResult off = RunArm(offPath, scale, false);
+    if (!on.completed || !off.completed) {
+        std::fprintf(stderr, "incomplete measurement; no successful artifact claimed\n");
+        return 1;
+    }
 
     // Migration timing: take the ON database, drop the v3 structures, and
     // time the open that rebuilds them (the v2->v3 migration shape).
     double migrationMs = 0.0;
     {
         sqlite3* raw = nullptr;
-        if (sqlite3_open16(onPath.c_str(), &raw) == SQLITE_OK) {
-            (void)sqlite3_exec(raw,
+        const bool prepared = sqlite3_open16(onPath.c_str(), &raw) == SQLITE_OK &&
+            sqlite3_exec(raw,
                 "DROP TABLE IF EXISTS entry_name_exceptions;"
                 "DROP TABLE IF EXISTS entry_name_index_map;"
                 "DROP TABLE IF EXISTS entry_name_index_meta;"
                 "DROP TABLE IF EXISTS entry_name_terms;"
-                "PRAGMA user_version=2;", nullptr, nullptr, nullptr);
-            sqlite3_close(raw);
-        }
+                "PRAGMA user_version=2;", nullptr, nullptr, nullptr) == SQLITE_OK;
+        sqlite3_close(raw);
+        if (!prepared) return 1;
         ffindexstore::Store store;
         const auto start = std::chrono::steady_clock::now();
-        if (store.Open(ToUtf8(onPath))) {
-            migrationMs = std::chrono::duration<double, std::milli>(
-                std::chrono::steady_clock::now() - start).count();
-        }
+        if (!store.Open(ToUtf8(onPath))) return 1;
+        migrationMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count();
     }
 
     // Rebuild-on-open timing: tamper the fold signature (host change) and
@@ -367,22 +380,22 @@ int wmain(int argc, wchar_t** argv) {
     double rebuildOnOpenMs = 0.0;
     {
         sqlite3* raw = nullptr;
-        if (sqlite3_open16(onPath.c_str(), &raw) == SQLITE_OK) {
-            (void)sqlite3_exec(raw, "UPDATE entry_name_index_meta SET fold_signature=-1;",
-                               nullptr, nullptr, nullptr);
-            sqlite3_close(raw);
-        }
+        const bool prepared = sqlite3_open16(onPath.c_str(), &raw) == SQLITE_OK &&
+            sqlite3_exec(raw, "UPDATE entry_name_index_meta SET fold_signature=-1;",
+                         nullptr, nullptr, nullptr) == SQLITE_OK;
+        sqlite3_close(raw);
+        if (!prepared) return 1;
         ffindexstore::Store store;
         const auto start = std::chrono::steady_clock::now();
-        if (store.Open(ToUtf8(onPath))) {
-            rebuildOnOpenMs = std::chrono::duration<double, std::milli>(
-                std::chrono::steady_clock::now() - start).count();
-        }
+        if (!store.Open(ToUtf8(onPath))) return 1;
+        rebuildOnOpenMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count();
     }
 
     FILE* out = nullptr;
     _wfopen_s(&out, outputPath.c_str(), L"wb");
-    if (out != nullptr) {
+    if (out == nullptr) return 1;
+    {
         std::fprintf(out,
             "{\"schema\":\"fastfiles-candidate-resources-v2\","
             "\"source_sha\":\"%s\",\"source_state\":\"%s\",\"scale\":%zu,"
@@ -410,6 +423,10 @@ int wmain(int argc, wchar_t** argv) {
                 std::printf("lifecycle arm %s...\n", maintenance ? "ON" : "OFF");
                 const LifecycleResult lifecycleResult =
                     RunLifecycleArm(maintenance ? onPath : offPath, scale, maintenance);
+                if (!lifecycleResult.completed) {
+                    std::fclose(out);
+                    return 1;
+                }
                 std::fprintf(out,
                     ",\"%s\":{\"rename_ms\":%.1f,\"mass_remove_ms\":%.1f,"
                     "\"reinsert_ms\":%.1f,\"forget_volume_ms\":%.1f,"
@@ -424,7 +441,9 @@ int wmain(int argc, wchar_t** argv) {
             std::fprintf(out, "}");
         }
         std::fprintf(out, "}\n");
-        std::fclose(out);
+        const bool outputFailed = std::ferror(out) != 0;
+        const int closeResult = std::fclose(out);
+        if (outputFailed || closeResult != 0) return 1;
     }
     std::printf("wrote %ls\n", outputPath.c_str());
     return 0;

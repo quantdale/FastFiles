@@ -34,7 +34,9 @@
 // performance-closure-and-multisurface-acceleration 8.1: benchmark-scoped
 // allocator probe. The replacement global operators are defined in this
 // translation unit only (FFBENCH_ALLOCATOR_PROBE_DEFINE).
+#ifndef FFBENCH_NO_ALLOCATOR_PROBE
 #define FFBENCH_ALLOCATOR_PROBE_DEFINE
+#endif
 #include "bench_allocator_probe.h"
 #include "ffsetup/BuildIdentity.h"
 
@@ -2406,6 +2408,11 @@ int wmain(int argc, wchar_t** argv) {
     output << ",\"command_line\":"; WriteJsonString(output, options.commandLine);
     output << ",\"generated_epoch_seconds\":" << static_cast<long long>(std::time(nullptr));
     output << ",\"candidate_index_version\":3";
+#ifdef FFBENCH_NO_ALLOCATOR_PROBE
+    output << ",\"allocator_probe_enabled\":false";
+#else
+    output << ",\"allocator_probe_enabled\":true";
+#endif
     output << ",\"fixture_generation\":\"deterministic index-derived names (no RNG seed)\"";
     output << ",\"projection_memory_budget_bytes\":" << (500ull * 1024ull * 1024ull);
     output << "},\n  \"machine\":";

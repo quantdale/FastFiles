@@ -108,6 +108,10 @@ void TestReaders(const std::filesystem::path& dir) {
         peak = (std::max)(peak, Bytes(path + "-wal"));
         const auto start = std::chrono::steady_clock::now();
         Check(!store.CheckpointIfWalExceeds(0), "RESTART reports busy rather than false completion under pinned reader");
+        const auto checkpoint = store.GetCheckpointDiagnostics();
+        Check(checkpoint.busyResults > 0 && checkpoint.lastResultCode == SQLITE_BUSY &&
+              checkpoint.logFrames > checkpoint.checkpointedFrames && checkpoint.restartAttempted,
+              "checkpoint diagnostics expose BUSY and pinned-frame backlog");
         Check(std::chrono::steady_clock::now() - start < std::chrono::seconds(2), "checkpoint failure is bounded, not a busy loop");
     }
     sqlite3* second = pin();
@@ -188,6 +192,9 @@ void TestFull(const std::filesystem::path& dir) {
     Fault::Disarm();
     ReportFault("checkpoint");
     Check(Fault::fired, "checkpoint failed actual database-file xWrite");
+    Check(store.GetCheckpointDiagnostics().lastResultCode == SQLITE_FULL &&
+          store.GetCheckpointDiagnostics().errorResults > 0,
+          "checkpoint FULL is retained in observable diagnostics");
     Check(store.CountEntries(*volume) == 2000, "checkpoint failure does not lose committed WAL entries");
     Check(store.CheckpointIfWalExceeds(0), "checkpoint retry succeeds after restoration");
     store.Close();
@@ -241,6 +248,30 @@ void TestCandidateRecoveryRegressions(const std::filesystem::path& dir) {
         Check(reader && reader->ForEachEntryWithAsciiNameUntil(*volume, "durable_hit", [&](const EntryRecord&) { ++found; return true; }),
               "recovered candidate query completes");
         Check(found == 1, "missing FTS table cannot produce successful false-negative search");
+    }
+    {
+        const auto path = (dir / "missing-table-interrupted-repair.db").string();
+        Store store;
+        Check(OpenCaptured(store, path), "interrupted missing-table fixture opens");
+        const auto volume = store.GetOrCreateVolume(VolumeKey{});
+        if (!volume) return;
+        Check(store.ApplyBatch(*volume, Rows(2, 1, u"durable_hit.txt")), "interrupted repair seed commits");
+        Check(Sql(Fault::capturedDb, "DROP TABLE entry_name_terms;"), "interrupted repair drops only FTS table");
+        store.Close();
+        Fault::onStatement = [](sqlite3*, const char* sql) {
+            if (sql && std::strcmp(sql, "DELETE FROM entry_name_index_map;") == 0) Fault::Arm(1, Fault::FileKind::Wal);
+        };
+        Fault::fired = false;
+        Fault::captureNext = true;
+        Check(!store.Open(path), "FULL interrupts missing-table clearing transaction");
+        Fault::onStatement = {};
+        Fault::Disarm();
+        Check(Fault::fired, "interrupted missing-table repair reaches actual failed WAL write");
+        Check(store.Open(path), "missing-table recovery retries after clearing rollback");
+        auto reader = store.OpenReadSession();
+        size_t found = 0;
+        Check(reader && reader->ForEachEntryWithAsciiNameUntil(*volume, "durable_hit", [&](const EntryRecord&) { ++found; return true; }) && found == 1,
+              "interrupted schema repair cannot leave empty terms certified ready");
     }
     {
         const auto path = (dir / "enumeration-interrupt.db").string();
@@ -307,6 +338,43 @@ ffprotocol::MftRecordV1 Mft(uint64_t id) {
     row.fixed.fileNameLengthChars = static_cast<uint16_t>(row.fileName.size());
     return row;
 }
+void TestChunkTwoFull(const std::filesystem::path& dir) {
+    const auto path = (dir / "chunk-two-full.db").string();
+    ffengine::IndexPipeline pipeline;
+    Fault::captureNext = true;
+    Check(pipeline.Open(path), "actual FULL chunk fixture opens");
+    const auto volume = pipeline.ResolveVolume(VolumeKey{});
+    std::vector<ffprotocol::MftRecordV1> seed{Mft(1)};
+    for (uint64_t id = 2; id < 12002; ++id) seed.push_back(Mft(id));
+    // Required exception side-set membership must be nonvacuous.
+    seed.back().fileName += u"\U0001f600";
+    seed.back().fixed.fileNameLengthChars = static_cast<uint16_t>(seed.back().fileName.size());
+    Check(pipeline.ApplyMftBatch(volume, seed), "actual FULL chunk seed commits including surrogate name");
+    Check(Scalar(Fault::capturedDb, "SELECT count(*) FROM entry_name_exceptions;") == 1,
+          "surrogate fixture requires one exception candidate");
+    pipeline.BeginReconciliationPass(volume);
+    Check(pipeline.ApplyMftBatch(volume, {Mft(1)}), "actual FULL rescan sees root only");
+    const auto epoch = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    int commits = 0;
+    Fault::onCommit = [&]() { if (++commits == 1) Fault::Arm(1, Fault::FileKind::Wal); };
+    pipeline.FinishReconciliationPass(volume);
+    Fault::onCommit = {};
+    Fault::Disarm();
+    Check(Fault::fired, "chunk-two failure comes from real SQLite WAL xWrite after committed prefix");
+    ReportFault("pipeline-chunk-two");
+    Check(pipeline.IsReconciliationPassActive(volume), "actual FULL retains reconciliation obligation");
+    const auto aggregate = pipeline.GetFolderAggregate(volume, {1, 0});
+    Check(aggregate && aggregate->itemCount == 7000, "actual FULL projection mirrors exactly 5000 committed removals");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epoch, "actual FULL committed prefix advances query epoch");
+    Check(Scalar(Fault::capturedDb, "SELECT count(*) FROM entry_name_exceptions;") == 1,
+          "unremoved surrogate retains required side-set membership before repair");
+    Verify(path, 7001);
+    pipeline.FinishReconciliationPass(volume);
+    Check(!pipeline.IsReconciliationPassActive(volume), "actual FULL remaining chunks converge on retry");
+    pipeline.Close();
+    Verify(path, 1);
+}
+
 int Child(const std::string& path, const std::wstring& eventName, int phase) {
     if (!Fault::Install()) return 11;
     HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName.c_str());
@@ -319,13 +387,21 @@ int Child(const std::string& path, const std::wstring& eventName, int phase) {
     pipeline.BeginReconciliationPass(volume);
     if (!pipeline.ApplyMftBatch(volume, {Mft(1)})) return 14;
     int commits = 0;
+    int walWritesInChunk = 0;
+    int checkpointWrites = 0;
     Fault::onCommit = [&]() {
         ++commits;
+        walWritesInChunk = 0;
         if ((phase == 2 && commits == 1) || (phase == 5 && commits == 3)) park();
     };
     Fault::onWrite = [&](bool wal, bool database) {
-        if ((phase == 1 && wal && commits == 0) || (phase == 3 && wal && commits == 1) ||
-            (phase == 4 && database)) park();
+        if (wal) ++walWritesInChunk;
+        if (database) ++checkpointWrites;
+        // Delegate earlier writes first: these are mid-write-sequence kills,
+        // not only deaths before SQLite writes any uncommitted data.
+        if ((phase == 1 && wal && commits == 0 && walWritesInChunk == 4) ||
+            (phase == 3 && wal && commits == 1 && walWritesInChunk == 4) ||
+            (phase == 4 && database && checkpointWrites == 2)) park();
     };
     // Force the production checkpoint threshold to be reached in this small
     // fixture without altering production constants: use long row names in
@@ -381,6 +457,14 @@ void TestCrash(const std::filesystem::path& dir) {
                     static_cast<long long>(expected), reached ? 1 : 0);
         if (!reached) continue;
         Verify(path.string(), expected);
+        sqlite3* identity = nullptr;
+        Check(sqlite3_open(path.string().c_str(), &identity) == SQLITE_OK, "crash identity probe opens");
+        Check(Scalar(identity, "SELECT count(*) FROM entries WHERE frn_low=1 AND frn_high=0 AND parent_frn_low=1 AND name='.' AND attributes=16;") == 1,
+              "surviving root has exact identity and metadata");
+        const auto unchangedName = "crash_removal.txt" + std::string(800, 'x');
+        const auto unchangedSql = "SELECT count(*) FROM entries WHERE frn_low!=1 AND (frn_high!=0 OR parent_frn_low!=1 OR size_bytes!=0 OR attributes!=0 OR name!='" + unchangedName + "');";
+        Check(Scalar(identity, unchangedSql.c_str()) == 0, "all unchanged crash rows retain original names and metadata");
+        sqlite3_close(identity);
         ffengine::IndexPipeline restarted;
         Check(restarted.Open(path.string()), "killed database reopens through real pipeline");
         const auto volume = restarted.ResolveVolume(VolumeKey{});
@@ -409,11 +493,18 @@ int wmain(int argc, wchar_t** argv) {
     if (!std::filesystem::create_directory(dir)) return 2;
     std::printf("OWNED_FIXTURE_DIRECTORY=%s\n", dir.string().c_str());
     Check(Fault::Install(), "test forwarding VFS installs");
-    TestReaders(dir);
-    TestFull(dir);
-    TestRebuildFull(dir);
-    TestCandidateRecoveryRegressions(dir);
-    TestCrash(dir);
+    const bool recoveryOnly = argc == 2 && std::wstring(argv[1]) == L"--recovery-only";
+    // Explicitly outside ordinary CTest/continuation scope. Historical crash
+    // code is retained, but is never dispatched by a default test invocation.
+    const bool crashAcceptance = argc == 2 && std::wstring(argv[1]) == L"--crash-acceptance";
+    if (!recoveryOnly && !crashAcceptance) {
+        TestReaders(dir);
+        TestFull(dir);
+        TestRebuildFull(dir);
+    }
+    if (!crashAcceptance) TestCandidateRecoveryRegressions(dir);
+    if (!recoveryOnly && !crashAcceptance) TestChunkTwoFull(dir);
+    if (crashAcceptance) TestCrash(dir);
     Fault::Uninstall();
     std::filesystem::remove_all(dir); // Only the uniquely created, owned directory.
     std::printf("OWNED_FIXTURE_CLEANED=1 failures=%d\n", FailureCount());

@@ -1049,9 +1049,10 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
             const auto session = sessionsByEphemeralId_.find(volumeId.value);
             const auto due = std::chrono::steady_clock::now() + kScanFailureRetryDelay;
             if (session != sessionsByEphemeralId_.end() && session->second.durableId == durableId) {
-                InstallNonAuthoritativeRetryLocked(volumeId.value, durableId, due, wasReconciliationScan);
+                InstallNonAuthoritativeRetryLocked(volumeId.value, durableId, due,
+                                                   wasReconciliationScan || deferred);
             } else {
-                MergeDurableFloorLocked(durableId, FailedScanRetry{due, wasReconciliationScan});
+                MergeDurableFloorLocked(durableId, FailedScanRetry{due, wasReconciliationScan || deferred});
             }
         }
         wakeCv_.notify_one();

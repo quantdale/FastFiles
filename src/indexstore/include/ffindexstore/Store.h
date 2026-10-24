@@ -199,10 +199,24 @@ public:
     // task 1.6: passive checkpoint, cheap and safe to call frequently
     // (e.g. on an idle timer); does not block writers.
     bool CheckpointPassive();
+    // durable-cold-search-index-and-hybrid-residency 4.2: preserve useful
+    // checkpoint outcomes even when maintenance callers cannot undo already
+    // committed writes. PASSIVE can return OK with frames still pinned.
+    struct CheckpointDiagnostics {
+        uint64_t sqliteCalls = 0;
+        uint64_t busyResults = 0;
+        uint64_t errorResults = 0;
+        int lastResultCode = 0;
+        int logFrames = -1;
+        int checkpointedFrames = -1;
+        bool restartAttempted = false;
+    };
+    CheckpointDiagnostics GetCheckpointDiagnostics() const noexcept { return checkpointDiagnostics_; }
     // Forces a full checkpoint if the WAL file has grown past
     // thresholdBytes -- the size-triggered forced checkpoint mitigation
     // for unbounded WAL growth under sustained write bursts (design.md
-    // "Risks"). Returns false only on an I/O/database error; a WAL file
+    // "Risks"). Returns false on SQLite errors, including BUSY when pinned
+    // readers prevent RESTART; a WAL file
     // under the threshold is a normal, successful no-op.
     bool CheckpointIfWalExceeds(uint64_t thresholdBytes);
     // address-engineering-audit-findings 5.1: refresh SQLite query-planner
@@ -304,12 +318,14 @@ public:
 private:
     friend class StoreReadSession;
     std::vector<VolumeMetadata> GetAllVolumesImpl(bool includeEntryCounts);
+    bool RunCheckpoint(int mode);
 
     sqlite3* db_ = nullptr;
     std::string dbPathUtf8_;
     uint64_t lastVacuumTimeSeconds_ = 0;
     uint64_t lastVacuumSizeBytes_ = 0;
     mutable int cachedPageSize_ = 0;
+    CheckpointDiagnostics checkpointDiagnostics_;
 };
 
 // A durable read snapshot owned by one query. Store itself deliberately stays

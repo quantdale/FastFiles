@@ -669,6 +669,76 @@ void TestProjectionEvictionInvalidatesCapturedCursorSafely() {
     pipeline.Close();
 }
 
+void TestAutomaticEvictionPreservesMixedVolumeSearchAndSnapshots() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_automatic_cold_transition.db")), "automatic-eviction pipeline opens");
+    ffindexstore::VolumeKey largeKey;
+    largeKey.serialNumber = 1916;
+    const auto large = pipeline.ResolveVolume(largeKey);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"Q:";
+    pipeline.SetVolumeRules(large, setting);
+    std::vector<ffprotocol::MftRecordV1> seed{MakeRecord(5, 5, u".", 0x10), MakeRecord(10, 5, u"automatic-old.txt")};
+    for (uint64_t id = 100; id < 120; ++id) seed.push_back(MakeRecord(id, 5, u"empty", 0x10));
+    Check(pipeline.ApplyMftBatch(large, seed), "large volume seeds tiny old directory victims");
+    ffindexstore::VolumeKey smallKey;
+    smallKey.serialNumber = 1917;
+    const auto small = pipeline.ResolveVolume(smallKey);
+    setting.key = L"R:";
+    pipeline.SetVolumeRules(small, setting);
+    Check(pipeline.ApplyMftBatch(small, {MakeRecord(5, 5, u".", 0x10), MakeRecord(10, 5, u"automatic-hot.txt")}),
+          "small newer hot volume commits");
+    pipeline.SetProjectionMemoryBudget(64 * 1024);
+    PhaseBarrier barrier;
+    std::atomic<bool> parked{false};
+    pipeline.SetSearchTestHooks({[&](const ffengine::IndexPipeline::SearchPhase phase) {
+        if (phase == ffengine::IndexPipeline::SearchPhase::WorkStarted && !parked.exchange(true)) barrier.ArriveAndWait();
+    }});
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 153;
+    request.scope = 3;
+    request.maxResults = 64;
+    request.query = L"automatic";
+    ffprotocol::IndexedSearchResponse response;
+    ffengine::IndexPipeline::SearchTimings timings;
+    std::thread search([&]() { response = pipeline.SearchIndexed(request, &timings); });
+    Check(barrier.WaitForArrival(), "search captures hot cursor before automatic enforcement");
+    std::vector<ffprotocol::MftRecordV1> pressure;
+    for (uint64_t id = 1000; id < 21000; ++id) pressure.push_back(MakeRecord(id, 5, u"bulk.txt"));
+    pressure.push_back(MakeRecord(999999, 5, u"automatic-new.txt"));
+    Check(pipeline.ApplyMftBatch(large, pressure), "ingestion forces actual fine-to-whole-volume fallback");
+    Check(pipeline.IsVolumeEvicted(large) && !pipeline.IsVolumeEvicted(small),
+          "automatic policy evicts large old volume while preserving small hot volume");
+    Check(pipeline.ExportDirectorySnapshotBounded(large, L"Q:", 4).empty() && pipeline.IsVolumeEvicted(large),
+          "oversized cold snapshot request returns no partial generation and stays cold");
+    const auto hotSnapshot = pipeline.ExportDirectorySnapshotBounded(small, L"R:", 4);
+    Check(hotSnapshot.size() == 1 && hotSnapshot.begin()->second.entries.size() == 1,
+          "surviving hot snapshot has exact child links after compaction");
+    barrier.Release();
+    search.join();
+    pipeline.SetSearchTestHooks({});
+    const auto exactResults = [&](const ffprotocol::IndexedSearchResponse& result) {
+        const auto has = [&](const ffindexstore::VolumeRowId volume, const uint64_t id, const std::wstring& name) {
+            return std::count_if(result.candidates.begin(), result.candidates.end(), [&](const auto& candidate) {
+                return candidate.volumeId == volume && candidate.id == id && candidate.parentId == 5 && candidate.name == name;
+            }) == 1;
+        };
+        return result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 3 &&
+               has(large, 10, L"automatic-old.txt") && has(large, 999999, L"automatic-new.txt") &&
+               has(small, 10, L"automatic-hot.txt");
+    };
+    Check(exactResults(response) && timings.generationRestarts >= 1,
+          "automatic eviction invalidates stale cursor and publishes exact mixed hot/cold result set");
+    for (int pass = 0; pass < 3; ++pass) {
+        Check(pipeline.ApplyMftBatch(large, {MakeRecord(999999, 5, u"automatic-new.txt")}), "cold ingestion remains durable on alternating passes");
+        const auto result = pipeline.SearchIndexed(request);
+        Check(exactResults(result), "alternating cold ingestion and search keeps exact result identities");
+        Check(pipeline.ExportDirectorySnapshotBounded(large, L"Q:", 4).empty(), "repeated oversized reload does not publish partial snapshots");
+    }
+    Check(pipeline.GetReadPlaneDiagnostics().activeDurableReaders == 0, "automatic-transition readers all release");
+    pipeline.Close();
+}
+
 void TestRuleChangeCannotLeakExcludedRows() {
     ffengine::IndexPipeline pipeline;
     Check(pipeline.Open(FreshDbPath("engine_test_search_rule_epoch.db")),
@@ -1074,6 +1144,7 @@ int main() {
     TestScopedSearchIgnoresUnrelatedVolumeMutation();
     TestGlobalSearchObservesEveryIncludedVolume();
     TestProjectionEvictionInvalidatesCapturedCursorSafely();
+    TestAutomaticEvictionPreservesMixedVolumeSearchAndSnapshots();
     TestRuleChangeCannotLeakExcludedRows();
     TestSustainedMftChurnUsesDurableFallback();
     TestSustainedUsnChurnUsesDurableFallback();

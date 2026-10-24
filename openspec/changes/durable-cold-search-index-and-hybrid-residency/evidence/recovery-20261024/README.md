@@ -6,6 +6,42 @@ All five independent, read-only reviewers used fresh contexts on
 agreement. Their complete source-inspection reports are preserved here.
 No provider failure or fabricated approval occurred in this wave.
 
+## Ordinary continuation boundary and second review
+
+The owner restricted the continuation to ordinary, non-destructive engineering.
+The process-termination results below are HISTORICAL pre-interruption results,
+not certification of later changes. Deliberate crash cases are now explicitly
+opt-in and excluded from default CTest; they were NOT rerun in this continuation.
+Physical storage exhaustion, privileged operations and user databases are not
+part of the tests. The VFS supplies an error return, not real disk exhaustion.
+
+Projection re-review at08be96f closed A P1/P2. Durability re-review correctly
+found two composition defects: recreated FTS schema could commit before ready
+invalidation, and finalization failure could drop deferred reconciliation intent.
+Both were reproduced through ordinary unit fixtures. Repairs make missing-schema
+creation/readiness invalidation atomic and preserve the strongest owed retry kind.
+Metadata trigger regressions verify actual scheduled cursor-free rescan requests.
+The corrected composition RED log records the false-ready result, not a crash.
+
+Current ordinary focused Debug result:8/8 in38.61s (`ordinary-focused.log`).
+Automatic ingestion-driven eviction now has a barrier-controlled mixed-volume
+search/export/repeated-mutation guard; all three exact result identities are
+asserted. Checkpoint diagnostics retain SQLite result codes, frame/backfill
+counts and busy/error counters through Store/IndexPipeline APIs. These expose
+backlog and failure without rolling back already committed data or busy-looping.
+RESTART reuses WAL space; it does not promise shrinking or a finite size bound.
+
+Resource benchmark negative control: historical prebuilt exits0 despite missing
+output parent; repaired binary exits1. Atomic stop flag eliminates its watcher
+race; incomplete arms, failed preparation and failed output now reject success.
+5000-row lifecycle smoke completes. The new allocator-free ingestion target
+reuses the exact production fixture, batch order and budget; no final-source
+performance measurement is claimed by these harness/build checks.
+
+Restart convergence remains conditional on a newly supplied complete rescan.
+The normal six-hour due threshold is NOT a hard completion bound: the ten-minute
+poll, service availability, pause state and scan duration also apply.
+
 ## Reproduced findings and narrow repairs
 
 | Finding | Red evidence | Repair | Current focused result |

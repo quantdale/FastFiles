@@ -12,14 +12,15 @@ target_compile_definitions(ffengine_index_pipeline_tests PRIVATE FF_INDEX_PIPELI
 add_test(NAME ffengine_index_pipeline_tests COMMAND ffengine_index_pipeline_tests)
 
 # durable-cold-search-index-and-hybrid-residency 4.2: bounded, disposable
-# real-VFS FULL, pinned-reader, and externally killed reconciliation cases.
+# ordinary error-return and pinned-reader tests. Historical deliberate-crash
+# cases require an explicit separate invocation and are NOT default CTest.
 add_executable(ffengine_storage_pressure_tests
   test_storage_pressure.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp)
 target_include_directories(ffengine_storage_pressure_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_storage_pressure_tests PRIVATE ffindexstore ffprotocol ffsearch sqlite3 Rpcrt4 Shell32 Ole32)
-add_test(NAME ffengine_storage_pressure_tests COMMAND ffengine_storage_pressure_tests)
+add_test(NAME ffengine_storage_pressure_tests COMMAND ffengine_storage_pressure_tests --ordinary-only)
 set_tests_properties(ffengine_storage_pressure_tests PROPERTIES TIMEOUT 180)
 
 add_executable(ffengine_volume_session_manager_tests
@@ -273,6 +274,19 @@ target_link_libraries(ffengine_bench_large_index_scalability PRIVATE ffindexstor
 # The memory report embeds ffsetup::kBuildIdentityAscii; a targeted build must
 # refresh the generated identity first or the report could claim a stale tree.
 add_dependencies(ffengine_bench_large_index_scalability fastfiles_build_identity)
+
+# Same deterministic production ingestion path, but NO global new/delete
+# probe and NO stage-timing define. Historical instrumented target is kept.
+add_executable(ffengine_bench_ingestion_uninstrumented
+  bench_ingestion_uninstrumented.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp)
+target_include_directories(ffengine_bench_ingestion_uninstrumented PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_bench_ingestion_uninstrumented PRIVATE ffindexstore ffprotocol ffsearch ffsetup psapi Rpcrt4 Shell32 Ole32)
+add_dependencies(ffengine_bench_ingestion_uninstrumented fastfiles_build_identity)
+target_link_options(ffengine_bench_ingestion_uninstrumented PRIVATE
+  "/MAP:$<TARGET_FILE_DIR:ffengine_bench_ingestion_uninstrumented>/ffengine_bench_ingestion_uninstrumented.map")
 
 # durable-cold-search-index-and-hybrid-residency 4.1 exact differential oracle:
 # candidate-index results vs the readiness-gate-forced canonical stream,

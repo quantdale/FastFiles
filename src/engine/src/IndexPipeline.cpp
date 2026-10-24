@@ -514,6 +514,11 @@ IndexPipeline::ReadPlaneDiagnostics IndexPipeline::GetReadPlaneDiagnostics() con
     return result;
 }
 
+ffindexstore::Store::CheckpointDiagnostics IndexPipeline::GetCheckpointDiagnostics() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return store_.GetCheckpointDiagnostics();
+}
+
 void IndexPipeline::SetBulkScanActive(const bool active) {
     std::lock_guard<std::mutex> lock(mutex_);
     projection_.SetBulkScanActive(active);

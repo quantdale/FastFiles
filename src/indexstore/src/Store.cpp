@@ -810,7 +810,19 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed,
     }
     // durable-cold-search-index-and-hybrid-residency 3.1: additive v3
     // structures (idempotent; content built below before any version bump).
-    const bool schemaOk = ExecSql(db_, kSchemaSql) && ExecSql(db_, kSchemaV3Sql);
+    // If repair is needed, schema recreation and invalidating the old ready
+    // marker must commit together. Otherwise a failed clearing/rebuild can
+    // leave recreated empty terms alongside an old ready marker on retry.
+    if (!candidateStructuresExisted && !ExecSql(db_, "BEGIN IMMEDIATE;")) {
+        Close();
+        return false;
+    }
+    bool schemaOk = ExecSql(db_, kSchemaSql) && ExecSql(db_, kSchemaV3Sql);
+    if (!candidateStructuresExisted) {
+        schemaOk = schemaOk && ExecSql(db_, "UPDATE entry_name_index_meta SET state=0;") &&
+                   ExecSql(db_, "COMMIT;");
+        if (!schemaOk) ExecSql(db_, "ROLLBACK;");
+    }
     if (outTimings != nullptr) {
         outTimings->schemaInitMs = ElapsedMs(schemaStart);
     }
@@ -984,6 +996,7 @@ void Store::Close() {
     lastVacuumTimeSeconds_ = 0;
     lastVacuumSizeBytes_ = 0;
     cachedPageSize_ = 0;
+    checkpointDiagnostics_ = {};
 }
 
 std::unique_ptr<StoreReadSession> Store::OpenReadSession(
@@ -994,21 +1007,31 @@ std::unique_ptr<StoreReadSession> Store::OpenReadSession(
     return session;
 }
 
+bool Store::RunCheckpoint(const int mode) {
+    auto& diagnostics = checkpointDiagnostics_;
+    ++diagnostics.sqliteCalls;
+    diagnostics.logFrames = -1;
+    diagnostics.checkpointedFrames = -1;
+    diagnostics.restartAttempted = mode == SQLITE_CHECKPOINT_RESTART;
+    diagnostics.lastResultCode = db_ == nullptr ? SQLITE_MISUSE : sqlite3_wal_checkpoint_v2(
+        db_, nullptr, mode, &diagnostics.logFrames, &diagnostics.checkpointedFrames);
+    const int primary = diagnostics.lastResultCode & 0xFF;
+    if (primary == SQLITE_BUSY || primary == SQLITE_LOCKED) ++diagnostics.busyResults;
+    else if (primary != SQLITE_OK) ++diagnostics.errorResults;
+    return diagnostics.lastResultCode == SQLITE_OK;
+}
+
 bool Store::CheckpointPassive() {
-    if (db_ == nullptr) {
-        return false;
-    }
-    return sqlite3_wal_checkpoint_v2(db_, nullptr, SQLITE_CHECKPOINT_PASSIVE, nullptr, nullptr) == SQLITE_OK;
+    return RunCheckpoint(SQLITE_CHECKPOINT_PASSIVE);
 }
 
 bool Store::CheckpointIfWalExceeds(uint64_t thresholdBytes) {
     if (db_ == nullptr) {
         return false;
     }
-    int frameCount = 0;
-    if (sqlite3_wal_checkpoint_v2(db_, nullptr, SQLITE_CHECKPOINT_PASSIVE, &frameCount, nullptr) != SQLITE_OK) {
-        return false;
-    }
+    if (!RunCheckpoint(SQLITE_CHECKPOINT_PASSIVE)) return false;
+    const int frameCount = checkpointDiagnostics_.logFrames;
+    if (frameCount <= 0) return true;
     // Use the real page size rather than a hardcoded 4096 — custom page sizes
     // (PRAGMA page_size) make the old approximation wrong by up to 8x. Query
     // the handle's actual page size once and cache it; fall back to 4096 only
@@ -1029,7 +1052,7 @@ bool Store::CheckpointIfWalExceeds(uint64_t thresholdBytes) {
     }
     const uint64_t approxWalBytes = static_cast<uint64_t>(frameCount) * static_cast<uint64_t>(pageSize);
     if (approxWalBytes > thresholdBytes) {
-        return sqlite3_wal_checkpoint_v2(db_, nullptr, SQLITE_CHECKPOINT_RESTART, nullptr, nullptr) == SQLITE_OK;
+        return RunCheckpoint(SQLITE_CHECKPOINT_RESTART);
     }
     return true;
 }
