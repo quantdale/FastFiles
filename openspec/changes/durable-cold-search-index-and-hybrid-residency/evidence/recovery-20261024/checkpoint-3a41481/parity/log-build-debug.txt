@@ -1,0 +1,10 @@
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Debug"
+
+-- Configuring done (0.2s)
+-- Generating done (0.8s)
+-- Build files have been written to: C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/debug
+[1/29] C:\WINDOWS\system32\cmd.exe /C "cd /D "C:\Users\Michael Roy\Documents\FastFiles\build\worktrees\durable-cold-search\build\debug\tests\engine" && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/tests/engine/AuthenticodeFixture.ps1" "C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/debug/tests/engine/AuthenticodeFixture.ps1""
+[2/29] Refreshing FastFiles build identity
+-- FastFiles build identity: 3a41481a78df16b44928469f932d75427fd72a9c (tree=clean, config=Debug, arch=x64)

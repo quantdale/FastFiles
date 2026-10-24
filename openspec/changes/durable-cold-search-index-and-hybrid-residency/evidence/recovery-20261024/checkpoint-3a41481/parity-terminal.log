@@ -1,0 +1,15 @@
+[preflight] ci.yml:37-45 toolchain discovery -> PASS exit=0 (3.2s)
+[policy] ci.yml:26-32,75-81,126-132 markers + diagnostic policy + drift + diff-check -> PASS exit=0 (2.6s)
+[openspec] ci.yml:134-136 openspec validate --all --strict -> PASS exit=0 (5.9s)
+[build-debug] ci.yml:9-63 build[debug] -> PASS exit=0 (4.7s)
+[build-release-test] ci.yml:9-63 build[release-test] -> PASS exit=0 (4.7s)
+[build-analyze] ci.yml:9-63 build[analyze] -> PASS exit=0 (4.6s)
+[ctest-debug] ci.yml:51-63 ctest --preset debug -> PASS exit=0 (254.1s)
+[ctest-release-test] ci.yml:51-63 ctest --preset release-test -> PASS exit=0 (223.2s)
+[asan-slice] ci.yml:83-114 asan 4 targets + 4 tests -> PASS exit=0 (73.3s)
+[hygiene-suite] ci.yml:116-181 status + contracts + visual + exact-tree -> PASS exit=0 (91.8s)
+[release-candidate] ci.yml:183-224 unsigned release qualification -> PASS exit=0 (49.7s)
+
+parity report: build\campaign\recovery-20261024\parity-terminal\20261024-200434\parity-report.json
+overall=PASS pass=11 fail=0 skipped=0
+LOCAL-PARITY-NOT-HOSTED-CI: this report contains no hosted run status.

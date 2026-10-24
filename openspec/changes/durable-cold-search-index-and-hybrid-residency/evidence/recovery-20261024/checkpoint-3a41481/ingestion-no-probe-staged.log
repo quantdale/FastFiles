@@ -1,0 +1,22 @@
+OWNED_INGESTION_DATABASE=C:\Users\Michael Roy\AppData\Local\Temp\FastFiles-large-index-44336-223912859-200000-0\index.db
+  [200000] fixture open 44.68 ms
+  [200000] durable insert start (target 200000 records)
+  [200000] durable insert progress 106496/200000 (1.34 s)
+  [200000] durable insert progress 200000/200000 (3.15 s)
+  [200000] durable insert complete 3.15 s (200000 records)
+OWNED_INGESTION_CLEANED=1 rows=200000 completed=1 elapsed_ms=3150.360
+OWNED_INGESTION_DATABASE=C:\Users\Michael Roy\AppData\Local\Temp\FastFiles-large-index-44336-223916687-1000000-0\index.db
+  [1000000] fixture open 5.58 ms
+  [1000000] durable insert start (target 1000000 records)
+  [1000000] durable insert progress 106496/1000000 (1.93 s)
+  [1000000] durable insert progress 204800/1000000 (4.09 s)
+  [1000000] durable insert progress 303104/1000000 (8.32 s)
+  [1000000] durable insert progress 401408/1000000 (10.70 s)
+  [1000000] durable insert progress 507904/1000000 (13.47 s)
+  [1000000] durable insert progress 606208/1000000 (16.40 s)
+  [1000000] durable insert progress 704512/1000000 (19.46 s)
+  [1000000] durable insert progress 802816/1000000 (24.02 s)
+  [1000000] durable insert progress 901120/1000000 (26.64 s)
+  [1000000] durable insert progress 1000000/1000000 (30.71 s)
+  [1000000] durable insert complete 30.71 s (1000000 records)
+OWNED_INGESTION_CLEANED=1 rows=1000000 completed=1 elapsed_ms=30713.096

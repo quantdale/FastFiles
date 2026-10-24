@@ -1,0 +1,4 @@
+Runtime replacement new/delete bind to CRT; no tracked allocator symbols below. The wrapper object additionally reports ordinary new as UNDEF.
+ 0001:002764c4       ??2@YAPEAX_K@Z             00000001402774c4 f   MSVCRT:new_scalar.obj
+ 0001:00277dbc       ??3@YAXPEAX@Z              0000000140278dbc f   MSVCRT:delete_scalar.obj
+ 0002:00060034       $unwind$??2@YAPEAX_K@Z     00000001402f1034     MSVCRT:new_scalar.obj

@@ -1,0 +1,6 @@
+{
+  "exit_code": 0,
+  "source_before": "7a150153e7e88f213fd3dd9398665a9317e21b7159d2302d59484027bc7c2d7b",
+  "source_after": "7a150153e7e88f213fd3dd9398665a9317e21b7159d2302d59484027bc7c2d7b",
+  "access": "SQLite mode=ro plus per-connection read-only extension guard; ordinary synthetic fixture only"
+}

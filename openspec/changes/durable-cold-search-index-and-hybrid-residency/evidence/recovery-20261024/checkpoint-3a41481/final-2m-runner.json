@@ -1,0 +1,59 @@
+{
+  "schema": "fastfiles-final-2m-oracle-timing-runner-v1",
+  "source_sha": "dab21288f400967f883598e1c24e7ca2a270ecb9",
+  "executable": "build\\release-test\\tests\\engine\\ffengine_bench_identity_ordering_oracle.exe",
+  "executable_sha256": "8567b97e81e9cface8f8fd6152ed83cf48dec1cc0503c1cae832e0dc7d7faa37",
+  "fixture": "build\\campaign\\open-2m.db",
+  "fixture_bytes": 843100160,
+  "fixture_sha256": "a653e57cf2a962cb02e30657581f2a22ef7fc81fe1fac993c083ed33f509e2b4",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "preset": "release-test",
+  "allocator_probe": false,
+  "method": "existing synthetic Store fixture; production cold search followed by independent canonical scan; fresh processes, not OS cache flush; not pooled with pipeline scalability fixture",
+  "runs": [
+    {
+      "run": 1,
+      "command": [
+        "build\\release-test\\tests\\engine\\ffengine_bench_identity_ordering_oracle.exe",
+        "--db",
+        "build\\campaign\\open-2m.db",
+        "--output",
+        "build\\campaign\\recovery-20261024\\final-2m-oracle-1.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 225.92214679718018,
+      "free_before": 2311053312,
+      "free_after": 2318839808
+    },
+    {
+      "run": 2,
+      "command": [
+        "build\\release-test\\tests\\engine\\ffengine_bench_identity_ordering_oracle.exe",
+        "--db",
+        "build\\campaign\\open-2m.db",
+        "--output",
+        "build\\campaign\\recovery-20261024\\final-2m-oracle-2.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 224.66397976875305,
+      "free_before": 2318835712,
+      "free_after": 2317946880
+    },
+    {
+      "run": 3,
+      "command": [
+        "build\\release-test\\tests\\engine\\ffengine_bench_identity_ordering_oracle.exe",
+        "--db",
+        "build\\campaign\\open-2m.db",
+        "--output",
+        "build\\campaign\\recovery-20261024\\final-2m-oracle-3.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 225.45340013504028,
+      "free_before": 2317946880,
+      "free_after": 2317799424
+    }
+  ],
+  "fixture_sha256_after": "a653e57cf2a962cb02e30657581f2a22ef7fc81fe1fac993c083ed33f509e2b4",
+  "fixture_unchanged": true
+}

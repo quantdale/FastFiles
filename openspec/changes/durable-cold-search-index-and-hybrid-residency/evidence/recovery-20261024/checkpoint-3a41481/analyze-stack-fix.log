@@ -1,0 +1,4 @@
+[1/4] Linking CXX static library src\indexstore\ffindexstore.lib
+[2/4] Building CXX object tests\engine\CMakeFiles\ffengine_storage_pressure_tests.dir\__\__\src\engine\src\VolumeIdentity.cpp.obj
+[3/4] Building CXX object tests\engine\CMakeFiles\ffengine_storage_pressure_tests.dir\test_storage_pressure.cpp.obj
+[4/4] Linking CXX executable tests\engine\ffengine_storage_pressure_tests.exe
