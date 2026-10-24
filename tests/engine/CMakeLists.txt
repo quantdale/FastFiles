@@ -11,6 +11,17 @@ target_compile_definitions(ffengine_index_pipeline_tests PRIVATE FF_INDEX_PIPELI
 
 add_test(NAME ffengine_index_pipeline_tests COMMAND ffengine_index_pipeline_tests)
 
+# durable-cold-search-index-and-hybrid-residency 4.2: bounded, disposable
+# real-VFS FULL, pinned-reader, and externally killed reconciliation cases.
+add_executable(ffengine_storage_pressure_tests
+  test_storage_pressure.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp)
+target_include_directories(ffengine_storage_pressure_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_storage_pressure_tests PRIVATE ffindexstore ffprotocol ffsearch sqlite3 Rpcrt4 Shell32 Ole32)
+add_test(NAME ffengine_storage_pressure_tests COMMAND ffengine_storage_pressure_tests)
+set_tests_properties(ffengine_storage_pressure_tests PROPERTIES TIMEOUT 180)
+
 add_executable(ffengine_volume_session_manager_tests
   test_volume_session_manager.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp

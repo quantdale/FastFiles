@@ -1255,6 +1255,43 @@ void TestDuplicateTerminalsWithoutScanInFlightAreRefused() {
 // batch failed to apply has a guaranteed coverage hole at the frozen
 // cursor; its later ScanComplete must not mark the volume indexed. The
 // volume must still be markable by a subsequent clean scan.
+void TestReconciliationRemovalFailureRetainsRetryAuthority() {
+    ffengine::IndexPipeline pipeline;
+    const auto path = FreshDbPath("engine_reconciliation_removal_retry.db");
+    Check(pipeline.Open(path), "manager removal-failure fixture opens");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 763;
+    const auto volume = pipeline.ResolveVolume(key);
+    Check(pipeline.MarkScanComplete(volume), "manager removal fixture has prior scan authority");
+    std::vector<ffprotocol::MftRecordV1> rows{MakeMftRecord(5, 5, u"", 0x10, 0)};
+    for (uint64_t id = 1000; id < 13000; ++id) rows.push_back(MakeMftRecord(id, 5, u"stale.txt", 0, 1));
+    Check(pipeline.ApplyMftBatch(volume, rows), "manager removal fixture seeds three chunks");
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volume);
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true;
+    session.reconciliationScan = true;
+    pipeline.BeginReconciliationPass(volume);
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(5, 5, u"", 0x10, 0)}), "authoritative rescan sees root only");
+    ffindexstore::SetTestingCandidateMaintenanceFault(5501, false);
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    ffindexstore::SetTestingCandidateMaintenanceFault(0, false);
+    Check(pipeline.IsReconciliationPassActive(volume), "manager retains failed removal obligation");
+    Check(pipeline.GetVolumeMetadata(volume)->lastReconciliationTime == 0,
+          "failed removal must not advance successful-reconciliation timestamp");
+    Check(RetryOwnerCountForTest(manager, volume) == 1,
+          "failed removal has one bounded scheduled reconciliation retry owner");
+    session.scanInProgress = true;
+    session.reconciliationScan = true;
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(!pipeline.IsReconciliationPassActive(volume) &&
+          pipeline.GetVolumeMetadata(volume)->lastReconciliationTime != 0,
+          "successful removal retry alone advances reconciliation timestamp");
+    Check(RetryOwnerCountForTest(manager, volume) == 0, "successful retry clears its repair owner");
+}
+
 void TestBatchFailedScanCompletionIsNotAuthoritative() {
     ffengine::IndexPipeline pipeline;
     const std::string dbPath = FreshDbPath("engine_test_batch_failed_completion.db");
@@ -3432,6 +3469,7 @@ int main() {
     TestDisableTransfersOwnedRetryToDurableFloor();
     TestDisappearanceTransfersOwnedRetryToDurableFloor();
     TestDuplicateTerminalsWithoutScanInFlightAreRefused();
+    TestReconciliationRemovalFailureRetainsRetryAuthority();
     TestBatchFailedScanCompletionIsNotAuthoritative();
     TestPausedCompletionIsNotAuthoritative();
     TestJournalGapDuringInFlightScanDefersUntilCompletion();

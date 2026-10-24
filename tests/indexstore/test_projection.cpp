@@ -1408,7 +1408,7 @@ void TestTinyVictimsCannotSustainAnOverBudgetProjection() {
     for (uint64_t id = 100; id < 120; ++id) {
         proj.Upsert(1, MakeEntry(id, 5, u"empty_directory", 0x10));
     }
-    for (uint64_t id = 1000; id < 11000; ++id) {
+    for (uint64_t id = 1000; id < 21000; ++id) {
         proj.Upsert(1, MakeEntry(id, 5, u"row.txt", 0));
     }
     Check(proj.EstimatedMemoryBytes() > 64 * 1024, "tiny-victim fixture exceeds the budget");
@@ -1418,7 +1418,26 @@ void TestTinyVictimsCannotSustainAnOverBudgetProjection() {
     Check(proj.NeedsReload(1), "whole-volume fallback marks the durable volume cold");
 }
 
+void TestWholeVolumeEvictionDoesNotUnlinkDoomedSiblings() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    for (uint64_t id = 100; id < 20100; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"sibling.txt", 0));
+    }
+    proj.Upsert(2, MakeEntry(5, 5, u"D:", 0x10));
+    proj.Upsert(2, MakeEntry(6, 5, u"survivor.txt", 0));
+    FlatChildrenMap::testingRemovalComparisons = 0;
+    proj.EvictVolume(1);
+    Check(FlatChildrenMap::testingRemovalComparisons <= 20100,
+          "whole-volume eviction does not quadratically unlink doomed siblings");
+    Check(proj.EntryCount() == 2 && proj.Find(2, FileId{6, 0}) != nullptr,
+          "whole-volume bulk eviction preserves other-volume entries");
+    Check(proj.ChildIndices(2, FileId{5, 0}).size() == 1,
+          "compaction reconstructs exact surviving child links");
+}
+
 int main() {
+    TestWholeVolumeEvictionDoesNotUnlinkDoomedSiblings();
     TestTinyVictimsCannotSustainAnOverBudgetProjection();
     TestSiblingsDoNotDuplicateSharedAncestorPath();
     TestRepeatedNamesAcrossTreeShareOneInternedId();

@@ -649,9 +649,13 @@ bool RebuildCandidateIndex(sqlite3* db, Store::OpenPhaseTimings* timings = nullp
     {
         Statement volumesStmt(db, "SELECT id FROM volumes;");
         if (!volumesStmt.Valid()) return false;
-        while (sqlite3_step(volumesStmt) == SQLITE_ROW) {
+        int stepResult = SQLITE_ERROR;
+        while ((stepResult = sqlite3_step(volumesStmt)) == SQLITE_ROW) {
             volumes.push_back(sqlite3_column_int64(volumesStmt, 0));
         }
+        // durable-cold-search-index-and-hybrid-residency final review:
+        // interruption is not exhaustion; never publish a partial rebuild.
+        if (stepResult != SQLITE_DONE) return false;
     }
     for (const int64_t volumeRowId : volumes) {
         CandidateStatements candidateStmts(db, timings);
@@ -685,8 +689,10 @@ bool RebuildCandidateIndex(sqlite3* db, Store::OpenPhaseTimings* timings = nullp
     }
 
     if (!ExecSql(db, "BEGIN IMMEDIATE;")) return false;
-    Statement countStmt(db, "SELECT COUNT(*) FROM entry_name_index_map;");
-    bool finalOk = countStmt.Valid() && sqlite3_step(countStmt) == SQLITE_ROW;
+    Statement countStmt(db, "SELECT (SELECT COUNT(*) FROM entry_name_index_map) = "
+                            "(SELECT COUNT(*) FROM entries);");
+    bool finalOk = countStmt.Valid() && sqlite3_step(countStmt) == SQLITE_ROW &&
+                   sqlite3_column_int(countStmt, 0) == 1;
     if (finalOk) {
         // The ready marker also pins the HOST fold signature: the persisted
         // side-set classification is only valid for the host table it was
@@ -786,6 +792,22 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed,
     }
 
     const auto schemaStart = std::chrono::steady_clock::now();
+    // durable-cold-search-index-and-hybrid-residency final review: record
+    // missing derived structures BEFORE CREATE IF NOT EXISTS can conceal
+    // them. An intact ready marker/map cannot certify a recreated empty FTS
+    // table or exception set. Include FTS5's required shadow tables.
+    bool candidateStructuresExisted = false;
+    {
+        Statement structures(db_, "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name IN ("
+            "'entry_name_index_map','entry_name_terms','entry_name_exceptions','entry_name_index_meta',"
+            "'entry_name_terms_data','entry_name_terms_idx','entry_name_terms_content',"
+            "'entry_name_terms_docsize','entry_name_terms_config');");
+        if (!structures.Valid() || sqlite3_step(structures) != SQLITE_ROW) {
+            Close();
+            return false;
+        }
+        candidateStructuresExisted = sqlite3_column_int(structures, 0) == 9;
+    }
     // durable-cold-search-index-and-hybrid-residency 3.1: additive v3
     // structures (idempotent; content built below before any version bump).
     const bool schemaOk = ExecSql(db_, kSchemaSql) && ExecSql(db_, kSchemaV3Sql);
@@ -925,7 +947,8 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed,
             const auto compareStart = std::chrono::steady_clock::now();
             const sqlite3_int64 hostSignature =
                 static_cast<sqlite3_int64>(static_cast<int64_t>(hostFoldSignature));
-            rebuildNeeded = (state != 1) || (mapped != entries) || (foldSignature != hostSignature);
+            rebuildNeeded = !candidateStructuresExisted || (state != 1) ||
+                            (mapped != entries) || (foldSignature != hostSignature);
             signatureCompareMs = ElapsedMs(compareStart);
             if (outTimings != nullptr) {
                 outTimings->hostFoldSignature = hostFoldSignature;
@@ -1736,6 +1759,10 @@ void StoreReadSession::Close() noexcept {
     }
     transactionActive_ = false;
     dbPathUtf8_.clear();
+    // Readiness belongs to one SQLite snapshot. Close/move assignment must
+    // not reuse the previous connection's cached ready verdict.
+    candidateReadinessChecked_ = false;
+    candidateIndexUsable_ = false;
 }
 
 bool StoreReadSession::ForEachEntryUntil(VolumeRowId volumeRowId,

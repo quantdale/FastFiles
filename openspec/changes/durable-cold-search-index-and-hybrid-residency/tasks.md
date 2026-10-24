@@ -1,8 +1,8 @@
 # Tasks
 
-Proposal-stage ledger. **Nothing here is started.** The first action of the
-future campaign is task 1.1; no production implementation task may begin
-before the measurement phase (group 1) has produced its decision record.
+Active implementation and acceptance ledger. Measurement/selection preceded
+implementation; checked historical execution does not certify unexecuted
+acceptance cells. Final review dispositions are recorded in evidence.
 
 ## 1. Measurement phase (mandatory before any implementation)
 
@@ -34,7 +34,7 @@ before the measurement phase (group 1) has produced its decision record.
 - [x] 5.6 Raw benchmark artifact recovery: `candidaterung-200k-1m-2m.json` (654,258 bytes, SHA-256 `9c33af1c6922aa42abf8f34477f6968bc7fcd60cdc3802b9e3e8aa491478feeb`) and its companion `.log` (11,522 bytes, `9438001e196ebafe3b660bed57c8a94c1f28136676b99a53f5e8879766fa8096`) recovered from local `build/worktrees/` and preserved in evidence artifacts with manifest correction.
 - [ ] 5.7 Final-source repeated benchmarks: 200k/1M COMPLETE (two complete JSON runs1+3 at clean `5d7e98a`; n=2 cold cells, no fabricated percentiles). Run2 timed out and is excluded. Final-source2M same-harness repeats NOT_EXECUTED; historical628de6d n=2 remains labeled historical. See `evidence/final-acceptance-owner-report.md` G.
 - [x] 5.8 Combined lifecycle regression matrix (rename-heavy, mass removal, full-volume replacement, ForgetVolume, rebuild) with candidate-maintenance A/B (section 21) at 200k/1M/2M. DONE (`lifecycle-regression-matrix.md`): all arms linear (10x rows = 10.0x removal), 3.5-9.7x vs index-less writes; reconciliation bench arm NOT_EXECUTED (engine tests cover it) — recorded.
-- [x] 5.9 Staged 5M acceptance (task 4.1 stages A-E) + resource matrix completion (task 4.2) with `NOT_EXECUTED` dispositions where applicable. DONE (`5m-staged-acceptance.md`).
+- [x] 5.9 Record historical staged 5M execution and explicit `NOT_EXECUTED` dispositions (`5m-staged-acceptance.md`). This records execution only, NOT completion of current acceptance 4.1/4.2.
 - [ ] 5.10 Independent adversarial review wave (section 23) + remediation of confirmed P1/P2 findings.
   - [x] 5.10a Six lanes executed (A startup/folding, B planner, C durability, D methodology, E resources, F certification truth) at `97b9ceb`; findings and dispositions in `build/campaign/review-lane-{a..f}.md` + the digest; P1/P2/P3 inventory established.
   - [x] 5.10b Remediate confirmed findings: query-time candidate-index readiness re-validation (lane B — silent truncation during cross-connection rebuild windows), read-only evidence relabeling (lane A-1), PRAGMA double-execution (lane A-2), cap-contract comment off-by-one + test hardening (lane B P3s), certification-record rewrite (lanes D/F P1s). All DONE in `628de6d` + `80a6f11`.
@@ -43,11 +43,11 @@ before the measurement phase (group 1) has produced its decision record.
 
 ## 4. Acceptance
 
-- [x] 4.1 Exact capped result identity/ordering acceptance at5M (12 established classes + cancellation) at clean `5d7e98a`; canonical full5M scan and actual candidate admission asserted. Extended200k23/23. Small unit suites cover targeted seams; dedicated targeted/uncapped5M cells NOT_EXECUTED. v1 oracle withdrawn. See `evidence/exact-order-oracle.md`.
-- [ ] 4.2 Resource characterization updated: default500MiB unchanged; ordinary5M132.368s; measured peak process private1.368GB (not a hard500MiB RSS guarantee); sampled migration WAL648MB, prior lifecycle960MB. No universal WAL/free-space bound. Large-reader/SQLITE_FULL/large-removal crash matrix NOT_EXECUTED. See `evidence/final-acceptance-owner-report.md` E/H.
+- [ ] 4.1 Complete the governing exact hot/cold equivalence matrix at 200k/1M/2M/5M. VERIFIED subset: capped cold-with-index versus full canonical scan at5M (12 established classes + cancellation) at clean `5d7e98a`; canonical full5M scan and actual candidate admission asserted. Extended200k23/23. This is NOT fully-hot5M equivalence, which remains unproven; do not silently narrow the spec to close this checkbox. Small unit suites cover targeted seams; dedicated targeted/uncapped5M cells NOT_EXECUTED. v1 oracle withdrawn. See `evidence/exact-order-oracle.md` and `evidence/recovery-20261024/provenance-review.md`.
+- [ ] 4.2 Resource characterization updated: default500MiB unchanged; stage-timer-free but allocator-instrumented5M132.368s; measured instrumented-process peak private1.368GB (not a hard500MiB RSS guarantee); sampled migration WAL648MB, prior lifecycle960MB. No universal WAL/free-space bound. Large-reader/SQLITE_FULL/large-removal crash matrix NOT_EXECUTED. See `evidence/final-acceptance-owner-report.md` E/H.
 - [x] 4.3 Execute final local ladder at clean `5d7e98a`, honestly classified: Debug/release-test129/129, Analyze clean, ASan4/4, strict OpenSpec/governance/hygiene, parity11/11, E2E8/8, UIA core25/25 + visual25/25, UIA full23PASS/5SKIP/0FAIL. Visual catalog17PASS/3 inherited Gallery FAILs (5.12), final review not obtained (5.14). This is execution evidence, NOT unqualified certification. See owner report J.
 
 ## Final-acceptance followups
 
-- [x] 5.13 Isolate the remaining 5M cliff by stage and add a red-first bounded-memory correction. DONE: enforcement12.8s vs store0.17s/batch; tiny-victim test, whole-volume cold fallback; instrumented5M136.262s. Clean uninstrumented remeasurement pending under5.7/4.3; `evidence/ingestion-memory-cliff.md`.
+- [x] 5.13 Isolate the remaining 5M cliff by stage and add a red-first bounded-memory correction. DONE: enforcement12.8s vs store0.17s/batch; tiny-victim test, whole-volume cold fallback; instrumented5M136.262s. Allocator-probe-free remeasurement remains pending (the132.368s artifact is allocator-instrumented); `evidence/ingestion-memory-cliff.md`.
 - [ ] 5.14 Final review of acceptance fixes. Prior investigation lanes complete; final adversarial wave failed with provider402 quota/balance exhaustion and supplied no verdicts. Do not inherit old review success for new source.

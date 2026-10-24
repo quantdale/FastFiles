@@ -417,25 +417,20 @@ void Projection::EvictSubtree(const EntryKey& rootKey) {
 }
 
 void Projection::EvictVolume(const VolumeRowId volumeRowId) {
-    // memory-bounded-indexed-scale 5.x: whole-volume unload. A flat key
-    // snapshot first, then individual removals (Remove unlinks each row's
-    // child-index slice), then a single compaction -- never per-row
-    // compaction, matching the batch-boundary policy.
+    // durable-cold-search-index-and-hybrid-residency final review: every
+    // row of this volume is doomed. Erase its identities without searching
+    // sibling slices (linear search per unlink was quadratic for flat
+    // directories). CompactStorage rebuilds all surviving child links once.
     std::vector<EntryKey> keys;
     keys.reserve(idToIndex_.size());
     idToIndex_.ForEach([&](const EntryKey& key, const uint32_t) {
         if (key.volumeRowId == volumeRowId) keys.push_back(key);
     });
     if (keys.empty()) return;
-    // large-index-lifecycle-and-search-scalability 4.4: same bulk rule as
-    // EvictSubtree -- the trailing CompactStorage() invalidates the
-    // accelerator regardless, so per-entry erases are pure waste above the
-    // threshold.
-    if (keys.size() > kPerEntryFilenameRemovalThreshold) {
-        InvalidateFilenameIndex();
-    }
+    InvalidateFilenameIndex();
+    denseIterationOrderValid_ = false;
     for (const EntryKey& key : keys) {
-        Remove(key.volumeRowId, key.frn);
+        idToIndex_.erase(key);
     }
     evictedVolumes_.insert(volumeRowId);
     ++subtreeEvictionCount_;
@@ -472,7 +467,9 @@ void Projection::CompactStorage() {
 
     entries_ = std::move(compacted);
     lastAccessTimes_ = std::move(compactedAccessTimes);
-    freeList_.clear();
+    // All slots were repacked: retained free-list capacity is unused and
+    // can itself exceed a small budget after full-volume eviction.
+    std::vector<uint32_t>().swap(freeList_);
     idToIndex_ = std::move(compactedIds);
     parentToChildren_ = std::move(compactedChildren);
     namePool_ = std::move(compactedNames);

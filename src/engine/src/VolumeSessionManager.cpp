@@ -1039,20 +1039,48 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
         return;
     }
 
-    pipeline_.MarkScanComplete(durableId);
-    // D2/D4: this attempt's coverage is authoritative, so every retry owner
-    // that was armed to repair an earlier hole or retirement is no longer
-    // owed (the intent is satisfied).
+    // durable-cold-search-index-and-hybrid-residency final review: scan
+    // coverage alone is not successful reconciliation. A failed removal
+    // chunk still owes work; do not timestamp it as complete or drop its
+    // retry owner. Schedule through the existing bounded retry policy.
+    const auto retryFinalization = [&]() {
+        {
+            std::scoped_lock lock(mutex_, wakeMutex_);
+            const auto session = sessionsByEphemeralId_.find(volumeId.value);
+            const auto due = std::chrono::steady_clock::now() + kScanFailureRetryDelay;
+            if (session != sessionsByEphemeralId_.end() && session->second.durableId == durableId) {
+                InstallNonAuthoritativeRetryLocked(volumeId.value, durableId, due, wasReconciliationScan);
+            } else {
+                MergeDurableFloorLocked(durableId, FailedScanRetry{due, wasReconciliationScan});
+            }
+        }
+        wakeCv_.notify_one();
+        AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::IndexingError,
+                                ffprotocol::DiagnosticCode::FFDIAG_RECONCILIATION_DEFERRED,
+                                {}, std::wstring(1, driveLetter),
+                                L"scan-finalization-write-failed-retry-owned", 0, 0);
+        RepublishSnapshot(durableId, driveLetter, true);
+    };
+    bool reconciliationFinalized = false;
+    if (wasReconciliationScan && pipeline_.IsReconciliationPassActive(durableId)) {
+        pipeline_.FinishReconciliationPass(durableId);
+        if (pipeline_.IsReconciliationPassActive(durableId)) {
+            retryFinalization();
+            return;
+        }
+        reconciliationFinalized = true;
+    }
+    if (!pipeline_.MarkScanComplete(durableId) ||
+        (reconciliationFinalized && !pipeline_.SetLastReconciliationTime(durableId, NowAsFileTime()))) {
+        retryFinalization();
+        return;
+    }
+    // Only durable finalization satisfies this attempt's repair intent.
     {
         std::scoped_lock lock(mutex_, wakeMutex_);
         ClearRetryOwnerLocked(durableId, volumeId.value);
     }
-    if (wasReconciliationScan) {
-        if (pipeline_.IsReconciliationPassActive(durableId)) {
-            pipeline_.FinishReconciliationPass(durableId);
-            pipeline_.SetLastReconciliationTime(durableId, NowAsFileTime());
-        }
-    } else if (pipeline_.IsReconciliationPassActive(durableId)) {
+    if (!wasReconciliationScan && pipeline_.IsReconciliationPassActive(durableId)) {
         // D4's invariant (a pass exists only while its own scan runs,
         // every terminal clears it) makes this unreachable today; defend
         // anyway -- a partial scan must never finalize a pass it does not

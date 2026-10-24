@@ -1,0 +1,47 @@
+{
+  "schema": "fastfiles-owned-fixture-cleanup-v1",
+  "timestamp": "2026-10-24T06:15:36.591746+00:00",
+  "ownership": [
+    "migration copy: final-acceptance/watch-migration.py + prior report F; original open-5m.db preserved",
+    "lifecycle scratch: bench_candidate_index_resources.cpp outputPath + .on.db/.off.db; measurement JSON/log preserved"
+  ],
+  "free_before": 855658496,
+  "files": [
+    {
+      "path": "build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\migration-5m-copy.db",
+      "bytes": 976363520,
+      "action": "delete disposable generated database only"
+    },
+    {
+      "path": "build\\worktrees\\durable-cold-search\\build\\campaign\\lifecycle-200000.json.on.db",
+      "bytes": 54808576,
+      "action": "delete disposable generated database only"
+    },
+    {
+      "path": "build\\worktrees\\durable-cold-search\\build\\campaign\\lifecycle-200000.json.off.db",
+      "bytes": 13520896,
+      "action": "delete disposable generated database only"
+    },
+    {
+      "path": "build\\worktrees\\durable-cold-search\\build\\campaign\\lifecycle-1000000.json.on.db",
+      "bytes": 250355712,
+      "action": "delete disposable generated database only"
+    },
+    {
+      "path": "build\\worktrees\\durable-cold-search\\build\\campaign\\lifecycle-1000000.json.off.db",
+      "bytes": 65548288,
+      "action": "delete disposable generated database only"
+    },
+    {
+      "path": "build\\worktrees\\durable-cold-search\\build\\campaign\\lifecycle-2m.json.on.db",
+      "bytes": 488075264,
+      "action": "delete disposable generated database only"
+    },
+    {
+      "path": "build\\worktrees\\durable-cold-search\\build\\campaign\\lifecycle-2m.json.off.db",
+      "bytes": 132399104,
+      "action": "delete disposable generated database only"
+    }
+  ],
+  "free_after": 2836733952
+}
