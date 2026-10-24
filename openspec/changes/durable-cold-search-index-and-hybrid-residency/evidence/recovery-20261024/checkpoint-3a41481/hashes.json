@@ -1,5 +1,6 @@
 {
   "schema": "fastfiles-ordinary-recovery-evidence-hashes-v1",
+  "hash_scope": "Original copied execution bytes before Git text normalization; see git-blob-hashes.json for canonical repository-content hashes. Checkout EOL conversion can change text byte hashes, not captured executable identities.",
   "files": [
     {
       "path": "allocator-binding.txt",

@@ -1,0 +1,3 @@
+[33;1mWARNING: The names of some imported commands from the module 'UiaDriver' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+UIA_FULL_STATUS=PASS
+23 passed, 5 skipped with recorded reasons; 0 failed

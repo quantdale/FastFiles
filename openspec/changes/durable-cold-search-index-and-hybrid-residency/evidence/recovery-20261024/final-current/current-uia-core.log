@@ -1,0 +1,66 @@
+Starting UIA long-run certification: scenario='core-smoke', iterations=25, preset=debug-diagnostic
+Git: head=269d1c36036cb84b40c3ef01baee3c2b6c990579, tree=705a8de99de9b4c909944a7e254be2c63367333e, exactTreeBound=True
+Executable: build/debug-diagnostic/src/ui/FastFiles.exe (hash: ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a)
+  Iteration 1/25 PASS: 9/9 checks (23793.43ms)
+  Iteration 2/25 PASS: 9/9 checks (24144.15ms)
+  Iteration 3/25 PASS: 9/9 checks (23741.25ms)
+  Iteration 4/25 PASS: 9/9 checks (24060.05ms)
+  Iteration 5/25 PASS: 9/9 checks (24145.78ms)
+  Iteration 6/25 PASS: 9/9 checks (24152.34ms)
+  Iteration 7/25 PASS: 9/9 checks (24126.87ms)
+  Iteration 8/25 PASS: 9/9 checks (23418.69ms)
+  Iteration 9/25 PASS: 9/9 checks (24069.97ms)
+  Iteration 10/25 PASS: 9/9 checks (24153.72ms)
+  Iteration 11/25 PASS: 9/9 checks (24178.74ms)
+  Iteration 12/25 PASS: 9/9 checks (24075.41ms)
+  Iteration 13/25 PASS: 9/9 checks (23731.52ms)
+  Iteration 14/25 PASS: 9/9 checks (25111.58ms)
+  Iteration 15/25 PASS: 9/9 checks (24033.51ms)
+  Iteration 16/25 PASS: 9/9 checks (23898.77ms)
+  Iteration 17/25 PASS: 9/9 checks (24013.15ms)
+  Iteration 18/25 PASS: 9/9 checks (24056.48ms)
+  Iteration 19/25 PASS: 9/9 checks (24091.71ms)
+  Iteration 20/25 PASS: 9/9 checks (24060.58ms)
+  Iteration 21/25 PASS: 9/9 checks (24052.58ms)
+  Iteration 22/25 PASS: 9/9 checks (24150.01ms)
+  Iteration 23/25 PASS: 9/9 checks (24434.16ms)
+  Iteration 24/25 PASS: 9/9 checks (24079.84ms)
+  Iteration 25/25 PASS: 9/9 checks (23925.92ms)
+UIA long-run completed: 25/25 passed. Disposition: PASS
+Timing: min=23418.69ms, median=24069.97ms, p95=24178.74ms, max=25111.58ms
+Artifact written: build/campaign/recovery-20261024/current-uia-core.json (SHA-256: 86754f7330a58fa4f5668af2b91d15ab185f188875fdf814d6bc35a17ecd9c4f)
+
+[32;1mschemaVersion          : [0m1
+[32;1mtestId                 : [0mffuia_core-smoke
+[32;1mcategory               : [0muia
+[32;1mcommand                : [0mbuild/debug-diagnostic/src/ui/FastFiles.exe
+[32;1mcommit                 : [0m269d1c36036cb84b40c3ef01baee3c2b6c990579
+[32;1mtree                   : [0m705a8de99de9b4c909944a7e254be2c63367333e
+[32;1mexactTreeBound         : [0mTrue
+[32;1mexecutableHash         : [0mee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a
+[32;1menvironment            : [0m{[os, Microsoft Windows NT 10.0.26200.0], [architecture, AMD64], [computer, <local-host>],
+                         [powershell, 7.6.5]}
+[32;1mstartUtc               : [0m2026-10-24T13:44:56.8480645Z
+[32;1mendUtc                 : [0m2026-10-24T13:54:58.5769711Z
+[32;1mrequestedIterations    : [0m25
+[32;1mcompletedIterations    : [0m25
+[32;1mpassed                 : [0m25
+[32;1mfailed                 : [0m0
+[32;1mtimedOut               : [0m0
+[32;1mskipped                : [0m0
+[32;1mtotalIterations        : [0m25
+[32;1miterationLedger        : [0m{}
+[32;1mphaseDurations         : [0m{}
+[32;1massertionCounts        : [0m{[total, 0], [failed, 0]}
+[32;1msemanticPostconditions : [0m{}
+[32;1mdisplayMatrix          : [0m{@{requested=; observed=; realized=True; unrealizedFields=System.Object[]}}
+[32;1munrealizedDimensions   : [0m{}
+[32;1mcapabilities           : [0m{uia-core-smoke, uia-keyboard-navigation, dual-pane}
+[32;1mcleanup                : [0m{[pass, True], [status, PASS], [method, none-required], [residue, System.Object[]].}
+[32;1mminDurationMs          : [0m23418.69
+[32;1mmedianDurationMs       : [0m24069.97
+[32;1mp95DurationMs          : [0m24178.74
+[32;1mmaxDurationMs          : [0m25111.58
+[32;1mfirstFailure           : [0m
+[32;1martifactHashes         : [0m{[current-uia-core.md, 819df54c096ae41b3dfdbe844fffa5f029830eb14d564a8d8d16163b3c4bc6b3]}
+[32;1mdisposition            : [0mPASS

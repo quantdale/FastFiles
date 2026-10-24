@@ -1,0 +1,157 @@
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="RelWithDebInfo"
+  FASTFILES_RELEASE_TEST_BUILD="ON"
+
+-- Configuring an optimized unsigned test-release artifact; production signing and pin enforcement remain external.
+-- Configuring done (0.1s)
+-- Generating done (0.7s)
+-- Build files have been written to: C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/release-test
+[1/29] C:\WINDOWS\system32\cmd.exe /C "cd /D "C:\Users\Michael Roy\Documents\FastFiles\build\worktrees\durable-cold-search\build\release-test\tests\engine" && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/tests/engine/AuthenticodeFixture.ps1" "C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/release-test/tests/engine/AuthenticodeFixture.ps1""
+[2/29] Refreshing FastFiles build identity
+-- FastFiles build identity: 269d1c36036cb84b40c3ef01baee3c2b6c990579 (tree=clean, config=RelWithDebInfo, arch=x64)
+PASS: release-candidate entry point exists
+PASS: verify.ps1 exposes release-candidate
+PASS: candidate rejects dirty trees
+PASS: candidate keeps production pins fail-closed
+PASS: candidate rechecks exact source state after packaging inputs are read
+PASS: candidate archives a guarded snapshot and validates every final ZIP entry
+PASS: candidate enforces an exact archive member allowlist and validates dependency inventory identity
+PASS: candidate validates the complete kit manifest including privileged pin provisioning
+PASS: candidate verifies copied release helper payloads against the committed blobs
+PASS: candidate captures child output and has a fail-only post-kit JSON regression seam
+PASS: candidate repeats exact output inventory validation after checksum enumeration and before PASS
+PASS: command succeeds: cmake.exe --preset release-test
+PASS: command succeeds: cmake.exe --build --preset release-test
+PASS: command succeeds: cmake.exe --preset debug
+PASS: command succeeds: cmake.exe --build --preset debug --target FastFiles FastFilesEngine FastFilesIndexSvc FastFilesSetup fftest
+PASS: direct release-kit invocation rejects Debug executables mislabeled as Release
+PASS: JSON mode emits one terminal PASS document and names the ZIP as its sole authoritative payload
+PASS: terminal result carries the observed hash of its authoritative archive
+PASS: a post-return sibling addition does not alter or enter the authoritative ZIP
+PASS: a post-return authoritative archive replacement is detected by the terminal result hash
+PASS: post-kit failure emits one parseable terminal FAIL document and suppresses the successful child JSON
+PASS: command succeeds: pwsh.exe -NoProfile -NonInteractive -File C:\Users\Michael Roy\Documents\FastFiles\build\worktrees\durable-cold-search\verify\release\Build-ReleaseCandidate.ps1 -Mode unsigned-validation -BuildRoot C:\Users\Michael Roy\Documents\FastFiles\build\worktrees\durable-cold-search\build\release-test -OutputDirectory C:\Users\Michael Roy\AppData\Local\Temp\FastFiles-release-candidate-test-b-a5cbf76a8a4b4c43a5cb3b98cfec0ee0 -SkipVerification -OutputFormat human
+PASS: candidate emits candidate-manifest.json
+PASS: candidate emits provenance.json
+PASS: candidate emits SHA256SUMS.txt
+PASS: candidate emits RELEASE_NOTES.md
+PASS: candidate emits dependency-inventory.json
+PASS: candidate manifest classifies unsigned output explicitly
+PASS: candidate manifest declares only the ZIP as authoritative payload
+PASS: provenance marks loose output files as companion evidence
+PASS: unsigned candidate is not production-ready
+PASS: candidate provenance binds the selected BuildRoot through the strict gate
+PASS: unsigned candidate binds all selected binaries and artifact manifest to the optimized test configuration
+PASS: release candidate projection validates against its distinct deterministic schema
+PASS: release candidate projection passes exact inventory and cross-field semantic validation
+PASS: semantic validator rejects a mismatched expected and artifact-manifest configuration pair
+PASS: semantic validator rejects a missing required executable from an otherwise PASS inventory
+PASS: semantic validator rejects a PASS record carrying collector issues
+PASS: release candidate projection schema rejects a missing required binding field
+PASS: candidate reports commit binding without overstating tree binding
+PASS: candidate records hashes, x64 PE checks, and clean build claims for all five required executables
+PASS: candidate provenance uses portable selected-BuildRoot paths
+PASS: candidate separates skipped canonical build verification from selected-root provenance
+PASS: artifact manifest configuration agrees with the unsigned candidate mode
+PASS: packaged product artifact hashes still match the selected-root provenance hashes
+PASS: final archive preserves the checked artifact manifest, binaries, validation probe, helpers, and generated release notes
+PASS: packaged validation probe hash still matches the selected-root provenance hash
+PASS: candidate manifest carries strict product version
+PASS: candidate metadata contains no absolute artifact paths
+PASS: candidate metadata uses portable artifact paths
+PASS: candidate metadata redacts pin source paths
+PASS: candidate checksum list is non-empty
+PASS: checksum matches RELEASE_NOTES.md
+PASS: checksum matches sign-release.ps1
+PASS: checksum matches privileged-release.ps1
+PASS: checksum matches validation/fftest.exe
+PASS: checksum matches import-clean-host-result.ps1
+PASS: checksum matches kit-manifest.json
+PASS: checksum matches dependency-inventory.json
+PASS: checksum matches cleanup-clean-host.ps1
+PASS: checksum matches package/FastFiles.exe
+PASS: checksum matches provenance.json
+PASS: checksum matches package/FastFilesSetup.exe
+PASS: checksum matches validate-clean-host.ps1
+PASS: checksum matches package/FastFilesEngine.exe
+PASS: checksum matches candidate-manifest.json
+PASS: checksum matches artifact-manifest.json
+PASS: checksum matches README.md
+PASS: checksum matches ReleaseCommon.psm1
+PASS: checksum matches FastFiles-0.1.0-unsigned-validation-x64.zip
+PASS: checksum matches derive-pin.ps1
+PASS: checksum matches package/FastFiles.package.manifest
+PASS: checksum matches package/FastFilesIndexSvc.exe
+PASS: candidate emits candidate-manifest.json
+PASS: candidate emits provenance.json
+PASS: candidate emits SHA256SUMS.txt
+PASS: candidate emits RELEASE_NOTES.md
+PASS: candidate emits dependency-inventory.json
+PASS: candidate manifest classifies unsigned output explicitly
+PASS: candidate manifest declares only the ZIP as authoritative payload
+PASS: provenance marks loose output files as companion evidence
+PASS: unsigned candidate is not production-ready
+PASS: candidate provenance binds the selected BuildRoot through the strict gate
+PASS: unsigned candidate binds all selected binaries and artifact manifest to the optimized test configuration
+PASS: release candidate projection validates against its distinct deterministic schema
+PASS: release candidate projection passes exact inventory and cross-field semantic validation
+PASS: semantic validator rejects a mismatched expected and artifact-manifest configuration pair
+PASS: semantic validator rejects a missing required executable from an otherwise PASS inventory
+PASS: semantic validator rejects a PASS record carrying collector issues
+PASS: release candidate projection schema rejects a missing required binding field
+PASS: candidate reports commit binding without overstating tree binding
+PASS: candidate records hashes, x64 PE checks, and clean build claims for all five required executables
+PASS: candidate provenance uses portable selected-BuildRoot paths
+PASS: candidate separates skipped canonical build verification from selected-root provenance
+PASS: artifact manifest configuration agrees with the unsigned candidate mode
+PASS: packaged product artifact hashes still match the selected-root provenance hashes
+PASS: final archive preserves the checked artifact manifest, binaries, validation probe, helpers, and generated release notes
+PASS: packaged validation probe hash still matches the selected-root provenance hash
+PASS: candidate manifest carries strict product version
+PASS: candidate metadata contains no absolute artifact paths
+PASS: candidate metadata uses portable artifact paths
+PASS: candidate metadata redacts pin source paths
+PASS: candidate checksum list is non-empty
+PASS: checksum matches RELEASE_NOTES.md
+PASS: checksum matches sign-release.ps1
+PASS: checksum matches privileged-release.ps1
+PASS: checksum matches validation/fftest.exe
+PASS: checksum matches import-clean-host-result.ps1
+PASS: checksum matches kit-manifest.json
+PASS: checksum matches dependency-inventory.json
+PASS: checksum matches cleanup-clean-host.ps1
+PASS: checksum matches package/FastFiles.exe
+PASS: checksum matches provenance.json
+PASS: checksum matches package/FastFilesSetup.exe
+PASS: checksum matches validate-clean-host.ps1
+PASS: checksum matches package/FastFilesEngine.exe
+PASS: checksum matches candidate-manifest.json
+PASS: checksum matches artifact-manifest.json
+PASS: checksum matches README.md
+PASS: checksum matches ReleaseCommon.psm1
+PASS: checksum matches FastFiles-0.1.0-unsigned-validation-x64.zip
+PASS: checksum matches derive-pin.ps1
+PASS: checksum matches package/FastFiles.package.manifest
+PASS: checksum matches package/FastFilesIndexSvc.exe
+PASS: repeated candidate archives have identical SHA-256
+PASS: retained evidence emits candidate-manifest.json
+PASS: retained evidence candidate-manifest.json is non-empty
+PASS: retained evidence emits provenance.json
+PASS: retained evidence provenance.json is non-empty
+PASS: retained candidate manifest is bound to the qualified commit
+PASS: retained provenance is bound to the qualified commit
+PASS: retained provenance contains no absolute pin source paths
+PASS: retained provenance binds the retained candidate manifest
+PASS: retained provenance preserves selected-BuildRoot source binding
+PASS: candidate refuses to label a custom root as covered by the canonical build gate
+PASS: candidate rejects same-HEAD Debug binaries copied into a custom Release BuildRoot
+PASS: missing-configuration fixture preserves the strict source identity while omitting its config field
+PASS: candidate rejects a required executable with a missing embedded configuration
+PASS: candidate rejects a mixed selected BuildRoot containing Debug and RelWithDebInfo executables
+PASS: production candidate rejects unsigned RelWithDebInfo binaries
+PASS: candidate rejects a selected BuildRoot with missing required executables
+PASS: candidate rejects a custom BuildRoot containing a same-host PE with unbound source metadata
+PASS: production skip fixture reports Release in all five embedded version resources
+PASS: production skip cannot emit a passing or production-ready candidate
+Failures: 0

@@ -1,0 +1,19 @@
+{
+  "sourceSha": "6d3de0e8c9242315bad004cefc685f8f2f75b2b9",
+  "sourceTree": "6ecbca7586b8044bc11ec1b389f41e0fa4149d6e",
+  "branch": "validation/pr15-pr16-ordinary-20261024",
+  "scope": "Focused combined-source Debug/release-test builds only; full combined applications/Gallery/UIA NOT_EXECUTED due disk headroom",
+  "productUiInputEquality": "git diff e75a230..candidate -- src/ui src/search src/protocol src/ipc src/setup is empty; not a fresh combined runtime test",
+  "presets": [
+    {
+      "preset": "debug",
+      "testsExit": 0,
+      "themeExecutableSha256": "2cb67b10f46a09af489f82fc7b6f1ca348bf9202aae831ec2f70a08e8de32bab"
+    },
+    {
+      "preset": "release-test",
+      "testsExit": 0,
+      "themeExecutableSha256": "5f4c4082ef2df220b805a45c72742f38e4b90412487fdcdafb52480181dedb2a"
+    }
+  ]
+}

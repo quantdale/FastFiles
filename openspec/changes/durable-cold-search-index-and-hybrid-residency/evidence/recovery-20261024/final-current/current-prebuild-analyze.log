@@ -1,0 +1,35 @@
+[1/92] Refreshing FastFiles build identity
+-- FastFiles build identity: 269d1c36036cb84b40c3ef01baee3c2b6c990579 (tree=clean, config=Debug, arch=x64)
+[2/92] Building CXX object src\indexstore\CMakeFiles\ffindexstore.dir\src\Store.cpp.obj
+[3/92] Building CXX object src\indexstore\CMakeFiles\ffindexstore.dir\src\Projection.cpp.obj
+[4/92] C:\WINDOWS\system32\cmd.exe /C "cd /D "C:\Users\Michael Roy\Documents\FastFiles\build\worktrees\durable-cold-search\build\analyze\tests\engine" && "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different "C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/tests/engine/AuthenticodeFixture.ps1" "C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/analyze/tests/engine/AuthenticodeFixture.ps1""
+[5/92] Linking CXX static library src\indexstore\ffindexstore.lib
+[6/92] Building RC object src\indexsvc\CMakeFiles\FastFilesIndexSvc.dir\FastFilesIndexSvc-version.rc.res
+[7/92] Building CXX object src\engine\CMakeFiles\FastFilesEngine.dir\src\Main.cpp.obj
+[8/92] Building CXX object src\engine\CMakeFiles\FastFilesEngine.dir\src\UiServer.cpp.obj
+[9/92] Building CXX object src\engine\CMakeFiles\FastFilesEngine.dir\src\IndexPipeline.cpp.obj
+[10/92] Building CXX object src\engine\CMakeFiles\FastFilesEngine.dir\src\VolumeSessionManager.cpp.obj
+[11/92] Building RC object src\engine\CMakeFiles\FastFilesEngine.dir\FastFilesEngine-version.rc.res
+[12/92] Building RC object src\ui\CMakeFiles\FastFiles.dir\FastFiles-version.rc.res
+[13/92] Building CXX object src\installer\CMakeFiles\FastFilesSetup.dir\src\InstallSteps.cpp.obj
+[14/92] Building RC object src\installer\CMakeFiles\FastFilesSetup.dir\FastFilesSetup-version.rc.res
+[15/92] Building CXX object src\fftest\CMakeFiles\fftest.dir\src\Main.cpp.obj
+[16/92] Building RC object src\fftest\CMakeFiles\fftest.dir\fftest-version.rc.res
+[17/92] Building CXX object tests\indexstore\CMakeFiles\ffindexstore_store_tests.dir\test_store.cpp.obj
+[18/92] Building CXX object tests\indexstore\CMakeFiles\ffindexstore_projection_tests.dir\test_projection.cpp.obj
+[19/92] Building CXX object tests\indexstore\CMakeFiles\ffindexstore_projection_tests.dir\__\__\src\indexstore\src\Projection.cpp.obj
+[20/92] Building CXX object tests\indexstore\CMakeFiles\ffindexstore_read_session_tests.dir\test_store_read_session.cpp.obj
+[21/92] Building CXX object tests\indexstore\CMakeFiles\ffindexstore_bench_projection_memory.dir\bench_projection_memory.cpp.obj
+[22/92] Building CXX object tests\indexstore\CMakeFiles\ffindexstore_bench_rebuild_isolation.dir\bench_rebuild_isolation.cpp.obj
+[23/92] Building CXX object tests\indexstore\CMakeFiles\ffindexstore_bench_rebuild_isolation.dir\__\__\src\indexstore\src\Projection.cpp.obj
+[24/92] Building CXX object tests\indexstore\CMakeFiles\ffindexstore_bench_candidate_resources.dir\bench_candidate_index_resources.cpp.obj
+[25/92] Building CXX object tests\indexstore\CMakeFiles\ffindexstore_bench_store_open.dir\bench_store_open.cpp.obj
+[26/92] Building CXX object tests\engine\CMakeFiles\ffengine_index_pipeline_tests.dir\test_index_pipeline.cpp.obj
+[27/92] Building CXX object tests\engine\CMakeFiles\ffengine_index_pipeline_tests.dir\__\__\src\engine\src\IndexPipeline.cpp.obj
+[28/92] Building CXX object tests\engine\CMakeFiles\ffengine_storage_pressure_tests.dir\test_storage_pressure.cpp.obj
+[29/92] Building CXX object tests\engine\CMakeFiles\ffengine_storage_pressure_tests.dir\__\__\src\engine\src\IndexPipeline.cpp.obj
+[30/92] Building CXX object tests\engine\CMakeFiles\ffengine_volume_session_manager_tests.dir\test_volume_session_manager.cpp.obj
+[31/92] Building CXX object tests\engine\CMakeFiles\ffengine_volume_session_manager_tests.dir\__\__\src\engine\src\IndexPipeline.cpp.obj
+[32/92] Building CXX object tests\engine\CMakeFiles\ffengine_volume_session_manager_tests.dir\__\__\src\engine\src\VolumeSessionManager.cpp.obj
+[33/92] Building CXX object tests\engine\CMakeFiles\ffengine_legacy_scan_failure_binding_tests.dir\test_legacy_scan_failure_binding.cpp.obj
+[34/92] Building CXX object tests\engine\CMakeFiles\ffengine_legacy_scan_failure_binding_tests.dir\__\__\src\engine\src\IndexPipeline.cpp.obj
