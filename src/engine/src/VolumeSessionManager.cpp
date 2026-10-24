@@ -1059,7 +1059,7 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
         AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::IndexingError,
                                 ffprotocol::DiagnosticCode::FFDIAG_RECONCILIATION_DEFERRED,
                                 {}, std::wstring(1, driveLetter),
-                                L"scan-finalization-write-failed-retry-owned", 0, 0);
+                                L"scan-finalization-failed-retry-owned", 0, 0);
         RepublishSnapshot(durableId, driveLetter, true);
     };
     bool reconciliationFinalized = false;

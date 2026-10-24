@@ -833,10 +833,14 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed,
 
     const auto versionStart = std::chrono::steady_clock::now();
     Statement versionStmt(db_, "PRAGMA user_version;");
-    int existingVersion = 0;
-    if (versionStmt.Valid() && sqlite3_step(versionStmt) == SQLITE_ROW) {
-        existingVersion = sqlite3_column_int(versionStmt, 0);
+    // An unsuccessful version read is not evidence of a fresh database.
+    // In particular, never rebuild/downgrade an unknown newer schema after
+    // a transient SQLite prepare/step error.
+    if (!versionStmt.Valid() || sqlite3_step(versionStmt) != SQLITE_ROW) {
+        Close();
+        return false;
     }
+    const int existingVersion = sqlite3_column_int(versionStmt, 0);
     sqlite3_reset(versionStmt);
     if (outTimings != nullptr) {
         outTimings->schemaVersionReadMs = ElapsedMs(versionStart);
@@ -1607,7 +1611,8 @@ std::optional<EntryRecord> Store::FindEntry(VolumeRowId volumeRowId, FileId frn)
     return record;
 }
 
-std::vector<FileId> Store::ListEntryIds(VolumeRowId volumeRowId) {
+std::vector<FileId> Store::ListEntryIds(VolumeRowId volumeRowId, bool* outSuccess) {
+    if (outSuccess != nullptr) *outSuccess = false;
     std::vector<FileId> result;
     if (db_ == nullptr) {
         return result;
@@ -1617,9 +1622,11 @@ std::vector<FileId> Store::ListEntryIds(VolumeRowId volumeRowId) {
         return result;
     }
     sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(volumeRowId));
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    int stepResult = SQLITE_ERROR;
+    while ((stepResult = sqlite3_step(stmt)) == SQLITE_ROW) {
         result.push_back(ReadFileId(stmt, 0, 1));
     }
+    if (outSuccess != nullptr) *outSuccess = stepResult == SQLITE_DONE;
     return result;
 }
 

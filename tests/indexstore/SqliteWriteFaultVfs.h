@@ -27,6 +27,7 @@ public:
     static inline std::function<void(bool, bool)> onWrite;
     static inline std::function<void()> onCommit;
     static inline std::function<void(sqlite3*, const char*)> onStatement;
+    static inline std::function<void(sqlite3*)> onCapture;
     static inline bool armed = false;
     static inline bool fired = false;
     static inline int writes = 0;
@@ -66,6 +67,7 @@ public:
         onWrite = {};
         onCommit = {};
         onStatement = {};
+        onCapture = {};
         sqlite3_cancel_auto_extension(reinterpret_cast<void(*)(void)>(Capture));
         sqlite3_vfs_register(base_, 1);
         sqlite3_vfs_unregister(&vfs_);
@@ -96,6 +98,7 @@ private:
             captureNext = false;
             capturedDb = db;
             sqlite3_trace_v2(db, SQLITE_TRACE_STMT | SQLITE_TRACE_PROFILE, Trace, db);
+            if (onCapture) onCapture(db);
         }
         return SQLITE_OK;
     }

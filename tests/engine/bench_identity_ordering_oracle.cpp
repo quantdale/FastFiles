@@ -77,6 +77,44 @@ bool CopySnapshot(const std::string& source, std::filesystem::path& scratch, uin
     return ok && rows != 0;
 }
 
+// Optional low-disk mode for an existing LOCAL synthetic fixture. SQLite
+// enforces mode=ro on every connection; locking/change detection stay ON.
+// No immutable/nolock shortcuts, migrations, or source-copy deletion.
+int RequireReadOnly(sqlite3* db, char**, const sqlite3_api_routines*) {
+    return sqlite3_db_readonly(db, "main") == 1 ? SQLITE_OK : SQLITE_READONLY;
+}
+
+bool OpenReadOnlyFixture(const std::filesystem::path& source, std::string& uri, uint64_t& rows) {
+    const std::wstring absolute = std::filesystem::absolute(source).generic_wstring();
+    if (absolute.size() < 3 || absolute[1] != L':') return false;
+    uri = "file:///";
+    constexpr char hex[] = "0123456789ABCDEF";
+    for (const unsigned char ch : Utf8(absolute)) {
+        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ||
+            ch == '/' || ch == ':' || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+            uri += static_cast<char>(ch);
+        } else {
+            uri += '%';
+            uri += hex[ch >> 4];
+            uri += hex[ch & 15];
+        }
+    }
+    uri += "?mode=ro";
+    if (sqlite3_config(SQLITE_CONFIG_URI, 1) != SQLITE_OK ||
+        sqlite3_auto_extension(reinterpret_cast<void(*)(void)>(RequireReadOnly)) != SQLITE_OK) return false;
+    sqlite3* db = nullptr;
+    bool ok = sqlite3_open_v2(uri.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_URI,
+                             nullptr) == SQLITE_OK;
+    sqlite3_stmt* stmt = nullptr;
+    if (ok) ok = sqlite3_db_readonly(db, "main") == 1 &&
+                 sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM entries;", -1, &stmt, nullptr) == SQLITE_OK;
+    if (ok) ok = sqlite3_step(stmt) == SQLITE_ROW;
+    if (ok) rows = static_cast<uint64_t>(sqlite3_column_int64(stmt, 0));
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return ok && rows != 0;
+}
+
 struct Cell {
     const char* name;
     const wchar_t* query;
@@ -166,15 +204,21 @@ bool ComparatorSelfTest() {
 
 int wmain(int argc, wchar_t** argv) {
     std::string source;
+    std::wstring sourceWide;
     std::string output;
+    bool readOnlyFixture = false;
     bool extended = false;
     bool selfTest = false;
     for (int index = 1; index < argc; ++index) {
         const std::wstring option = argv[index];
-        if (option == L"--db" && index + 1 < argc) source = Utf8(argv[++index]);
+        if (option == L"--db" && index + 1 < argc) {
+            sourceWide = argv[++index];
+            source = Utf8(sourceWide);
+        }
         else if (option == L"--output" && index + 1 < argc) output = Utf8(argv[++index]);
         else if (option == L"--extended") extended = true;
         else if (option == L"--self-test") selfTest = true;
+        else if (option == L"--readonly-fixture") readOnlyFixture = true;
         else return 2;
     }
     if (!ComparatorSelfTest()) return 1;
@@ -183,14 +227,20 @@ int wmain(int argc, wchar_t** argv) {
 
     uint64_t rows = 0;
     std::filesystem::path scratch;
-    if (!CopySnapshot(source, scratch, rows)) {
-        std::fprintf(stderr, "cannot create a nonempty, consistent scratch snapshot\n");
-        return 3;
+    std::string database;
+    if (readOnlyFixture) {
+        if (!OpenReadOnlyFixture(sourceWide, database, rows)) return 3;
+    } else {
+        if (!CopySnapshot(source, scratch, rows)) {
+            std::fprintf(stderr, "cannot create a nonempty, consistent scratch snapshot\n");
+            return 3;
+        }
+        database = Utf8((scratch / L"oracle.db").wstring());
     }
     std::ofstream out(output, std::ios::binary);
     if (!out) return 3;
     ffengine::IndexPipeline pipeline;
-    if (!pipeline.Open(Utf8((scratch / L"oracle.db").wstring()))) return 3;
+    if (!pipeline.Open(database)) return 3;
     pipeline.RebuildAll({});
     const auto volumes = pipeline.GetAllVolumes();
     if (volumes.empty()) return 3;
@@ -228,6 +278,7 @@ int wmain(int argc, wchar_t** argv) {
 
     out << "{\n\"schema\":\"fastfiles-identity-ordering-oracle-v2\",\n\"build_identity\":"
         << Json(ffsetup::kBuildIdentityAscii) << ",\n\"input\":" << Json(source)
+        << ",\n\"fixture_access\":" << Json(readOnlyFixture ? "sqlite-enforced-read-only-uri" : "owned-backup-copy")
         << ",\n\"fixture_rows\":" << rows << ",\n\"cells\":[\n";
     bool passed = true;
     bool firstCell = true;
@@ -281,6 +332,6 @@ int wmain(int argc, wchar_t** argv) {
     out.close();
     pipeline.Close();
     // Only this run's newly-created scratch directory is removed.
-    std::filesystem::remove_all(scratch);
+    if (!readOnlyFixture) std::filesystem::remove_all(scratch);
     return passed ? 0 : 1;
 }

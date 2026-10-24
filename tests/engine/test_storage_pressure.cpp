@@ -305,6 +305,36 @@ void TestCandidateRecoveryRegressions(const std::filesystem::path& dir) {
         Verify(path, 10);
     }
     {
+        const auto path = (dir / "version-read-interrupt.db").string();
+        Store store;
+        Check(OpenCaptured(store, path), "version-read error fixture opens");
+        Check(store.GetOrCreateVolume(VolumeKey{}).has_value(), "version-read error fixture has one volume");
+        Check(Sql(Fault::capturedDb, "PRAGMA user_version=4;"), "version-read fixture simulates a newer schema");
+        store.Close();
+        bool denied = false;
+        Fault::onCapture = [&](sqlite3* db) {
+            sqlite3_set_authorizer(db, [](void* state, int action, const char* name, const char*, const char*, const char*) -> int {
+                auto& fired = *static_cast<bool*>(state);
+                if (!fired && action == SQLITE_PRAGMA && name && std::strcmp(name, "user_version") == 0) {
+                    fired = true;
+                    return SQLITE_DENY;
+                }
+                return SQLITE_OK;
+            }, &denied);
+        };
+        Fault::captureNext = true;
+        const bool opened = store.Open(path);
+        Fault::onCapture = {};
+        Check(denied, "schema-version lookup actually returns a SQLite prepare error");
+        Check(!opened, "unknown schema version after read error must fail closed, not become fresh version zero");
+        if (opened) sqlite3_set_authorizer(Fault::capturedDb, nullptr, nullptr);
+        store.Close();
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(path.c_str(), &raw) == SQLITE_OK, "version-read result probe opens");
+        Check(Scalar(raw, "PRAGMA user_version;") == 4, "failed version read must not downgrade newer schema marker");
+        sqlite3_close(raw);
+    }
+    {
         const auto path = (dir / "reader-move.db").string();
         Store store;
         Check(OpenCaptured(store, path), "move-cache seed opens");
@@ -371,6 +401,39 @@ void TestChunkTwoFull(const std::filesystem::path& dir) {
     Verify(path, 7001);
     pipeline.FinishReconciliationPass(volume);
     Check(!pipeline.IsReconciliationPassActive(volume), "actual FULL remaining chunks converge on retry");
+    pipeline.Close();
+    Verify(path, 1);
+}
+
+void TestReconciliationReadFailureRetainsObligation(const std::filesystem::path& dir) {
+    const auto path = (dir / "reconciliation-read-error.db").string();
+    ffengine::IndexPipeline pipeline;
+    Fault::captureNext = true;
+    Check(pipeline.Open(path), "reconciliation read-error fixture opens");
+    const auto volume = pipeline.ResolveVolume(VolumeKey{});
+    Check(pipeline.ApplyMftBatch(volume, {Mft(1), Mft(2)}), "reconciliation read-error rows commit");
+    pipeline.BeginReconciliationPass(volume);
+    Check(pipeline.ApplyMftBatch(volume, {Mft(1)}), "reconciliation read-error pass sees root only");
+    bool interrupted = false;
+    Fault::onStatement = [&](sqlite3* db, const char* sql) {
+        if (sql && std::strcmp(sql, "SELECT frn_low, frn_high FROM entries WHERE volume_id=?;") == 0) {
+            sqlite3_progress_handler(db, 1, [](void* state) -> int {
+                auto& fired = *static_cast<bool*>(state);
+                if (fired) return 0;
+                fired = true;
+                return 1;
+            }, &interrupted);
+        }
+    };
+    pipeline.FinishReconciliationPass(volume);
+    Fault::onStatement = {};
+    sqlite3_progress_handler(Fault::capturedDb, 0, nullptr, nullptr);
+    Check(interrupted, "actual reconciliation identity enumeration returns an error");
+    Check(pipeline.IsReconciliationPassActive(volume), "failed identity enumeration is not successful reconciliation exhaustion");
+    pipeline.FinishReconciliationPass(volume);
+    const auto aggregate = pipeline.GetFolderAggregate(volume, {1, 0});
+    Check(!pipeline.IsReconciliationPassActive(volume) && aggregate && aggregate->itemCount == 0,
+          "retry after reconciliation read error converges without losing its obligation");
     pipeline.Close();
     Verify(path, 1);
 }
@@ -503,6 +566,7 @@ int wmain(int argc, wchar_t** argv) {
         TestRebuildFull(dir);
     }
     if (!crashAcceptance) TestCandidateRecoveryRegressions(dir);
+    if (!crashAcceptance) TestReconciliationReadFailureRetainsObligation(dir);
     if (!recoveryOnly && !crashAcceptance) TestChunkTwoFull(dir);
     if (crashAcceptance) TestCrash(dir);
     Fault::Uninstall();

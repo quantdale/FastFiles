@@ -1064,7 +1064,17 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
 
     const bool hasRulesForReconcile = volumeRules_.find(id) != volumeRules_.end();
     std::vector<ffindexstore::EntryChange> removals;
-    for (const auto& existingId : store_.ListEntryIds(id)) {
+    bool enumerationSucceeded = false;
+    const auto existingIds = store_.ListEntryIds(id, &enumerationSucceeded);
+    if (!enumerationSucceeded) {
+        // durable-cold-search-index-and-hybrid-residency 4.2: a failed read
+        // is not successful exhaustion. Keep the obligation for the normal
+        // manager retry path; no removals committed and no successful
+        // reconciliation timestamp may be published.
+        RecordMetadataOnlyUpdateLocked();
+        return;
+    }
+    for (const auto& existingId : existingIds) {
         const bool notSeen = seen.find(existingId) == seen.end();
         const bool excluded = hasRulesForReconcile && !IsEntryIncludedLocked(id, existingId);
         if (notSeen || excluded) {

@@ -293,7 +293,9 @@ public:
     // task 8.1/8.4: full identity set for a volume, used by reconciliation
     // to anti-join against fresh ground truth without re-streaming every
     // field for entries that haven't changed.
-    std::vector<FileId> ListEntryIds(VolumeRowId volumeRowId);
+    // outSuccess distinguishes complete enumeration from a partial/empty
+    // result after SQLite failure; reconciliation must not finalize on error.
+    std::vector<FileId> ListEntryIds(VolumeRowId volumeRowId, bool* outSuccess = nullptr);
 
     uint64_t CountEntries(VolumeRowId volumeRowId);
 
