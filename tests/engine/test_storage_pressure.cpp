@@ -430,14 +430,14 @@ void TestCrash(const std::filesystem::path& dir) {
         Check(pipeline.ApplyMftBatch(volume, rows), "12,000 long-name crash rows commit");
         pipeline.Close();
     }
-    wchar_t exe[32768]{};
-    GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    std::vector<wchar_t> exe(32768);
+    GetModuleFileNameW(nullptr, exe.data(), static_cast<DWORD>(exe.size()));
     for (int phase = 0; phase < 6; ++phase) {
         const auto path = dir / ("crash-" + std::to_string(phase) + ".db");
         std::filesystem::copy_file(seed, path);
         const auto name = L"Local\\FastFilesStorageCrash-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(phase);
         HANDLE event = CreateEventW(nullptr, TRUE, FALSE, name.c_str());
-        std::wstring command = L"\"" + std::wstring(exe) + L"\" --child \"" + path.wstring() + L"\" \"" + name + L"\" " + std::to_wstring(phase);
+        std::wstring command = L"\"" + std::wstring(exe.data()) + L"\" --child \"" + path.wstring() + L"\" \"" + name + L"\" " + std::to_wstring(phase);
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION process{};
