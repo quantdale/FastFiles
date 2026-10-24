@@ -400,17 +400,23 @@ void Projection::EvictSubtree(const EntryKey& rootKey) {
         }
     }
 
-    // Remove descendants before the selected directory so every child-index
-    // slice is still valid when Remove() unlinks the child.
-    // large-index-lifecycle-and-search-scalability 4.4: eviction is a bulk
-    // removal -- skip per-entry accelerator erases for large subtrees. The
-    // caller's CompactStorage() invalidates the accelerator anyway, and the
-    // memory-pressure path must not allocate a rebuild here.
+    // durable-cold-search-index-and-hybrid-residency final review: every
+    // caller immediately compacts surviving identities. Large subtrees must
+    // therefore skip doomed sibling slices as well as filename postings;
+    // per-child unlinking is quadratic for a flat directory. The traversal
+    // above finishes before any erasure, including cycle detection.
     if (removalOrder.size() > kPerEntryFilenameRemovalThreshold) {
         InvalidateFilenameIndex();
-    }
-    for (auto it = removalOrder.rbegin(); it != removalOrder.rend(); ++it) {
-        Remove(it->volumeRowId, it->frn);
+        denseIterationOrderValid_ = false;
+        for (const EntryKey& key : removalOrder) {
+            idToIndex_.erase(key);
+        }
+    } else {
+        // Without a following bulk erasure, unlink descendants first so
+        // each parent's child-index slice remains valid during removal.
+        for (auto it = removalOrder.rbegin(); it != removalOrder.rend(); ++it) {
+            Remove(it->volumeRowId, it->frn);
+        }
     }
     evictedVolumes_.insert(rootKey.volumeRowId);
     ++subtreeEvictionCount_;

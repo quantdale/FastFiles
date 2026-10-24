@@ -158,6 +158,7 @@ struct Options {
     std::vector<size_t> scales{10'000, 100'000, 500'000, 1'000'000, 2'000'000};
     std::filesystem::path outputPath = std::filesystem::path(L"docs/benchmarks/large-index-scalability.json");
     bool detailedDiagnostics = false;
+    bool searchAcceptanceOnly = false;
     // performance-closure-and-multisurface-acceleration 8.1: projection-memory
     // decomposition mode. When set, the benchmark runs only the memory report
     // (fixture generation -> rebuild cycles -> export weighing -> teardown) and
@@ -221,6 +222,10 @@ bool ParseOptions(int argc, wchar_t** argv, Options& options) {
         }
         if (argument == L"--diagnostics") {
             options.detailedDiagnostics = true;
+            continue;
+        }
+        if (argument == L"--search-acceptance-only") {
+            options.searchAcceptanceOnly = true;
             continue;
         }
         if (argument == L"--memory-report" && index + 1 < argc) {
@@ -2243,12 +2248,16 @@ int wmain(int argc, wchar_t** argv) {
 
         for (size_t caseIndex = 0; caseIndex < queryCases.size(); ++caseIndex) {
             const QueryCase& queryCase = queryCases[caseIndex];
-            const size_t warmRuns = scale >= kLargeSearchThreshold ? kWarmRunsLarge : kWarmRunsNormal;
+            const bool keyCell = std::string_view(queryCase.name) == "selective" ||
+                std::string_view(queryCase.name) == "exact_name" ||
+                std::string_view(queryCase.name) == "no_match";
+            const size_t warmRuns = options.searchAcceptanceOnly && !keyCell ? 1 :
+                (scale >= kLargeSearchThreshold ? kWarmRunsLarge : kWarmRunsNormal);
             if (caseIndex == 0) {
                 const SearchOutcome first = RunSearch(pipeline, scale, queryCase, 0,
                                                       "cold-ish-first-after-rebuild", options.detailedDiagnostics);
                 searchRuns.push_back(first.run);
-            } else {
+            } else if (!options.searchAcceptanceOnly || keyCell) {
                 RunSearch(pipeline, scale, queryCase, 0, "warmup", options.detailedDiagnostics);
                 RunSearch(pipeline, scale, queryCase, 1, "warmup", options.detailedDiagnostics);
             }
@@ -2275,7 +2284,9 @@ int wmain(int argc, wchar_t** argv) {
                         beforeUnload.estimatedBytes, afterUnload.estimatedBytes);
             std::fflush(stdout);
             for (const auto& queryCase : queryCases) {
-                RunSearch(pipeline, scale, queryCase, 0, "warmup", options.detailedDiagnostics);
+                if (!options.searchAcceptanceOnly) {
+                    RunSearch(pipeline, scale, queryCase, 0, "warmup", options.detailedDiagnostics);
+                }
                 const SearchOutcome measured = RunSearch(pipeline, scale, queryCase, 0, "cold",
                                                          options.detailedDiagnostics);
                 searchRuns.push_back(measured.run);
@@ -2291,7 +2302,7 @@ int wmain(int argc, wchar_t** argv) {
         // durable-snapshot broad-search and cancellation paths. Keep this
         // evidence to the first requested scale so the default multi-million
         // row run remains useful without multiplying full-dataset churn.
-        if (scale == options.scales.front()) {
+        if (!options.searchAcceptanceOnly && scale == options.scales.front()) {
             const QueryCase sustainedCase{"sustained_write_broad", L"common", 0};
             std::atomic<size_t> validationCount{0};
             pipeline.SetSearchTestHooks({[&](const ffengine::IndexPipeline::SearchPhase phase) {
@@ -2316,7 +2327,7 @@ int wmain(int argc, wchar_t** argv) {
                 pipeline, volumeId, scale, options.detailedDiagnostics));
         }
 
-        if (scale == 1'000'000) {
+        if (!options.searchAcceptanceOnly && scale == 1'000'000) {
             const std::vector<std::wstring> steps{L"p", L"ph", L"pho", L"phot", L"photo"};
             for (const auto& step : steps) {
                 QueryCase stepCase{"incremental", step.c_str(), 0};
@@ -2337,7 +2348,9 @@ int wmain(int argc, wchar_t** argv) {
         // snapshot, second-search, and cancellation paths while that query
         // is intentionally in flight. This is evidence, not a pass/fail
         // timing gate; the booleans make lock monopolization visible.
-        dataset.contention = RunContentionProbe(pipeline, volumeId, scale, options.detailedDiagnostics);
+        if (!options.searchAcceptanceOnly) {
+            dataset.contention = RunContentionProbe(pipeline, volumeId, scale, options.detailedDiagnostics);
+        }
         dataset.readPlane = pipeline.GetReadPlaneDiagnostics();
         dataset.postQuery = ReadMemory();
         dataset.resourcesPostQuery = ReadResources(database);
@@ -2360,16 +2373,19 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     std::vector<SnapshotRun> snapshotRuns;
-    for (const size_t rows : {size_t{100}, size_t{1'000}, size_t{10'000}, size_t{50'000},
-                              size_t{100'000}, size_t{250'000}, size_t{500'000}}) {
-        snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
+    size_t largestRows = 0;
+    if (!options.searchAcceptanceOnly) {
+        for (const size_t rows : {size_t{100}, size_t{1'000}, size_t{10'000}, size_t{50'000},
+                                  size_t{100'000}, size_t{250'000}, size_t{500'000}}) {
+            snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
+        }
+        largestRows = FindLargestSnapshotRows();
+        for (const double fraction : {0.50, 0.75, 0.90, 1.00}) {
+            const size_t rows = static_cast<size_t>(static_cast<double>(largestRows) * fraction);
+            snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
+        }
+        snapshotRuns.push_back(RunSnapshot(largestRows + 1, publisher, options.detailedDiagnostics));
     }
-    const size_t largestRows = FindLargestSnapshotRows();
-    for (const double fraction : {0.50, 0.75, 0.90, 1.00}) {
-        const size_t rows = static_cast<size_t>(static_cast<double>(largestRows) * fraction);
-        snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
-    }
-    snapshotRuns.push_back(RunSnapshot(largestRows + 1, publisher, options.detailedDiagnostics));
     publisher.Stop();
 
     std::filesystem::path parent = options.outputPath.parent_path();
@@ -2408,6 +2424,11 @@ int wmain(int argc, wchar_t** argv) {
     output << ",\"command_line\":"; WriteJsonString(output, options.commandLine);
     output << ",\"generated_epoch_seconds\":" << static_cast<long long>(std::time(nullptr));
     output << ",\"candidate_index_version\":3";
+    output << ",\"search_acceptance_only\":" << (options.searchAcceptanceOnly ? "true" : "false");
+    output << ",\"sampling_note\":";
+    WriteJsonString(output, options.searchAcceptanceOnly ?
+        "same fixture/RunSearch timing; key cells retain warmups/five samples at large scale; other classes one ordered sample; forced-cold one sample; no churn/contention/snapshot-capacity probes" :
+        "legacy full sampling and ancillary probes");
 #ifdef FFBENCH_NO_ALLOCATOR_PROBE
     output << ",\"allocator_probe_enabled\":false";
 #else
