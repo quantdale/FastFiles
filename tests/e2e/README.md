@@ -18,3 +18,17 @@ build or CTest dependency graph.
 
 See [`docs/testing/e2e.md`](../../docs/testing/e2e.md) for coverage,
 timeouts, fixture safety, and failure evidence.
+
+The focused native conflict runner exercises Cancel, Skip, Keep both and Replace
+on marker-owned collisions in both themes, including names, physical bounds,
+Tab traversal and exact file-content outcomes. Light uses native pointer input;
+dark uses keyboard activation. Run it alone after all session-pipe CTests exit:
+
+```powershell
+pwsh ./verify/e2e/Test-FileConflictActions.ps1 -RepoRoot . -ArtifactsDir build/conflict-actions-fresh
+```
+
+It requires a clean committed `debug-diagnostic` build and a fresh artifact
+folder. Review the actual light/dark PNGs as well as `result.json`; a passing
+functional result is not visual approval. It seeds settings only inside its
+isolated session sandbox and never changes system appearance preferences.

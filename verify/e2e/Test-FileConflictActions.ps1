@@ -108,8 +108,23 @@ try {
                     }
                     if (-not $focused.Pass) { throw ('Keyboard Tab did not reach '+$label) }
                 }
-                $clicked = & $e2e {param($context,$element,$owner) Invoke-E2EButton -Context $context -Element $element -Owner $owner} $ctx $controls[$choice] $dialog
-                if (-not $clicked) { throw ('Native input could not activate '+$choice) }
+                $inputRoute = 'native Invoke or real pointer fallback'
+                if ($theme -eq 'Light') {
+                    $clicked = & $e2e {param($context,$element,$owner) Invoke-E2EButton -Context $context -Element $element -Owner $owner} $ctx $controls[$choice] $dialog
+                    if (-not $clicked) { throw ('Native input could not activate '+$choice) }
+                } else {
+                    $inputRoute = 'real keyboard'
+                    if ($choice -eq 'Keep both' -or $choice -eq 'Replace') {
+                        $keys = if ($choice -eq 'Replace') { '+{TAB}' } else { '{TAB}' }
+                        $null = Send-UiaInput -Driver $ctx.Driver -Keys $keys
+                        $focused = Wait-E2ECondition -TimeoutMs 1500 -Description ('keyboard activation target '+$choice) -Condition {
+                            [bool](Get-UiaElementProperty -Driver $ctx.Driver -Element $controls[$choice] -Name HasKeyboardFocus)
+                        }
+                        if (-not $focused.Pass) { throw ('Keyboard activation target was not focused: '+$choice) }
+                    }
+                    $keys = if ($choice -eq 'Cancel') { '{ESC}' } else { ' ' }
+                    $null = Send-UiaInput -Driver $ctx.Driver -Keys $keys
+                }
                 if (-not (Wait-UiaElementGone -Driver $ctx.Driver -ClassName FastFilesConflictDialog -ProcessId $ctx.Launched.Id -TimeoutMs 5000 -PollIntervalMs 100)) { throw 'Conflict dialog did not close.' }
                 $dialog = $null
                 $copyPath = Join-Path $fixture.Destination ([IO.Path]::GetFileNameWithoutExtension($name)+' (2).txt')
@@ -123,7 +138,7 @@ try {
                     (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -eq $sentinelHash
                 if (-not $outcome.Pass -or -not $preserved) { throw ('Wrong filesystem result for '+$id) }
                 if ($choice -ne 'Keep both' -and (Test-Path -LiteralPath $copyPath)) { throw 'Unexpected duplicate after a different conflict decision.' }
-                [void]$results.Add(@{id=$id;pass=$true;initialSkipFocus=$true;tabOrder=$tabOrder;sourceAndSentinelPreserved=$preserved;bounds=$bounds})
+                [void]$results.Add(@{id=$id;pass=$true;inputRoute=$inputRoute;initialSkipFocus=$true;tabOrder=$tabOrder;sourceAndSentinelPreserved=$preserved;bounds=$bounds})
                 Write-Host ('PASS: '+$id+'; named controls, physical bounds, Tab traversal, exact content outcome')
             }
         } finally {
