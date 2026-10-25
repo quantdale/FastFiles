@@ -29,3 +29,5 @@ Each writer owns one worktree. Read-only audit/review agents never modify implem
 ## Freshness and dependency decision
 
 First product changes were made only after `HEAD == origin/main == a26fe609` and a clean status in the product worktree. Acceptance changes start at exact PR15 tip. Product work depends on native UI contracts already in main, so its diff does not duplicate PR14/15/16. Acceptance repair remains stacked on PR15. Owner controls all merges; use a disposable merge simulation for combined validation.
+
+Native conflict successor uses conflict-actions-20261026 / fix/accessible-conflict-actions-20261026, verified fresh PR18 base981a9ba before edits. Immutable qualified sourcef106541 and C++ implementation1dbff32 remain separate from PR19/20. Disposable combined63ffa59 includes both siblings and the conflict/harness changes, with actual8/8 ordinary and8/8 conflict journeys plus14 focused checks; no shared merge. Fresh fetch still resolves maina26fe609 and PR18 981a9ba. Publication state is derived from live refs/PR API.

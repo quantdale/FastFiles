@@ -30,4 +30,4 @@
 - [ ] 4.3 Record exact source/evidence identity, commit, reconcile remote, publish unmerged successor work and report real limitations.
 - [x] 4.4 Preserve an already visible palette during capture activation and revalidate required surface visibility immediately before screenshot; retain red-capable headless input regression and actual pixel review. Two old-source checks fail; repaired full driver passes. Actual pixel review additionally found/repaired sibling painting in2.7.
 
-- [ ] 4.5 Repair and regression-test the E2E native Alt+F4 fallback; preserve close-route/error/input/exit observations and the unchanged10s deadline, then qualify actual cold restore. Retain initial Home-close failure and distinguish demonstrated fallback defect from unproven original attribution.
+- [x] 4.5 Repair and regression-test the E2E native Alt+F4 fallback; preserve close-route/error/input/exit observations and the unchanged10s deadline, then qualify actual cold restore. Retain initial Home-close failure and distinguish demonstrated fallback defect from unproven original attribution.
