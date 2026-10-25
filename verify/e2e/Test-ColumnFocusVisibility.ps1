@@ -95,7 +95,11 @@ try {
     $run = New-VisualCaptureRun -Root $artifacts -ApplicationSha $appHash -ExecutableIdentity $gate.evidence.setIdentity -RepoRoot $repo
     $result.screenshot = Capture-VisualWindow -Run $run -Element $ctx.Main -ScenarioId ('column-focus-' + $Mode) -AssertionPass $true
     $result.status = 'PASS'
-    $result.detail = 'Original row focus, physical visibility and inactive-pane preservation passed; screenshot requires actual visual review.'
+    $result.detail = if ($Mode -eq 'narrow-dual') {
+        'Original row focus, physical visibility and inactive-pane preservation passed; screenshot requires actual visual review.'
+    } else {
+        'Original row focus and physical visibility passed; screenshot requires actual visual review.'
+    }
 } catch {
     $result.detail = $_.Exception.Message
 } finally {

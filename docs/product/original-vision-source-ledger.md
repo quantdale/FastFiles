@@ -29,3 +29,9 @@ Each writer owns one worktree. Read-only audit/review agents never modify implem
 ## Freshness and dependency decision
 
 First product changes were made only after `HEAD == origin/main == a26fe609` and a clean status in the product worktree. Acceptance changes start at exact PR15 tip. Product work depends on native UI contracts already in main, so its diff does not duplicate PR14/15/16. Acceptance repair remains stacked on PR15. Owner controls all merges; use a disposable merge simulation for combined validation.
+
+## 2026-10-26 verified successor checkpoint
+
+Fresh fetch and PR API confirm maina26fe609; PR14d3884eec ->main OPEN; PR15 8bffb329 ->PR14 OPEN draft; PR16e75a230d ->main OPEN draft. Separate acceptance PR17 067eaab ->PR15, product PR18 981a9ba ->main, and identity/focus PR19 implementation93cd2b6 ->PR18 are all OPEN draft. No owner-controlled merge was executed. Main-sync and product/acceptance implementations remain clean/equal their remotes; original b77d61e remains dirty/diverged and untouched.
+
+Additional worktrees: storage-uia090f7e2 and visible-uia5456f1 are clean isolated implementation history integrated into PR18; search8a4f588 is also preserved. Column-uia starts from verified PR18 and publishes PR19. Disposable integrationa0afd5f locally combines PR16/14/15/17/18/19; it is clean and unpushed. Native-text starts at fresh PR18 981a9ba as a purpose-specific sibling for narrow status text, currently session-owned edits; it contains no PR19 commits. The root is the only writer; frozen qualification worktrees are read-only and native sessions remain serialized. This ledger records checkpoint observations, never the SHA of its containing commit.

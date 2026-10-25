@@ -35,17 +35,17 @@ Scores use impact × confidence × frequency × executability ÷ regression risk
 ## Answers to the twelve alignment questions
 
 1. **Find across the computer as intuitively as WizFile?** Entry points and typed search exist; usability parity and whole-computer production coverage are unverified. Degraded mode is deliberately bounded.
-2. **Immediately navigate from a result?** Intended behavior exists; confirmed Home/scroll/chrome composition defects are this campaign's primary navigation repair.
+2. **Immediately navigate from a result?** The repaired native Search journey now passes Home reveal, full hierarchy, exact selected path and physical visibility. PR19 additionally repairs public Column View action reconciliation; all changes remain unmerged.
 3. **Useful degraded search?** It searches previously browsed snapshot locations, with explicit All Browsed Locations / browsed-folder scope labels. This is useful local discovery, not a whole-computer claim.
 4. **Inspect consumption and drill down like WizTree?** Capacity, logical/allocated aggregation and treemap hierarchy exist. Global recursive largest-file ranking is absent from the current immediate-entry list implementation.
-5. **Actionable storage?** File-tile reveal exists, but context-target loss must be fixed before trusting operations. Category summaries must not be file objects.
-6. **Column View better for hierarchy?** The spatial model is real; comparative user validation is unverified. Search reveal must preserve its strongest navigation behavior.
-7. **Tabs/dual panes intuitive?** Typed per-pane state, history, restore and tests exist. Runtime composition and focus need qualification.
-8. **Everyday operations without confusion?** Rich operations exist, but hidden browse targets are a material counterexample. File preservation takes priority over styling.
-9. **Modern and cohesive?** An existing coherent reference lock exists. Actual screenshots, rather than another token rewrite, determine necessary improvements.
-10. **Errors/degraded truthful?** Unknown allocation and partial aggregates have explicit states. Root-only snapshot coverage must not claim full-volume completeness.
+5. **Actionable storage?** Native tests now verify visible command targets, sorting identity, category refinement, matching Treemap filter and tile reveal. Global recursive ranking and whole-volume coverage remain separate gaps.
+6. **Column View better for hierarchy?** Linked columns and exact Search reveal work in native fixtures. PR19 fixes wrong-target accessibility actions, offscreen focus and cross-pane paint spill with unmasked before/after review. Comparative usability superiority remains unverified.
+7. **Tabs/dual panes intuitive?** Native typed Home/nested restore and narrow dual-pane focus/independent scrolling now pass. Comparative intuitiveness and richer cross-pane operation journeys remain unqualified.
+8. **Everyday operations without confusion?** Hidden-target routing is repaired. Native create, rename, copy, move and recycle pass on owned fixtures; conflict, permanent-delete, cancellation and retry UI journeys still need qualification.
+9. **Modern and cohesive?** Actual screenshots drove palette, Settings footer, search context and pane-paint fixes within the existing reference lock. Narrow status text is the active sibling slice; overall polish is not declared complete.
+10. **Errors/degraded truthful?** Unknown allocation and partial aggregates retain explicit states; root availability now says completeness unverified. Default degraded operation remains usable and no whole-volume or signed-service coverage is claimed.
 11. **Discover differentiators first run?** Home actions, chrome Fast Search and sidebar Search/Storage exist. No invented onboarding or usability claim replaces baseline inspection.
-12. **Replace Explorer daily?** Not established: the confirmed signature-journey defects, interoperability qualification and external release requirements prevent a product-complete claim.
+12. **Replace Explorer daily?** Not established: repaired signature journeys are locally verified, while remaining operation/interoperability qualification, whole-computer production indexing and release requirements prevent a product-complete claim.
 
 ## Refero research and native adaptation
 
@@ -87,3 +87,19 @@ Baseline captures16/16 at actual120DPI and first expanded after20/21 remain reta
 |UIA structure|Distinct Storage/Search identities, real rows/headers/actions, stale/lifetime safety and hidden Browse/Home retirement; actual native journeys|Native-role/root-focus gaps outside reviewed seams remain explicitly unverified|
 
 Debug/release-test builds, Analyze and ASan checks are tracked separately from hosted CI and native visual qualification. The current main-based product branch does not claim PR14/15 scale-performance evidence as its own. No pillar is called product-complete while a signature journey remains unqualified.
+
+## Current five-pillar evidence update — 2026-10-26
+
+These are unmerged successor results, not a claim that main already contains them.
+
+| Pillar | Current quality assessment | Verified improvement | Remaining deviation |
+| --- | --- | --- | --- |
+| Find | PARTIALLY_IMPLEMENTED | Exact Home/search/reveal and no-match/superseded-query native journey; visible location/metadata | Degraded scope is browsed/pinned; privileged whole-computer coverage and comparative WizFile usability unqualified |
+| Understand | PARTIALLY_IMPLEMENTED | Action targets, category-to-Treemap scope, drill-down, fractional UIA bounds and truthful local scope | Recursive global ranking and whole-volume production aggregates unqualified |
+| Navigate | IMPLEMENTED_BUT_UNPOLISHED | Original-identity actions, real owner focus, visible child/breadcrumb, independent narrow panes; strict native two-mode checks | Comparative Finder usability, full keyboard/display matrix and remaining surface polish |
+| Act | IMPLEMENTED_BUT_UNPOLISHED | Native create/rename/copy/move/recycle and repeated clean lifecycles | Explorer drag skipped; native conflict/permanent-delete/cancellation/retry journeys not qualified |
+| Complete/cohesive | IMPLEMENTED_BUT_UNPOLISHED | Native palette visible, Settings footer contained,21-scene light/dark120DPI catalog, actual focus/paint corrections | Narrow status wrapping under active sibling remediation; physical HC/other DPI/reduced-motion and native role gaps remain |
+
+New high-impact findings: resolve-to-ordinal action race (impact5×confidence5×frequency4×executability5÷risk2=250); focused child offscreen/cross-pane paint spill (4×5×4×5÷2=200). Both are remediated and validated at PR19 implementation93cd2b6. Normal selected Debug126/126 and release-test126/126 explicitly exclude the restricted reaper; native E2E8/8, strict focus normal/narrow PASS, catalog21/21. Compact exact-source evidence and actual screenshots are in `openspec/changes/column-uia-identity-dispatch/evidence/validation.md`.
+
+One narrow probe initially confused pane HasKeyboardFocus with child-row focus; the provider correctly reports focus on the child. Corrected row-based assertions preserve the failed observations. More importantly, actual pixels disproved a semantically passing dual-pane frame: missing paint clips let one pane cover the other. Fixed clipping and frame offsets were re-inspected in raw and exact-source captures. Masked screenshots alone never establish focus quality. No new independent reviewer was available; no old source approval is transferred to PR19. Product-level Explorer replacement readiness remains unproven.

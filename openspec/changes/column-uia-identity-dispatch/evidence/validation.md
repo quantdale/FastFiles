@@ -57,3 +57,30 @@ Visual review then rejected the semantically passing [before pane clip](images/p
 These green captures were made from uncommitted development source and are not labeled exact-SHA certification. The reusable strict-provenance native regression is `verify/e2e/Test-ColumnFocusVisibility.ps1`, modes normal/narrow-dual; committed-source execution remains pending. Native E2E now asserts physical focus visibility after child-folder Invoke. Remaining observed visual polish: narrow status/badge text wrapping; it is separate from the corrected focus/pane isolation frontier. No claim of product completion or blanket physical display coverage.
 
 Visible-focus/pane-clip development checkpoint: focused normal Debug **9/9** (7.16s), warning-clean native Analyze **13/13**, strict change validation PASS. Dedicated committed-source native regression and full current-source qualification remain pending.
+
+## Final local implementation qualification — 93cd2b6
+
+Immutable implementation: `93cd2b604641dc38c56940e3330ec2acb74962af`, pushed as draft [PR19](https://github.com/quantdale/FastFiles/pull/19), stacked on PR18. Clean-checkout/source-SHA binding passes; embedded tree hash remains NOT_EMBEDDED and is not claimed.
+
+| Gate | Actual result |
+| --- | --- |
+| Normal Debug selected CTest | **126/126**,246.03s |
+| Normal release-test selected CTest | **126/126**,217.85s |
+| Restricted process reaper | Explicitly excluded from both; NOT_EXECUTED |
+| Native E2E | **8/8**, including physical focus visibility after public child Invoke |
+| Strict native focus checks | **normal PASS**, **narrow-dual PASS**, cleanup PASS |
+| Native visual catalog | **21/21**, light/dark, measured120DPI; privacy-masked regions are not pixel approval |
+| Analyze native target | Warning-clean current implementation/identity build |
+| Focused regression development source | **9/9**,7.16s; prior identity replacement red12assertions and stale-column-focus red2assertions retained |
+
+The exact-source unmasked [normal](images/focus-certified-normal-93cd2b6.png) and [narrow dual-pane](images/focus-certified-narrow-dual-93cd2b6.png) captures were visually inspected: original file visible, correct breadcrumb, focus preserved, independent pane clipping. Compact provenance is [certified-focus-93cd2b6.json](certified-focus-93cd2b6.json). Owned-sidebar tooltips occlude small sidebar regions; those regions are not claimed unoccluded. The native test's original generic normal-mode detail incorrectly mentioned inactive-pane preservation; reporting is corrected to reflect actual mode coverage. Only narrow-dual mode executes that assertion.
+
+### Combined integration
+
+Disposable local `a0afd5f0d7ee4dd2a211cf53108b76cff52fd3b1` combines PR16/14/15/17/18/19. Diagnostic build **72/72** incremental nodes; combined native E2E **8/8**; strict normal/narrow-dual focus both PASS with clean teardown. Focused combined frontend and Store/projection/pipeline **12/12**,11.75s. No C++ merge conflict; earlier textual registration/lifecycle/workstate conflicts were resolved preserving both histories. This is an unpushed simulation, not an owner-controlled main merge or full normal combined release certification.
+
+### External and unqualified boundaries
+
+Hosted40222586704 for93cd2b6: **six jobs,zero steps**, payment/spending-limit annotation. No rerun/billing changes. Independent source re-review remains unavailable after native reviewer credit exhaustion and one fail-closed Hy3 doctor; no historical approval is transferred to this source. Physical additional DPI/High Contrast/reduced-motion, privileged signer/NTFS/clean-host and release gates remain unqualified. Explorer drag-in remains skipped, and native conflict/permanent-delete/cancellation journeys are still unexecuted work rather than external passes.
+
+The next separately isolated slice fixes the visibly wrapped narrow status/badge text. Its worktree starts from PR18 because those paint changes do not depend on this action/identity correction. All PRs remain unmerged and no production release is made.

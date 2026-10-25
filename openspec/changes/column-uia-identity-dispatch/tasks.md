@@ -15,5 +15,5 @@
 
 ## 3. Qualification
 - [x] 3.1 Run focused regressions and warning-clean builds.
-- [ ] 3.2 Exercise real native journeys and broader local checks; record unavailable independent review honestly.
-- [ ] 3.3 Reconcile OpenSpec, workstate, provenance and remote before committing/publishing an unmerged checkpoint.
+- [x] 3.2 Exercise real native journeys and broader local checks; record unavailable independent review honestly.
+- [x] 3.3 Reconcile OpenSpec, workstate, provenance and remote before committing/publishing an unmerged checkpoint.
