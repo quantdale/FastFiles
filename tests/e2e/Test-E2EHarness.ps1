@@ -81,6 +81,51 @@ try {
     Remove-Module $closeFixture -Force -ErrorAction SilentlyContinue
 }
 
+# Run the actual restore scenario with closed, in-memory lifecycle fixtures.
+# Its visibility dictionary must retain close evidence through JSON round-trip.
+$restoreAst = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-E2ERestoreScenario'}, $true)
+$resultAst = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-E2EResult'}, $true)
+$restorePrefix = @'
+function New-UiaScenarioContext {
+    return [pscustomobject]@{Main=[pscustomobject]@{Name='recorded'}; Ready=$true; Driver=$null; Launched=[pscustomobject]@{Id=-42}; SessionRoot='recorded'; FixtureRoot='recorded'; Cleanup=$null; Fixtures=[Collections.Generic.List[object]]::new()}
+}
+function New-E2EFixture { return [pscustomobject]@{Root='recorded'; Nested='recorded'} }
+function Get-E2EMain { param($Context) return $Context.Main }
+function Invoke-UiaAddressBarNavigate { return [pscustomobject]@{Pass=$true} }
+function Wait-E2EItem { return [pscustomobject]@{Pass=$true} }
+function Close-E2EContextWindow {
+    param($Context)
+    $Context | Add-Member LastCloseObservation ([pscustomobject]@{exitObserved=$true;route='recorded'}) -Force
+    return $true
+}
+function Remove-UiaScenarioContext {
+    param($Context)
+    $Context.Cleanup=[pscustomobject]@{Pass=$true}
+    return $Context.Cleanup
+}
+function Invoke-E2ENavigationCommand { return [pscustomobject]@{Pass=$true} }
+function Wait-E2ECondition { return [pscustomobject]@{Pass=$true} }
+function Get-E2EVisibleObservation { return [ordered]@{marker='recorded-visible'} }
+function Write-E2EFailureEvidence { throw 'Unexpected recorded restore failure' }
+'@
+$restoreSuffix = @'
+function Invoke-RecordedRestoreMetadata {
+    return Invoke-E2ERestoreScenario -Exe recorded -RepoRoot recorded -ArtifactRoot recorded
+}
+Export-ModuleMember -Function Invoke-RecordedRestoreMetadata
+'@
+$restoreFixture = New-Module -Name RecordedRestoreEvidence -ScriptBlock ([scriptblock]::Create(
+    $restorePrefix + [Environment]::NewLine + $resultAst.Extent.Text + [Environment]::NewLine + $restoreAst.Extent.Text + [Environment]::NewLine + $restoreSuffix))
+try {
+    $restored = & $restoreFixture { Invoke-RecordedRestoreMetadata }
+    Check ($restored.status -eq 'PASS') 'recorded restore traverses the real three-lifecycle scenario without live processes'
+    $serialized = $restored | ConvertTo-Json -Depth 14 | ConvertFrom-Json
+    Check ($serialized.data.marker -eq 'recorded-visible' -and $serialized.data.closeObservations.Count -eq 2 -and
+        $serialized.data.closeObservations[0].exitObserved -and $serialized.data.closeObservations[1].exitObserved) 'restore JSON retains visibility and both close observations'
+} finally {
+    Remove-Module $restoreFixture -Force -ErrorAction SilentlyContinue
+}
+
 $artifactRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-E2E-Artifacts-' + [guid]::NewGuid().ToString('N'))
 try {
     $mockContext = [pscustomobject]@{

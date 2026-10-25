@@ -53,3 +53,5 @@ Retain the existing Native Precision/Things/shadcn reference lock and localized 
 ### Native close qualification follows the driver's actual key contract
 
 Broader conflict-source E2E exposed an uninstrumented Home-close failure. Independently, the old close helper's `%{F4}` is demonstrably plain F4 under the repository parser. Correct only the fallback to `{ALT}{F4}`, preserve UIA-first routing and the existing10s exit bound/ownership checks, and record return/error, actual fallback key events and observed exit. The closed-mock regression runs the real private helper and real key translator with -NoSend, so it cannot close a live window or terminate a process. Actual restore qualification must retain original failure and avoid claiming causality when old telemetry is absent.
+
+Close observations must be dictionary keys in the existing ordered visibility map; ETS note properties disappear from JSON. A closed-mock execution of the real three-lifecycle restore scenario verifies round-trip visibility plus both close observations without live processes or input.

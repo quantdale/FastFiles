@@ -1376,7 +1376,8 @@ function Invoke-E2ERestoreScenario {
             return $result
         }
         $visible = Get-E2EVisibleObservation -Context $third
-        $visible | Add-Member -NotePropertyName closeObservations -NotePropertyValue @($first.LastCloseObservation, $second.LastCloseObservation)
+        # OrderedDictionary serialization includes keys, not ETS note properties.
+        $visible['closeObservations'] = @($first.LastCloseObservation, $second.LastCloseObservation)
         $result = New-E2EResult -Id 'cold-restore' -Status 'PASS' -Detail 'Nested directory and typed Home each restored after real close/relaunch in the same isolated state directory' `
             -DurationMs $watch.Elapsed.TotalMilliseconds -Data $visible
         return $result
