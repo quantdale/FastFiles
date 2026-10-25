@@ -18,6 +18,15 @@ $gate.evidence | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $artifacts 'p
 if (-not $gate.ok) { throw $gate.message }
 $e2e = Import-Module (Join-Path $repo 'verify/e2e/FastFilesE2E.psm1') -Force -DisableNameChecking -PassThru
 $validation = Get-Module UiAutomationValidation
+# This driver uses braced modifiers, not WinForms SendKeys '+' notation.
+$backTabKeys = '{SHIFT}{TAB}'
+$backTab = Send-UiaInput -Driver $null -Keys $backTabKeys -NoSend
+if ($backTab.sequence.Count -ne 4 -or $backTab.sequence[0].vk -ne 0x10 -or -not $backTab.sequence[0].down -or
+    $backTab.sequence[1].vk -ne 9 -or -not $backTab.sequence[1].down -or
+    $backTab.sequence[2].vk -ne 9 -or $backTab.sequence[2].down -or
+    $backTab.sequence[3].vk -ne 0x10 -or $backTab.sequence[3].down) {
+    throw 'Native input preflight did not generate a real Shift+Tab chord.'
+}
 Import-Module (Join-Path $repo 'verify/visual/VisualCapture.psm1') -Force -DisableNameChecking
 $run = New-VisualCaptureRun -Root (Join-Path $artifacts 'images') -ApplicationSha (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -RepoRoot $repo
 $results = [Collections.Generic.List[object]]::new()
@@ -115,7 +124,7 @@ try {
                 } else {
                     $inputRoute = 'real keyboard'
                     if ($choice -eq 'Keep both' -or $choice -eq 'Replace') {
-                        $keys = if ($choice -eq 'Replace') { '+{TAB}' } else { '{TAB}' }
+                        $keys = if ($choice -eq 'Replace') { $backTabKeys } else { '{TAB}' }
                         $null = Send-UiaInput -Driver $ctx.Driver -Keys $keys
                         $focused = Wait-E2ECondition -TimeoutMs 1500 -Description ('keyboard activation target '+$choice) -Condition {
                             [bool](Get-UiaElementProperty -Driver $ctx.Driver -Element $controls[$choice] -Name HasKeyboardFocus)
@@ -154,7 +163,7 @@ try {
 } catch {
     $failure=$_.Exception.Message
 } finally {
-    @{passed=$results.Count;failure=$failure;cases=@($results.ToArray());cleanup=@($cleanups.ToArray());brightness=$means;pixelReviewRequired=$true} |
+    @{passed=$results.Count;failure=$failure;cases=@($results.ToArray());cleanup=@($cleanups.ToArray());brightness=$means;shiftTabInputPreflight=@($backTab.sequence);pixelReviewRequired=$true} |
         ConvertTo-Json -Depth 14 | Set-Content (Join-Path $artifacts 'result.json') -Encoding utf8NoBOM
 }
 if ($failure) { throw $failure }
