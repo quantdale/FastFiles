@@ -12,3 +12,9 @@ Synchronous owner dispatch follows existing Home conventions; teardown and retir
 
 ## Validation
 First demonstrate old provider failures. Run focused provider tests, strict warning builds and ordinary native navigation/search/storage journeys. Preserve current 126-test certification and restricted reaper exclusion. New source needs its own qualification; old independent reviews do not cover it.
+
+## Native visibility correction
+
+Unmasked d34198a capture and a bounded five-second red probe expose focus=True with IsOffscreen=True: the child row begins exactly at the pane's right edge. Owner mutation bypassed the shell's normal post-input location, preview and horizontal reveal path. Every closed Browse action now synchronously enters the same owner-window message boundary, including same-thread callers. The shell shares `ReconcileBrowseInteraction` with mouse/keyboard input. ScrollItem reveals its requested pane without changing the active pane. Existing animation, DPI, High Contrast and reduced-motion policies are retained. A pure shared reveal calculation keeps the filename edge visible when a pane is narrower than a column. Native regressions require live physical row bounds inside the pane after root/row focus and child-folder Invoke, instead of accepting focus flags alone.
+
+The first semantically passing narrow screenshot still failed visual review: Browse RenderPane lacked the per-pane clipping already used by Home, so pane1's partly scrolled parent column overpainted pane0. Browse now clips its complete paint scope to the pane viewport. Frame scroll synchronization precedes UIA geometry publication; rendering and geometry share one frozen pane1 offset. Actual before/after pixel review remains mandatory alongside bounds assertions. The new standalone native regression uses the existing strict provenance gate and marked synthetic fixtures.

@@ -1160,12 +1160,12 @@ STDMETHODIMP ColumnViewGroupUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** re
 }
 
 STDMETHODIMP ColumnViewGroupUiaProvider::SetFocus() noexcept {
-    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
-    const HWND hwnd = owner_->Hwnd();
-    if (hwnd != nullptr && IsWindow(hwnd)) {
-        ::SetFocus(hwnd);
-    }
-    return S_OK;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) return kElementNotAvailable;
+    UiaBrowseActionRequest request;
+    request.kind = UiaBrowseActionKind::FocusRoot;
+    request.ownerLifetime = owner_->State();
+    request.fragmentLifetime = State();
+    return owner_->Surface()->UiaDispatchBrowseAction(request) ? S_OK : kElementNotAvailable;
 }
 
 STDMETHODIMP ColumnViewGroupUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {

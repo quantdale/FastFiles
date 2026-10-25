@@ -7,7 +7,11 @@
 - [x] 2.2 Validate identity atomically with selection/focus/scroll mutation and activation target capture.
 - [x] 2.3 Preserve membership semantics, hidden/retired fragment rejection and post-lock callbacks.
 
-- [ ] 2.4 Reject stale column focus and marshal root/pane/column keyboard focus; assert real row focus without changing selection.
+- [x] 2.4 Reject stale column focus and marshal root/pane/column keyboard focus; assert real row focus without changing selection.
+
+- [x] 2.5 Reconcile owner-thread actions with visible shell navigation, preview and focused-column reveal; retain filename edge in narrow panes and test actual focus bounds.
+
+- [x] 2.6 Clip Browse paints to each pane and publish geometry from the actual frame offsets; inspect unmasked narrow before/after captures.
 
 ## 3. Qualification
 - [x] 3.1 Run focused regressions and warning-clean builds.

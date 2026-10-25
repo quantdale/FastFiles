@@ -5,6 +5,7 @@ Column View resolves a provider's stable identity, then invokes a mutable row or
 - Carry original item, column, owner and fragment identities through closed owner-thread action dispatch.
 - Validate identity under the same model lock as mutation or activation target capture.
 - Preserve canonical selection/navigation helpers and post-lock notifications.
+- Reconcile accepted accessibility actions with native location/preview updates and visible column reveal, including narrow panes.
 - Add deterministic provider regressions for replacement at the dispatch boundary.
 
 ## Capabilities

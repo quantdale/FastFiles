@@ -1,3 +1,4 @@
+#include "ffui/ColumnVisibility.h"
 // semantic-uia-core-surfaces 6.4: headless geometry tests for the UIA
 // projection layer (client->physical-screen conversion, scroll offsets, DPI
 // transformation, offscreen math -- no hardcoded 96-DPI assumptions).
@@ -150,6 +151,21 @@ void TestComfortableDensityRowHeight() {
           "restoring Compact returns the default row height");
 }
 
+void TestColumnRevealVisibility() {
+    Check(ffui::ColumnRevealScrollOffset(3, 240.0f, 960.0f, 480.0f, 0.0f) == 480.0f,
+          "new child column is fully revealed at the right edge");
+    Check(ffui::ColumnRevealScrollOffset(1, 240.0f, 960.0f, 480.0f, 480.0f) == 240.0f,
+          "focusing a parent restores its leading edge");
+    Check(ffui::ColumnRevealScrollOffset(2, 240.0f, 960.0f, 160.0f, 0.0f) == 480.0f,
+          "narrow pane reveals filename edge rather than clipping it to show the column tail");
+    Check(ffui::ColumnRevealScrollOffset(1, 240.0f, 960.0f, 480.0f, 120.0f) == 120.0f,
+          "an already visible column does not move");
+    Check(ffui::ColumnRevealScrollOffset(0, 240.0f, 240.0f, 480.0f, 90.0f) == 0.0f,
+          "short hierarchy clamps stale scrolling to zero");
+    Check(ffui::ColumnRevealScrollOffset(3, 240.0f, 960.0f, 0.0f, 80.0f) == 80.0f,
+          "unmeasured viewport never translates the hierarchy offscreen");
+}
+
 void TestScrollClamps() {
     // 100 rows -> 2800 DIP content; viewport 600 -> max scroll 2228.
     Check(ffui::UiaMaxVerticalScrollDip(100, 600.0f) == 100 * ffui::UiMetrics::kRowHeight - (600.0f - ffui::UiMetrics::kBadgeHeight),
@@ -172,6 +188,7 @@ int main() {
     TestFractionalScreenBounds();
     TestOffscreenMath();
     TestComfortableDensityRowHeight();
+    TestColumnRevealVisibility();
     TestScrollClamps();
 
     if (FailureCount() != 0) {

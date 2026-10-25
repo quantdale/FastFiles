@@ -9,6 +9,7 @@
 #include "ffui/DropFeedbackLayout.h" // ui-v3 drag/drop: pure feedback-geometry seam
 #include "ffui/DisplayPath.h"
 #include "ffui/StorageLayout.h"
+#include "ffui/ColumnVisibility.h"
 #include "UiaHostQuery.h"
 
 #include <commctrl.h>
@@ -1523,6 +1524,16 @@ void WindowShell::Render() {
         detailsLayout.availableColumnWidthDip,
         detailsLayout.viewportHeightDip);
 
+    // The eased scroll animations are the authoritative offsets; sync the values
+    // the render/hit-test paths read so paints always reflect the eased position.
+    // Pane 1's offset lives in ColumnView and is only touched mid-flight so its
+    // idle state (tab restore, direct writes) is preserved untouched.
+    scrollOffset_ = scrollAnim_.Value();
+    if (scrollAnim2_.IsAnimating()) {
+        columnView_.SetScrollOffset2(scrollAnim2_.Value());
+    }
+    const float pane1FrameScroll = columnView_.ScrollOffset2();
+
     // semantic-uia-core-surfaces 2.5/1.4: push the live geometry the UIA
     // providers convert to screen coordinates. Updated every render (plain
     // floats) so bounds always track the eased scroll offsets and layout.
@@ -1534,7 +1545,7 @@ void WindowShell::Render() {
         geometry.heightDip = detailsLayout.viewportHeightDip;
         geometry.dpiScale = CurrentDpiScale();
         geometry.hScroll0Dip = scrollOffset_;
-        geometry.hScroll1Dip = columnView_.ScrollOffset2();
+        geometry.hScroll1Dip = pane1FrameScroll;
         geometry.hwnd = hwnd_;
         geometry.keyboardFocus = GetFocus() == hwnd_;
         geometry.revision = ++uiaGeometryRevision_;
@@ -1578,14 +1589,6 @@ void WindowShell::Render() {
         }
     }
 
-    // The eased scroll animations are the authoritative offsets; sync the values
-    // the render/hit-test paths read so paints always reflect the eased position.
-    // Pane 1's offset lives in ColumnView and is only touched mid-flight so its
-    // idle state (tab restore, direct writes) is preserved untouched.
-    scrollOffset_ = scrollAnim_.Value();
-    if (scrollAnim2_.IsAnimating()) {
-        columnView_.SetScrollOffset2(scrollAnim2_.Value());
-    }
 
     context->SetTransform(D2D1::Matrix3x2F::Translation(shellLayout.contentRect.left,
                                                         shellLayout.contentRect.top));
@@ -1630,7 +1633,7 @@ void WindowShell::Render() {
         // background; Clear covers the full target regardless of transform.
         context->Clear(ffui::GetUiTheme(ffui::gUiDarkTheme).background);
     } else {
-        columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, columnView_.ScrollOffset2());
+        columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, pane1FrameScroll);
     }
     // ui-v3 drag/drop: destination emphasis paints over the browse surface but
     // under the details card, so a drag over the workspace reads as an accent
@@ -2212,44 +2215,46 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
 
 
 void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
-    // Defensive: before the first real size the viewport can be zero; scrolling
-    // with a zero viewport would translate the whole chain off-screen.
-    if (viewportWidth <= 0.0f) return;
-    const float columnLeft = columnIndex * ColumnView::kColumnWidth;
-    const float columnRight = columnLeft + ColumnView::kColumnWidth;
+    EnsurePaneColumnVisible(columnView_.ActivePane(), columnIndex, viewportWidth);
+}
+
+void WindowShell::EnsurePaneColumnVisible(int pane, int columnIndex, float viewportWidth) {
+    if (viewportWidth <= 0.0f || columnIndex < 0 || pane < 0 ||
+        pane >= (columnView_.IsDualPane() ? 2 : 1) || columnView_.IsPaneHome(pane)) return;
     const uint64_t now = GetTickCount64();
     if (columnView_.IsDualPane()) {
         const float paneWidth = viewportWidth / 2.0f;
-        const int pane = columnView_.ActivePane();
         const float paneScroll = pane == 0 ? scrollAnim_.Value()
             : (scrollAnim2_.IsAnimating() ? scrollAnim2_.Value() : columnView_.ScrollOffset2());
-        float newScroll = paneScroll;
-        if (columnLeft < paneScroll) {
-            newScroll = columnLeft;
-        } else if (columnRight > paneScroll + paneWidth) {
-            newScroll = columnRight - paneWidth;
-        }
-        const float maxScroll = std::max(0.0f, columnView_.PaneContentWidth(pane) - paneWidth);
-        newScroll = std::clamp(newScroll, 0.0f, maxScroll);
-        if (pane == 0) {
-            scrollAnim_.AnimateTo(newScroll, kUiAnimationDefaultMs, now);
-        } else {
+        const float target = ColumnRevealScrollOffset(columnIndex, ColumnView::kColumnWidth,
+            columnView_.PaneContentWidth(pane), paneWidth, paneScroll);
+        if (pane == 0) scrollAnim_.AnimateTo(target, kUiAnimationDefaultMs, now);
+        else {
             if (!scrollAnim2_.IsAnimating()) scrollAnim2_.Snap(columnView_.ScrollOffset2());
-            scrollAnim2_.AnimateTo(newScroll, kUiAnimationDefaultMs, now);
+            scrollAnim2_.AnimateTo(target, kUiAnimationDefaultMs, now);
         }
-        HandleAnimationTimer(true);
     } else {
-        const float paneScroll = scrollAnim_.Value();
-        float newScroll = paneScroll;
-        if (columnLeft < paneScroll) {
-            newScroll = columnLeft;
-        } else if (columnRight > paneScroll + viewportWidth) {
-            newScroll = columnRight - viewportWidth;
-        }
-        const float maxScroll = std::max(0.0f, columnView_.ContentWidth() - viewportWidth);
-        scrollAnim_.AnimateTo(std::clamp(newScroll, 0.0f, maxScroll), kUiAnimationDefaultMs, now);
-        HandleAnimationTimer(true);
+        const float target = ColumnRevealScrollOffset(columnIndex, ColumnView::kColumnWidth,
+            columnView_.ContentWidth(), viewportWidth, scrollAnim_.Value());
+        scrollAnim_.AnimateTo(target, kUiAnimationDefaultMs, now);
     }
+    HandleAnimationTimer(true);
+}
+
+void WindowShell::ReconcileBrowseInteraction(bool revealFocusedColumn) {
+    if (!columnView_.UiaBrowseContentActive()) return;
+    navigationWorkspace_.ActivatePane(static_cast<size_t>(columnView_.ActivePane()));
+    RefreshSelectionPresentation();
+    // Home has no filesystem columns and its empty path never reaches Navigate.
+    if (revealFocusedColumn && !columnView_.IsPaneHome(columnView_.ActivePane())) {
+        EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
+    }
+    const std::wstring activePath = columnView_.ActivePanePath();
+    if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
+        navigationWorkspace_.Navigate(activePath);
+    }
+    navigationChrome_.Refresh();
+    RequestRepaint();
 }
 
 LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -2450,9 +2455,23 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             searchPanel_.HandleCompletion(lParam);
             return 0;
 
-        case WM_APP_COLUMNVIEW_BROWSE_ACTION:
-            return lParam != 0 && columnView_.HandleUiaBrowseAction(
-                *reinterpret_cast<const UiaBrowseActionRequest*>(lParam)) ? 1 : 0;
+        case WM_APP_COLUMNVIEW_BROWSE_ACTION: {
+            if (lParam == 0) return 0;
+            const auto& request = *reinterpret_cast<const UiaBrowseActionRequest*>(lParam);
+            if (!columnView_.HandleUiaBrowseAction(request)) return 0;
+            // column-uia-identity-dispatch: owner-thread mutations must also
+            // run the same visible navigation/preview/reveal boundary as input.
+            if (request.kind == UiaBrowseActionKind::ScrollItem) {
+                EnsurePaneColumnVisible(request.pane, request.column, NavigationViewportWidth());
+                RequestRepaint();
+            } else if (request.kind != UiaBrowseActionKind::FocusRoot) {
+                if (request.kind == UiaBrowseActionKind::FocusItem) {
+                    columnView_.EnsureFocusedItemVisible(CurrentShellLayout().details.viewportHeightDip);
+                }
+                ReconcileBrowseInteraction(true);
+            }
+            return 1;
+        }
 
         case WM_APP_COLUMNVIEW_HOME_ACTION:
             return lParam != 0 && columnView_.HandleUiaHomeAction(
@@ -2813,14 +2832,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             navigationWorkspace_.ActivatePane(static_cast<size_t>(columnView_.ActivePane()));
             dragOrigin_ = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             dragArmed_ = !columnView_.ActiveSelectionPaths().empty();
-            RefreshSelectionPresentation();
-            EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
-            const std::wstring activePath = columnView_.ActivePanePath();
-            if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
-                navigationWorkspace_.Navigate(activePath);
-            }
-            navigationChrome_.Refresh();
-            RequestRepaint();
+            ReconcileBrowseInteraction(true);
             return 0;
         }
 
@@ -3023,25 +3035,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             if (wParam == VK_UP || wParam == VK_DOWN) {
                 columnView_.EnsureFocusedItemVisible(CurrentShellLayout().details.viewportHeightDip);
             }
-            RefreshSelectionPresentation();
-            // quick-access-home 5.4: for a Home pane ActivePanePath() returns
-            // L"" and the active context's currentPath is also L"", so this
-            // reconciliation is naturally a no-op (both empty) -- Home never
-            // triggers a model Navigate here.
-            const std::wstring activePath = columnView_.ActivePanePath();
-            if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
-                navigationWorkspace_.Navigate(activePath);
-            }
-            navigationChrome_.Refresh();
-            if (wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_RETURN) {
-                // quick-access-home 5.4: Home has no columns, so horizontal
-                // scroll-into-view is meaningless for a Home pane. EnsureFocusedItemVisible
-                // above is already Home-aware in ColumnView.
-                if (!columnView_.IsPaneHome(columnView_.ActivePane())) {
-                    EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
-                }
-            }
-            RequestRepaint();
+            ReconcileBrowseInteraction(wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_RETURN);
             return 0;
         }
 

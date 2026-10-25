@@ -49,6 +49,8 @@ private:
 
     void Render();
     void EnsureColumnVisible(int columnIndex, float viewportWidth);
+    void EnsurePaneColumnVisible(int pane, int columnIndex, float viewportWidth);
+    void ReconcileBrowseInteraction(bool revealFocusedColumn);
     void RequestRepaint();
     void ApplyTheme();
     void MarkDeviceDirty();

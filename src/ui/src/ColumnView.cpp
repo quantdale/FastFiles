@@ -1810,6 +1810,11 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
 
     auto RenderPane = [&](const std::vector<Column>& columns, float paneX, float paneWidth, float paneScroll,
                           float verticalScrollOffset, bool isActivePane, int focusedColumnIndex) {
+        // column-uia-identity-dispatch: a partially visible column belongs
+        // only to its own pane, including its background and focus ring.
+        context->PushAxisAlignedClip(D2D1::RectF(paneX, kBadgeHeight,
+            paneX + (std::max)(0.0f, paneWidth), (std::max)(kBadgeHeight, viewportSize.height)),
+            D2D1_ANTIALIAS_MODE_ALIASED);
         // ui-v3 column-view: one density read per pane paint drives row height
         // and icon size so every column shares identical baselines.
         const float rowHeight = BrowseRowHeight();
@@ -2015,6 +2020,7 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 }
             }
         }
+        context->PopAxisAlignedClip();
     };
 
     // ui-v3 home: Home rows reuse `DrawRowLabel` above -- the bounded painter
@@ -2941,7 +2947,8 @@ bool ColumnView::UiaDispatchBrowseAction(const UiaBrowseActionRequest& request) 
     if (owner == nullptr || !IsWindow(owner)) return false;
     const DWORD thread = GetWindowThreadProcessId(owner, nullptr);
     if (thread == 0) return false;
-    if (thread == GetCurrentThreadId()) return HandleUiaBrowseAction(request);
+    // Route even same-thread callers through the shell's canonical post-action
+    // reconciliation. No model lock is held across this synchronous dispatch.
     return SendMessageW(owner, WM_APP_COLUMNVIEW_BROWSE_ACTION, 0,
                         reinterpret_cast<LPARAM>(&request)) != 0;
 }
@@ -2950,11 +2957,13 @@ bool ColumnView::HandleUiaBrowseAction(const UiaBrowseActionRequest& request) {
     const HWND owner = UiaGeometry().hwnd;
     if (owner == nullptr || GetWindowThreadProcessId(owner, nullptr) != GetCurrentThreadId() ||
         uiaProvider_ == nullptr || request.ownerLifetime != uiaState_ || !uiaState_->alive) return false;
+    const auto* provider = static_cast<ColumnViewUiaProvider*>(uiaProvider_.Get());
     if (request.kind == UiaBrowseActionKind::FocusRoot) {
+        if (request.fragmentLifetime && (request.fragmentLifetime != provider->FragmentState() ||
+            !request.fragmentLifetime->alive || !UiaBrowseContentActive())) return false;
         ::SetFocus(owner);
         return GetFocus() == owner;
     }
-    const auto* provider = static_cast<ColumnViewUiaProvider*>(uiaProvider_.Get());
     if (request.fragmentLifetime != provider->FragmentState()) return false;
     if (request.kind == UiaBrowseActionKind::FocusPane) {
         {

@@ -503,7 +503,7 @@ void TestItemDispatchLifetimeAndMembership() {
 }
 
 void TestContainerFocusRetainsOriginalLifetime() {
-    for (int mode = 0; mode < 3; ++mode) {
+    for (int mode = 0; mode < 4; ++mode) {
         DispatchBoundaryColumnSurface surface;
         static_cast<fftest::FakeUiaSurface&>(surface) = MakeSinglePaneSurface();
         auto state = std::make_shared<ffui::UiaOwnerState>();
@@ -515,7 +515,7 @@ void TestContainerFocusRetainsOriginalLifetime() {
             if (mode == 2) surface.panes[0].columns[0].path = L"C:\\Replacement";
             else request.fragmentLifetime->alive = false;
         };
-        const HRESULT result = mode == 0 ? pane->SetFocus() : column->SetFocus();
+        const HRESULT result = mode == 0 ? pane->SetFocus() : (mode == 3 ? group->SetFocus() : column->SetFocus());
         Check(result == UIA_E_ELEMENTNOTAVAILABLE && surface.actions.empty(),
               "container focus rejects retired fragment or changed path at dispatch");
     }

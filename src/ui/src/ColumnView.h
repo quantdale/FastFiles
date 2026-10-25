@@ -317,8 +317,8 @@ public:
     // status chip in the Unavailable state.
     void SetRetryEngineCallback(std::function<void()> retryEngine);
     void SetDarkTheme(bool dark);
-    void SetScrollOffset2(float offset) { scrollOffset2_ = offset; }
-    float ScrollOffset2() const { return scrollOffset2_; }
+    void SetScrollOffset2(float offset) { std::lock_guard<std::mutex> lock(columnsMutex_); scrollOffset2_ = offset; }
+    float ScrollOffset2() const { std::lock_guard<std::mutex> lock(columnsMutex_); return scrollOffset2_; }
     void ScrollVertical(float delta, float viewportHeight);
     void EnsureFocusedItemVisible(float viewportHeight);
     float VerticalScrollOffset() const { return verticalScrollOffset_; }

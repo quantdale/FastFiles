@@ -237,7 +237,9 @@ public:
     // lock on the owner thread. The default supports single-threaded surfaces.
     virtual bool UiaDispatchBrowseAction(const UiaBrowseActionRequest& request) {
         if (!request.ownerLifetime || !request.ownerLifetime->alive) return false;
-        if (request.kind == UiaBrowseActionKind::FocusRoot) return true;
+        if (request.kind == UiaBrowseActionKind::FocusRoot) {
+            return !request.fragmentLifetime || (request.fragmentLifetime->alive && UiaBrowseContentActive());
+        }
         if (!request.fragmentLifetime || !request.fragmentLifetime->alive || !UiaBrowseContentActive() ||
             request.pane < 0 || request.pane >= UiaPaneCount()) return false;
         if (request.kind == UiaBrowseActionKind::FocusPane) {

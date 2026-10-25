@@ -582,6 +582,23 @@ function Invoke-E2ELaunchScenario {
         -DurationMs $watch.Elapsed.TotalMilliseconds -Data (Get-E2EVisibleObservation -Context $Context)
 }
 
+function Wait-E2EVisibleBrowseFocus {
+    param([Parameter(Mandatory)] $Item)
+    return Wait-E2ECondition -TimeoutMs 5000 -Description 'focused row visibly inside its pane' -Condition {
+        $state = $Item.Current
+        $pane = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent(
+            [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($Item))
+        $rowRect = $state.BoundingRectangle
+        $paneRect = $pane.Current.BoundingRectangle
+        return $state.HasKeyboardFocus -and -not $state.IsOffscreen -and
+            $rowRect.Width -gt 0 -and $rowRect.Height -gt 0 -and
+            $rowRect.Left -ge $paneRect.Left - 1 -and $rowRect.Left -lt $paneRect.Right -and
+            $rowRect.Top -ge $paneRect.Top - 1 -and $rowRect.Bottom -le $paneRect.Bottom + 1 -and
+            (($rowRect.Width -gt $paneRect.Width -and [Math]::Abs($rowRect.Left - $paneRect.Left) -le 1) -or
+             ($rowRect.Width -le $paneRect.Width -and $rowRect.Right -le $paneRect.Right + 1))
+    }
+}
+
 function Invoke-E2ENavigationScenario {
     param([Parameter(Mandatory)] $Context, [Parameter(Mandatory)] $Fixture)
     $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -638,9 +655,7 @@ function Invoke-E2ENavigationScenario {
         $focusPane.SetFocus()
         $focusColumn.SetFocus()
         $focusItem.SetFocus()
-        $focusWait = Wait-E2ECondition -TimeoutMs 5000 -Description 'native browse item keyboard focus' -Condition {
-            return $focusItem.Current.HasKeyboardFocus
-        }
+        $focusWait = Wait-E2EVisibleBrowseFocus -Item $focusItem
         if (-not $focusWait.Pass -or $selectionPattern.Current.IsSelected -ne $selectedBeforeFocus) {
             throw 'Public row focus did not reach the row or changed selection membership'
         }
@@ -652,8 +667,17 @@ function Invoke-E2ENavigationScenario {
         return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'nested-visible' -Detail 'Nested folder did not appear in the terminal column' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     Invoke-E2EItem -Context $Context -Item $nested.Value
-    if (-not (Wait-E2EItem -Context $Context -Name 'restore-proof.txt' -TimeoutMs 12000).Pass) {
+    $childFile = Wait-E2EItem -Context $Context -Name 'restore-proof.txt' -TimeoutMs 12000
+    if (-not $childFile.Pass) {
         return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'nested-open' -Detail 'nested directory opened without its expected file becoming visible' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    try {
+        $childFile.Value.SetFocus()
+        if (-not (Wait-E2EVisibleBrowseFocus -Item $childFile.Value).Pass) {
+            throw 'Focused child row remained outside the pane after public folder Invoke'
+        }
+    } catch {
+        return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'child-focus-visibility' -Detail $_.Exception.Message -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     if ((Get-E2EItem -Context $Context -Name 'root-note.txt' -TimeoutMs 1000)) {
         return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'stale-column-content' -Detail 'root-note.txt remained in the terminal column after opening Nested' -DurationMs $watch.Elapsed.TotalMilliseconds
