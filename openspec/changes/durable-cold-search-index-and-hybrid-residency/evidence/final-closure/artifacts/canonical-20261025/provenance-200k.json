@@ -1,0 +1,11 @@
+{
+  "sourceSha": "6e060fbb34569ac9d21b964cff84d36743f350f3",
+  "sourceClean": true,
+  "implementationEquivalentTo": "db7887c1ec1d3d8f493848a9050240407423e678",
+  "fixtureSha256Before": "6CA44E5D49FFB49E3E195E1A46FFEC2F64EA7EC15A5CF7D1E733BF84FE64328A",
+  "fixtureSha256After": "6CA44E5D49FFB49E3E195E1A46FFEC2F64EA7EC15A5CF7D1E733BF84FE64328A",
+  "oracleExeSha256": "9C128A98527E090F163E169E83353E977E14F14045BF239D241BDA15793D5BCB",
+  "exitCode": 0,
+  "configuration": "Debug diagnostic",
+  "purpose": "Final-source 200k canonical correctness; earlier-source coverage is not assumed equivalent"
+}

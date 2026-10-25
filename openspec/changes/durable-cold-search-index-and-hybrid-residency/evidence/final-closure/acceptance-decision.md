@@ -52,8 +52,8 @@ does not certify unexecuted routes or scales.
 
 | Acceptance dimension | Retained evidence | Current disposition |
 |---|---|---|
-| 200k full canonical differential | `artifacts/final-acceptance/oracle-200k-extended-final.json`: 23/23, clean `5d7e98a`, route/row premises | Historical valid execution; not relabeled as `db7887c1`. Final-source coverage/equivalence still needs an explicit determination. |
-| 1M full canonical differential | Prototype/benchmark and general hot/cold evidence exist; they are not the independent full canonical oracle | Final-source route-asserting oracle matrix remains unverified. |
+| 200k full canonical differential | `artifacts/canonical-20261025/oracle-200k-extended.json`:23/23 at clean6e060fbb; search/index/protocol/oracle source exactly matches db7887c1 | Verified cold full canonical matrix; supersedes earlier-source200k coverage without relabeling historical runs. |
+| 1M full canonical differential | `artifacts/canonical-20261025/oracle-1m-extended.json`:23/23 at the same exact search-source identity; full1M canonical scan per completed cell | Verified cold route with actual admission/caps/metadata/order/status/cancellation premises; no whole-hot1M claim. |
 | 2M full canonical differential | `recovery-20261024/final-current/current-2m-oracle-{1,2,3}.json`: 13/13 each, `269d1c3` | Valid earlier-source execution. `git diff 269d1c3..db7887c1 -- src tests/engine/bench_identity_ordering_oracle.cpp` changes only `Projection.cpp`; explicit scope/equivalence determination remains. The final two pipeline benchmark runs are timing evidence, not replacement canonical oracles. |
 | 5M full canonical differential | Final `db7887c1` extended oracle: 23/23, full 5M canonical scan, actual candidate admission, metadata/order/caps/status/immediate cancellation; archived final-oracle binding | Verified for the stated cold engine seam; no wholly-hot 5M assertion. |
 | Actual resident and mixed engine routes | `TestForcedEvictionSearchEquivalence` asserts resident accelerator use, then one cold and one hot volume; exact ordered metadata/status/truncation comparisons. `TestCappedRootSearchMatchesColdAndRetainsTopN` exercises unload/rebuild cycles | Existing small-fixture regression execution retained in prior current-source CTest evidence. This is not independent-canonical mixed coverage at every scale. |
@@ -61,7 +61,8 @@ does not certify unexecuted routes or scales.
 | Large mixed-volume/cap boundary | Final production Store 2M operational matrix: 18/18, three cycles, admission boundaries 16,383/16,384/16,385 | Verified Store seam, not a full engine mixed-residency canonical differential. |
 
 No expensive completed 5M/pipeline/Store matrix was repeated for this planning
-clarification. The next executable acceptance slice is the bounded 1M independent
-oracle plus explicit resident/mixed/transition route coverage and an equivalence
-determination for retained 200k/2M oracle inputs. Task 4.1 stays open until those
+clarification. The bounded1M and200k follow-up is now recorded in
+`canonical-scale-followup-20261025.md`. The next acceptance slice is explicit
+independent-canonical resident/mixed/transition route coverage and a scope
+determination for retained2M oracle inputs. Task4.1 stays open until those
 cells are resolved; the accepted contract is not a correctness waiver.

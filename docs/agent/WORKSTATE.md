@@ -1,5 +1,12 @@
 # Fast Files — Agent Workstate
+
+## Current acceptance supplement — canonical scale evidence recorded — 2026-10-25
 
+- Fresh integration6e060fbb built479/479 and focused11/11 plus backend/residency4/4 pass. Search/index/protocol and both oracle/fixture source subtrees exactly match PR15db7887c1; unrelated UI source differs. No blanket product-equivalence claim.
+- Newly executed marked synthetic200k and1M extended canonical matrices each23/23; every route premise valid, input hashes unchanged. Raw compact JSON/provenance committed under final-closure/artifacts/canonical-20261025. Debug diagnostic timings are correctness diagnostics, not performance certification. No completed2M/5M experiment repeated.
+- Task4.1 remains OPEN: independent-canonical resident/mixed/transition coverage and retained2M scope determination remain. Final5M23/23 and2M Store18/18 retained at their exact original scopes. Broad review5.10 remains open; additional provider request failed workspace-credit exhaustion and was not retried.
+- Restricted reaper NOT_EXECUTED; production process-ownership checks unchanged. Hosted billing blocker remains external. Existing PRs/main unmerged.
+- NEXT EXACT ACTION: primary integrator publishes this evidence-only supplement after strict/drift checks; continue bounded resident/mixed/transition canonical qualification without repeating completed large experiments or weakening exactness.
 ## Current frontier — isolated acceptance follow-up COMPLETE (2026-10-25)
 
 - Ownership: `D:/Documents/tryPython/FastFiles-worktrees/acceptance-20261025`, branch `fix/acceptance-frontier-20261025`, based on freshly fetched PR15 `8bffb329779ee0a431aaed37fa92925a4b373d9b`. Original dirty checkout and PR14/PR16/main are untouched. Derive current refs at resume; no merge/release/force push authorized.
