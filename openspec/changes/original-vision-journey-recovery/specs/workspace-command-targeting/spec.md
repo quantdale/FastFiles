@@ -87,3 +87,19 @@ Storage lists SHALL expose their rendered rows through semantic UI Automation wi
 #### Scenario: Replaced row
 - **WHEN** a client retains a provider while its row is replaced or its owner destroyed
 - **THEN** access reports element unavailable and never targets a new occupant
+
+### Requirement: Native conflict actions are accessible and truthful
+
+Conflict decision controls SHALL expose their visible names through native accessibility and remain reachable through Windows Tab navigation. Skip SHALL retain initial focus. Dialog background and checkbox labels SHALL follow the shared light/dark tokens and existing High Contrast behavior. Cancel and Skip SHALL preserve both files, Keep both SHALL preserve the existing destination and create the incoming copy under a distinct name, and Replace SHALL update only the intended marked destination.
+
+#### Scenario: Named keyboard-accessible conflict decisions
+- **WHEN** copying a file into a folder containing the same name
+- **THEN** Replace, Skip, Keep both, Cancel and the apply-to-all checkbox expose their visible names and participate in Tab navigation
+
+#### Scenario: Safe cancellation
+- **WHEN** Cancel is activated in the actual conflict dialog
+- **THEN** incoming and existing destination contents remain unchanged
+
+#### Scenario: Dark conflict dialog
+- **WHEN** the workspace is dark and a conflict decision is presented
+- **THEN** its real background and checkbox label remain legible without changing the operation policy

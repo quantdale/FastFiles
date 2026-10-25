@@ -24,3 +24,5 @@ None. The new contracts make cross-surface composition explicit without weakenin
 ## Impact
 
 Native UI command routing, StorageAnalysis, SearchPanel, WindowShell, and E2E tests. No process, IPC, database, service, trust, or installer contract changes. Existing PRs remain separate and unmerged.
+
+The native conflict-decision slice also restores real accessible action names, Windows Tab traversal and coherent dialog/checkbox theming while preserving default Skip, all decision semantics and marker-owned validation.

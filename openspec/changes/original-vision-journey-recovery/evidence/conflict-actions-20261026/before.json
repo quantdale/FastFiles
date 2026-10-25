@@ -1,0 +1,35 @@
+{
+  "source": {
+    "headSha": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+    "treeSha": "5ad64a175a7c581228a4d70539a9240f39e8fd3d",
+    "treeSemantic": "HEAD^{tree}",
+    "sourceClean": true,
+    "stateDigest": "46155577ab418e7cab6583dcfd00937d30e0ae1b0117e2f0c50ac9a5d0eb484f",
+    "reasonCodes": []
+  },
+  "replaceNamed": false,
+  "contentsPreservedAfterCancel": true,
+  "nativeNames": [
+    "‘copy-me.txt’ already exists in the destination folder.",
+    "Incoming",
+    "copy-me.txt",
+    "9 B",
+    "Already there",
+    "copy-me.txt",
+    "30 B",
+    "Do this for all remaining conflicts",
+    "Replacing overwrites the existing file. Skip writes nothing; Keep both renames the incoming copy.",
+    "",
+    "Skip",
+    "Keep both",
+    "Cancel"
+  ],
+  "bounds": {
+    "x": 355,
+    "y": 388,
+    "width": 825,
+    "height": 375
+  },
+  "captureHash": "de4c1880222e44fd61b344110a7e7be0998590d67e3f3643c47d445cff763476",
+  "qualification": "EXPECTED_RED: unnamed Replace; real Cancel pointer fallback preserves both fixture contents; lifecycle log cleanupPass=True"
+}

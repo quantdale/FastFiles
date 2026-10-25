@@ -43,3 +43,9 @@ Filesystem targets may disappear after validation; ordinary operation handlers s
 ## Validation
 
 Focused command/selection and geometry regressions, Home search E2E with destination identity, storage summary/action tests, native visual catalog and broader Debug/release-test suites. Avoid restricted termination tests and expensive unchanged PR15 benchmarks.
+
+### Native conflict decisions remain readable and reachable
+
+The live a3e20ab conflict audit cannot find the painted Replace label through UIA; the HWND caption is empty. Its actual120DPI dark screenshot also shows a white custom-window background and black checkbox text on a dark field. Source omits WS_TABSTOP on every action/checkbox. The ConflictDialog/UiComponents/UITheme source is unchanged from the new branch's verified PR18 base981a9ba; full application equivalence is not implied.
+
+Retain the existing Native Precision/Things/shadcn reference lock and localized warning treatment. Set the native Replace caption, add real Tab stops while keeping Skip initially focused, erase the custom window with its token brush, and reuse Settings' ApplyNativeExplorerTheme for ordinary buttons/checkbox with High Contrast reset. No bespoke UIA state or operation-policy rewrite. Native public UIA/real pointer input verifies named actions, focus traversal and each decision against marked fixture content; screenshots separately qualify the actual theme and geometry. Native buttons on this host may omit InvokePattern, so use the existing E2E real-pointer fallback rather than hidden commands or synthetic success.

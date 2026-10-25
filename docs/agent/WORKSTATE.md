@@ -1,5 +1,16 @@
 # Fast Files — Agent Workstate
 
+## Current resume checkpoint — accessible native conflict actions IN PROGRESS — 2026-10-26
+
+- Sole writer uses conflict-actions-20261026, branch fix/accessible-conflict-actions-20261026, verified clean HEAD==fresh origin PR18 981a9ba before edits. Status sibling PR20 ed58805 is clean/pushed/draft, hosted40228230924 failed6jobs0steps due account payment/spending annotation; no rerun. PR19d2187aa remains separate, all existing PRs/main unmerged.
+- Combined integrationa3e20ab includes PR16/14/15/17/18/19 + statuscd1: diagnostic56/56, normal Debug480/480 build, catalog21/21 assertions, E2E8/8, strict normal/narrow-focus PASS with actual image review at120DPI. Combined release build480/480 PASS; full selected normal suites pending after UI cleanup. Never run session-pipe CTests with live GUI.
+- New live conflict audit at a3e20ab confirms Replace is painted but native caption empty, so Name=Replace is absent. Actual dark screenshot has white class background and unreadable checkbox label. Source also omits Tab stops on all five controls. ConflictDialog/UiComponents/UITheme source diff981..a3e is empty; full apps not equivalent. Preserve baseline under integration build/native-status-integration-20261026/conflict-*.
+- Private audit corrections are harness findings, not product passes: initial cleanup code used cleanupPass instead of actual Pass; actual lifecycle log was clean. Next expected-name lookup throws on absence; capture third run proves visible dialog. Host native Cancel lacks InvokePattern; switch to existing E2E public real-pointer fallback. Fourth baseline is conclusive red: replaceNamed=false, Cancel preserves both contents, actual cleanupPass=True. Compact JSON and actual dark image are preserved in the change evidence. No production process ownership checks changed.
+- Development diagnostic build445/445 PASS; public native eight-case regression implemented at verify/e2e/Test-FileConflictActions.ps1, AST and strict OpenSpec PASS. Implementation under original-vision task2.10: native caption and Tab stops, custom-window WM_ERASEBKGND, shared native Explorer theme/HC reset, checkbox text color and owner-draw body font. Preserve existing conflict decisions/default Skip and data behavior. Functional and visual qualification pending.
+- NEXT EXACT ACTION: commit the build/AST/spec-validated implementation, rebind this diagnostic source, run focused pure operation regressions, then execute the eight-case native regression only after frozen combined full selected suites finish (restricted reaper excluded). Inspect both real light/dark images, correct defects and publish a clean draft sibling after validation. Debug Gallery narrow clipping is separate lower-priority backlog (WindowShell passes whole physical client rect into translated DIP gallery; no correction yet).
+
+## Prior PR18 checkpoint (historical)
+
 ## Current resume checkpoint — original-vision journey recovery IN PROGRESS — 2026-10-25
 
 - Primary frontier: final committed-source certification/publication, with bounded 1M acceptance oracle running separately. User authorizes continued successor execution. Owner controls existing PR merges and production release.

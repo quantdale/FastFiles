@@ -87,3 +87,7 @@ Baseline captures16/16 at actual120DPI and first expanded after20/21 remain reta
 |UIA structure|Distinct Storage/Search identities, real rows/headers/actions, stale/lifetime safety and hidden Browse/Home retirement; actual native journeys|Native-role/root-focus gaps outside reviewed seams remain explicitly unverified|
 
 Debug/release-test builds, Analyze and ASan checks are tracked separately from hosted CI and native visual qualification. The current main-based product branch does not claim PR14/15 scale-performance evidence as its own. No pillar is called product-complete while a signature journey remains unqualified.
+
+## Native conflict decision gap — 2026-10-26
+
+Actual source-bound120DPI collision audit finds painted Replace absent from native accessibility, white dark-mode background and unreadable checkbox label. Source also omits Tab stops. Priority5×5×3×5÷2=187.5; Pillar D/E remain IMPLEMENTED_BUT_UNPOLISHED. Native Cancel pointer fallback preserves incoming/destination hashes; no full conflict pass is claimed. The isolated task2.10 slice restores native labels/focus/theme and adds a real eight-decision light/dark content regression. See [red evidence](../../openspec/changes/original-vision-journey-recovery/evidence/conflict-actions-20261026.md); native green is pending.
