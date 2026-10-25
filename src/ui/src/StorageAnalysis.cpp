@@ -765,6 +765,8 @@ void StorageAnalysis::PopulateCategoryFilter() {
         categoryFilterIds_.push_back(cat.id);
         ComboBox_AddString(categoryFilter_, const_cast<wchar_t*>(cat.displayName.c_str()));
     }
+    categoryFilterIds_.push_back(categoryEngine_.UncategorizedFilterId());
+    ComboBox_AddString(categoryFilter_, L"Other (uncategorized)");
 
     int selected = 0;
     for (size_t i = 1; i < categoryFilterIds_.size(); ++i) {
@@ -932,14 +934,14 @@ void StorageAnalysis::RefreshOverview() {
                                 : 0;
         }
 
-        // 2.3: indexed-coverage indicator -- whole-volume analysis available
-        // only when the engine's snapshot covers the volume root.
-        vol.fullyIndexed = false;
+        // A successful root listing proves no recursive coverage. The UI
+        // snapshot carries no whole-volume completeness certificate.
+        vol.rootAvailable = false;
         if (engineActive_ && snapshot) {
             auto it = snapshot->find(rootPath);
             if (it != snapshot->end() &&
                 it->second.status == ffprotocol::DirectoryEnumerationStatus::Success) {
-                vol.fullyIndexed = true;
+                vol.rootAvailable = true;
             }
         }
 
@@ -1010,7 +1012,7 @@ void StorageAnalysis::RefreshOverview() {
         ListView_SetItemText(overview_, static_cast<int>(i), 3, const_cast<wchar_t*>(free.c_str()));
         ListView_SetItemText(overview_, static_cast<int>(i), 4, const_cast<wchar_t*>(pct.c_str()));
         ListView_SetItemText(overview_, static_cast<int>(i), 5,
-                             const_cast<wchar_t*>(vol.fullyIndexed ? L"Fully indexed — whole-volume analysis" : L"Partial — browsed/pinned only"));
+                             const_cast<wchar_t*>(StorageCoverageText(vol.rootAvailable)));
     }
 
     const std::wstring statusText = StorageOverviewStatusText(volumes_.size(), engineActive_);
@@ -1018,6 +1020,9 @@ void StorageAnalysis::RefreshOverview() {
 }
 
 void StorageAnalysis::RefreshData() {
+    const auto selected = displayedPath_ == currentPath_ ? CaptureSelectedItem() : std::nullopt;
+    ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    displayedPath_ = currentPath_;
     if (!visible_) return;
     UpdateNavigationButtonState();
 
@@ -1046,6 +1051,8 @@ void StorageAnalysis::RefreshData() {
         return;
     }
     if (!engine_) {
+        items_.clear();
+        ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
         SetWindowTextW(status_, StorageWaitingStatusText(engineActive_));
         return;
     }
@@ -1053,6 +1060,8 @@ void StorageAnalysis::RefreshData() {
     treemapView_.SetEmptyStateText(L"Calculating folder sizes…");
     const auto snapshot = engine_->ReadSnapshot();
     if (!snapshot) {
+        items_.clear();
+        ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
         SetWindowTextW(status_, StorageWaitingStatusText(engineActive_));
         return;
     }
@@ -1133,9 +1142,11 @@ void StorageAnalysis::RefreshData() {
         for (const auto& item : items_) {
             if (item.isDirectory) continue;
             auto match = categoryEngine_.Match(item.name);
-            std::wstring catName = match.matched ? match.categoryName : L"Other";
-            auto& catItem = categoryMap[catName];
+            std::wstring catName = match.matched ? match.categoryName : L"Other (uncategorized)";
+            const auto categoryId = match.matched ? match.categoryId : categoryEngine_.UncategorizedFilterId();
+            auto& catItem = categoryMap[categoryId];
             catItem.name = catName;
+            catItem.categoryId = categoryId;
             catItem.isDirectory = false;
             catItem.sizeBytes += item.sizeBytes;
             catItem.totalSizeBytes += item.sizeBytes;
@@ -1174,6 +1185,7 @@ void StorageAnalysis::RefreshData() {
     }
 
     SortItems(sortColumn_, sortAscending_);
+    RestoreSelectedItem(selected);
 }
 
 void StorageAnalysis::RequestAggregateForParent(const ffprotocol::SnapshotDirectory& directory) {
@@ -1335,6 +1347,8 @@ void StorageAnalysis::UpdateVolumeUsedBytes() {
 
 void StorageAnalysis::SortItems(int column, bool ascending) {
     if (column < 0 || column >= 8) return;
+    const auto selected = CaptureSelectedItem();
+    ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     sortColumn_ = column;
     sortAscending_ = ascending;
     SetSortIndicator(list_, column, ascending);
@@ -1397,7 +1411,27 @@ void StorageAnalysis::SortItems(int column, bool ascending) {
     });
 
     ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
+    RestoreSelectedItem(selected);
     InvalidateRect(list_, nullptr, FALSE);
+}
+
+std::optional<StorageAnalysis::DrillItem> StorageAnalysis::CaptureSelectedItem() const {
+    const int selected = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
+    if (selected < 0 || static_cast<size_t>(selected) >= items_.size()) return std::nullopt;
+    return items_[static_cast<size_t>(selected)];
+}
+
+void StorageAnalysis::RestoreSelectedItem(const std::optional<DrillItem>& selected) {
+    if (!selected) return;
+    for (size_t index = 0; index < items_.size(); ++index) {
+        const auto& item = items_[index];
+        if (item.name != selected->name || item.categoryId != selected->categoryId ||
+            item.isDirectory != selected->isDirectory || item.volumeRowId != selected->volumeRowId ||
+            item.fileIdLow != selected->fileIdLow || item.fileIdHigh != selected->fileIdHigh) continue;
+        ListView_SetItemState(list_, static_cast<int>(index), LVIS_SELECTED | LVIS_FOCUSED,
+                             LVIS_SELECTED | LVIS_FOCUSED);
+        break;
+    }
 }
 
 void StorageAnalysis::OnSnapshotUpdated() {
@@ -1644,7 +1678,11 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
         const int selected = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
         if (selected >= 0 && static_cast<size_t>(selected) < items_.size()) {
             const DrillItem& item = items_[static_cast<size_t>(selected)];
-            if (item.isDirectory) {
+            if (!item.categoryId.empty()) {
+                activeCategoryId_ = item.categoryId;
+                PopulateCategoryFilter();
+                SetViewMode(ViewMode::LargestFiles);
+            } else if (item.isDirectory) {
                 std::wstring childPath = ffui::JoinPath(currentPath_, item.name);
                 currentPath_ = childPath;
                 UpdateNavigationButtonState();
@@ -1740,22 +1778,32 @@ void StorageAnalysis::SetDarkTheme(bool dark) {
     if (status_ != nullptr) InvalidateRect(status_, nullptr, FALSE);
 }
 
-bool StorageAnalysis::HandleContextMenu(WPARAM /*wParam*/, LPARAM lParam) {
-    if (!visible_ || !invokeCommand_) return false;
+std::vector<SelectionItem> StorageAnalysis::ActiveSelectionItems() const {
+    if (!visible_ || !StorageRowsAreFiles(viewMode_) || displayedPath_ != currentPath_ ||
+        currentPath_.empty() || list_ == nullptr) return {};
     const int selected = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
-    if (selected < 0 || static_cast<size_t>(selected) >= items_.size()) return false;
-
+    if (selected < 0 || static_cast<size_t>(selected) >= items_.size()) return {};
     const DrillItem& item = items_[static_cast<size_t>(selected)];
-    std::vector<std::wstring> paths;
-    paths.push_back(ffui::JoinPath(currentPath_, item.name));
+    if (!item.categoryId.empty()) return {};
+    return {{ffui::JoinPath(currentPath_, item.name), item.isDirectory}};
+}
+
+bool StorageAnalysis::HandleContextMenu(WPARAM wParam, LPARAM lParam) {
+    if (!visible_ || !invokeCommand_ || reinterpret_cast<HWND>(wParam) != list_) return false;
+    const auto selection = ActiveSelectionItems();
+    if (selection.empty()) return false;
+    const int selected = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
+
+    const auto paths = SelectionPaths(selection);
 
     HMENU menu = CreatePopupMenu();
     if (!menu) return false;
 
-    AppendMenuW(menu, MF_STRING, 1, item.isDirectory ? L"Open" : L"Open");
+    AppendMenuW(menu, MF_STRING, 1, L"Open");
+    if (!selection.front().isDirectory) AppendMenuW(menu, MF_STRING, 5, L"Open containing folder");
     AppendMenuW(menu, MF_STRING, 2, L"Copy Path");
     AppendMenuW(menu, MF_STRING, 4, L"Cut");
-    if (!item.isDirectory) {
+    if (!selection.front().isDirectory) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, 3, L"Delete");
     }
@@ -1789,6 +1837,9 @@ bool StorageAnalysis::HandleContextMenu(WPARAM /*wParam*/, LPARAM lParam) {
             return true;
         case 4:
             invokeCommand_(L"file.cut", paths);
+            return true;
+        case 5:
+            invokeCommand_(L"item.open-containing-folder", paths);
             return true;
     }
     return false;

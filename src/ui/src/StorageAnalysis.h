@@ -3,12 +3,14 @@
 #include <algorithm>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
 #include <windows.h>
 
 #include "CategoryEngine.h"
+#include "CommandSystem.h"
 #include "EngineClient.h"
 #include "ffui/ShellLayout.h"
 #include "ffui/StorageVisibility.h"
@@ -52,6 +54,7 @@ public:
                       const ShellLayoutRect& surfaceRect);
     void Hide();
     bool Visible() const { return visible_; }
+    std::vector<SelectionItem> ActiveSelectionItems() const;
     void Reposition(const ShellLayoutRect& surfaceRect);
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     bool HandleDrawItem(LPARAM lParam);
@@ -110,6 +113,7 @@ private:
 
     struct DrillItem {
         std::wstring name;
+        std::wstring categoryId; // nonempty only for synthetic category summaries
         bool isDirectory = false;
         uint64_t sizeBytes = 0;
         uint64_t totalSizeBytes = 0; // subtree aggregate when known
@@ -138,7 +142,7 @@ private:
     struct VolumeItem {
         std::wstring rootPath;   // "C:\"
         bool unavailable = false; // volume vanished; figures below are stale
-        bool fullyIndexed = false;
+        bool rootAvailable = false;
         uint64_t totalBytes = 0;
         uint64_t freeBytes = 0;
         uint64_t usedBytes = 0;
@@ -161,6 +165,8 @@ private:
                                uint64_t allocatedBytesKnownCount,
                                uint64_t allocatedBytesTotalCount);
     void SortItems(int column, bool ascending);
+    std::optional<DrillItem> CaptureSelectedItem() const;
+    void RestoreSelectedItem(const std::optional<DrillItem>& selected);
     void PopulateCategoryFilter();
     void UpdateCategoryFilterFromControl();
     void ApplyCategoryFilter();
@@ -196,6 +202,7 @@ private:
     std::vector<DrillItem> items_;
     std::vector<VolumeItem> volumes_;    // storage-overview rows
     std::wstring currentPath_;
+    std::wstring displayedPath_;
     bool visible_ = false;
     bool engineActive_ = false;
     bool darkTheme_ = false;

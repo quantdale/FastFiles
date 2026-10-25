@@ -64,6 +64,7 @@ function New-E2EFixture {
         'Browse\Nested',
         'Browse\Search',
         'Browse\Storage',
+        'Browse\Storage\Document',
         'Browse\Operations',
         'Browse\Operations\Destination'
     )
@@ -75,6 +76,7 @@ function New-E2EFixture {
     Set-Content -LiteralPath (Join-Path $root 'Browse\Search\exact-file.txt') -Value 'exact search needle' -Encoding utf8
     Set-Content -LiteralPath (Join-Path $root 'Browse\Search\partial-alpha.txt') -Value 'partial search alpha' -Encoding utf8
     Set-Content -LiteralPath (Join-Path $root 'Browse\Search\partial-beta.txt') -Value 'partial search beta' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $root 'Browse\Storage\Document\category-collision-proof.txt') -Value 'category labels are not filesystem targets' -Encoding utf8
     $storageNote = Join-Path $root 'Browse\Storage\storage-note.txt'
     $noteStream = [IO.FileStream]::new($storageNote, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
     try { $noteStream.SetLength(1MB) } finally { $noteStream.Dispose() }
@@ -132,6 +134,54 @@ function Wait-E2ECondition {
         Description = $Description
         LastError = $lastError
     }
+}
+
+function Get-E2EClipboardFiles {
+    # Read only the standard shell CF_HDROP format. This avoids apartment
+    # assumptions in WinForms Clipboard and never changes the clipboard.
+    if (-not ('FastFilesE2EClipboardReader' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class FastFilesE2EClipboardReader {
+    [DllImport("user32.dll")] static extern bool OpenClipboard(IntPtr owner);
+    [DllImport("user32.dll")] static extern bool CloseClipboard();
+    [DllImport("user32.dll")] static extern IntPtr GetClipboardData(uint format);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern uint DragQueryFileW(IntPtr drop, uint index, StringBuilder path, uint length);
+    public static string[] ReadFiles() {
+        if (!OpenClipboard(IntPtr.Zero)) return new string[0];
+        try {
+            IntPtr drop = GetClipboardData(15);
+            if (drop == IntPtr.Zero) return new string[0];
+            uint count = DragQueryFileW(drop, UInt32.MaxValue, null, 0);
+            if (count > 1024) return new string[0];
+            string[] files = new string[count];
+            for (uint index = 0; index < count; ++index) {
+                uint length = DragQueryFileW(drop, index, null, 0);
+                if (length > 32768) return new string[0];
+                StringBuilder path = new StringBuilder((int)length + 1);
+                DragQueryFileW(drop, index, path, length + 1);
+                files[index] = path.ToString();
+            }
+            return files;
+        } finally { CloseClipboard(); }
+    }
+}
+'@
+    }
+    return [FastFilesE2EClipboardReader]::ReadFiles()
+}
+
+function Get-E2EStorageRow {
+    param([Parameter(Mandatory)] $Context, [Parameter(Mandatory)] [string] $Name)
+    $list = Find-UiaElement -Driver $Context.Driver -AutomationId '7201' -ClassName 'SysListView32' `
+        -FromElement (Get-E2EMain -Context $Context) -TimeoutMs 700
+    foreach ($row in @(Find-UiaElement -Driver $Context.Driver -NameLike "$Name*" -FromElement $list -All -TimeoutMs 700)) {
+        if (Test-UiaElementPattern -Driver $Context.Driver -Element $row -Pattern 'SelectionItem') { return $row }
+    }
+    return $null
 }
 
 function Get-E2EMain {
@@ -398,6 +448,8 @@ function Write-E2EFailureEvidence {
         $diag = Join-Path $Context.Environment.LOCALAPPDATA 'FastFiles\logs\diagnostics.log'
         if (Test-Path -LiteralPath $diag -PathType Leaf) {
             Get-Content -LiteralPath $diag -Tail 250 | Set-Content -LiteralPath (Join-Path $ArtifactDir 'diagnostics-tail.log') -Encoding utf8
+            Get-Content -LiteralPath $diag | Where-Object { $_ -match 'FFDIAG_UI_COMMAND_DISPATCHED' } |
+                Select-Object -Last 30 | Set-Content -LiteralPath (Join-Path $ArtifactDir 'commands-tail.log') -Encoding utf8
         }
     } catch { }
     try {
@@ -611,6 +663,20 @@ function Invoke-E2ESearchScenario {
     if (-not $nav.Pass) {
         return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'scope-navigation' -Detail $nav.Detail -DurationMs $watch.Elapsed.TotalMilliseconds
     }
+    # original-vision-journey-recovery 3.2: browse the fixture first so the
+    # degraded snapshot contains it, then start the actual search from Home.
+    # Closing Search alone used to pass while Home still covered the result.
+    $home = Invoke-E2ENavigationCommand -Context $Context -Query 'home' -Name 'Home' -CommandId 'navigation.home'
+    if (-not $home.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'home-before-search' -Detail $home.Detail -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $homeReady = Wait-E2ECondition -TimeoutMs 6000 -Description 'Home before search' -Condition {
+        $null = Find-UiaElement -Driver $Context.Driver -AutomationId 'Pane.0.Home' -FromElement (Get-E2EMain -Context $Context) -TimeoutMs 700
+        return $true
+    }
+    if (-not $homeReady.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'home-before-search' -Detail 'Home surface did not become available' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     $panel = Open-UiaSearchPanel -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id)
     if (-not $panel.Pass) {
         return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'open-search' -Detail $panel.Detail -DurationMs $watch.Elapsed.TotalMilliseconds
@@ -655,6 +721,34 @@ function Invoke-E2ESearchScenario {
     if (-not $noResult.Pass) {
         return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'no-result-terminal' -Detail 'no-result query did not settle to an empty Search.Results list' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
+    # original-vision-journey-recovery 3.2: an accepted replacement must not
+    # transfer a native ListView selection to a different file at the same
+    # virtual row index. Start with one selected result at index zero.
+    $selectedQuery = Set-UiaSearchQuery -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -Query 'partial-alpha'
+    $alphaReady = Wait-E2ECondition -TimeoutMs 12000 -Description 'alpha result before selected replacement' -Condition {
+        $rows = @(Get-UiaSearchResultItems -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -TimeoutMs 800)
+        if ($rows.Count -eq 1 -and (Get-UiaElementProperty -Driver $Context.Driver -Element $rows[0] -Name 'Name') -eq 'partial-alpha.txt') { return $rows[0] }
+        return $false
+    }
+    if (-not $selectedQuery.Pass -or -not $alphaReady.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'selected-replacement-source' -Detail 'the single alpha result was not ready for selection' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    Invoke-UiaPattern -Driver $Context.Driver -Element $alphaReady.Value -PatternName 'SelectionItem' -Method 'Select' | Out-Null
+    if (-not [bool](Invoke-UiaPattern -Driver $Context.Driver -Element $alphaReady.Value -PatternName 'SelectionItem' -Method 'GetSelection')) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'selected-replacement-source' -Detail 'alpha selection was not semantically established' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $replacementQuery = Set-UiaSearchQuery -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -Query 'partial-beta'
+    $betaReady = Wait-E2ECondition -TimeoutMs 12000 -Description 'beta replaces the selected alpha result' -Condition {
+        $rows = @(Get-UiaSearchResultItems -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -TimeoutMs 800)
+        if ($rows.Count -eq 1 -and (Get-UiaElementProperty -Driver $Context.Driver -Element $rows[0] -Name 'Name') -eq 'partial-beta.txt') { return $rows[0] }
+        return $false
+    }
+    if (-not $replacementQuery.Pass -or -not $betaReady.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'selected-replacement-target' -Detail "the single beta replacement did not settle: $($replacementQuery.Detail); lastError=$($betaReady.LastError)" -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    if ([bool](Invoke-UiaPattern -Driver $Context.Driver -Element $betaReady.Value -PatternName 'SelectionItem' -Method 'GetSelection')) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'selected-replacement-retarget' -Detail 'beta inherited the selection of alpha at the same native row index' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     $setAlpha = Set-UiaSearchQuery -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -Query 'partial-alpha'
     $setBeta = Set-UiaSearchQuery -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -Query 'partial-beta'
     if (-not $setAlpha.Pass -or -not $setBeta.Pass) {
@@ -678,7 +772,38 @@ function Invoke-E2ESearchScenario {
     if (-not $closed) {
         return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'result-open' -Detail 'invoking a real search result did not close the Search.Results surface' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
-    return New-E2EResult -Id 'search-user-flow' -Status 'PASS' -Detail 'exact, partial, no-result, superseded-query, selection, and result-open checks passed' `
+    $expectedPaths = [Collections.Generic.List[string]]::new()
+    for ($directory = [IO.DirectoryInfo]::new($Fixture.Search); $null -ne $directory; $directory = $directory.Parent) {
+        $expectedPaths.Add($directory.FullName)
+    }
+    $expectedPaths.Reverse()
+    $expectedResult = Join-Path $Fixture.Search 'partial-beta.txt'
+    $revealed = Wait-E2ECondition -TimeoutMs 12000 -Description 'Home search reveals selected file in full hierarchy' -Condition {
+        $main = Get-E2EMain -Context $Context
+        $pane = Find-UiaElement -Driver $Context.Driver -AutomationId 'Pane.0' -FromElement $main -TimeoutMs 700
+        $columns = @(Get-UiaChildren -Driver $Context.Driver -Element $pane | Where-Object {
+            (Get-UiaElementIdentity -Driver $Context.Driver -Element $_).ControlType -eq 'List'
+        })
+        if ($columns.Count -ne $expectedPaths.Count) { return $false }
+        for ($columnIndex = 0; $columnIndex -lt $columns.Count; $columnIndex++) {
+            $actualPath = [string](Get-UiaElementProperty -Driver $Context.Driver -Element $columns[$columnIndex] -Name 'Name')
+            if (-not $actualPath.Equals($expectedPaths[$columnIndex], [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        }
+        $item = Find-UiaTerminalColumnItem -Driver $Context.Driver -Main $main -ProcessId ([int]$Context.Launched.Id) `
+            -Name 'partial-beta.txt' -PaneId 'Pane.0' -TimeoutMs 700
+        if (-not $item) { return $false }
+        $actualResult = [string](Get-UiaElementProperty -Driver $Context.Driver -Element $item -Name 'HelpText')
+        $selected = [bool](Invoke-UiaPattern -Driver $Context.Driver -Element $item -PatternName 'SelectionItem' -Method 'GetSelection')
+        $offscreen = Get-UiaElementProperty -Driver $Context.Driver -Element $item -Name 'IsOffscreen'
+        $bounds = Get-UiaElementProperty -Driver $Context.Driver -Element $item -Name 'BoundingRectangle'
+        return $actualResult.Equals($expectedResult, [StringComparison]::OrdinalIgnoreCase) -and $selected -and
+            ($offscreen -eq $false) -and $bounds.width -gt 0 -and $bounds.height -gt 0
+    }
+    if (-not $revealed.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'result-hierarchy-selection' `
+            -Detail "Search closed but did not reveal the exact selected file '$expectedResult' in its complete visible hierarchy; lastError=$($revealed.LastError)" -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    return New-E2EResult -Id 'search-user-flow' -Status 'PASS' -Detail 'Home search, exact, partial, no-result, superseded-query, full hierarchy, exact selected path, and visible result checks passed' `
         -DurationMs $watch.Elapsed.TotalMilliseconds -Data (Get-E2EVisibleObservation -Context $Context)
 }
 
@@ -689,6 +814,13 @@ function Invoke-E2EStorageScenario {
         -ProcessId ([int]$Context.Launched.Id) -Path $Fixture.Storage -ExpectedLeaf 'Storage'
     if (-not $nav.Pass) {
         return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'scope-navigation' -Detail $nav.Detail -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $browseSentinel = Join-Path $Fixture.Storage 'storage-note.txt'
+    $storageTarget = Join-Path $Fixture.Storage 'small.bin'
+    $sentinelHash = (Get-FileHash -LiteralPath $browseSentinel -Algorithm SHA256).Hash
+    $browseSelection = Select-E2EItem -Context $Context -Name 'storage-note.txt' -TimeoutMs 10000
+    if (-not $browseSelection.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'browse-sentinel-selection' -Detail 'the independent browsing sentinel could not be selected' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     $open = Invoke-E2ENavigationCommand -Context $Context -Query 'analyze' -Name 'Analyze Storage' -CommandId 'storage.analyze'
     if (-not $open.Pass) {
@@ -703,6 +835,92 @@ function Invoke-E2EStorageScenario {
     }
     if (-not $treemap.Pass) {
         return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'analysis-ready' -Detail 'Storage Analysis did not expose its view controls' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    # original-vision-journey-recovery: actions belong to the visible
+    # Storage selection, even while a different browse row remains selected.
+    $main = Get-E2EMain -Context $Context
+    $drillDownButton = Find-UiaElement -Driver $Context.Driver -Name 'Drill Down' -FromElement $main -TimeoutMs 1500
+    if (-not (Invoke-E2EButton -Context $Context -Element $drillDownButton)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-command-list' -Detail 'Drill Down was not activatable' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $storageRow = Wait-E2ECondition -TimeoutMs 12000 -Description 'Storage command target row' -Condition {
+        $row = Get-E2EStorageRow -Context $Context -Name 'small.bin'
+        if ($row) { return $row }
+        return $false
+    }
+    if (-not $storageRow.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-command-target' -Detail 'small.bin was absent from the native storage list' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    Invoke-UiaPattern -Driver $Context.Driver -Element $storageRow.Value -PatternName 'SelectionItem' -Method 'Select' | Out-Null
+    if (-not [bool](Invoke-UiaPattern -Driver $Context.Driver -Element $storageRow.Value -PatternName 'SelectionItem' -Method 'GetSelection')) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-command-selection' -Detail 'small.bin did not become the semantic storage selection' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $beforeSort = Get-UiaElementProperty -Driver $Context.Driver -Element $storageRow.Value -Name 'BoundingRectangle'
+    $storageList = Find-UiaElement -Driver $Context.Driver -AutomationId '7201' -ClassName 'SysListView32' -FromElement $main -TimeoutMs 1000
+    $sizeHeader = Find-UiaElement -Driver $Context.Driver -Name 'Size' -ControlType 'HeaderItem' -FromElement $storageList -TimeoutMs 1500
+    if (-not (Invoke-E2EButton -Context $Context -Element $sizeHeader)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-sort-action' -Detail 'Size column header was not activatable' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $sortedSelection = Wait-E2ECondition -TimeoutMs 6000 -Description 'storage sort preserves selected file identity' -Condition {
+        $row = Get-E2EStorageRow -Context $Context -Name 'small.bin'
+        if (-not $row) { return $false }
+        $bounds = Get-UiaElementProperty -Driver $Context.Driver -Element $row -Name 'BoundingRectangle'
+        return ([bool](Invoke-UiaPattern -Driver $Context.Driver -Element $row -PatternName 'SelectionItem' -Method 'GetSelection')) -and
+            $bounds -and $beforeSort -and $bounds.y -gt ($beforeSort.y + 1)
+    }
+    if (-not $sortedSelection.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-sort-selection' -Detail 'sorting did not move small.bin while preserving its selected identity' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $copyPath = Invoke-E2ENavigationCommand -Context $Context -Query 'copy path' -Name 'Copy Path' -CommandId 'item.copy-path'
+    $pathCopied = Wait-E2ECondition -TimeoutMs 4000 -Description 'Storage Copy Path clipboard target' -Condition {
+        return ([string](Get-Clipboard -Raw)).TrimEnd([char[]]"`r`n").Equals($storageTarget, [StringComparison]::OrdinalIgnoreCase)
+    }
+    if (-not $copyPath.Pass -or -not $pathCopied.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-copy-path-target' -Detail 'Copy Path did not copy the visible Storage target small.bin' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $cut = Invoke-E2ENavigationCommand -Context $Context -Query 'cut' -Name 'Cut' -CommandId 'file.cut'
+    $cutTarget = Wait-E2ECondition -TimeoutMs 4000 -Description 'Storage Cut clipboard target' -Condition {
+        $files = @(Get-E2EClipboardFiles)
+        return $files.Count -eq 1 -and $files[0].Equals($storageTarget, [StringComparison]::OrdinalIgnoreCase)
+    }
+    if (-not $cut.Pass -or -not $cutTarget.Pass -or
+        -not (Test-Path -LiteralPath $browseSentinel -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $browseSentinel -Algorithm SHA256).Hash -ne $sentinelHash) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-cut-target' -Detail 'Cut targeted a different file or changed the independent browsing sentinel' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    # A synthetic category has a real sibling folder with the same name.
+    # Activating the category must filter files rather than enter that folder.
+    $categoryButton = Find-UiaElement -Driver $Context.Driver -Name 'By Category' -FromElement (Get-E2EMain -Context $Context) -TimeoutMs 1500
+    if (-not (Invoke-E2EButton -Context $Context -Element $categoryButton)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-category-mode' -Detail 'By Category was not activatable' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $category = Wait-E2ECondition -TimeoutMs 6000 -Description 'Document category row' -Condition {
+        $row = Get-E2EStorageRow -Context $Context -Name 'Document'
+        if ($row) { return $row }
+        return $false
+    }
+    if (-not $category.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-category-row' -Detail 'the Document category row was absent' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $null = Set-UiaForeground -Driver $Context.Driver -Element (Get-E2EMain -Context $Context)
+    $categoryBounds = Get-UiaElementProperty -Driver $Context.Driver -Element $category.Value -Name 'BoundingRectangle'
+    if (-not $categoryBounds -or $categoryBounds.width -le 0 -or $categoryBounds.height -le 0) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-category-activation' -Detail 'Document category had no usable live bounds' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    # Click the name cell within the row's live bounds, so a horizontal
+    # scrollbar cannot place the middle of a wide native row outside the view.
+    $categoryX = [int]($categoryBounds.x + [Math]::Min(40, $categoryBounds.width / 2))
+    $categoryY = [int]($categoryBounds.y + $categoryBounds.height / 2)
+    $null = Send-UiaMouseInput -Driver $Context.Driver -X $categoryX -Y $categoryY -Action 'Click'
+    $null = Send-UiaMouseInput -Driver $Context.Driver -X $categoryX -Y $categoryY -Action 'Click'
+    $categoryFiltered = Wait-E2ECondition -TimeoutMs 6000 -Description 'category activation filters real files' -Condition {
+        $document = Get-E2EStorageRow -Context $Context -Name 'storage-note.txt'
+        if (-not $document) { return $false }
+        return -not (Get-E2EStorageRow -Context $Context -Name 'small.bin') -and
+            -not (Get-E2EStorageRow -Context $Context -Name 'category-collision-proof.txt')
+    }
+    if (-not $categoryFiltered.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-category-target' -Detail 'category activation failed to filter documents in place or entered the category-named sibling folder' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     $main = Get-E2EMain -Context $Context
     $treemapButton = $null

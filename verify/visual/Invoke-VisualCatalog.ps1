@@ -44,7 +44,7 @@ Import-Module (Join-Path $repo 'verify\core\Provenance.psm1') -Force -DisableNam
 $coreScenarioIds = @(
     'home-default', 'browse-column-view', 'browse-keyboard-focus', 'browse-empty-state',
     'home-wide', 'details-closed', 'dual-pane', 'home-from-command', 'fast-search-idle',
-    'search-filters-expanded', 'search-no-results', 'storage-overview', 'settings-general',
+    'search-filters-expanded', 'search-results', 'search-no-results', 'storage-overview', 'settings-general',
     'command-palette', 'home-narrow', 'home-dark'
 )
 $galleryScenarioIds = @('gallery-light', 'gallery-dark', 'gallery-narrow', 'gallery-wide')
@@ -426,12 +426,12 @@ function Invoke-CatalogCapture {
         # Never fabricate DPI: an unobserved value stays 0 so the scenario
         # guard records a truthful failure instead of a bogus 96-DPI PASS.
         $observedDpi = if ($shot.Bounds -and $shot.Bounds.Dpi) { [int]$shot.Bounds.Dpi } else { 0 }
-        $dpiCheck = Test-VisualDpiMatch -RequestedPercent 100 -ObservedDpi $observedDpi
-        if ($dpiCheck.Known -and -not $dpiCheck.Match) {
-            Write-CatalogLog ("DPI_MISMATCH: scenario '$ScenarioId' requested 100% (~$($dpiCheck.ExpectedDpi) DPI) but observed $($dpiCheck.ObservedDpi) DPI")
-        }
+        if ($observedDpi -le 0) { throw 'CATALOG_DPI_UNOBSERVED: capture has no measured window DPI' }
+        # This catalog observes the current desktop; it does not request an
+        # OS scale transition. Report the measured scale, never a 100% label.
+        $observedPercent = [int][Math]::Round($observedDpi * 100.0 / 96.0)
         $null = Add-VisualScenarioResult -Run $Run -ScenarioId $ScenarioId -ExpectedState $ExpectedState `
-            -FixtureId 'sandbox-home' -Theme $Theme -Width $Width -PaneMode $PaneMode -DpiScalePercent 100 -ObservedDpi $observedDpi `
+            -FixtureId 'sandbox-home' -Theme $Theme -Width $Width -PaneMode $PaneMode -DpiScalePercent $observedPercent -ObservedDpi $observedDpi `
             -Status 'PASS' -AssertionPass $true -AssertionEvidence $Assertion `
             -ScreenshotPath $shot.Path -ImageHash $shot.Hash -PrivacyRedactions $shot.PrivacyRedactions
     } catch {
@@ -612,6 +612,17 @@ try {
         -ScenarioId 'search-filters-expanded' -ExpectedState 'Fast Search with the Filters disclosure expanded' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' `
         -Assertion ([pscustomobject]@{ Pass = $filtersExpanded; Detail = "ExpandCollapse state='$filterState'" })
+    $resultQuery = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query 'readme'
+    $resultsReady = Wait-UiaCondition -Driver $driver -TimeoutMs 10000 -PollIntervalMs 200 `
+        -Description 'fixture readme search result' -ScriptBlock {
+            $names = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 600 |
+                ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' })
+            return $names -contains 'readme.txt'
+        }
+    Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
+        -ScenarioId 'search-results' -ExpectedState 'Actual filename, location and size/time context in virtual search results' `
+        -Theme 'Light' -Width 1280 -PaneMode 'single' `
+        -Assertion ([pscustomobject]@{ Pass = [bool]$resultQuery.Pass -and [bool]$resultsReady; Query = $resultQuery })
     # Query with no matching results to capture empty search state. The search
     # workspace must still be open here: the earlier ordering closed it first,
     # which made the query edit undiscoverable and skipped this scenario in
@@ -838,7 +849,8 @@ try {
     if (-not $Gallery) {
         Write-CatalogLog 'COVERAGE SUPPORTED_NOT_SELECTED: gallery-light, gallery-dark, gallery-narrow, gallery-wide (re-run with -Gallery)'
     }
-    Write-CatalogLog 'COVERAGE REQUIRED_BUT_UNAVAILABLE: dpi-100/150/200 live (this host is 125% / 120 DPI), engine-backed rows/previews/file-operations (require engine-served snapshot data)'
+    $observedCatalogDpi = @($run.Records | Where-Object { $_.observedDpi } | ForEach-Object { $_.observedDpi } | Select-Object -Unique)
+    Write-CatalogLog ("COVERAGE OBSERVED_DPI: $($observedCatalogDpi -join ', '); other physical display scales remain unqualified")
     Write-CatalogLog 'COVERAGE NOT_APPLICABLE: ACL-mutation access-denied, destructive confirmations, settings reset (never run by policy: no user-system mutation)'
     $exit = 0
 } catch {

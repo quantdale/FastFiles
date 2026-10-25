@@ -327,6 +327,9 @@ Check ($dragDry.ok -and $dragDry.inputAccepted) 'drag dry-run records accepted-i
 $tx = Send-UiaText -Driver $mock -Text 'C:\Temp\sub dir' -NoSend
 Check ($tx.used -eq 'SendInput' -and $tx.kind -eq 'unicode-text' -and $tx.chars -eq 15 -and $tx.ok) 'unicode text dry-run records accepted-input contract'
 
+Write-Host "== original-vision-journey-recovery: foreground preserves active workspaces =="
+. (Join-Path $PSScriptRoot 'test-foreground-activation.ps1')
+
 Write-Host "== stabilize-live-uia-e2e: bounded semantic waits =="
 $onTimeoutRan = $false
 $condTimeout = Wait-UiaCondition -Driver $mock -TimeoutMs 300 -PollIntervalMs 30 -Description 'never true' -OnTimeout { $script:onTimeoutRan = $true; return $true } -ScriptBlock { return $false }

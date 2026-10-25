@@ -2206,10 +2206,26 @@ function Set-UiaSearchQuery {
     Start-Sleep -Milliseconds 250
     try { $null = $target.SetFocus() } catch { }
     Start-Sleep -Milliseconds 100
-    try { $null = Invoke-UiaElementAction -Driver $Driver -Element $target } catch { }
-    Start-Sleep -Milliseconds 100
+    # Text entry has no default Invoke action. A generic click after SetFocus
+    # can retarget the selected result; require the query edit itself to own
+    # keyboard focus before sending editing chords.
+    $queryHasFocus = $false
+    try { $queryHasFocus = [bool]$target.Current.HasKeyboardFocus } catch { }
+    if (-not $queryHasFocus) {
+        # The native query focus command runs on the UI thread. In
+        # particular it restores editing after a result owned focus, where
+        # the stock Edit provider can reject a cross-process SetFocus call.
+        $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}f'
+        Start-Sleep -Milliseconds 200
+        try { $queryHasFocus = [bool]$target.Current.HasKeyboardFocus } catch { }
+    }
+    if (-not $queryHasFocus) {
+        return [pscustomobject]@{ Pass = $false; Detail = 'query edit did not acquire keyboard focus before typing' }
+    }
     # Keystrokes raise CBN_EDITCHANGE. ValuePattern SetValue can update the
     # UIA cache without changing the Win32 combo edit, so it is not proof.
+    $focusClassBeforeTyping = ''
+    try { $focusClassBeforeTyping = [System.Windows.Automation.AutomationElement]::FocusedElement.Current.ClassName } catch { }
     $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}a'
     $null = Send-UiaText -Driver $Driver -Text $Query
     $observed = $null
@@ -2249,7 +2265,7 @@ function Set-UiaSearchQuery {
         Pass = $false
         Detail = "search query '$Query' was not accepted on AutomationId 7101; observed='$observed'" +
             " [diag: editFound=$editFound comboHwndAtStart=$comboHwndAtStart comboHwndAtEnd=$comboHwndAtEnd" +
-            " nativeReadback='$observedNative' uiaReadback='$observedUiA' retried=$retried]"
+            " nativeReadback='$observedNative' uiaReadback='$observedUiA' retried=$retried focusClassBeforeTyping='$focusClassBeforeTyping']"
     }
 }
 

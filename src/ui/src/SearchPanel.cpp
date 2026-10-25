@@ -1,4 +1,5 @@
 #include "SearchPanel.h"
+#include "ffui/SearchRowLayout.h"
 
 
 #include "ffsearch/Path.h"
@@ -1118,6 +1119,9 @@ bool SearchPanel::HandleCompletion(LPARAM lParam) {
                                       completion->generation, L"completion-discarded"});
         return true;
     }
+    // A replacement row at the same ordinal is not the user's selection.
+    // Clear before mutation so native notifications still see the old model.
+    ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     results_ = std::move(completion->response.results);
     candidates_ = std::move(completion->candidates);
     ListView_SetItemCountEx(list_, static_cast<int>(results_.size()), LVSICF_NOINVALIDATEALL);
@@ -1155,6 +1159,7 @@ bool SearchPanel::HandleIndexedCompletion(LPARAM lParam) {
     }
 
     snapshotFallback_ = false;
+    ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     candidates_.clear();
     candidates_.reserve(completion->response.candidates.size());
     results_.clear();
@@ -1383,11 +1388,18 @@ void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
 
     // Second line: location path on the left (capped so long names keep room),
     // metadata block right-aligned; both ellipsized independently.
+    SIZE metaSize{};
+    {
+        HGDIOBJ previous = SelectObject(dc, captionFont);
+        GetTextExtentPoint32W(dc, metaText.c_str(), static_cast<int>(metaText.size()), &metaSize);
+        SelectObject(dc, previous);
+    }
+    const auto contextLayout = ComputeSearchContextLayout(textLeft, row.right,
+        Scaled(UiMetrics::kSpaceS), Scaled(UiMetrics::kSpaceS), static_cast<int>(metaSize.cx));
     if (!candidate.folder.empty()) {
-        const int folderMaxRight = row.left + Scaled(0.55f * static_cast<float>(row.right - row.left));
         SetTextColor(dc, paint.secondary);
         HGDIOBJ previous = SelectObject(dc, captionFont);
-        RECT folderRect{textLeft, line2.top, (std::max)(textLeft, folderMaxRight), line2.bottom};
+        RECT folderRect{contextLayout.locationLeft, line2.top, contextLayout.locationRight, line2.bottom};
         const std::wstring displayFolder = ffui::NormalizeDisplayPath(candidate.folder);
         DrawTextW(dc, displayFolder.c_str(), static_cast<int>(displayFolder.size()), &folderRect,
                   DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
@@ -1396,11 +1408,7 @@ void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
     {
         SetTextColor(dc, paint.tertiary);
         HGDIOBJ previous = SelectObject(dc, captionFont);
-        SIZE metaSize{};
-        GetTextExtentPoint32W(dc, metaText.c_str(), static_cast<int>(metaText.size()), &metaSize);
-        const int metaLeft = (std::max)(textLeft, static_cast<int>(row.right) - static_cast<int>(metaSize.cx) -
-                                                           Scaled(UiMetrics::kSpaceS));
-        RECT metaRect{metaLeft, line2.top, row.right - Scaled(UiMetrics::kSpaceXs), line2.bottom};
+        RECT metaRect{contextLayout.metadataLeft, line2.top, contextLayout.metadataRight, line2.bottom};
         DrawTextW(dc, metaText.c_str(), static_cast<int>(metaText.size()), &metaRect,
                   DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         SelectObject(dc, previous);
@@ -1967,8 +1975,7 @@ void SearchPanel::PaintListEmptyState(HWND hwnd) {
         body += ScopeDisplayName();
         body += L"\u2026";
     } else if (idle) {
-        body = L"Type a name, extension, or path. Indexed search is the default; "
-               L"change scope under Filters. Ctrl+F focuses this workspace.";
+        body = L"Type a name, extension, or path.";
     } else {
         body = L"No files match";
         if (!currentPrimaryTerm_.empty()) {
@@ -2513,6 +2520,33 @@ void SearchPanel::SetHistoryChangedCallback(std::function<void()> cb) {
 // actions route into the exact native list / navigation logic user input
 // uses (design D15).
 // ---------------------------------------------------------------------------
+
+std::vector<SelectionItem> SearchPanel::ActiveSelectionItems() const {
+    if (!visible_ || list_ == nullptr) return {};
+    std::vector<SelectionItem> selection;
+    int index = -1;
+    while ((index = ListView_GetNextItem(list_, index, LVNI_SELECTED)) >= 0) {
+        if (static_cast<size_t>(index) >= results_.size()) return {};
+        const auto& candidate = results_[static_cast<size_t>(index)].candidate;
+        if (candidate.folder.empty() || candidate.name.empty()) return {};
+        selection.push_back({(std::filesystem::path(candidate.folder) / candidate.name).wstring(),
+                             candidate.isDirectory});
+    }
+    return selection;
+}
+
+bool SearchPanel::ActiveSelectionRect(RECT& screenRect) const {
+    if (!visible_ || list_ == nullptr) return false;
+    const int index = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
+    if (index < 0) return false;
+    return UiaSearchResultRect(static_cast<size_t>(index), screenRect);
+}
+
+void SearchPanel::ActivateSelection() {
+    if (!visible_ || list_ == nullptr) return;
+    const int index = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
+    if (index >= 0) ActivateResultItem(static_cast<size_t>(index));
+}
 
 size_t SearchPanel::UiaSearchResultCount() const {
     return results_.size();

@@ -277,7 +277,8 @@ void WindowShell::SyncWorkspaceChrome() {
     navigationChrome_.Refresh();
 }
 
-void WindowShell::NavigateToLocation(const NavigationLocation& location) {
+void WindowShell::NavigateToLocation(const NavigationLocation& location,
+                                     const std::function<void()>& populateFileSystem) {
     HideToolWorkspaces();
     // quick-access-home 5.4: Home and filesystem destinations take separate
     // model + view paths. `Navigate` no-ops when the model is already at the
@@ -290,7 +291,8 @@ void WindowShell::NavigateToLocation(const NavigationLocation& location) {
     } else {
         navigationWorkspace_.Navigate(location.path);
         columnView_.SetPaneHome(activePane, false);
-        if (location.path.empty()) columnView_.NavigateToComputerRoot();
+        if (populateFileSystem) populateFileSystem();
+        else if (location.path.empty()) columnView_.NavigateToComputerRoot();
         else columnView_.NavigateToPath(location.path);
         // ui-v3 hardening V3-03: address-bar/breadcrumb/drive/sidebar commits
         // rebuild the column chain from scratch, which used to keep the
@@ -299,8 +301,9 @@ void WindowShell::NavigateToLocation(const NavigationLocation& location) {
         EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
     }
     RefreshSelectionPresentation();
-    navigationChrome_.Refresh();
-    navigationSidebar_.Refresh();
+    // original-vision-journey-recovery 3.1: workspace chrome must observe the
+    // new location, after Home/filesystem state and the columns agree.
+    SyncWorkspaceChrome();
     RefreshHomeData();
     RequestRepaint();
 }
@@ -394,8 +397,15 @@ ffui::MainShellLayout WindowShell::CurrentShellLayout() const {
 }
 
 CommandContext WindowShell::CurrentCommandContext() const {
-    return {ClassifySelection(columnView_.ActiveSelectionItems()),
-            !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_)};
+    return {ClassifySelection(CurrentCommandSelection()),
+            !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_),
+            !storageAnalysis_.Visible() && !searchPanel_.Visible()};
+}
+
+std::vector<SelectionItem> WindowShell::CurrentCommandSelection() const {
+    if (storageAnalysis_.Visible()) return storageAnalysis_.ActiveSelectionItems();
+    if (searchPanel_.Visible()) return searchPanel_.ActiveSelectionItems();
+    return columnView_.ActiveSelectionItems();
 }
 
 bool WindowShell::InitializeCommands() {
@@ -512,6 +522,10 @@ bool WindowShell::InitializeCommands() {
                     }
                 }
             } else if (commandId == L"item.open" && paths.size() == 1) {
+                if (searchPanel_.Visible()) {
+                    searchPanel_.ActivateSelection();
+                    return;
+                }
                 const DWORD attributes = GetFileAttributesW(paths.front().c_str());
                 if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) NavigateWorkspace(paths.front());
                 else if (!OpenWithDefaultApplication(hwnd_, paths.front())) MessageBoxW(hwnd_, L"The item could not be opened.", L"Open", MB_OK | MB_ICONERROR);
@@ -586,6 +600,9 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"app.last-operation-errors") {
                 SendMessageW(hwnd_, WM_COMMAND, kMenuOperationDetails, 0);
             } else if (commandId == L"app.command-palette") {
+                paletteTargets_ = SelectionPaths(CurrentCommandSelection());
+                paletteStorage_ = storageAnalysis_.Visible();
+                paletteSearch_ = searchPanel_.Visible();
                 commandPalette_.Show(CurrentCommandContext());
             } else if (commandId == L"navigation.focus-path") {
                 navigationChrome_.FocusAddressBar();
@@ -727,19 +744,30 @@ bool WindowShell::InitializeCommands() {
         }
     }
     if (!commandPalette_.Initialize(hwnd_, &commandRegistry_, &shortcuts_,
-                                    [this](const std::wstring& id) { InvokeCommand(id); })) return false;
+        [this](const std::wstring& id) {
+            const auto* command = commandRegistry_.Find(id);
+            if (command != nullptr && CommandUsesSelection(*command) &&
+                (paletteStorage_ != storageAnalysis_.Visible() || paletteSearch_ != searchPanel_.Visible() ||
+                 paletteTargets_ != SelectionPaths(CurrentCommandSelection()))) {
+                ShowStatusNotice(L"The selection changed. Select the item again to run that command.");
+                return;
+            }
+            InvokeCommand(id);
+        })) return false;
     if (!searchPanel_.Initialize(hwnd_, &engineClient_, [this](const ffsearch::Candidate& candidate,
                                                                   const ffsearch::PathReconstruction& path) {
         const std::wstring navigationPath = candidate.isDirectory
             ? (std::filesystem::path(candidate.folder) / candidate.name).wstring()
             : candidate.folder;
-        if (!navigationPath.empty()) navigationWorkspace_.Navigate(navigationPath);
-        if (path.complete) columnView_.NavigateToHierarchy(path.segments, candidate.isDirectory);
-        else columnView_.NavigateToHierarchy((std::filesystem::path(candidate.folder) / candidate.name).wstring(), candidate.isDirectory);
-        RefreshSelectionPresentation();
-        navigationChrome_.Refresh();
-        RefreshHomeData(); // quick-access-home 5.5: navigation records recents
-        RequestRepaint();
+        if (navigationPath.empty()) return;
+        // original-vision-journey-recovery 3.1: use the Home-aware shell
+        // transition, retaining the engine's reconstructed ancestry without
+        // first rebuilding/enumerating a second, path-only column chain.
+        NavigateToLocation(NavigationLocation::FromPath(navigationPath), [this, &candidate, &path]() {
+            if (path.complete) columnView_.NavigateToHierarchy(path.segments, candidate.isDirectory);
+            else columnView_.NavigateToHierarchy(
+                (std::filesystem::path(candidate.folder) / candidate.name).wstring(), candidate.isDirectory);
+        });
     }, settings_.retainSearchHistory)) return false;
     searchPanel_.SetDefaultScope(settings_.defaultSearchScope);
     // quick-access-home 5.6: search history changes refresh Home's Recent
@@ -839,8 +867,21 @@ bool WindowShell::InvokeCommand(const std::wstring& commandId) {
     const size_t workspacePaneCountBefore = navigationWorkspace_.ActivePaneCount();
     const size_t activePaneBefore = navigationWorkspace_.ActivePaneIndex();
     const bool viewDualBefore = columnView_.IsDualPane();
-    const CommandContext context = CurrentCommandContext();
-    const auto paths = columnView_.ActiveSelectionPaths();
+    auto selection = CurrentCommandSelection();
+    const auto* descriptor = commandRegistry_.Find(commandId);
+    const bool usesSelection = descriptor != nullptr && CommandUsesSelection(*descriptor);
+    const auto paths = usesSelection ? SelectionPaths(selection) : std::vector<std::wstring>{};
+    const bool browseWorkspace = !storageAnalysis_.Visible() && !searchPanel_.Visible();
+    // Alternate-workspace rows may have become stale since rendering. Never
+    // recover by borrowing a selection from the hidden browsing surface.
+    const auto liveSelection = browseWorkspace || !usesSelection
+        ? std::optional{selection} : ResolveExistingSelection(paths);
+    if (!liveSelection) {
+        ShowStatusNotice(L"The selected item is no longer available. Refresh its location and try again.");
+        return false;
+    }
+    const CommandContext context{ClassifySelection(*liveSelection),
+        !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_), browseWorkspace};
     const bool accepted = commandRegistry_.Invoke(commandId, context, paths);
     AppendUiCommandDiagnostic(commandId, accepted, workspacePaneCountBefore,
                               navigationWorkspace_.ActivePaneCount(), activePaneBefore,
@@ -866,6 +907,9 @@ bool WindowShell::DispatchShortcut(const MSG& message, ShortcutScope scope, bool
 
 void WindowShell::ShowContextMenu(POINT screenPoint) {
     const CommandContext context = CurrentCommandContext();
+    const auto expectedTargets = SelectionPaths(CurrentCommandSelection());
+    const bool expectedStorage = storageAnalysis_.Visible();
+    const bool expectedSearch = searchPanel_.Visible();
     std::vector<const CommandDescriptor*> commands;
     for (const auto* command : commandRegistry_.Query(context)) {
         if (command->category == L"File" || command->category == L"Item") commands.push_back(command);
@@ -877,7 +921,7 @@ void WindowShell::ShowContextMenu(POINT screenPoint) {
     std::wstring previousCategory;
     for (const auto* command : commands) {
         if (!previousCategory.empty() && previousCategory != command->category) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        const bool enabled = !command->enabledPredicate || command->enabledPredicate(context);
+        const bool enabled = CommandEnabled(*command, context);
         const UINT id = kContextCommandBase + static_cast<UINT>(commandIds.size());
         AppendMenuW(menu, MF_STRING | (enabled ? MF_ENABLED : MF_GRAYED), id, command->displayName.c_str());
         commandIds.push_back(command->commandId);
@@ -887,7 +931,15 @@ void WindowShell::ShowContextMenu(POINT screenPoint) {
                                            screenPoint.x, screenPoint.y, hwnd_, nullptr);
     DestroyMenu(menu);
     if (selected >= kContextCommandBase && selected < kContextCommandBase + commandIds.size()) {
-        InvokeCommand(commandIds[selected - kContextCommandBase]);
+        const auto& id = commandIds[selected - kContextCommandBase];
+        const auto* command = commandRegistry_.Find(id);
+        if (command != nullptr && CommandUsesSelection(*command) &&
+            (expectedStorage != storageAnalysis_.Visible() || expectedSearch != searchPanel_.Visible() ||
+             expectedTargets != SelectionPaths(CurrentCommandSelection()))) {
+            ShowStatusNotice(L"The selection changed. Select the item again to run that command.");
+            return;
+        }
+        InvokeCommand(id);
     }
 }
 
@@ -1112,7 +1164,9 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                     return;
                 }
                 navigationWorkspace_.Navigate(path);
+                columnView_.SetPaneHome(static_cast<int>(navigationWorkspace_.ActivePaneIndex()), false);
                 columnView_.NavigateToPath(path);
+                EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
                 RefreshSelectionPresentation();
                 navigationChrome_.Refresh();
                 navigationSidebar_.Refresh();
@@ -1121,10 +1175,13 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
             }
         },
         [this]() {
-            storageAnalysis_.Hide();
+            HideToolWorkspaces();
             RequestRepaint();
         },
-        [this](const std::wstring& commandId, const std::vector<std::wstring>& /*paths*/) {
+        [this](const std::wstring& commandId, const std::vector<std::wstring>& paths) {
+            // Selection may change in TrackPopupMenu's nested message loop.
+            // Reject stale menu targets rather than retargeting another row.
+            if (paths != SelectionPaths(storageAnalysis_.ActiveSelectionItems())) return;
             InvokeCommand(commandId);
         })) return false;
     // semantic-treemap-uia 10.x: attach the Storage Analysis treemap surface
@@ -1272,8 +1329,7 @@ int WindowShell::RunMessageLoop() {
         // swallow the key before the main window's WM_KEYDOWN sees it). The
         // command palette and settings dialog above keep precedence.
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && searchPanel_.Visible()) {
-            searchPanel_.Hide();
-            SetFocus(hwnd_);
+            HideToolWorkspaces();
             RequestRepaint();
             continue;
         }
@@ -2893,8 +2949,19 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         }
 
         case WM_CONTEXTMENU: {
+            if (storageAnalysis_.Visible()) {
+                // Preserve WM_CONTEXTMENU's screen coordinates and keyboard
+                // sentinel. Cancel/empty/summary clicks never open a hidden
+                // browsing menu as a fallback.
+                storageAnalysis_.HandleContextMenu(wParam, lParam);
+                return 0;
+            }
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            if (point.x == -1 && point.y == -1) {
+            if (point.x == -1 && point.y == -1 && searchPanel_.Visible()) {
+                RECT selected{};
+                if (!searchPanel_.ActiveSelectionRect(selected)) return 0;
+                point = {selected.left, selected.bottom};
+            } else if (point.x == -1 && point.y == -1) {
                 const auto shellLayout = CurrentShellLayout();
                 const int column = columnView_.FocusedColumnIndex();
                 const int item = columnView_.FocusedItemIndex();
@@ -2904,13 +2971,6 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                          static_cast<LONG>(ffui::UiScale(shellLayout.contentRect.top +
                                                         ColumnView::kBadgeHeight +
                                                         static_cast<float>((std::max)(0, item)) * rowHeight + rowHeight))};
-                ClientToScreen(hwnd_, &point);
-            }
-            if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() != StorageAnalysis::ViewMode::Treemap) {
-                ScreenToClient(hwnd_, &point);
-                if (storageAnalysis_.HandleContextMenu(wParam, MAKELPARAM(point.x, point.y))) {
-                    return 0;
-                }
                 ClientToScreen(hwnd_, &point);
             }
             ShowContextMenu(point);
@@ -2926,8 +2986,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             }
             if (wParam == VK_ESCAPE) {
                 if (searchPanel_.Visible()) {
-                    searchPanel_.Hide();
-                    SetFocus(hwnd_);
+                    HideToolWorkspaces();
                     return 0;
                 }
                 // Only cancel when an operation is actually outstanding; an
@@ -2938,6 +2997,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 }
                 return 0;
             }
+            if (searchPanel_.Visible() || storageAnalysis_.Visible()) return 0;
             columnView_.OnKeyDown(static_cast<int>(wParam));
             if (wParam == VK_UP || wParam == VK_DOWN) {
                 columnView_.EnsureFocusedItemVisible(CurrentShellLayout().details.viewportHeightDip);

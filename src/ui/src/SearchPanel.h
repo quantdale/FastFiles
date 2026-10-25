@@ -18,6 +18,7 @@
 #include <wrl/client.h>
 
 #include "EngineClient.h"
+#include "CommandSystem.h"
 #include "ffui/AsyncResultGate.h"
 #include "ffui/ShellLayout.h"
 #include "ffui/UiaSurface.h" // semantic-uia-core-surfaces 4.x: UIA projection seam
@@ -49,6 +50,9 @@ public:
     void Hide();
     void SetDarkTheme(bool dark);
     bool Visible() const { return visible_; }
+    std::vector<SelectionItem> ActiveSelectionItems() const;
+    bool ActiveSelectionRect(RECT& screenRect) const;
+    void ActivateSelection();
     void Reposition(const ShellLayoutRect& surfaceRect);
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     bool HandleNotify(LPARAM lParam);

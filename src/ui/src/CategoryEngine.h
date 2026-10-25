@@ -32,6 +32,7 @@ public:
     // category ID means all categories; the reserved fallback ID "other"
     // matches files that have no configured category.
     bool Matches(const std::wstring& fileName, const std::wstring& categoryId) const;
+    std::wstring UncategorizedFilterId() const;
     std::vector<CategoryDefinition> GetCategories() const { return categories_; }
     // Replaces the category set and rebuilds the extension lookup so Match()
     // never consults a stale index.
