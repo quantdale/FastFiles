@@ -112,6 +112,20 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
                               owner_, nullptr, GetModuleHandleW(nullptr), this);
     if (!dialog_) return false;
 
+    // original-vision-journey-recovery: the controls use client-area DIPs.
+    // A caption/frame consumes part of CreateWindowEx's outer dimensions;
+    // measure that actual non-client area before centering the hidden dialog.
+    RECT clientBounds{};
+    RECT windowBounds{};
+    if (!GetClientRect(dialog_, &clientBounds) || !GetWindowRect(dialog_, &windowBounds)) return false;
+    const int frameWidth = (windowBounds.right - windowBounds.left) -
+                           (clientBounds.right - clientBounds.left);
+    const int frameHeight = (windowBounds.bottom - windowBounds.top) -
+                            (clientBounds.bottom - clientBounds.top);
+    if (!SetWindowPos(dialog_, nullptr, 0, 0, Scaled(kDialogWidth) + frameWidth,
+                      Scaled(kDialogHeight) + frameHeight,
+                      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE)) return false;
+
     // §5.4: themed dialog background + immersive dark title bar. Native tab,
     // list, combo, and edit chrome pick up Explorer/CFD visual styles so dark
     // mode is not a mix of tokenized background and system-white controls.

@@ -29,6 +29,8 @@ Scores use impact × confidence × frequency × executability ÷ regression risk
 | Storage coverage / largest-item scope overclaim | 4×5×3×5÷2 | 150 | Label proven coverage and current-folder ranking truthfully; recursive ranking remains separate capability |
 | Explorer drag-in qualification | 4×3×4×3÷3 | 48 | Supported existing UIA drag scenario; preserve OS/foreground limitations rather than fake success |
 | Hidden Browse/Home remains discoverable through UIA under tool workspaces | 4×5×4×5÷2 | 200 | Tie semantic fragment lifetime to actual workspace presentation; preserve Treemap ownership and restore fresh fragments |
+| Palette semantically present but painted behind native Storage controls | 4×5×5×5÷2 | 250 | Actual sibling paint clipping; native command choices stay visible, outside dismissal consumes its click |
+| Settings completion buttons clipped by caption/frame at120DPI | 4×5×3×5÷2 | 150 | Reserve intended client area plus measured non-client frame; assert both footer bounds and real pointer dismissal |
 
 ## Answers to the twelve alignment questions
 
@@ -61,8 +63,27 @@ Reference lock: existing Native Precision Workspace remains authoritative. Prese
 
 ## Runtime and remediation evidence
 
-See [runtime and review evidence](../../openspec/changes/original-vision-journey-recovery/evidence/runtime-and-review.md). Search from Home now passes the exact hierarchy/selection/visibility journey; the preserved baseline fails the stronger assertions. Search selection replacement is also red-capable on the baseline and passes after clearing replacement selection. Shared Storage semantic rows/headers compile and pass focused provider regressions; actual clipboard/category interaction qualification remains blocked before navigation by a titleless GameInputSvc foreground owner. No service or OS input policy is changed to bypass that precondition.
+See [runtime and review evidence](../../openspec/changes/original-vision-journey-recovery/evidence/runtime-and-review.md). Search from Home passes exact hierarchy/selection/visibility and replacement-identity assertions; the preserved baseline fails the stronger tests. Native Storage now passes real semantic selection, identity-preserving sorting, exact Copy Path/Cut targets with independent sentinel hash unchanged, category refinement retained in Treemap, contained geometry and actual tile Invoke. Typed Home and filesystem restoration pass real close/relaunch cycles. GameInputSvc caused earlier recorded pre-interaction failures; later fresh lifecycles pass without service changes or input-policy bypass. Explorer drag-in remains skipped/unqualified.
 
-Baseline captures16/16 at actual120DPI and the first expanded after catalog20/21 are retained. Its one no-results failure exposed an older ValuePattern query replacement path; the catalog now uses verified real typing. A private unredacted local-only Search screenshot additionally exposed six legacy native columns pushing metadata offscreen. Search now uses one viewport-width row, retaining metadata in its semantic provider; final visual qualification of this correction is pending the foreground boundary. Privacy-redacted catalog images alone are insufficient to judge row text geometry.
+Baseline captures16/16 at actual120DPI and first expanded after20/21 remain retained; the no-results harness uses verified real typing after its earlier failure. Private local-only Search screenshots expose the legacy six-column viewport defect and verify corrected location/metadata with no horizontal scrollbar. Clean be8cddc full E2E8/8 passes. Semantic catalog21/21 initially concealed a missing palette image; visual review rejected it and found native sibling paint occlusion. The fc2fab7 catalog21/21 visibly includes the repaired palette, and its full E2E8/8 includes consumed outside dismissal. Settings footer clipping was then reproduced by actual bounds and repaired; final footer-aware catalog certification is pending. Privacy-redacted images alone never certify row text geometry.
+
+## Visual and accessibility audit coverage
+
+| Area | Evidence / assessment | Remaining boundary |
+|---|---|---|
+|Light and dark|Native Home, Search, Storage, Settings, palette and Gallery captures; shared tokens preserved|Final footer-aware catalog refresh pending|
+|High Contrast|Existing system-color fallback and overlay gates retained; software theme/style tests|Live High Contrast profile unverified; no OS preference mutation|
+|Typography / spacing|Segoe UI hierarchy, filename-first results, separate context/metadata bounds; actual120DPI review|Comparative user testing unverified|
+|Icons / row height|Native glyph/icon cache retained; measured result rows and shared density controls|Physical icon/render matrix beyond current desktop unqualified|
+|Selection / focus|Search replacement rejects ordinal reuse; Storage sort retains identity; linked-column reveal exposes focused leaf; non-color text/shape cues retained|Broader native root-focus role audit remains separate from passed custom-provider scopes|
+|Hit targets|Actual Storage headers/rows, palette dismissal and Settings Cancel pointer journeys|No touch-device qualification|
+|Modal positioning|Settings reserves client size plus measured caption/frame; footer bounds red/green|Additional monitor-placement and physical scale matrix unqualified|
+|Command palette|Real native choices paint above workspaces; outside click dismisses without background navigation|Further independent review unavailable after workspace-credit exhaustion|
+|Settings|Actual footer containment and Cancel click pass; six typed pages and draft semantics retained|Native host projected footer controls without the expected Button role; role coverage not claimed complete|
+|Status indicators|Browsed coverage and current-folder ranking labeled truthfully; no-match explains degraded recovery|Whole-volume production index coverage remains externally unqualified|
+|Responsive widths|Native catalog620/800/1280/1600 requested window widths, including narrow Home and Gallery|Unmeasured physical displays not inferred from labels|
+|DPI|Runtime measured120DPI; pure geometry tests96/120/192DPI; positive subpixel bounds conservatively enclosed|Synthetic tests do not certify physical96/192DPI desktops|
+|Reduced motion|Existing SystemAnimationsEnabled/instant-snap logic preserved and software-tested|Live OS reduced-motion profile unverified|
+|UIA structure|Distinct Storage/Search identities, real rows/headers/actions, stale/lifetime safety and hidden Browse/Home retirement; actual native journeys|Native-role/root-focus gaps outside reviewed seams remain explicitly unverified|
 
 Debug/release-test builds, Analyze and ASan checks are tracked separately from hosted CI and native visual qualification. The current main-based product branch does not claim PR14/15 scale-performance evidence as its own. No pillar is called product-complete while a signature journey remains unqualified.

@@ -4,6 +4,14 @@ Keep filesystem commands bound to the user's visible selection across browsing, 
 
 ## ADDED Requirements
 
+### Requirement: Settings completion controls fit the real dialog
+
+Settings SHALL reserve its intended DPI-scaled client area in addition to the actual non-client frame. OK and Cancel SHALL have positive, fully visible bounds inside the dialog, and visible Cancel SHALL remain pointer-reachable without changing saved settings.
+
+#### Scenario: Settings at 120 DPI
+- **WHEN** Settings is opened on the measured120DPI desktop
+- **THEN** caption and borders do not consume the footer's client layout and both completion controls fit the visible frame
+
 ### Requirement: Command choices remain visibly above their workspace
 
 The real native palette edit and command list SHALL paint above Search, Storage and browsing controls. Native child creation SHALL preserve sibling paint clipping as well as z-order. A client click outside the palette SHALL dismiss it without triggering the underlying workspace action.

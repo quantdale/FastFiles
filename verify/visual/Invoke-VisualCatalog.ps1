@@ -658,6 +658,23 @@ try {
     $settingsEl = $null
     try { $settingsEl = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $appPid -TimeoutMs 2000 } catch { }
     $settingsAssert = [pscustomobject]@{ Pass = [bool]$settings.Pass -and $null -ne $settingsEl; Detail = $settings.Detail }
+    if ($settingsAssert.Pass) {
+        try {
+            $dialogBounds = Get-VisualWindowBounds -Element $settingsEl
+            foreach ($footerId in @('1', '2')) {
+                $footer = Find-UiaElement -Driver $driver -AutomationId $footerId -FromElement $settingsEl -TimeoutMs 1000
+                $footerBounds = Get-UiaElementProperty -Driver $driver -Element $footer -Name 'BoundingRectangle'
+                if (-not $footerBounds -or $footerBounds.width -le 0 -or $footerBounds.height -le 0 -or
+                    $footerBounds.x -lt $dialogBounds.X -or $footerBounds.y -lt $dialogBounds.Y -or
+                    ($footerBounds.x + $footerBounds.width) -gt ($dialogBounds.X + $dialogBounds.Width) -or
+                    ($footerBounds.y + $footerBounds.height) -gt ($dialogBounds.Y + $dialogBounds.Height)) {
+                    throw "Settings footer $footerId is clipped by the dialog frame"
+                }
+            }
+        } catch {
+            $settingsAssert = [pscustomobject]@{ Pass = $false; Detail = $_.Exception.Message }
+        }
+    }
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'settings-general' -ExpectedState 'Settings dialog on the General page' `
         -Theme 'Light' -Width 620 -PaneMode 'dialog' -Assertion $settingsAssert -CaptureElement $settingsEl

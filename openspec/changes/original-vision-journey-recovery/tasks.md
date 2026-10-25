@@ -11,7 +11,8 @@
 - [x] 2.4 Bind Browse/Home accessibility lifetime to actual workspace presentation; hide and retire replaced fragments, preserve native tool/Treemap access and restore fresh fragments. Lifecycle/hit/focus/action regressions pass; native Storage tree contains no hidden Browse/Home.
 - [x] 2.5 Validate Home Invoke/Clear identity and fragment lifetime on the owning UI thread before executing canonical shell actions. Dispatch-boundary identity, fragment, hidden and missing-Clear regressions pass; independent source review approves.
 - [x] 2.6 Preserve category refinement on transition from list to Treemap. Native red shows three unfiltered tiles; green shows only storage-note.txt through the existing category filter boundary.
-- [ ] 2.7 Paint the real command palette above native workspaces with sibling clipping, preserve surrounding context and consume outside dismissal clicks without invoking background controls.
+- [x] 2.7 Paint the real command palette above native workspaces with sibling clipping, preserve surrounding context and consume outside dismissal clicks without invoking background controls. Compiled fc2fab7 full E2E8/8 and catalog21/21; actual palette image reviewed, outside dismissal preserves Storage.
+- [x] 2.8 Reserve Settings client geometry independently from caption/frame so OK/Cancel remain fully visible. Native120DPI red fails both bounds; repaired bounds and actual Cancel pointer dismissal pass. Catalog now rejects clipped footer controls.
 
 ## 3. Search-to-navigation continuity
 
@@ -25,4 +26,4 @@
 - [ ] 4.1 Execute focused regressions, actual native E2E/UIA/visual review and correct actionable defects.
 - [ ] 4.2 Run broader local certification, independent review and integration simulation with PR14/15/16.
 - [ ] 4.3 Record exact source/evidence identity, commit, reconcile remote, publish unmerged successor work and report real limitations.
-- [ ] 4.4 Preserve an already visible palette during capture activation and revalidate required surface visibility immediately before screenshot; retain red-capable headless input regression and actual pixel review.
+- [x] 4.4 Preserve an already visible palette during capture activation and revalidate required surface visibility immediately before screenshot; retain red-capable headless input regression and actual pixel review. Two old-source checks fail; repaired full driver passes. Actual pixel review additionally found/repaired sibling painting in2.7.
