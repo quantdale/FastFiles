@@ -1,4 +1,5 @@
-param([string] $InputPath = (Join-Path $PSScriptRoot '..\internal\Input.ps1'))
+param([string] $InputPath = (Join-Path $PSScriptRoot '..\internal\Input.ps1'),
+    [string] $ActivationPath = (Join-Path $PSScriptRoot '..\..\capabilities\windows-ui-automation-validation\UiAutomationValidation.psm1'))
 
 # Exercise the actual PowerShell orchestration with an in-memory native API
 # adapter. No foreground window, key, pointer, process, or clipboard is touched.
@@ -86,4 +87,28 @@ public static class FfForegroundInputStub {
     $missingWindow = [pscustomobject]@{ Current = [pscustomobject]@{ NativeWindowHandle = 0 } }
     Check (-not (Set-UiaForeground -Element $missingWindow)) 'a missing native window is rejected'
     Check ([FfForegroundInputStub]::Keys.Count -eq 0) 'a missing native window receives no keys'
+}
+
+# Capture activation must preserve an already visible palette.
+& {
+ $tokens=$null; $errors=$null
+ $ast=[Management.Automation.Language.Parser]::ParseFile([IO.Path]::GetFullPath($ActivationPath),[ref]$tokens,[ref]$errors)
+ if($errors.Count){throw 'Activation helper parse failure'}
+ $body=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-UiaActivateAppWindow'},$true)
+ if(-not $body){throw 'Actual activation function missing'}
+ . ([scriptblock]::Create($body.Extent.Text))
+ $script:captionProbe=[pscustomobject]@{foreground=$true; acquire=$false; clicks=0; activations=0}
+ function Test-UiaForegroundWindow {param($Driver,$Element) return $script:captionProbe.foreground}
+ function Set-UiaForeground {param($Driver,$Element) $script:captionProbe.activations++; if($script:captionProbe.acquire){$script:captionProbe.foreground=$true};return $script:captionProbe.foreground}
+ function Get-UiaElementProperty {param($Driver,$Element,$Name) return [pscustomobject]@{x=1;y=2;width=300;height=200}}
+ function Send-UiaMouseInput {param($Driver,$X,$Y,$Button,$Action) $script:captionProbe.clicks++;return $true}
+ function Start-Sleep {param($Milliseconds)}
+ Invoke-UiaActivateAppWindow -Main 'main'
+ Check ($script:captionProbe.clicks -eq 0) 'Already foreground palette is not dismissed by caption input'
+ $script:captionProbe=[pscustomobject]@{foreground=$false; acquire=$true; clicks=0; activations=0}
+ Invoke-UiaActivateAppWindow -Main 'main'
+ Check ($script:captionProbe.clicks -eq 0) 'Successful activation does not inject a caption click'
+ $script:captionProbe=[pscustomobject]@{foreground=$false; acquire=$false; clicks=0; activations=0}
+ Invoke-UiaActivateAppWindow -Main 'main'
+ Check ($script:captionProbe.clicks -eq 1) 'Caption fallback remains bounded when ordinary activation fails'
 }

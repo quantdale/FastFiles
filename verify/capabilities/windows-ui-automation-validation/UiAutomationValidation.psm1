@@ -257,7 +257,9 @@ function Get-UiaElementCenter {
 # app even when SetForegroundWindow loses the fight.
 function Invoke-UiaActivateAppWindow {
     param($Driver, $Main)
+    if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) { return }
     $null = Set-UiaForeground -Driver $Driver -Element $Main
+    if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) { return }
     $br = Get-UiaElementProperty -Driver $Driver -Element $Main -Name 'BoundingRectangle'
     if ($br -and $br.width -gt 0 -and $br.height -gt 0) {
         $null = Send-UiaMouseInput -Driver $Driver -X ([int]($br.x + $br.width / 2)) -Y ([int]($br.y + 8)) -Button 'Left' -Action 'Click'

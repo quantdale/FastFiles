@@ -396,7 +396,7 @@ function Invoke-CatalogCapture {
     param(
         $Run, $Driver, $Main, [int] $ProcessId,
         [string] $ScenarioId, [string] $ExpectedState, [string] $Theme, [int] $Width,
-        [string] $PaneMode, $Assertion, $CaptureElement
+        [string] $PaneMode, $Assertion, $CaptureElement, $RequiredVisibleElement
     )
     $element = if ($CaptureElement) { $CaptureElement } else { $Main }
     if ($PaneMode -eq 'dialog') {
@@ -412,6 +412,14 @@ function Invoke-CatalogCapture {
         }
     }
     $null = Wait-UiaStableGeometry -Driver $Driver -Element $element -TimeoutMs 4000
+    if ($RequiredVisibleElement) {
+        $requiredBounds = Get-UiaElementProperty -Driver $Driver -Element $RequiredVisibleElement -Name 'BoundingRectangle'
+        $requiredOffscreen = Get-UiaElementProperty -Driver $Driver -Element $RequiredVisibleElement -Name 'IsOffscreen'
+        if (-not $requiredBounds -or $requiredBounds.width -le 0 -or $requiredBounds.height -le 0 -or
+            $null -eq $requiredOffscreen -or [bool]$requiredOffscreen) {
+            $Assertion = [pscustomobject]@{ Pass = $false; Detail = 'Required surface disappeared during capture preparation' }
+        }
+    }
     $privacy = Get-CatalogRedactions -Driver $Driver -Main $Main -ProcessId $ProcessId
     if (-not $Assertion.Pass) {
         $null = Add-VisualScenarioResult -Run $Run -ScenarioId $ScenarioId -ExpectedState $ExpectedState `
@@ -663,6 +671,7 @@ try {
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'command-palette' -ExpectedState 'Command palette edit 6301 is visible over the shell' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' `
+        -RequiredVisibleElement $paletteEdit `
         -Assertion ([pscustomobject]@{ Pass = $null -ne $paletteEdit; Detail = $(if ($paletteEdit) { 'palette edit present' } else { 'palette edit missing' }) })
     $null = Send-UiaInput -Driver $driver -Keys '{ESC}'
     Start-Sleep -Milliseconds 400

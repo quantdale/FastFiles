@@ -24,3 +24,4 @@
 - [ ] 4.1 Execute focused regressions, actual native E2E/UIA/visual review and correct actionable defects.
 - [ ] 4.2 Run broader local certification, independent review and integration simulation with PR14/15/16.
 - [ ] 4.3 Record exact source/evidence identity, commit, reconcile remote, publish unmerged successor work and report real limitations.
+- [ ] 4.4 Preserve an already visible palette during capture activation and revalidate required surface visibility immediately before screenshot; retain red-capable headless input regression and actual pixel review.
