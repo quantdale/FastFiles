@@ -100,7 +100,7 @@ struct UiaItemInfo {
 };
 
 // column-uia-identity-dispatch: retain original provider identity until mutation.
-enum class UiaBrowseActionKind { Select, AddSelection, RemoveSelection, FocusItem, Invoke, ScrollItem, FocusRoot };
+enum class UiaBrowseActionKind { Select, AddSelection, RemoveSelection, FocusItem, Invoke, ScrollItem, FocusRoot, FocusColumn, FocusPane };
 struct UiaBrowseActionRequest {
     UiaBrowseActionKind kind = UiaBrowseActionKind::Select;
     int pane = -1;
@@ -239,10 +239,19 @@ public:
         if (!request.ownerLifetime || !request.ownerLifetime->alive) return false;
         if (request.kind == UiaBrowseActionKind::FocusRoot) return true;
         if (!request.fragmentLifetime || !request.fragmentLifetime->alive || !UiaBrowseContentActive() ||
-            request.pane < 0 || request.pane >= UiaPaneCount() || UiaPaneIsHome(request.pane) ||
-            request.column < 0 || request.column >= UiaColumnCount(request.pane)) return false;
+            request.pane < 0 || request.pane >= UiaPaneCount()) return false;
+        if (request.kind == UiaBrowseActionKind::FocusPane) {
+            UiaActivatePane(request.pane);
+            return true;
+        }
+        if (UiaPaneIsHome(request.pane) || request.column < 0 || request.column >= UiaColumnCount(request.pane)) return false;
         const auto column = UiaColumnInfoOf(request.pane, request.column);
-        if (UiaHashWide(column.path) != request.pathHash || request.row < 0 || request.row >= column.itemCount) return false;
+        if (UiaHashWide(column.path) != request.pathHash) return false;
+        if (request.kind == UiaBrowseActionKind::FocusColumn) {
+            UiaSetColumnFocus(request.pane, request.column);
+            return true;
+        }
+        if (request.row < 0 || request.row >= column.itemCount) return false;
         const auto item = UiaItemInfoOf(request.pane, request.column, request.row);
         if (UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh, item.fullPath) != request.itemHash) return false;
         switch (request.kind) {

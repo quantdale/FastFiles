@@ -625,6 +625,28 @@ function Invoke-E2ENavigationScenario {
     if (-not (Wait-E2EItem -Context $Context -Name 'root-note.txt' -TimeoutMs 12000).Pass) {
         return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'browse-visible-items' -Detail 'root-note.txt did not appear in the terminal column' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
+    # column-uia-identity-dispatch: public COM focus must reach the owning
+    # HWND and original row without selecting a different file.
+    try {
+        $focusMain = Get-E2EMain -Context $Context
+        $focusMain.SetFocus()
+        $focusItem = (Wait-E2EItem -Context $Context -Name 'root-note.txt' -TimeoutMs 2000).Value
+        $selectionPattern = $focusItem.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+        $selectedBeforeFocus = $selectionPattern.Current.IsSelected
+        $focusColumn = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($focusItem)
+        $focusPane = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($focusColumn)
+        $focusPane.SetFocus()
+        $focusColumn.SetFocus()
+        $focusItem.SetFocus()
+        $focusWait = Wait-E2ECondition -TimeoutMs 5000 -Description 'native browse item keyboard focus' -Condition {
+            return $focusItem.Current.HasKeyboardFocus
+        }
+        if (-not $focusWait.Pass -or $selectionPattern.Current.IsSelected -ne $selectedBeforeFocus) {
+            throw 'Public row focus did not reach the row or changed selection membership'
+        }
+    } catch {
+        return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'native-focus' -Detail $_.Exception.Message -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     $nested = Wait-E2EItem -Context $Context -Name 'Nested' -TimeoutMs 12000
     if (-not $nested.Pass) {
         return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'nested-visible' -Detail 'Nested folder did not appear in the terminal column' -DurationMs $watch.Elapsed.TotalMilliseconds

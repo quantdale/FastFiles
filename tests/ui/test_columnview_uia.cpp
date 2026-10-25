@@ -502,6 +502,25 @@ void TestItemDispatchLifetimeAndMembership() {
     }
 }
 
+void TestContainerFocusRetainsOriginalLifetime() {
+    for (int mode = 0; mode < 3; ++mode) {
+        DispatchBoundaryColumnSurface surface;
+        static_cast<fftest::FakeUiaSurface&>(surface) = MakeSinglePaneSurface();
+        auto state = std::make_shared<ffui::UiaOwnerState>();
+        ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+        auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+        auto pane = FirstChild(group.Get());
+        auto column = FirstChild(pane.Get());
+        surface.beforeDispatch = [&](const ffui::UiaBrowseActionRequest& request) {
+            if (mode == 2) surface.panes[0].columns[0].path = L"C:\\Replacement";
+            else request.fragmentLifetime->alive = false;
+        };
+        const HRESULT result = mode == 0 ? pane->SetFocus() : column->SetFocus();
+        Check(result == UIA_E_ELEMENTNOTAVAILABLE && surface.actions.empty(),
+              "container focus rejects retired fragment or changed path at dispatch");
+    }
+}
+
 void TestInvokeAndScrollItem() {
     auto surface = MakeSinglePaneSurface();
     auto state = std::make_shared<ffui::UiaOwnerState>();
@@ -854,6 +873,10 @@ void TestStaleColumnAfterNavigation() {
     const HRESULT hr = GetPropertyHr(column.Get(), UIA_NamePropertyId, &value);
     VariantClear(&value);
     Check(hr == UIA_E_ELEMENTNOTAVAILABLE, "stale column fails with UIA_E_ELEMENTNOTAVAILABLE");
+    surface.actions.clear();
+    Check(column->SetFocus() == UIA_E_ELEMENTNOTAVAILABLE,
+          "stale column focus fails with UIA_E_ELEMENTNOTAVAILABLE");
+    Check(surface.actions.empty(), "stale column focus never targets replacement folder");
     (void)oldId;
 }
 
@@ -1506,6 +1529,7 @@ int main() {
     TestSelectionDualPaneIsolation();
     TestItemActionRejectsReplacementAfterResolve();
     TestItemDispatchLifetimeAndMembership();
+    TestContainerFocusRetainsOriginalLifetime();
     TestInvokeAndScrollItem();
     TestScrollPattern();
     TestOffscreenAndBounds();

@@ -30,3 +30,14 @@ Disposable integration3179eb4 combines PR16/14/15/17 with parent981a9ba; only WO
 ## Qualification boundaries
 
 Independent review is unavailable after reviewer credit exhaustion and a fail-closed Hy3 doctor (required route alias missing); older approvals do not cover this successor. Explorer drag-in remains unqualified, not PASS. Physical High Contrast, additional DPI/reduced-motion and privileged/release requirements remain separately unexecuted. No task4.1 residency acceptance waiver or result-correctness relaxation.
+
+## Committed item-action checkpoint d9f0a1f
+
+- Clean committed-source selected Debug **126/126**,333.03s; restricted reaper explicitly excluded.
+- Actual native E2E **8 passed /0 failed /0 skipped**, all ordinary scenarios; source identity d9f0a1f4dcdc3746d4180a1b2a0c114e06949fb1, clean start, `boundToHead=true`. Tree hash embedding is absent (`boundToTree=false`, `NOT_EMBEDDED`); this is SHA/clean-checkout provenance, not embedded-tree certification.
+- Native catalog **21/21**, actual120DPI; cleanup passes. Privacy redaction obscures much of Browse in public captures, so those masked regions do not establish visual focus quality. Local semantic bounds and real navigation remain separate evidence.
+- Analyze native target **67/67** warning-clean; release-test all-target build **445/445** passes. Release CTest not yet run on this checkpoint.
+
+Follow-up: stale Column SetFocus still returned success and focused a replacement folder. Two additional red assertions fail on d9f0a1f. Column and pane focus now use closed original-lifetime dispatch; column path validation shares the native mutation lock. Native navigation adds explicit public root/row focus and unchanged-selection checks. Current follow-up qualification is pending.
+
+Follow-up development-source build **59/59**, focused provider/geometry/selection/E2E-harness/drift CTests **9/9** (6.01s), PowerShell parse **0 errors**. Native focus journey still pending.

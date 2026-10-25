@@ -408,7 +408,7 @@ public:
     bool UiaDispatchBrowseAction(const UiaBrowseActionRequest& request) override;
     bool HandleUiaBrowseAction(const UiaBrowseActionRequest& request);
     void ScrollUiaItemIntoViewLocked(int pane, Column& column, int row);
-    bool MatchesUiaBrowseItemLocked(const UiaBrowseActionRequest& request) const;
+    bool MatchesUiaBrowseTargetLocked(const UiaBrowseActionRequest& request) const;
     bool UiaDispatchHomeAction(const UiaHomeActionRequest& request) override;
     bool HandleUiaHomeAction(const UiaHomeActionRequest& request);
     void UiaSetHomeFocusItem(int pane, int globalIndex) override;

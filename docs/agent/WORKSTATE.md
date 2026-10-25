@@ -6,7 +6,10 @@
 - Parent product981a9ba: selected Debug126/126 (231.85s), release-test126/126 (226.04s), actual footer-aware visual21/21 at measured120DPI. Restricted reaper explicitly excluded. Derive live Git and hosted externally.
 - Red regression: six actions each return success and mutate replacement after Resolve (12 failed assertions). Closed request now preserves original path/item/lifetime; headless provider green passes. Native handler validates under columnsMutex_ with mutation/activation target capture, owner-window marshaling, no callbacks while locked. Native all-target Debug build and final incremental rebuild pass; focused7/7 (1.26s), strict change validation PASS. Additional retired/hidden/changed-column and membership-boundary tests pass. Actual native journeys remain pending.
 - Independent review unavailable after reviewer credit exhaustion and one fail-closed Hy3 doctor (required alias unavailable). Do not broaden historical approvals.
-- NEXT EXACT ACTION: commit atomic-action checkpoint, build diagnostic exact-source identity and run serialized real navigation/search/storage; then wider normal tests/Analyze. Update provenance, integration and push unmerged successor checkpoint. No main merges/releases.
+- Committed item checkpoint d9f0a1f: selected Debug126/126 (333.03s), native E2E8/8, visual21/21 at measured120DPI, Analyze native67/67 and release-test445/445 build pass. SHA-bound clean checkout; embedded tree hash is absent. Catalog Browse redaction obscures focus pixels; no masked-region visual approval.
+- Follow-up red: stale Column SetFocus applies focus to replacement (2failed assertions). Current uncommitted follow-up marshals pane/column focus with original fragment/path, adds lifetime/path-boundary tests and actual root/row focus assertions to native navigation.
+- Follow-up development checks: native Debug59/59 build, focused9/9 (6.01s) including harness/drift, PS parse0errors. Native still pending.
+- NEXT EXACT ACTION: commit follow-up, qualify real root/pane/column/row focus/navigation and wider final-source checks; update integration and publish unmerged successor. Update provenance, integration and push unmerged successor checkpoint. No main merges/releases.
 
 ## Prior product checkpoint (historical)
 

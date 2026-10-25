@@ -7,6 +7,8 @@
 - [x] 2.2 Validate identity atomically with selection/focus/scroll mutation and activation target capture.
 - [x] 2.3 Preserve membership semantics, hidden/retired fragment rejection and post-lock callbacks.
 
+- [ ] 2.4 Reject stale column focus and marshal root/pane/column keyboard focus; assert real row focus without changing selection.
+
 ## 3. Qualification
 - [x] 3.1 Run focused regressions and warning-clean builds.
 - [ ] 3.2 Exercise real native journeys and broader local checks; record unavailable independent review honestly.

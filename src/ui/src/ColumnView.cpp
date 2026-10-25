@@ -375,7 +375,7 @@ bool ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
     bool clearedEmptyArea = false;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        if (expected && !MatchesUiaBrowseItemLocked(*expected)) return false;
+        if (expected && !MatchesUiaBrowseTargetLocked(*expected)) return false;
         before = CaptureUiaSelectionLocked(pane, columnIndex);
         auto& columns = pane == 0 ? columns_ : columns2_;
         if (columnIndex < 0 || columnIndex >= static_cast<int>(columns.size())) {
@@ -2921,15 +2921,16 @@ void ColumnView::UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTa
     ActivateHomeItem(pane, globalIndex, openInNewTab);
 }
 
-bool ColumnView::MatchesUiaBrowseItemLocked(const UiaBrowseActionRequest& request) const {
+bool ColumnView::MatchesUiaBrowseTargetLocked(const UiaBrowseActionRequest& request) const {
     if (!request.ownerLifetime || !request.ownerLifetime->alive ||
         !request.fragmentLifetime || !request.fragmentLifetime->alive || !browseContentActive_ ||
         request.pane < 0 || request.pane >= (dualPane_ ? 2 : 1) || homePane_[static_cast<size_t>(request.pane)]) return false;
     const auto& columns = request.pane == 0 ? columns_ : columns2_;
     if (request.column < 0 || request.column >= static_cast<int>(columns.size())) return false;
     const auto& column = columns[static_cast<size_t>(request.column)];
-    if (UiaHashWide(column.path) != request.pathHash || request.row < 0 ||
-        request.row >= static_cast<int>(column.items.size())) return false;
+    if (UiaHashWide(column.path) != request.pathHash) return false;
+    if (request.kind == UiaBrowseActionKind::FocusColumn) return true;
+    if (request.row < 0 || request.row >= static_cast<int>(column.items.size())) return false;
     const auto& item = column.items[static_cast<size_t>(request.row)];
     return UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh,
                                JoinPath(column.path, item.name)) == request.itemHash;
@@ -2955,6 +2956,16 @@ bool ColumnView::HandleUiaBrowseAction(const UiaBrowseActionRequest& request) {
     }
     const auto* provider = static_cast<ColumnViewUiaProvider*>(uiaProvider_.Get());
     if (request.fragmentLifetime != provider->FragmentState()) return false;
+    if (request.kind == UiaBrowseActionKind::FocusPane) {
+        {
+            std::lock_guard<std::mutex> lock(columnsMutex_);
+            if (!request.fragmentLifetime || !request.fragmentLifetime->alive || !browseContentActive_ ||
+                request.pane < 0 || request.pane >= (dualPane_ ? 2 : 1)) return false;
+        }
+        ActivatePane(request.pane);
+        ::SetFocus(owner);
+        return GetFocus() == owner;
+    }
     if (request.kind == UiaBrowseActionKind::Invoke) {
         return ActivateItem(request.column, request.row, false, false, &request);
     }
@@ -2964,7 +2975,7 @@ bool ColumnView::HandleUiaBrowseAction(const UiaBrowseActionRequest& request) {
     bool scrolled = false;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        if (!MatchesUiaBrowseItemLocked(request)) return false;
+        if (!MatchesUiaBrowseTargetLocked(request)) return false;
         auto& column = (request.pane == 0 ? columns_ : columns2_)[static_cast<size_t>(request.column)];
         int& focus = request.pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
         before = CaptureUiaSelectionLocked(request.pane, request.column);
@@ -2985,6 +2996,10 @@ bool ColumnView::HandleUiaBrowseAction(const UiaBrowseActionRequest& request) {
             }
             break;
         }
+        case UiaBrowseActionKind::FocusColumn:
+            notifyFocus = focus != request.column;
+            focus = request.column;
+            break;
         case UiaBrowseActionKind::FocusItem:
             notifyFocus = focus != request.column || column.focusIndex != request.row;
             focus = request.column;
@@ -3002,7 +3017,7 @@ bool ColumnView::HandleUiaBrowseAction(const UiaBrowseActionRequest& request) {
         ActivatePane(request.pane);
         NotifyUiaSelectionTransition(before, request.pane);
     }
-    if (request.kind == UiaBrowseActionKind::FocusItem) {
+    if (request.kind == UiaBrowseActionKind::FocusItem || request.kind == UiaBrowseActionKind::FocusColumn) {
         ActivatePane(request.pane);
         ::SetFocus(owner);
         if (notifyFocus) NotifyUiaFocus();
