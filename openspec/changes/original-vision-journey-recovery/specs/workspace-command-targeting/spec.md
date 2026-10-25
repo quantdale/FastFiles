@@ -4,6 +4,18 @@ Keep filesystem commands bound to the user's visible selection across browsing, 
 
 ## ADDED Requirements
 
+### Requirement: Command choices remain visibly above their workspace
+
+The real native palette edit and command list SHALL paint above Search, Storage and browsing controls. Native child creation SHALL preserve sibling paint clipping as well as z-order. A client click outside the palette SHALL dismiss it without triggering the underlying workspace action.
+
+#### Scenario: Palette over Storage
+- **WHEN** the palette opens over Storage and the underlying controls repaint
+- **THEN** its visible command choices remain legible and reachable
+
+#### Scenario: Outside dismissal
+- **WHEN** the user clicks the navigation region outside the palette
+- **THEN** the palette closes and the current Storage workspace remains active
+
 ### Requirement: Accessibility follows workspace presentation
 
 Browse and Home semantic descendants SHALL be unavailable while another workspace replaces their presentation. Retained elements SHALL remain unavailable after restoration; new Browse elements SHALL describe the restored presentation. Native Search/Storage controls and active Treemap descendants SHALL remain reachable.

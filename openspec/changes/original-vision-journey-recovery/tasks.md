@@ -11,6 +11,7 @@
 - [x] 2.4 Bind Browse/Home accessibility lifetime to actual workspace presentation; hide and retire replaced fragments, preserve native tool/Treemap access and restore fresh fragments. Lifecycle/hit/focus/action regressions pass; native Storage tree contains no hidden Browse/Home.
 - [x] 2.5 Validate Home Invoke/Clear identity and fragment lifetime on the owning UI thread before executing canonical shell actions. Dispatch-boundary identity, fragment, hidden and missing-Clear regressions pass; independent source review approves.
 - [x] 2.6 Preserve category refinement on transition from list to Treemap. Native red shows three unfiltered tiles; green shows only storage-note.txt through the existing category filter boundary.
+- [ ] 2.7 Paint the real command palette above native workspaces with sibling clipping, preserve surrounding context and consume outside dismissal clicks without invoking background controls.
 
 ## 3. Search-to-navigation continuity
 

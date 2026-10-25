@@ -841,6 +841,24 @@ function Invoke-E2EStorageScenario {
     # original-vision-journey-recovery: actions belong to the visible
     # Storage selection, even while a different browse row remains selected.
     $main = Get-E2EMain -Context $Context
+    if (-not (Test-UiaForegroundWindow -Driver $Context.Driver -Element $main)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'palette-dismiss-foreground' -Detail 'foreground unavailable for the palette dismissal interaction' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $null = Send-UiaInput -Driver $Context.Driver -Keys '{CTRL}{SHIFT}p'
+    $paletteEdit = Wait-UiaElement -Driver $Context.Driver -AutomationId '6301' -FromElement $main -TimeoutMs 3000
+    $sidebar = Find-UiaElement -Driver $Context.Driver -ClassName 'FastFilesNavigationSidebar' -FromElement $main -TimeoutMs 1500
+    $sidebarBounds = Get-UiaElementProperty -Driver $Context.Driver -Element $sidebar -Name 'BoundingRectangle'
+    $outsideX = [int]($sidebarBounds.x + $sidebarBounds.width * 0.1)
+    $outsideY = [int]($sidebarBounds.y + $sidebarBounds.height * 0.5)
+    if (-not $paletteEdit -or -not (Test-UiaPointInWindow -Driver $Context.Driver -Element $main -X $outsideX -Y $outsideY)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'palette-dismiss-target' -Detail 'palette or safe app-owned outside click target was unavailable' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $null = Send-UiaMouseInput -Driver $Context.Driver -X $outsideX -Y $outsideY -Action 'Click'
+    $paletteGone = Wait-UiaElementGone -Driver $Context.Driver -AutomationId '6301' -FromElement $main -TimeoutMs 3000
+    $overviewStillVisible = Find-UiaElement -Driver $Context.Driver -Name 'Overview' -FromElement $main -TimeoutMs 1000
+    if (-not $paletteGone -or -not $overviewStillVisible) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'palette-dismiss-consumption' -Detail 'outside click failed to dismiss the palette or activated the background workspace' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     $drillDownButton = Find-UiaElement -Driver $Context.Driver -Name 'Drill Down' -FromElement $main -TimeoutMs 1500
     if (-not (Invoke-E2EButton -Context $Context -Element $drillDownButton)) {
         return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-command-list' -Detail 'Drill Down was not activatable' -DurationMs $watch.Elapsed.TotalMilliseconds

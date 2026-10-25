@@ -39,11 +39,8 @@ private:
     void RefreshResults();
     void ExecuteSelected();
     void ApplyDensityMetrics();
-    static LRESULT CALLBACK DimmerSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
-                                               UINT_PTR subclassId, DWORD_PTR refData);
 
     HWND owner_ = nullptr;
-    HWND dimmer_ = nullptr;
     HWND edit_ = nullptr;
     HWND list_ = nullptr;
     const CommandRegistry* registry_ = nullptr;

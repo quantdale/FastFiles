@@ -2254,6 +2254,19 @@ void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
 
 LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+        case WM_PARENTNOTIFY:
+            if (LOWORD(wParam) == WM_CREATE) {
+                const HWND child = reinterpret_cast<HWND>(lParam);
+                if (child != nullptr && GetParent(child) == hwnd) {
+                    // original-vision-journey-recovery: stable z-order alone
+                    // does not clip native workspace paints under the palette.
+                    // Apply the sibling paint contract to future children too.
+                    const LONG_PTR style = GetWindowLongPtrW(child, GWL_STYLE);
+                    SetWindowLongPtrW(child, GWL_STYLE, style | WS_CLIPSIBLINGS);
+                }
+            }
+            return DefWindowProcW(hwnd, message, wParam, lParam);
+
 #ifdef _DEBUG
         case WM_COPYDATA: {
             const auto* request = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
