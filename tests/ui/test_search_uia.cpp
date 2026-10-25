@@ -186,11 +186,11 @@ void TestSearchTreeAndMetadata() {
 
     auto first = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
     Check(first != nullptr, "results are exposed as children");
-    Check(GetName(first.Get()) == L"report.pdf", "first result name");
+    Check(GetName(static_cast<IRawElementProviderFragment*>(first.Get())) == L"report.pdf", "first result name");
     Check(GetControlType(first.Get()) == UIA_ListItemControlTypeId, "result is a ListItem");
-    Check(GetStringProperty(first.Get(), UIA_HelpTextPropertyId) == L"C:\\Search",
+    Check(GetStringProperty(static_cast<IRawElementProviderFragment*>(first.Get()), UIA_HelpTextPropertyId) == L"C:\\Search",
           "HelpText carries the containing location");
-    const std::wstring description = GetStringProperty(first.Get(), UIA_FullDescriptionPropertyId);
+    const std::wstring description = GetStringProperty(static_cast<IRawElementProviderFragment*>(first.Get()), UIA_FullDescriptionPropertyId);
     Check(description.find(L"File") != std::wstring::npos &&
               description.find(L"1 KB") != std::wstring::npos,
           "FullDescription carries type and logical size");
@@ -274,7 +274,7 @@ void TestSearchVirtualization() {
 
     // Touch only a handful of results: provider cache stays tiny.
     auto first = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
-    (void)GetName(first.Get());
+    (void)GetName(static_cast<IRawElementProviderFragment*>(first.Get()));
     auto second = NextSibling(first.Get());
     (void)GetName(second.Get());
     auto last = first;
@@ -352,7 +352,7 @@ void TestSearchAllocatedSizeMetadata() {
     ffui::SearchUiaProvider root(state, &surface, nullptr);
 
     auto first = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
-    const std::wstring known = GetStringProperty(first.Get(), UIA_FullDescriptionPropertyId);
+    const std::wstring known = GetStringProperty(static_cast<IRawElementProviderFragment*>(first.Get()), UIA_FullDescriptionPropertyId);
     Check(known.find(L"8 MB on disk") != std::wstring::npos, "known allocated size appears in the accessible description");
     Check(known.find(L"Size on disk unknown") == std::wstring::npos, "known result is not reported as unknown");
 
@@ -578,9 +578,153 @@ void TestSearchFiltersDisclosureProvider() {
     UnregisterClassW(wc.lpszClassName, wc.hInstance);
 }
 
+class ReportListSurface : public fftest::FakeUiaSurface {
+public:
+    size_t invokedHeader = SIZE_MAX;
+    uint64_t scope = 1;
+    uint64_t UiaListHeaderIdentity(size_t index) const override { return scope * 16 + index; }
+    size_t UiaListHeaderCount() const override { return 2; }
+    std::wstring UiaListHeaderName(size_t index) const override { return index == 0 ? L"Name" : L"Size"; }
+    bool UiaListHeaderRect(size_t index, RECT& rect) const override {
+        if (index >= 2) return false;
+        rect = {static_cast<LONG>(100 + index * 120), 200, static_cast<LONG>(220 + index * 120), 230};
+        return true;
+    }
+    void UiaListInvokeHeader(size_t index) override { invokedHeader = index; }
+};
+
+void TestSemanticStorageListConfiguration() {
+    ReportListSurface surface;
+    surface.searchVisible = true;
+    ffui::UiaSearchResultInfo file;
+    file.name = L"Images";
+    file.folder = L"C:\\Storage";
+    file.fullPath = L"C:\\Storage\\Images";
+    file.identityHash = 101;
+    surface.searchResults.push_back(file);
+    auto category = file;
+    category.fullPath.clear();
+    category.identityHash = 102;
+    category.description = L"Category summary, 1 KB in this folder";
+    surface.searchResults.push_back(category);
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    auto root = Microsoft::WRL::ComPtr<ffui::SearchUiaProvider>(new ffui::SearchUiaProvider(
+        state, &surface, nullptr, {L"Storage items", L"7201", ffui::kUiaNsStorageList}));
+    Check(GetName(static_cast<IRawElementProviderSimple*>(root.Get())) == L"Storage items" &&
+          GetStringProperty(static_cast<IRawElementProviderSimple*>(root.Get()), UIA_AutomationIdPropertyId) == L"7201",
+          "semantic Storage list has its real accessible name and control identity");
+    auto first = root->ResultElement(0);
+    const auto originalRuntimeId = RuntimeIdOf(first.Get());
+    auto summary = root->ResultElement(1);
+    Check(RuntimeIdOf(first.Get())[0] == ffui::kUiaNsStorageList && RuntimeIdOf(first.Get()) != RuntimeIdOf(summary.Get()),
+          "Storage namespace and typed identities isolate same-label file/category rows");
+    Check(GetStringProperty(static_cast<IRawElementProviderFragment*>(summary.Get()), UIA_FullDescriptionPropertyId) == category.description,
+          "category accessible description remains a summary rather than a fabricated file");
+    auto header = NextSibling(summary.Get());
+    auto size = NextSibling(header.Get());
+    Check(GetControlType(header.Get()) == UIA_HeaderItemControlTypeId && GetName(size.Get()) == L"Size",
+          "optional report headers follow real rows without replacing Search default children");
+    Microsoft::WRL::ComPtr<IInvokeProvider> sort;
+    Check(size != nullptr && SUCCEEDED(size.As(&sort)) && SUCCEEDED(sort->Invoke()) && surface.invokedHeader == 1,
+          "Size header Invoke routes the report surface sort action");
+    UiaRect bounds{};
+    Check(SUCCEEDED(size->get_BoundingRectangle(&bounds)) && bounds.left == 220 && bounds.top == 200 && bounds.width == 120,
+          "semantic header reports live physical screen geometry");
+    surface.scope = 2;
+    Check(sort->Invoke() == UIA_E_ELEMENTNOTAVAILABLE, "retained header rejects a different storage scope");
+    surface.scope = 1;
+    std::swap(surface.searchResults[0], surface.searchResults[1]);
+    VARIANT value{};
+    Check(GetPropertyHr(static_cast<IRawElementProviderFragment*>(first.Get()), UIA_NamePropertyId, &value) == UIA_E_ELEMENTNOTAVAILABLE,
+          "retained Storage row cannot retarget a category after sorting");
+    auto moved = root->ResultElement(1);
+    Check(GetName(static_cast<IRawElementProviderFragment*>(moved.Get())) == L"Images" && RuntimeIdOf(moved.Get()) == originalRuntimeId,
+          "new lookup returns the moved live identity instead of a stale cached ordinal");
+    state->alive = false;
+    Check(GetPropertyHr(static_cast<IRawElementProviderFragment*>(summary.Get()), UIA_NamePropertyId, &value) == UIA_E_ELEMENTNOTAVAILABLE &&
+          sort->Invoke() == UIA_E_ELEMENTNOTAVAILABLE,
+          "client-held row and header become safe zombies when owner state dies");
+}
+class RacingListSurface : public fftest::FakeUiaSurface {
+public:
+    bool actionReached = false;
+    bool UiaListDispatchAction(size_t index, uint64_t expected, unsigned action) override {
+        searchResults[index].identityHash = 9002; // replacement after provider Resolve
+        return ffui::UiaSurface::UiaListDispatchAction(index, expected, action);
+    }
+    void UiaSearchSelectItem(size_t) override { actionReached = true; }
+    void UiaSearchRemoveFromSelection(size_t) override { actionReached = true; }
+    void UiaSearchSetFocusItem(size_t) override { actionReached = true; }
+    void UiaSearchScrollIntoView(size_t) override { actionReached = true; }
+    void UiaSearchActivateItem(size_t) override { actionReached = true; }
+};
+
+void TestExpectedIdentitySurvivesActionDispatch() {
+    RacingListSurface surface;
+    surface.searchVisible = true;
+    surface.searchResults.push_back({});
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::SearchUiaProvider root(state, &surface, nullptr);
+    for (unsigned action = 0; action < 5; ++action) {
+        surface.searchResults[0].identityHash = 9001;
+        surface.searchResults[0].selected = true;
+        auto item = root.ResultElement(0);
+        HRESULT result = E_FAIL;
+        if (action == 0) result = item->Select();
+        if (action == 1) result = item->RemoveFromSelection();
+        if (action == 2) result = item->SetFocus();
+        if (action == 3) result = item->ScrollIntoView();
+        if (action == 4) result = item->Invoke();
+        Check(result == UIA_E_ELEMENTNOTAVAILABLE && !surface.actionReached,
+              "replacement between Resolve and dispatch cannot retarget select/remove/focus/scroll/invoke");
+    }
+    state->alive = false;
+}
+
+class InvalidatingSelectionSurface : public fftest::FakeUiaSurface {
+public:
+    ffui::SearchUiaProvider* root = nullptr;
+    mutable bool invalidated = false;
+    ffui::UiaSearchResultInfo UiaSearchResultInfoOf(size_t index) const override {
+        if (index == 1 && !invalidated && root) {
+            invalidated = true;
+            root->InvalidateResults();
+        }
+        return fftest::FakeUiaSurface::UiaSearchResultInfoOf(index);
+    }
+};
+
+void TestSelectionArrayOwnsResultsAcrossCacheInvalidation() {
+    InvalidatingSelectionSurface surface;
+    surface.searchVisible = true;
+    ffui::UiaSearchResultInfo first;
+    first.name = L"retained selection";
+    first.identityHash = 8801;
+    first.selected = true;
+    surface.searchResults = {first, {}};
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::SearchUiaProvider root(state, &surface, nullptr);
+    surface.root = &root;
+    SAFEARRAY* selected = nullptr;
+    Check(SUCCEEDED(root.GetSelection(&selected)) && selected != nullptr && surface.invalidated,
+          "selection enumeration survives cache invalidation before SAFEARRAY construction");
+    if (selected) {
+        LONG index = 0;
+        IUnknown* element = nullptr;
+        Check(SUCCEEDED(SafeArrayGetElement(selected, &index, &element)) && element != nullptr &&
+              GetName(element) == L"retained selection",
+              "selected provider remains owned until SAFEARRAY takes its COM reference");
+        if (element) element->Release();
+        SafeArrayDestroy(selected);
+    }
+    state->alive = false;
+}
 } // namespace
 
 int main() {
+    TestSemanticStorageListConfiguration();
+    TestExpectedIdentitySurvivesActionDispatch();
+    TestSelectionArrayOwnsResultsAcrossCacheInvalidation();
     // stabilize-live-uia-e2e: the activation marshal predicate. UIA provider
     // calls can arrive on a UIAutomationCore worker thread; UI-thread window
     // creation (chrome tab rebuild) must never run there. Same-thread calls

@@ -48,6 +48,9 @@ constexpr int kSortDirectionId = 7107;
 constexpr int kFiltersToggleId = kSearchFiltersControlId;
 constexpr UINT_PTR kDebounceTimer = 7106;
 constexpr UINT kDebounceMilliseconds = 125;
+constexpr UINT kSearchUiaQuery = WM_APP + 84;
+constexpr UINT kSearchUiaAction = WM_APP + 85;
+constexpr UINT kSearchUiaActivate = WM_APP + 86;
 // Coalesces search-history disk flushes: recording only marks the store dirty
 // and arms this timer, so a burst of recorded queries costs one write.
 constexpr UINT_PTR kHistorySaveTimer = 7108;
@@ -495,6 +498,10 @@ LRESULT CALLBACK ComboKeyProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 LRESULT CALLBACK SearchListProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                 UINT_PTR subclassId, DWORD_PTR refData) {
     auto* self = reinterpret_cast<SearchPanel*>(refData);
+    if (self != nullptr) {
+        LRESULT result = 0;
+        if (self->HandleUiaListMessage(message, lParam, result)) return result;
+    }
     if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId && self != nullptr &&
         self->Visible()) {
         static thread_local int serving = 0;
@@ -617,7 +624,7 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
                             // location themselves, so the column header strip is
                             // meaningless — and as a native child it rendered
                             // system-light in dark mode. NOCOLUMNHEADER keeps column
-                            // widths driving scroll extent without ever creating a
+                            // width driving scroll extent without ever creating a
                             // visible header (a plain SW_HIDE raced with the list's
                             // own first layout and re-showed it).
                             LVS_NOCOLUMNHEADER | WS_TABSTOP,
@@ -667,15 +674,13 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     for (const wchar_t* text : {L"Relevance", L"Filename", L"Path", L"Size", L"Modified", L"Created", L"Size on Disk"})
         SendMessageW(sort_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
     SendMessageW(sort_, CB_SETCURSEL, 0, 0);
-    const wchar_t* columns[] = {L"Name", L"Type", L"Location", L"Size", L"Modified", L"Size on Disk"};
-    const int widths[] = {220, 80, 360, 100, 145, 110};
-    for (int index = 0; index < 6; ++index) {
-        LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM};
-        column.pszText = const_cast<wchar_t*>(columns[index]);
-        column.cx = widths[index];
-        column.iSubItem = index;
-        ListView_InsertColumn(list_, index, &column);
-    }
+    // The owner-drawn two-line row and semantic provider carry all metadata.
+    // Six legacy report columns made rcItem wider than the viewport, pushing
+    // metadata offscreen and leaving an unnecessary horizontal scrollbar.
+    LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH};
+    column.pszText = const_cast<wchar_t*>(L"Name");
+    column.cx = 1;
+    ListView_InsertColumn(list_, 0, &column);
     ListView_SetExtendedListViewStyle(list_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
     // ui-v3 search: two-line result rows. A report-mode ListView derives its
     // row height from the small image list, so a one-entry list at the row
@@ -894,8 +899,16 @@ void SearchPanel::Reposition(const ShellLayoutRect& surfaceRect) {
               kFilterRowHeightDip, filtersExpanded_);
     }
     place(list_, listRect, listRect.Height(), true);
+    FitResultViewport();
 
     UpdateClearAffordance(); // visibility follows the freshly placed geometry
+}
+
+void SearchPanel::FitResultViewport() {
+    if (list_ == nullptr) return;
+    RECT client{};
+    GetClientRect(list_, &client);
+    ListView_SetColumnWidth(list_, 0, (std::max)(1L, client.right));
 }
 
 void SearchPanel::ArmQueryDebounce() {
@@ -1125,6 +1138,7 @@ bool SearchPanel::HandleCompletion(LPARAM lParam) {
     results_ = std::move(completion->response.results);
     candidates_ = std::move(completion->candidates);
     ListView_SetItemCountEx(list_, static_cast<int>(results_.size()), LVSICF_NOINVALIDATEALL);
+    FitResultViewport();
     if (completion->response.truncated) {
         const std::wstring prefix = snapshotFallback_ ? L"Browsed snapshot: " : L"";
         UpdateStatus(statusWarning_ + prefix + L"showing the first " + std::to_wstring(results_.size()) + L" results", StatusKind::Info);
@@ -1184,6 +1198,7 @@ bool SearchPanel::HandleIndexedCompletion(LPARAM lParam) {
         results_.push_back({searchCandidate, ffsearch::ClassifyMatch(searchCandidate, currentPrimaryTerm_)});
     }
     ListView_SetItemCountEx(list_, static_cast<int>(results_.size()), LVSICF_NOINVALIDATEALL);
+    FitResultViewport();
     if (completion->response.truncated) {
         UpdateStatus(statusWarning_ + L"Showing the first " + std::to_wstring(results_.size()) + L" indexed results", StatusKind::Info);
     } else {
@@ -1294,7 +1309,10 @@ bool SearchPanel::HandleDrawItem(LPARAM lParam) {
 
 void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
     HDC dc = item->hDC;
-    const RECT row = item->rcItem;
+    RECT row = item->rcItem;
+    RECT viewport{};
+    GetClientRect(list_, &viewport);
+    row.right = (std::min)(row.right, viewport.right);
     const bool selected = (item->itemState & ODS_SELECTED) != 0;
     const bool focused = (item->itemState & ODS_FOCUS) != 0;
     const bool highContrast = ffui::UiSystemHighContrast();
@@ -2548,14 +2566,29 @@ void SearchPanel::ActivateSelection() {
     if (index >= 0) ActivateResultItem(static_cast<size_t>(index));
 }
 
-size_t SearchPanel::UiaSearchResultCount() const {
-    return results_.size();
+// original-vision-journey-recovery: provider calls can arrive between two
+// result generations. Queries and identity-bound actions resolve on the
+// list-owning UI thread; an ordinal is never re-stamped as a new target.
+SearchPanel::UiaListQuery SearchPanel::QueryUiaList(size_t index, uint64_t expectedIdentity) const {
+    UiaListQuery query;
+    query.index = index;
+    query.expectedIdentity = expectedIdentity;
+    if (uiaClosing_ || list_ == nullptr || !IsWindow(list_)) return query;
+    if (SearchActivationNeedsUiThreadMarshal(GetCurrentThreadId(), GetWindowThreadProcessId(list_, nullptr))) {
+        SendMessageW(list_, kSearchUiaQuery, 0, reinterpret_cast<LPARAM>(&query));
+    } else {
+        ReadUiaList(query);
+    }
+    return query;
 }
 
-UiaSearchResultInfo SearchPanel::UiaSearchResultInfoOf(size_t index) const {
-    UiaSearchResultInfo info;
-    if (index >= results_.size()) return info;
-    const ffsearch::Candidate& candidate = results_[index].candidate;
+void SearchPanel::ReadUiaList(UiaListQuery& query) const {
+    if (uiaClosing_ || !visible_ || list_ == nullptr) return;
+    query.count = results_.size();
+    query.focused = GetFocus() == list_;
+    if (query.index >= results_.size()) return;
+    const auto& candidate = results_[query.index].candidate;
+    auto& info = query.info;
     info.name = candidate.name;
     info.folder = candidate.folder;
     info.displayFolder = ffui::NormalizeDisplayPath(candidate.folder);
@@ -2564,99 +2597,127 @@ UiaSearchResultInfo SearchPanel::UiaSearchResultInfoOf(size_t index) const {
     info.isDirectory = candidate.isDirectory;
     info.volumeId = candidate.volumeId;
     info.id = candidate.id;
-    // indexed-search-allocated-size D9: project on-disk size + knownness from the
-    // exact rendered result so the accessible description agrees with the row.
     info.allocatedSizeBytes = candidate.allocatedSizeBytes;
     info.allocatedSizeKnown = candidate.allocatedSizeKnown;
     info.fullPath = (std::filesystem::path(candidate.folder) / candidate.name).wstring();
-    if (list_ != nullptr) {
-        const int itemState = ListView_GetItemState(list_, static_cast<int>(index),
-                                                    LVIS_SELECTED | LVIS_FOCUSED);
-        info.selected = (itemState & LVIS_SELECTED) != 0;
-        info.focused = (itemState & LVIS_FOCUSED) != 0;
+    if (query.expectedIdentity != 0 && SemanticListItemIdentity(info) != query.expectedIdentity) return;
+    query.valid = true;
+    const int state = ListView_GetItemState(list_, static_cast<int>(query.index), LVIS_SELECTED | LVIS_FOCUSED);
+    info.selected = (state & LVIS_SELECTED) != 0;
+    info.focused = (state & LVIS_FOCUSED) != 0;
+    if (!ListView_GetItemRect(list_, static_cast<int>(query.index), &query.rect, LVIR_BOUNDS)) return;
+    MapWindowPoints(list_, nullptr, reinterpret_cast<POINT*>(&query.rect), 2);
+    query.hasRect = true;
+    RECT clip{};
+    GetClientRect(list_, &clip);
+    MapWindowPoints(list_, nullptr, reinterpret_cast<POINT*>(&clip), 2);
+    const HWND header = ListView_GetHeader(list_);
+    RECT headerRect{};
+    if (header != nullptr && IsWindowVisible(header) && GetWindowRect(header, &headerRect)) {
+        clip.top = (std::max)(clip.top, headerRect.bottom);
     }
-    return info;
+    RECT intersection{};
+    query.offscreen = IntersectRect(&intersection, &query.rect, &clip) == FALSE;
 }
 
-bool SearchPanel::UiaSearchResultRect(size_t index, RECT& outScreen) const {
-    if (list_ == nullptr || index >= results_.size()) return false;
-    RECT item{};
-    if (!ListView_GetItemRect(list_, static_cast<int>(index), &item, LVIR_BOUNDS)) return false;
-    outScreen = item;
-    ClientToScreen(list_, reinterpret_cast<POINT*>(&outScreen.left));
-    ClientToScreen(list_, reinterpret_cast<POINT*>(&outScreen.right));
+bool SearchPanel::HandleUiaListMessage(UINT message, LPARAM payload, LRESULT& result) {
+    if (message == kSearchUiaQuery) {
+        if (auto* query = reinterpret_cast<UiaListQuery*>(payload)) ReadUiaList(*query);
+        result = 0;
+        return true;
+    }
+    if (message == kSearchUiaAction) {
+        const auto* action = reinterpret_cast<const UiaListAction*>(payload);
+        result = action != nullptr && ApplyUiaListAction(*action) ? 1 : 0;
+        return true;
+    }
+    if (message == kSearchUiaActivate) {
+        std::unique_ptr<UiaListAction> action(reinterpret_cast<UiaListAction*>(payload));
+        if (action) ApplyUiaListAction(*action);
+        result = 0;
+        return true;
+    }
+    if (message == WM_NCDESTROY) ReleaseUiaProvider();
+    return false;
+}
+
+bool SearchPanel::ApplyUiaListAction(const UiaListAction& action) {
+    if (uiaClosing_ || !visible_ || list_ == nullptr) return false;
+    if (action.action == 5) {
+        SetFocus(list_);
+        return GetFocus() == list_;
+    }
+    UiaListQuery query;
+    query.index = action.index;
+    query.expectedIdentity = action.expectedIdentity;
+    ReadUiaList(query);
+    if (!query.valid || action.expectedIdentity == 0) return false;
+    const int index = static_cast<int>(action.index);
+    switch (action.action) {
+    case 0: ListView_SetItemState(list_, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED); break;
+    case 1: ListView_SetItemState(list_, index, 0, LVIS_SELECTED); break;
+    case 2:
+        ListView_SetItemState(list_, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        SetFocus(list_);
+        break;
+    case 3: ListView_EnsureVisible(list_, index, FALSE); break;
+    case 4: ActivateResultItem(action.index); break;
+    default: return false;
+    }
     return true;
 }
 
-bool SearchPanel::UiaSearchResultOffscreen(size_t index) const {
-    RECT rect{};
-    if (!UiaSearchResultRect(index, rect)) return true;
-    RECT client{};
-    GetClientRect(list_, &client);
-    POINT origin{0, 0};
-    ClientToScreen(list_, &origin);
-    client.left += origin.x;
-    client.right += origin.x;
-    client.top += origin.y;
-    client.bottom += origin.y;
-    return rect.bottom <= client.top || rect.top >= client.bottom ||
-           rect.right <= client.left || rect.left >= client.right;
+bool SearchPanel::UiaListDispatchAction(size_t index, uint64_t expectedIdentity, unsigned action) {
+    if (uiaClosing_ || list_ == nullptr || !IsWindow(list_) || expectedIdentity == 0 || action > 4) return false;
+    UiaListAction request{index, expectedIdentity, action};
+    if (action == 4 && SearchActivationNeedsUiThreadMarshal(GetCurrentThreadId(), GetWindowThreadProcessId(list_, nullptr))) {
+        auto payload = std::make_unique<UiaListAction>(request);
+        std::lock_guard<std::mutex> lock(uiaPostMutex_);
+        if (uiaClosing_) return false;
+        if (!PostMessageW(list_, kSearchUiaActivate, 0, reinterpret_cast<LPARAM>(payload.get()))) return false;
+        payload.release();
+        return true;
+    }
+    return SendMessageW(list_, kSearchUiaAction, 0, reinterpret_cast<LPARAM>(&request)) != 0;
 }
 
-bool SearchPanel::UiaSearchVisible() const {
-    return visible_;
+size_t SearchPanel::UiaSearchResultCount() const { return QueryUiaList().count; }
+UiaSearchResultInfo SearchPanel::UiaSearchResultInfoOf(size_t index) const { return QueryUiaList(index).info; }
+bool SearchPanel::UiaSearchResultRect(size_t index, RECT& rect) const {
+    const auto query = QueryUiaList(index);
+    rect = query.rect;
+    return query.valid && query.hasRect;
 }
-
-bool SearchPanel::UiaSearchHasKeyboardFocus() const {
-    return list_ != nullptr && GetFocus() == list_;
+bool SearchPanel::UiaSearchResultOffscreen(size_t index) const { return QueryUiaList(index).offscreen; }
+bool SearchPanel::UiaListResultRect(size_t index, uint64_t identity, RECT& rect) const {
+    const auto query = QueryUiaList(index, identity);
+    rect = query.rect;
+    return query.valid && query.hasRect;
 }
-
-HWND SearchPanel::UiaSearchHwnd() const {
-    return list_;
+bool SearchPanel::UiaListResultOffscreen(size_t index, uint64_t identity) const {
+    const auto query = QueryUiaList(index, identity);
+    return !query.valid || query.offscreen;
 }
-
+bool SearchPanel::UiaSearchVisible() const { return !uiaClosing_ && list_ != nullptr && IsWindowVisible(list_) != FALSE; }
+bool SearchPanel::UiaSearchHasKeyboardFocus() const { return QueryUiaList().focused; }
+HWND SearchPanel::UiaSearchHwnd() const { return list_; }
+void SearchPanel::UiaListSetFocus() {
+    const UiaListAction request{0, 0, 5};
+    if (list_ != nullptr && IsWindow(list_)) SendMessageW(list_, kSearchUiaAction, 0, reinterpret_cast<LPARAM>(&request));
+}
 void SearchPanel::UiaSearchSelectItem(size_t index) {
-    if (list_ == nullptr || index >= results_.size()) return;
-    // The native single-select list: selection implies the focus item.
-    ListView_SetItemState(list_, static_cast<int>(index), LVIS_SELECTED, LVIS_SELECTED);
-    ListView_SetItemState(list_, static_cast<int>(index), LVIS_FOCUSED, LVIS_FOCUSED);
+    UiaListDispatchAction(index, SemanticListItemIdentity(QueryUiaList(index).info), 0);
 }
-
-void SearchPanel::UiaSearchAddToSelection(size_t index) {
-    if (list_ == nullptr || index >= results_.size()) return;
-    if ((ListView_GetItemState(list_, static_cast<int>(index), LVIS_SELECTED) & LVIS_SELECTED) == 0) {
-        UiaSearchSelectItem(index);
-    }
-}
-
+void SearchPanel::UiaSearchAddToSelection(size_t index) { UiaSearchSelectItem(index); }
 void SearchPanel::UiaSearchRemoveFromSelection(size_t index) {
-    if (list_ == nullptr || index >= results_.size()) return;
-    ListView_SetItemState(list_, static_cast<int>(index), 0, LVIS_SELECTED);
+    UiaListDispatchAction(index, SemanticListItemIdentity(QueryUiaList(index).info), 1);
 }
-
 void SearchPanel::UiaSearchSetFocusItem(size_t index) {
-    if (list_ == nullptr || index >= results_.size()) return;
-    UiaSearchSelectItem(index);
-    SetFocus(list_);
+    UiaListDispatchAction(index, SemanticListItemIdentity(QueryUiaList(index).info), 2);
 }
-
 void SearchPanel::UiaSearchActivateItem(size_t index) {
-    if (index >= results_.size()) return;
-    // stabilize-live-uia-e2e: provider calls can land on a UIAutomationCore
-    // worker thread; UI state (workspace, columns, chrome tab rebuild) must
-    // be mutated on the UI thread. See SearchActivationNeedsUiThreadMarshal.
-    if (SearchActivationNeedsUiThreadMarshal(GetCurrentThreadId(),
-                                             GetWindowThreadProcessId(list_, nullptr))) {
-        if (PostMessageW(owner_, WM_APP_SEARCH_RESULT_ACTIVATE,
-                         static_cast<WPARAM>(index), 0)) {
-            return; // WindowShell runs ActivateResultItem on the UI thread.
-        }
-        // PostMessage failure (owner gone): fall through to the inline path
-        // rather than dropping the activation.
-    }
-    ActivateResultItem(index);
+    UiaListDispatchAction(index, SemanticListItemIdentity(QueryUiaList(index).info), 4);
 }
-
 void SearchPanel::ActivateResultItem(size_t index) {
     if (index >= results_.size()) return;
     // The exact search-to-navigation path used by NM_DBLCLK / LVN_ITEMACTIVATE.
@@ -2672,8 +2733,7 @@ void SearchPanel::ActivateResultItem(size_t index) {
 }
 
 void SearchPanel::UiaSearchScrollIntoView(size_t index) {
-    if (list_ == nullptr || index >= results_.size()) return;
-    ListView_EnsureVisible(list_, static_cast<int>(index), FALSE);
+    UiaListDispatchAction(index, SemanticListItemIdentity(QueryUiaList(index).info), 3);
 }
 
 void SearchPanel::SetUiaEventSink(UiaEventSink sink, void* context) {
@@ -2681,6 +2741,7 @@ void SearchPanel::SetUiaEventSink(UiaEventSink sink, void* context) {
 }
 
 Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> SearchPanel::UiaRootProvider(HWND listHwnd) {
+    if (uiaClosing_) return nullptr;
     if (uiaProvider_ == nullptr) {
         if (!uiaState_) {
             uiaState_ = std::make_shared<UiaOwnerState>();
@@ -2693,9 +2754,20 @@ Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> SearchPanel::UiaRootProv
 }
 
 void SearchPanel::ReleaseUiaProvider() {
-    uiaEvents_.Clear();
-    if (uiaState_) {
-        uiaState_->alive = false;
+    // PeekMessage may dispatch queued sent queries. Make those fail closed
+    // before pumping, and serialize the closing transition against a
+    // worker's final activation post so no owned token arrives after drain.
+    {
+        std::lock_guard<std::mutex> lock(uiaPostMutex_);
+        uiaClosing_ = true;
+        uiaEvents_.Clear();
+        if (uiaState_) uiaState_->alive = false;
+    }
+    if (list_ != nullptr) {
+        MSG pending{};
+        while (PeekMessageW(&pending, list_, kSearchUiaActivate, kSearchUiaActivate, PM_REMOVE)) {
+            delete reinterpret_cast<UiaListAction*>(pending.lParam);
+        }
     }
     uiaState_.reset();
     uiaProvider_.Reset();

@@ -59,6 +59,7 @@ public:
     // --- column-view state -------------------------------------------------
     std::vector<FakePane> panes;   // 1 or 2 entries
     int activePane = 0;
+    bool browseContentActive = true;
     ffui::UiaViewGeometry geometry;
 
     // --- home state ---------------------------------------------------------
@@ -81,6 +82,7 @@ public:
 
     // UiaSurface: navigation surface.
     ffui::UiaViewGeometry UiaGeometry() const override { return geometry; }
+    bool UiaBrowseContentActive() const override { return browseContentActive; }
     int UiaPaneCount() const override { return static_cast<int>(panes.size()); }
     int UiaActivePane() const override { return activePane; }
     bool UiaPaneIsHome(int pane) const override {

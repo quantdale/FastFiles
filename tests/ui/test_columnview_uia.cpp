@@ -660,6 +660,44 @@ void TestDualPaneFragmentReplacement() {
     Check(cyclesClean, "50 deterministic pane fragment replacement cycles retire stale providers");
 }
 
+void TestToolWorkspaceReplacesBrowse() {
+    auto surface = MakeSinglePaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    const ffui::UiaEventNotification replacement{
+        ffui::UiaEventKind::StructureChanged, -1, -1, -1, -1, -1, false, true};
+    for (const auto* tool : {"Search", "Storage list"}) {
+        auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+        auto pane = FirstChild(group.Get());
+        auto column = FirstChild(pane.Get());
+        auto item = FirstChild(column.Get());
+        Microsoft::WRL::ComPtr<IInvokeProvider> invoke;
+        Check(SUCCEEDED(item.As(&invoke)), "Browse item exposes its real Invoke action");
+        surface.browseContentActive = false;
+        ffui::ColumnViewUiaProvider::SinkThunk(replacement, &root);
+        Check(FirstChild(static_cast<IRawElementProviderFragment*>(&root)) == nullptr, tool);
+        UiaRect rect{};
+        Check(pane->get_BoundingRectangle(&rect) == UIA_E_ELEMENTNOTAVAILABLE,
+              "held hidden pane has no screen bounds");
+        Check(invoke->Invoke() == UIA_E_ELEMENTNOTAVAILABLE && surface.actions.empty(),
+              "held hidden Browse item cannot invoke filesystem navigation");
+        Microsoft::WRL::ComPtr<IRawElementProviderFragment> hit;
+        Check(SUCCEEDED(root.ElementProviderFromPoint(20.0, 20.0, &hit)) && hit == nullptr,
+              "tool workspace hit test does not return hidden Browse");
+        Check(SUCCEEDED(root.GetFocus(&hit)) && hit == nullptr,
+              "tool workspace does not report hidden Browse focus");
+        surface.browseContentActive = true;
+        ffui::ColumnViewUiaProvider::SinkThunk(replacement, &root);
+        auto restoredGroup = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+        auto restoredPane = FirstChild(restoredGroup.Get());
+        Check(restoredPane != nullptr && restoredPane.Get() != pane.Get(),
+              "returning Browse mints a new provider lifetime");
+        Check(pane->get_BoundingRectangle(&rect) == UIA_E_ELEMENTNOTAVAILABLE &&
+                  invoke->Invoke() == UIA_E_ELEMENTNOTAVAILABLE,
+              "restoring Browse never revives retained hidden providers");
+    }
+}
+
 void TestStaleItemAfterNavigation() {
     auto surface = MakeSinglePaneSurface();
     auto state = std::make_shared<ffui::UiaOwnerState>();
@@ -1373,6 +1411,7 @@ int main() {
     TestOffscreenAndBounds();
     TestDualPaneIdentity();
     TestDualPaneFragmentReplacement();
+    TestToolWorkspaceReplacesBrowse();
     TestStaleItemAfterNavigation();
     TestStaleColumnAfterNavigation();
     TestComLifetime();

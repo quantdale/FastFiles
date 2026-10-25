@@ -41,6 +41,7 @@
 #include "UiaProviderBase.h"  // semantic-uia-core-surfaces 1.1: owner-lifetime token
 
 namespace ffui {
+inline constexpr UINT WM_APP_COLUMNVIEW_HOME_ACTION = WM_APP + 45;
 
 // semantic-treemap-uia 10.x: forward declaration -- ColumnView only stores
 // the pointer to the Storage Analysis treemap surface.
@@ -270,6 +271,9 @@ public:
     // Dual-pane (task 6.1/6.4): enable/disable the second navigation
     // surface and switch active pane. When disabled, only pane 0 is used.
     void SetDualPane(bool enabled);
+    void SetBrowseContentActive(bool active);
+    bool BrowseContentActive() const;
+    bool UiaBrowseContentActive() const override { return BrowseContentActive(); }
     bool IsDualPane() const { return dualPane_; }
     void ActivatePane(int paneIndex);
     int ActivePane() const { return activePane_; }
@@ -399,6 +403,8 @@ public:
     void UiaScrollItemIntoView(int pane, int col, int row) override;
     void UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) override;
     void UiaActivateHomeClear(int pane, int clearKind) override;
+    bool UiaDispatchHomeAction(const UiaHomeActionRequest& request) override;
+    bool HandleUiaHomeAction(const UiaHomeActionRequest& request);
     void UiaSetHomeFocusItem(int pane, int globalIndex) override;
     void UiaSetHomeFocusClear(int pane, int clearKind) override;
     void UiaScrollHomeItemIntoView(int pane, int globalIndex) override;
@@ -473,6 +479,7 @@ private:
     int focusedColumnIndex2_ = 0;
     int activePane_ = 0;
     bool dualPane_ = false;
+    bool browseContentActive_ = true;
     // Written from EngineClient's background callback, read by Render on the
     // UI thread (recovery-degraded-browsing D3).
     std::atomic<EngineConnectionState> engineState_{EngineConnectionState::Starting};

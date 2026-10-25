@@ -8,6 +8,7 @@
 #include "ffui/NativeOverlayLayout.h"
 #include "ffui/StorageLayout.h"
 #include "ffui/StorageRadioState.h"
+#include "ffui/DisplayPath.h"
 #include "ffui/SnapshotAggregate.h"
 #include "UiaHostQuery.h"
 #include "ffsearch/Path.h"
@@ -355,7 +356,299 @@ private:
     HWND radio_ = nullptr;
 };
 
+// original-vision-journey-recovery: query adapters synchronously marshal to
+// the list-owning UI thread; provider calls never read items_ concurrently
+// with RefreshData/SortItems. Invocation posts a value-owned identity token.
+constexpr UINT kStorageListQuery = WM_APP + 80;
+constexpr UINT kStorageListAction = WM_APP + 81;
+constexpr UINT kStorageListActivate = WM_APP + 82;
+constexpr UINT kStorageListChanged = WM_APP + 83;
+constexpr UINT_PTR kStorageListSubclass = 0x5351;
+
+struct StorageAnalysis::ListQuery {
+    size_t index = SIZE_MAX;
+    size_t count = 0;
+    UiaSearchResultInfo info;
+    RECT rect{};
+    RECT headerRect{};
+    std::wstring headerName;
+    size_t headerCount = 0;
+    bool hasRect = false;
+    bool hasHeaderRect = false;
+    bool focused = false;
+    uint64_t headerIdentity = 0;
+};
+
+struct StorageAnalysis::ListAction {
+    size_t index = 0;
+    uint64_t identity = 0;
+    unsigned kind = 0; // select/remove/focus/scroll/activate/header sort
+};
+
+LRESULT CALLBACK StorageAnalysis::ListSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                   UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<StorageAnalysis*>(refData);
+    if (!self) return DefSubclassProc(hwnd, message, wParam, lParam);
+    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId && self->UiaSearchVisible()) {
+        static thread_local bool serving = false;
+        if (serving || UiaHostQueryGuard::Active(hwnd)) return DefSubclassProc(hwnd, message, wParam, lParam);
+        serving = true;
+        if (!self->listProvider_) {
+            self->listUiaState_ = std::make_shared<UiaOwnerState>();
+            self->listProvider_ = Microsoft::WRL::ComPtr<SearchUiaProvider>(new SearchUiaProvider(
+                self->listUiaState_, self, hwnd, {L"Storage items", L"7201", kUiaNsStorageList}));
+            self->listEvents_.Set(&SearchUiaProvider::SinkThunk, self->listProvider_.Get());
+        }
+        const LRESULT result = UiaReturnRawElementProvider(hwnd, wParam, lParam, self->listProvider_.Get());
+        serving = false;
+        return result;
+    }
+    if (message == kStorageListQuery) {
+        if (auto* query = reinterpret_cast<ListQuery*>(lParam)) self->ReadListQuery(*query);
+        return 0;
+    }
+    if (message == kStorageListAction) {
+        if (const auto* action = reinterpret_cast<const ListAction*>(lParam)) return self->ApplyListAction(*action) ? 1 : 0;
+        return 0;
+    }
+    if (message == kStorageListActivate) {
+        std::unique_ptr<ListAction> action(reinterpret_cast<ListAction*>(lParam));
+        if (action) self->ApplyListAction(*action);
+        return 0;
+    }
+    if (message == kStorageListChanged) {
+        self->listNotificationPending_ = false;
+        self->listEvents_.Notify({UiaEventKind::StructureChanged});
+        return 0;
+    }
+    if (message == WM_NCDESTROY) {
+        self->listEvents_.Clear();
+        if (self->listUiaState_) self->listUiaState_->alive = false;
+        self->listProvider_.Reset();
+        self->listUiaState_.reset();
+        MSG pending{};
+        while (PeekMessageW(&pending, hwnd, kStorageListActivate, kStorageListActivate, PM_REMOVE)) {
+            delete reinterpret_cast<ListAction*>(pending.lParam);
+        }
+        RemoveWindowSubclass(hwnd, ListSubclassProc, subclassId);
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
+
+void StorageAnalysis::ReadListQuery(ListQuery& query) const {
+    if (!UiaSearchVisible()) return;
+    query.count = items_.size();
+    query.focused = GetFocus() == list_;
+    const HWND header = ListView_GetHeader(list_);
+    query.headerCount = static_cast<size_t>((std::max)(0, Header_GetItemCount(header)));
+    if (query.index < query.headerCount) {
+        wchar_t text[128]{};
+        HDITEMW item{};
+        item.mask = HDI_TEXT;
+        item.pszText = text;
+        item.cchTextMax = static_cast<int>(std::size(text));
+        if (Header_GetItem(header, static_cast<int>(query.index), &item)) query.headerName = text;
+        query.headerIdentity = UiaHashMix(UiaHashWide(currentPath_), static_cast<uint64_t>(query.index) + 1);
+        if (Header_GetItemRect(header, static_cast<int>(query.index), &query.headerRect)) {
+            MapWindowPoints(header, nullptr, reinterpret_cast<POINT*>(&query.headerRect), 2);
+            RECT headerBounds{};
+            GetWindowRect(header, &headerBounds);
+            IntersectRect(&query.headerRect, &query.headerRect, &headerBounds);
+            query.hasHeaderRect = true;
+        }
+    }
+    if (query.index >= items_.size()) return;
+    const DrillItem& item = items_[query.index];
+    auto& info = query.info;
+    info.name = item.name;
+    info.folder = currentPath_;
+    info.displayFolder = ffui::NormalizeDisplayPath(currentPath_);
+    info.isDirectory = item.isDirectory;
+    info.sizeBytes = item.totalSizeBytes;
+    info.modifiedTime = item.lastModifiedTime;
+    info.allocatedSizeBytes = item.isDirectory ? item.totalAllocatedSizeBytes : item.allocatedSizeBytes;
+    info.allocatedSizeKnown = item.isDirectory
+        ? !item.calculating && !item.aggregateFailed && item.allocatedKnownCount == item.allocatedTotalCount
+        : item.allocatedSizeKnown;
+    if (!item.categoryId.empty()) {
+        info.identityHash = UiaHashMix(UiaHashWide(currentPath_), UiaHashMix(UiaHashWide(L"category"), UiaHashWide(item.categoryId)));
+        info.description = L"Category summary, " + ffui::FormatSize(item.totalSizeBytes) + L" in this folder";
+        info.displayFolder = L"Category summary";
+    } else {
+        info.fullPath = ffui::JoinPath(currentPath_, item.name);
+        info.identityHash = UiaHashMix(UiaHashWide(currentPath_),
+            UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh, info.fullPath));
+    }
+    const UINT state = ListView_GetItemState(list_, static_cast<int>(query.index), LVIS_SELECTED | LVIS_FOCUSED);
+    info.selected = (state & LVIS_SELECTED) != 0;
+    info.focused = (state & LVIS_FOCUSED) != 0;
+    if (ListView_GetItemRect(list_, static_cast<int>(query.index), &query.rect, LVIR_BOUNDS)) {
+        MapWindowPoints(list_, nullptr, reinterpret_cast<POINT*>(&query.rect), 2);
+        query.hasRect = true;
+    }
+}
+
+size_t StorageAnalysis::UiaSearchResultCount() const {
+    ListQuery query;
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListQuery, 0, reinterpret_cast<LPARAM>(&query));
+    return query.count;
+}
+
+UiaSearchResultInfo StorageAnalysis::UiaSearchResultInfoOf(size_t index) const {
+    ListQuery query;
+    query.index = index;
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListQuery, 0, reinterpret_cast<LPARAM>(&query));
+    return query.info;
+}
+
+bool StorageAnalysis::UiaSearchResultRect(size_t index, RECT& outScreen) const {
+    ListQuery query;
+    query.index = index;
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListQuery, 0, reinterpret_cast<LPARAM>(&query));
+    outScreen = query.rect;
+    return query.hasRect;
+}
+
+bool StorageAnalysis::UiaListResultRect(size_t index, uint64_t identity, RECT& rect) const {
+    ListQuery query;
+    query.index = index;
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListQuery, 0, reinterpret_cast<LPARAM>(&query));
+    rect = query.rect;
+    return query.hasRect && query.info.identityHash == identity;
+}
+
+bool StorageAnalysis::UiaListResultOffscreen(size_t index, uint64_t identity) const {
+    RECT item{}, clip{};
+    if (!UiaListResultRect(index, identity, item) || !GetClientRect(list_, &clip)) return true;
+    MapWindowPoints(list_, nullptr, reinterpret_cast<POINT*>(&clip), 2);
+    RECT header{};
+    if (GetWindowRect(ListView_GetHeader(list_), &header)) clip.top = (std::max)(clip.top, header.bottom);
+    RECT intersection{};
+    return IntersectRect(&intersection, &item, &clip) == FALSE;
+}
+bool StorageAnalysis::UiaSearchResultOffscreen(size_t index) const {
+    RECT item{}, clip{};
+    if (!UiaSearchResultRect(index, item) || !GetClientRect(list_, &clip)) return true;
+    MapWindowPoints(list_, nullptr, reinterpret_cast<POINT*>(&clip), 2);
+    RECT header{};
+    if (GetWindowRect(ListView_GetHeader(list_), &header)) clip.top = (std::max)(clip.top, header.bottom);
+    RECT intersection{};
+    return IntersectRect(&intersection, &item, &clip) == FALSE;
+}
+
+bool StorageAnalysis::UiaSearchVisible() const {
+    return list_ != nullptr && IsWindowVisible(list_) != FALSE;
+}
+
+bool StorageAnalysis::UiaSearchHasKeyboardFocus() const {
+    ListQuery query;
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListQuery, 0, reinterpret_cast<LPARAM>(&query));
+    return query.focused;
+}
+
+bool StorageAnalysis::DispatchListAction(size_t index, unsigned kind, uint64_t expectedIdentity) {
+    if (!UiaSearchVisible() || expectedIdentity == 0) return false;
+    ListAction action{index, expectedIdentity, kind};
+    if (kind == 4 || kind == 5) {
+        auto payload = std::make_unique<ListAction>(action);
+        if (!PostMessageW(list_, kStorageListActivate, 0, reinterpret_cast<LPARAM>(payload.get()))) return false;
+        payload.release();
+        return true;
+    }
+    return SendMessageW(list_, kStorageListAction, 0, reinterpret_cast<LPARAM>(&action)) != 0;
+}
+
+bool StorageAnalysis::ApplyListAction(const ListAction& action) {
+    if (!UiaSearchVisible()) return false;
+    if (action.kind == 6) {
+        SetFocus(list_);
+        return GetFocus() == list_;
+    }
+    ListQuery query;
+    query.index = action.index;
+    ReadListQuery(query);
+    if (action.kind == 5) {
+        if (action.index >= query.headerCount || query.headerIdentity != action.identity) return false;
+        SortItems(static_cast<int>(action.index),
+            static_cast<int>(action.index) == sortColumn_ ? !sortAscending_ : true);
+        return true;
+    }
+    if (query.info.identityHash == 0 || query.info.identityHash != action.identity) return false;
+    const int index = static_cast<int>(action.index);
+    switch (action.kind) {
+    case 0: ListView_SetItemState(list_, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED); break;
+    case 1: ListView_SetItemState(list_, index, 0, LVIS_SELECTED); break;
+    case 2: SetFocus(list_); ListView_SetItemState(list_, index, LVIS_FOCUSED, LVIS_FOCUSED); break;
+    case 3: ListView_EnsureVisible(list_, index, FALSE); break;
+    case 4: ActivateListItem(action.index); break;
+    default: return false;
+    }
+    return true;
+}
+
+bool StorageAnalysis::UiaListDispatchAction(size_t index, uint64_t expectedIdentity, unsigned action) {
+    return DispatchListAction(index, action, expectedIdentity);
+}
+void StorageAnalysis::UiaListSetFocus() {
+    const ListAction action{0, 0, 6};
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListAction, 0, reinterpret_cast<LPARAM>(&action));
+}
+void StorageAnalysis::UiaSearchSelectItem(size_t index) { DispatchListAction(index, 0, UiaSearchResultInfoOf(index).identityHash); }
+void StorageAnalysis::UiaSearchRemoveFromSelection(size_t index) { DispatchListAction(index, 1, UiaSearchResultInfoOf(index).identityHash); }
+void StorageAnalysis::UiaSearchSetFocusItem(size_t index) { DispatchListAction(index, 2, UiaSearchResultInfoOf(index).identityHash); }
+void StorageAnalysis::UiaSearchScrollIntoView(size_t index) { DispatchListAction(index, 3, UiaSearchResultInfoOf(index).identityHash); }
+void StorageAnalysis::UiaSearchActivateItem(size_t index) { DispatchListAction(index, 4, UiaSearchResultInfoOf(index).identityHash); }
+
+size_t StorageAnalysis::UiaListHeaderCount() const {
+    ListQuery query;
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListQuery, 0, reinterpret_cast<LPARAM>(&query));
+    return query.headerCount;
+}
+
+std::wstring StorageAnalysis::UiaListHeaderName(size_t index) const {
+    ListQuery query;
+    query.index = index;
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListQuery, 0, reinterpret_cast<LPARAM>(&query));
+    return query.headerName;
+}
+
+bool StorageAnalysis::UiaListHeaderRect(size_t index, RECT& outScreen) const {
+    ListQuery query;
+    query.index = index;
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListQuery, 0, reinterpret_cast<LPARAM>(&query));
+    outScreen = query.headerRect;
+    return query.hasHeaderRect;
+}
+
+uint64_t StorageAnalysis::UiaListHeaderIdentity(size_t index) const {
+    ListQuery query;
+    query.index = index;
+    if (list_ && IsWindow(list_)) SendMessageW(list_, kStorageListQuery, 0, reinterpret_cast<LPARAM>(&query));
+    return query.headerIdentity;
+}
+
+bool StorageAnalysis::UiaListDispatchHeader(size_t index, uint64_t identity) {
+    return DispatchListAction(index, 5, identity);
+}
+
+void StorageAnalysis::UiaListInvokeHeader(size_t index) { DispatchListAction(index, 5, UiaListHeaderIdentity(index)); }
+void StorageAnalysis::NotifyListChanged() {
+    if (listProvider_ && !listNotificationPending_) {
+        listNotificationPending_ = PostMessageW(list_, kStorageListChanged, 0, 0) != FALSE;
+    }
+}
 StorageAnalysis::~StorageAnalysis() {
+    listEvents_.Clear();
+    if (listUiaState_) listUiaState_->alive = false;
+    listProvider_.Reset();
+    listUiaState_.reset();
+    if (list_ != nullptr) {
+        MSG pending{};
+        while (PeekMessageW(&pending, list_, kStorageListActivate, kStorageListActivate, PM_REMOVE)) {
+            delete reinterpret_cast<ListAction*>(pending.lParam);
+        }
+        RemoveWindowSubclass(list_, ListSubclassProc, kStorageListSubclass);
+    }
     const HWND pushButtons[] = {back_, up_};
     for (size_t i = 0; i < std::size(pushButtons); ++i) {
         if (pushButtons[i] != nullptr) {
@@ -636,6 +929,7 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
                           reinterpret_cast<DWORD_PTR>(this));
     }
     SetWindowSubclass(status_, StatusSubclassProc, kStatusSubclassId, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(list_, ListSubclassProc, kStorageListSubclass, reinterpret_cast<DWORD_PTR>(this));
 
     const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"% of Volume", L"Modified", L"Size on Disk"};
     const int widths[] = {260, 80, 100, 120, 100, 100, 145, 120};
@@ -1020,6 +1314,7 @@ void StorageAnalysis::RefreshOverview() {
 }
 
 void StorageAnalysis::RefreshData() {
+    NotifyListChanged();
     const auto selected = displayedPath_ == currentPath_ ? CaptureSelectedItem() : std::nullopt;
     ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     displayedPath_ = currentPath_;
@@ -1347,6 +1642,7 @@ void StorageAnalysis::UpdateVolumeUsedBytes() {
 
 void StorageAnalysis::SortItems(int column, bool ascending) {
     if (column < 0 || column >= 8) return;
+    NotifyListChanged();
     const auto selected = CaptureSelectedItem();
     ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     sortColumn_ = column;
@@ -1676,24 +1972,16 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
 
     if (header->code == NM_DBLCLK || header->code == LVN_ITEMACTIVATE) {
         const int selected = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
-        if (selected >= 0 && static_cast<size_t>(selected) < items_.size()) {
-            const DrillItem& item = items_[static_cast<size_t>(selected)];
-            if (!item.categoryId.empty()) {
-                activeCategoryId_ = item.categoryId;
-                PopulateCategoryFilter();
-                SetViewMode(ViewMode::LargestFiles);
-            } else if (item.isDirectory) {
-                std::wstring childPath = ffui::JoinPath(currentPath_, item.name);
-                currentPath_ = childPath;
-                UpdateNavigationButtonState();
-                RefreshData();
-                if (navigate_) navigate_(currentPath_, true);
-            } else if (navigate_) {
-                std::wstring filePath = ffui::JoinPath(currentPath_, item.name);
-                navigate_(filePath, false);
-            }
-        }
+        if (selected >= 0) ActivateListItem(static_cast<size_t>(selected));
         return true;
+    }
+
+    if (header->code == LVN_ITEMCHANGED && listProvider_) {
+        const auto* change = reinterpret_cast<NMLISTVIEW*>(lParam);
+        if ((change->uChanged & LVIF_STATE) != 0) {
+            listEvents_.Notify({UiaEventKind::SelectionInvalidated});
+            if ((change->uNewState & LVIS_FOCUSED) != 0) listEvents_.Notify({UiaEventKind::FocusChanged});
+        }
     }
 
     if (header->code == LVN_COLUMNCLICK) {
@@ -1706,6 +1994,23 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
         return true;
     }
     return false;
+}
+
+void StorageAnalysis::ActivateListItem(size_t index) {
+    if (!visible_ || index >= items_.size()) return;
+    const DrillItem item = items_[index];
+    if (!item.categoryId.empty()) {
+        activeCategoryId_ = item.categoryId;
+        PopulateCategoryFilter();
+        SetViewMode(ViewMode::LargestFiles);
+    } else if (item.isDirectory) {
+        currentPath_ = ffui::JoinPath(currentPath_, item.name);
+        UpdateNavigationButtonState();
+        RefreshData();
+        if (navigate_) navigate_(currentPath_, true);
+    } else if (navigate_) {
+        navigate_(ffui::JoinPath(currentPath_, item.name), false);
+    }
 }
 
 bool StorageAnalysis::HandleCompletion(LPARAM lParam) {

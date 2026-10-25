@@ -1721,6 +1721,10 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
 }
 
 void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset, float scrollOffset2) {
+    if (!BrowseContentActive()) {
+        context->Clear(ffui::GetUiTheme(darkTheme_).background);
+        return;
+    }
     EnsureCreated(context, dwriteFactory);
 
     // quick-access-home 4.x: remember the viewport so input handlers (which
@@ -2365,6 +2369,24 @@ void ColumnView::SetDualPane(bool enabled) {
                -1, -1, -1, -1, -1, /*home=*/false, /*group=*/true});
 }
 
+void ColumnView::SetBrowseContentActive(bool active) {
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        if (browseContentActive_ == active) return;
+        browseContentActive_ = active;
+    }
+    // original-vision-journey-recovery: a tool replaces the complete Browse
+    // presentation. Retire its fragment, including client-held Home items,
+    // and mint a fresh fragment when Browse is presented again.
+    NotifyUia({active ? UiaEventKind::StructureBulkAdded : UiaEventKind::StructureBulkRemoved,
+               -1, -1, -1, -1, -1, /*home=*/false, /*group=*/true});
+}
+
+bool ColumnView::BrowseContentActive() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    return browseContentActive_;
+}
+
 void ColumnView::ActivatePane(int paneIndex) {
     bool changed = false;
     if (paneIndex == 0 || (dualPane_ && paneIndex == 1)) {
@@ -2891,6 +2913,29 @@ void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
 void ColumnView::UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) {
     if (pane != 0 && pane != 1) return;
     ActivateHomeItem(pane, globalIndex, openInNewTab);
+}
+
+bool ColumnView::UiaDispatchHomeAction(const UiaHomeActionRequest& request) {
+    const HWND owner = UiaGeometry().hwnd;
+    if (owner == nullptr || !IsWindow(owner)) return false;
+    const DWORD ownerThread = GetWindowThreadProcessId(owner, nullptr);
+    if (ownerThread == 0) return false;
+    if (ownerThread == GetCurrentThreadId()) return HandleUiaHomeAction(request);
+    // Synchronous dispatch keeps this closed-data request alive until the
+    // owner has validated it. Never execute shell callbacks on failure.
+    return SendMessageW(owner, WM_APP_COLUMNVIEW_HOME_ACTION, 0,
+                        reinterpret_cast<LPARAM>(&request)) != 0;
+}
+
+bool ColumnView::HandleUiaHomeAction(const UiaHomeActionRequest& request) {
+    const HWND owner = UiaGeometry().hwnd;
+    if (owner == nullptr || GetWindowThreadProcessId(owner, nullptr) != GetCurrentThreadId() ||
+        uiaProvider_ == nullptr || request.ownerLifetime != uiaState_) return false;
+    const auto* provider = static_cast<ColumnViewUiaProvider*>(uiaProvider_.Get());
+    if (request.fragmentLifetime != provider->FragmentState()) return false;
+    // Validation and the canonical activation now share the UI thread. A
+    // changed item, retired fragment, or hidden workspace cannot retarget.
+    return UiaSurface::UiaDispatchHomeAction(request);
 }
 
 void ColumnView::UiaActivateHomeClear(int pane, int clearKind) {

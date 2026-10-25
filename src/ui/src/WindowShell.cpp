@@ -266,6 +266,7 @@ void WindowShell::OpenStorageWorkspace() {
 }
 
 void WindowShell::SyncWorkspaceChrome() {
+    columnView_.SetBrowseContentActive(!searchPanel_.Visible() && !storageAnalysis_.Visible());
     NavigationSidebar::ActiveWorkspace workspace = NavigationSidebar::ActiveWorkspace::Browse;
     if (searchPanel_.Visible()) workspace = NavigationSidebar::ActiveWorkspace::Search;
     else if (storageAnalysis_.Visible()) workspace = NavigationSidebar::ActiveWorkspace::Storage;
@@ -759,7 +760,10 @@ bool WindowShell::InitializeCommands() {
         const std::wstring navigationPath = candidate.isDirectory
             ? (std::filesystem::path(candidate.folder) / candidate.name).wstring()
             : candidate.folder;
-        if (navigationPath.empty()) return;
+        if (navigationPath.empty()) {
+            SyncWorkspaceChrome();
+            return;
+        }
         // original-vision-journey-recovery 3.1: use the Home-aware shell
         // transition, retaining the engine's reconstructed ancestry without
         // first rebuilding/enumerating a second, path-only column chain.
@@ -1613,7 +1617,7 @@ void WindowShell::Render() {
             galleryRect, ffui::gUiDarkTheme, CurrentDpiScale());
     } else if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
         storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), shellLayout.contentRect);
-    } else if (searchPanel_.Visible() || storageAnalysis_.Visible()) {
+    } else if (!columnView_.BrowseContentActive()) {
         // ui-v3 hardening V3-01: search/storage own the workspace through native
         // child controls separated by inset gutters. Rendering browse pixels
         // beneath them leaked stale columns/headings through every gap between
@@ -2429,13 +2433,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             searchPanel_.HandleCompletion(lParam);
             return 0;
 
-        // stabilize-live-uia-e2e: search-result activation marshaled from the
-        // UIA provider thread to the UI thread (see SearchPanel::
-        // SearchActivationNeedsUiThreadMarshal). Runs the exact activation
-        // path; the index is re-validated against the current result set.
-        case WM_APP_SEARCH_RESULT_ACTIVATE:
-            searchPanel_.ActivateResultItem(static_cast<size_t>(wParam));
-            return 0;
+        case WM_APP_COLUMNVIEW_HOME_ACTION:
+            return lParam != 0 && columnView_.HandleUiaHomeAction(
+                *reinterpret_cast<const UiaHomeActionRequest*>(lParam)) ? 1 : 0;
 
         case WM_APP_INDEXED_SEARCH_COMPLETE:
             searchPanel_.HandleIndexedCompletion(lParam);

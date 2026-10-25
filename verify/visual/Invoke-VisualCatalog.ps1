@@ -627,62 +627,17 @@ try {
     # workspace must still be open here: the earlier ordering closed it first,
     # which made the query edit undiscoverable and skipped this scenario in
     # every catalog run.
-    $searchEdit = $null
-    try { $searchEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 2000 } catch { }
-    if ($searchEdit) {
-        $sentinel = 'zzzz_no_matching_files_query_9999'
-        $null = Set-UiaElementValue -Driver $driver -Element $searchEdit -Value $sentinel
-        $queryNow = $null
-        $queryReady = Wait-UiaCondition -Driver $driver -TimeoutMs 2000 -PollIntervalMs 200 -Description "search query='$sentinel'" -ScriptBlock {
-            try {
-                $liveEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 500
-                if (-not $liveEdit) { return $false }
-                $liveText = [string](Get-UiaElementTextValue -Driver $driver -Element $liveEdit)
-                $script:visualCatalogQueryNow = $liveText
-                return ($liveText -eq $sentinel)
-            } catch { return $false }
+    $sentinel = 'zzzz_no_matching_files_query_9999'
+    $noMatchQuery = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query $sentinel
+    $noMatchReady = Wait-UiaCondition -Driver $driver -TimeoutMs 10000 -PollIntervalMs 200 `
+        -Description 'sentinel query has no result rows' -ScriptBlock {
+            $surface = Get-UiaSearchQuerySurface -Driver $driver -Main $main -ProcessId $appPid
+            return ([string]$surface.queryText -eq $sentinel) -and (@($surface.resultNames).Count -eq 0)
         }
-        if (-not $queryReady) {
-            # A ValuePattern write can report success while the live provider is
-            # replaced. Reacquire the edit and use real input as the fallback.
-            $liveEdit = $null
-            try { $liveEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 1000 } catch { }
-            if ($liveEdit) {
-                try { $liveEdit.SetFocus() } catch { }
-                $null = Send-UiaText -Driver $driver -Text $sentinel
-                Start-Sleep -Milliseconds 400
-                try { $queryNow = Get-UiaElementTextValue -Driver $driver -Element $liveEdit } catch { }
-            }
-        } else {
-            $queryNow = $script:visualCatalogQueryNow
-        }
-        if ($null -eq $queryNow) {
-            try {
-                $liveEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 1000
-                if ($liveEdit) { $queryNow = Get-UiaElementTextValue -Driver $driver -Element $liveEdit }
-            } catch { }
-        }
-        $resultsEl = $null
-        try { $resultsEl = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -FromElement $main -TimeoutMs 2000 } catch { }
-        $resultChildren = 0
-        if ($resultsEl) { $resultChildren = @(Get-UiaChildren -Driver $driver -Element $resultsEl).Count }
-        # Honest scope: the query holds the sentinel and the result set is
-        # empty. Degraded-mode search has zero candidates in this disposable
-        # sandbox, so "a non-empty query produced zero rows" is the strongest
-        # semantic contract available without product-side status exposure.
-        Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
-            -ScenarioId 'search-no-results' -ExpectedState 'Fast Search with zero results and empty search state' `
-            -Theme 'Light' -Width 1280 -PaneMode 'single' `
-            -Assertion ([pscustomobject]@{ Pass = (([string]$queryNow -eq $sentinel) -and $null -ne $resultsEl -and $resultChildren -eq 0)
-                                           Detail = "query='$queryNow' resultsElement=$($null -ne $resultsEl) children=$resultChildren" })
-    } else {
-        # Never silently drop a scenario: a missing search edit is an
-        # explicit SKIPPED record, not an invisible coverage hole.
-        $null = Add-VisualScenarioResult -Run $run -ScenarioId 'search-no-results' `
-            -ExpectedState 'Fast Search with zero results and empty search state' `
-            -FixtureId 'sandbox-home' -Theme 'Light' -Width 1280 -PaneMode 'single' `
-            -Status 'SKIPPED' -Reason 'search query edit 7101 was not discoverable' -AssertionPass $false
-    }
+    Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
+        -ScenarioId 'search-no-results' -ExpectedState 'Fast Search with zero results and empty search state' `
+        -Theme 'Light' -Width 1280 -PaneMode 'single' `
+        -Assertion ([pscustomobject]@{ Pass = [bool]$noMatchQuery.Pass -and [bool]$noMatchReady; Query = $noMatchQuery })
     $null = Close-UiaSearchPanelIfOpen -Driver $driver -Main $main -ProcessId $appPid
     $storage = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' `
         -ExpectedNames @('Overview') -ExpectedCommandName 'Analyze Storage' -ExpectedCommandId 'storage.analyze'

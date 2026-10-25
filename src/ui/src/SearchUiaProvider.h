@@ -34,6 +34,40 @@ namespace ffui {
 
 class SearchUiaProvider;
 class SearchResultUiaProvider;
+class ListHeaderUiaProvider;
+
+struct SemanticListIdentity {
+    std::wstring name = L"Search Results";
+    std::wstring automationId = L"Search.Results";
+    int runtimeNamespace = kUiaNsSearch;
+};
+
+class ListHeaderUiaProvider final : public UiaProviderBase,
+                                  public IRawElementProviderFragment,
+                                  public IInvokeProvider {
+public:
+    ListHeaderUiaProvider(SearchUiaProvider* owner, size_t index);
+    ~ListHeaderUiaProvider() override;
+    FFUIA_QI_BEGIN()
+        FFUIA_QI_ENTRY(IID_IRawElementProviderFragment, IRawElementProviderFragment)
+        FFUIA_QI_ENTRY(IID_IInvokeProvider, IInvokeProvider)
+    FFUIA_QI_END()
+    FFUIA_REFCOUNT()
+    STDMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept override;
+    STDMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept override;
+    STDMETHODIMP Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept override;
+    STDMETHODIMP GetRuntimeId(SAFEARRAY** retVal) noexcept override;
+    STDMETHODIMP get_BoundingRectangle(UiaRect* retVal) noexcept override;
+    STDMETHODIMP GetEmbeddedFragmentRoots(SAFEARRAY** retVal) noexcept override;
+    STDMETHODIMP SetFocus() noexcept override;
+    STDMETHODIMP get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept override;
+    STDMETHODIMP Invoke() noexcept override;
+private:
+    bool Available() const;
+    SearchUiaProvider* owner_ = nullptr;
+    size_t index_ = 0;
+    uint64_t identity_ = 0;
+};
 
 // Fragment root + controller for the search result list.
 class SearchResultUiaProvider final : public UiaProviderBase,
@@ -92,7 +126,8 @@ class SearchUiaProvider final : public UiaProviderBase,
                                 public ISelectionProvider,
                                 public IItemContainerProvider {
 public:
-    SearchUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND listHwnd);
+    SearchUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND listHwnd,
+                      SemanticListIdentity identity = {});
     ~SearchUiaProvider() override;
 
     FFUIA_QI_BEGIN()
@@ -135,6 +170,11 @@ public:
     UiaSurface* Surface() const noexcept { return surface_; }
     bool SurfaceAlive() const noexcept { return Alive(); }
     Microsoft::WRL::ComPtr<SearchResultUiaProvider> ResultElement(size_t index);
+    Microsoft::WRL::ComPtr<ListHeaderUiaProvider> HeaderElement(size_t index);
+    int RuntimeNamespace() const noexcept { return identity_.runtimeNamespace; }
+    std::vector<int> ItemRuntimeId(uint64_t hash) const {
+        return {identity_.runtimeNamespace, 1, UiaHashLow(hash), UiaHashHigh(hash)};
+    }
     void InvalidateResults();
 
     static void SinkThunk(const UiaEventNotification& notification, void* context);
@@ -149,6 +189,7 @@ private:
     Microsoft::WRL::ComPtr<IRawElementProviderSimple> hostProvider_;
     UiaSurface* surface_ = nullptr;
     HWND listHwnd_ = nullptr;
+    SemanticListIdentity identity_;
     // UIAutomationCore may query result elements on a worker thread while
     // the UI thread replaces the result set. Protect the bounded cache from
     // concurrent find/erase/clear operations.

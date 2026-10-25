@@ -161,6 +161,8 @@ void TestGroupSemantics() {
     treemap.tiles.push_back(MakeTile(0x200, L"FolderA", L"C:\\TestScope\\FolderA", true, true, 60.0f, 0.0f, 40.0f, 100.0f));
 
     auto surface = MakeBaseSurface();
+    // The real Storage workspace replaces Browse, including in Treemap mode.
+    surface.browseContentActive = false;
     auto state = std::make_shared<ffui::UiaOwnerState>();
     ffui::ColumnViewUiaProvider root(state, &surface, nullptr, &treemap);
 

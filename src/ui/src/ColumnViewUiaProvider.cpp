@@ -361,6 +361,7 @@ STDMETHODIMP ColumnViewUiaProvider::Navigate(NavigateDirection direction, IRawEl
             }
             return S_OK;
         }
+        if (!surface_->UiaBrowseContentActive()) return S_OK;
         auto group = GroupElement();
         if (group != nullptr) {
             *retVal = group.Detach();
@@ -425,6 +426,7 @@ STDMETHODIMP ColumnViewUiaProvider::ElementProviderFromPoint(double x, double y,
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
 
     const bool treemapActive = treemapSurface_ != nullptr && treemapSurface_->TreemapActive();
+    if (!treemapActive && !surface_->UiaBrowseContentActive()) return S_OK;
     const UiaViewGeometry geometry = treemapActive ? TreemapGeometry() : Geometry();
     POINT pt{static_cast<LONG>(x), static_cast<LONG>(y)};
     if (geometry.hwnd != nullptr && IsWindow(geometry.hwnd)) {
@@ -465,6 +467,7 @@ STDMETHODIMP ColumnViewUiaProvider::ElementProviderFromPoint(double x, double y,
     }
 
     const int paneCount = surface_->UiaPaneCount();
+    if (paneCount <= 0) return S_OK;
     const float paneWidth = geometry.widthDip / static_cast<float>(paneCount);
     const int pane = paneCount > 1 ? (xDip < paneWidth ? 0 : 1) : 0;
     if (pane < 0 || pane >= paneCount) return S_OK;
@@ -579,7 +582,7 @@ STDMETHODIMP ColumnViewUiaProvider::GetFocus(IRawElementProviderFragment** retVa
 }
 
 Microsoft::WRL::ComPtr<UiaProviderBase> ColumnViewUiaProvider::FocusElement() {
-    if (!Alive() || surface_ == nullptr) return nullptr;
+    if (!Alive() || surface_ == nullptr || !surface_->UiaBrowseContentActive()) return nullptr;
     const int active = surface_->UiaActivePane();
     if (surface_->UiaPaneIsHome(active)) {
         const int target = surface_->UiaHomeFocusTarget(active);
@@ -2889,7 +2892,15 @@ STDMETHODIMP HomeItemUiaProvider::Invoke() noexcept {
     if (!item.enabled) {
         return E_FAIL;
     }
-    surface->UiaActivateHomeItem(pane_, globalIndex_, false);
+    UiaHomeActionRequest request;
+    request.pane = pane_;
+    request.globalIndex = globalIndex_;
+    request.sectionKind = sectionKind_;
+    request.indexInSection = indexInSection_;
+    request.valueHash = valueHash_;
+    request.ownerLifetime = owner_->State();
+    request.fragmentLifetime = State();
+    if (!surface->UiaDispatchHomeAction(request)) return kElementNotAvailable;
     UiaProviderBase::RaiseInvoked(this);
     return S_OK;
 }
@@ -3133,7 +3144,14 @@ STDMETHODIMP HomeClearUiaProvider::Invoke() noexcept {
     if (section.sectionKind < 0) {
         return kElementNotAvailable;
     }
-    surface->UiaActivateHomeClear(pane_, clearKind_);
+    UiaHomeActionRequest request;
+    request.kind = UiaHomeActionKind::ClearSection;
+    request.pane = pane_;
+    request.sectionKind = section.sectionKind;
+    request.clearKind = clearKind_;
+    request.ownerLifetime = owner_->State();
+    request.fragmentLifetime = State();
+    if (!surface->UiaDispatchHomeAction(request)) return kElementNotAvailable;
     UiaProviderBase::RaiseInvoked(this);
     return S_OK;
 }

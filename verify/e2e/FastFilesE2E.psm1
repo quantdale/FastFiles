@@ -178,8 +178,10 @@ function Get-E2EStorageRow {
     param([Parameter(Mandatory)] $Context, [Parameter(Mandatory)] [string] $Name)
     $list = Find-UiaElement -Driver $Context.Driver -AutomationId '7201' -ClassName 'SysListView32' `
         -FromElement (Get-E2EMain -Context $Context) -TimeoutMs 700
-    foreach ($row in @(Find-UiaElement -Driver $Context.Driver -NameLike "$Name*" -FromElement $list -All -TimeoutMs 700)) {
-        if (Test-UiaElementPattern -Driver $Context.Driver -Element $row -Pattern 'SelectionItem') { return $row }
+    foreach ($row in @(Get-UiaChildren -Driver $Context.Driver -Element $list)) {
+        $identity = Get-UiaElementIdentity -Driver $Context.Driver -Element $row
+        if ($identity.Name -like "$Name*" -and
+            (Test-UiaPatternAvailable -Driver $Context.Driver -Element $row -PatternName 'SelectionItem')) { return $row }
     }
     return $null
 }
@@ -987,8 +989,13 @@ function Invoke-E2EStorageScenario {
             $rect.x -lt ($groupRect.x - $geometryTolerance) -or $rect.y -lt ($groupRect.y - $geometryTolerance) -or
             ($rect.x + $rect.width) -gt ($groupRect.x + $groupRect.width + $geometryTolerance) -or
             ($rect.y + $rect.height) -gt ($groupRect.y + $groupRect.height + $geometryTolerance)) {
+            $nativeDetail = ''
+            if (-not $rect) {
+                try { $nativeDetail = [string]$tile.Current.BoundingRectangle }
+                catch { $nativeDetail = $_.Exception.ToString() }
+            }
             return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'tile-geometry' `
-                -Detail "a live treemap tile bounding rectangle escaped the treemap content rectangle beyond ${geometryTolerance}px: tile=$($rect | ConvertTo-Json -Compress); group=$($groupRect | ConvertTo-Json -Compress)" `
+                -Detail "a live treemap tile bounding rectangle escaped the treemap content rectangle beyond ${geometryTolerance}px: tile=$($rect | ConvertTo-Json -Compress); group=$($groupRect | ConvertTo-Json -Compress); native=$nativeDetail" `
                 -DurationMs $watch.Elapsed.TotalMilliseconds
         }
     }
