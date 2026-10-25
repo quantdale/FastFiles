@@ -29,3 +29,7 @@ Each writer owns one worktree. Read-only audit/review agents never modify implem
 ## Freshness and dependency decision
 
 First product changes were made only after `HEAD == origin/main == a26fe609` and a clean status in the product worktree. Acceptance changes start at exact PR15 tip. Product work depends on native UI contracts already in main, so its diff does not duplicate PR14/15/16. Acceptance repair remains stacked on PR15. Owner controls all merges; use a disposable merge simulation for combined validation.
+
+## Native status sibling and combined qualification — 2026-10-26
+
+Fresh fetch/PR API: PR14d3884eec, PR15 8bffb329, PR16e75a230d, PR17 067eaab, PR18 981a9ba and PR19d2187aa remain OPEN; main remainsa26fe609. Original three dirty files remain preserved atb77d61e; main-sync and published implementation worktrees stay clean/equal remote. Status implementationcd1f429 starts from verified PR18 and contains no PR19/16 commits. Intended draft base is PR18. Disposable integrationa3e20ab combines all six existing PRs plus status without C++ conflicts; it is local/unpushed. No existing PR or main was merged. Qualification/equivalence is scoped in the status evidence, not inferred from ancestry alone.
