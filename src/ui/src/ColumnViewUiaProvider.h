@@ -216,6 +216,7 @@ private:
     // resolves the live item state. False = stale element (fail cleanly,
     // never retarget the new occupant of the same row index).
     bool Resolve(UiaItemInfo& item, bool& statusLineShown) const;
+    HRESULT Dispatch(UiaBrowseActionKind kind) const;
 
     ColumnViewUiaProvider* owner_ = nullptr;
     int pane_ = 0;

@@ -366,21 +366,20 @@ void ColumnView::SelectRange(Column& column, int itemIndex) {
     ApplySelectionClick(column.selectedIndices, column.selectionAnchor, column.focusIndex, itemIndex, false, true);
 }
 
-void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool shift) {
-    const int pane = activePane_;
+bool ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool shift,
+                              const UiaBrowseActionRequest* expected) {
+    const int pane = expected ? expected->pane : activePane_;
     UiaSelectionSnapshot before;
-    {
-        std::lock_guard<std::mutex> lock(columnsMutex_);
-        before = CaptureUiaSelectionLocked(pane, columnIndex);
-    }
     std::wstring childPath;
     bool isDirectory = false;
     bool clearedEmptyArea = false;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        auto& columns = ActiveColumns();
+        if (expected && !MatchesUiaBrowseItemLocked(*expected)) return false;
+        before = CaptureUiaSelectionLocked(pane, columnIndex);
+        auto& columns = pane == 0 ? columns_ : columns2_;
         if (columnIndex < 0 || columnIndex >= static_cast<int>(columns.size())) {
-            return;
+            return false;
         }
         Column& column = columns[columnIndex];
         if (itemIndex < 0 || itemIndex >= static_cast<int>(column.items.size())) {
@@ -394,7 +393,7 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
                 column.focusIndex = -1;
                 clearedEmptyArea = true;
             }
-            return;
+            return false;
         }
         if (shift) {
             SelectRange(column, itemIndex);
@@ -407,11 +406,13 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
         childPath = JoinPath(column.path, column.items[itemIndex].name);
     }
 
+    if (pane != activePane_) ActivatePane(pane);
+
     // selection-input-hardening: empty-area clear fires the same selection
     // transition diff as a normal click.
     if (clearedEmptyArea) {
         NotifyUiaSelectionTransition(before, pane);
-        return;
+        return true;
     }
 
     if (control || shift) {
@@ -420,7 +421,7 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
             ActiveFocusedColumnIndex() = columnIndex;
         }
         NotifyUiaSelectionTransition(before, pane);
-        return;
+        return true;
     }
 
     TruncateAfter(columnIndex);
@@ -435,6 +436,7 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
         RequestColumn(columnIndex + 1, childPath);
     }
     NotifyUiaSelectionTransition(before, pane);
+    return true;
 }
 
 void ColumnView::OnKeyDown(int virtualKey) {
@@ -2879,6 +2881,21 @@ void ColumnView::UiaSetHorizontalScroll(int pane, float offsetDip) {
     }
 }
 
+void ColumnView::ScrollUiaItemIntoViewLocked(int pane, Column& column, int row) {
+    // Same clamp math as EnsureFocusedItemVisible, without touching focus
+    // (including the same status-banner inset).
+    const float visibleHeight =
+        (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight - ColumnContentTopInset(column.freshness.state));
+    const float top = static_cast<float>(row) * BrowseRowHeight();
+    const float bottom = top + BrowseRowHeight();
+    float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    if (top < offset) offset = top;
+    else if (bottom > offset + visibleHeight) offset = bottom - visibleHeight;
+    const float maximum = (std::max)(0.0f,
+        static_cast<float>(column.items.size()) * BrowseRowHeight() - visibleHeight);
+    offset = std::clamp(offset, 0.0f, maximum);
+}
+
 void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
     bool scrolled = false;
     {
@@ -2888,18 +2905,7 @@ void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
         if (col < 0 || col >= static_cast<int>(columns.size())) return;
         Column& column = columns[static_cast<size_t>(col)];
         if (row < 0 || row >= static_cast<int>(column.items.size())) return;
-        // Same clamp math as EnsureFocusedItemVisible, without touching focus
-        // (including the same status-banner inset).
-        const float visibleHeight =
-            (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight - ColumnContentTopInset(column.freshness.state));
-        const float top = static_cast<float>(row) * BrowseRowHeight();
-        const float bottom = top + BrowseRowHeight();
-        float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
-        if (top < offset) offset = top;
-        else if (bottom > offset + visibleHeight) offset = bottom - visibleHeight;
-        const float maximum = (std::max)(0.0f,
-            static_cast<float>(column.items.size()) * BrowseRowHeight() - visibleHeight);
-        offset = std::clamp(offset, 0.0f, maximum);
+        ScrollUiaItemIntoViewLocked(pane, column, row);
         scrolled = true;
     }
     // Providers query the vertical offset live (UiaVerticalScroll), but the
@@ -2913,6 +2919,97 @@ void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
 void ColumnView::UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) {
     if (pane != 0 && pane != 1) return;
     ActivateHomeItem(pane, globalIndex, openInNewTab);
+}
+
+bool ColumnView::MatchesUiaBrowseItemLocked(const UiaBrowseActionRequest& request) const {
+    if (!request.ownerLifetime || !request.ownerLifetime->alive ||
+        !request.fragmentLifetime || !request.fragmentLifetime->alive || !browseContentActive_ ||
+        request.pane < 0 || request.pane >= (dualPane_ ? 2 : 1) || homePane_[static_cast<size_t>(request.pane)]) return false;
+    const auto& columns = request.pane == 0 ? columns_ : columns2_;
+    if (request.column < 0 || request.column >= static_cast<int>(columns.size())) return false;
+    const auto& column = columns[static_cast<size_t>(request.column)];
+    if (UiaHashWide(column.path) != request.pathHash || request.row < 0 ||
+        request.row >= static_cast<int>(column.items.size())) return false;
+    const auto& item = column.items[static_cast<size_t>(request.row)];
+    return UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh,
+                               JoinPath(column.path, item.name)) == request.itemHash;
+}
+
+bool ColumnView::UiaDispatchBrowseAction(const UiaBrowseActionRequest& request) {
+    const HWND owner = UiaGeometry().hwnd;
+    if (owner == nullptr || !IsWindow(owner)) return false;
+    const DWORD thread = GetWindowThreadProcessId(owner, nullptr);
+    if (thread == 0) return false;
+    if (thread == GetCurrentThreadId()) return HandleUiaBrowseAction(request);
+    return SendMessageW(owner, WM_APP_COLUMNVIEW_BROWSE_ACTION, 0,
+                        reinterpret_cast<LPARAM>(&request)) != 0;
+}
+
+bool ColumnView::HandleUiaBrowseAction(const UiaBrowseActionRequest& request) {
+    const HWND owner = UiaGeometry().hwnd;
+    if (owner == nullptr || GetWindowThreadProcessId(owner, nullptr) != GetCurrentThreadId() ||
+        uiaProvider_ == nullptr || request.ownerLifetime != uiaState_ || !uiaState_->alive) return false;
+    if (request.kind == UiaBrowseActionKind::FocusRoot) {
+        ::SetFocus(owner);
+        return GetFocus() == owner;
+    }
+    const auto* provider = static_cast<ColumnViewUiaProvider*>(uiaProvider_.Get());
+    if (request.fragmentLifetime != provider->FragmentState()) return false;
+    if (request.kind == UiaBrowseActionKind::Invoke) {
+        return ActivateItem(request.column, request.row, false, false, &request);
+    }
+    UiaSelectionSnapshot before;
+    bool notifySelection = false;
+    bool notifyFocus = false;
+    bool scrolled = false;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        if (!MatchesUiaBrowseItemLocked(request)) return false;
+        auto& column = (request.pane == 0 ? columns_ : columns2_)[static_cast<size_t>(request.column)];
+        int& focus = request.pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+        before = CaptureUiaSelectionLocked(request.pane, request.column);
+        switch (request.kind) {
+        case UiaBrowseActionKind::Select:
+            SelectSingle(column, request.row);
+            focus = request.column;
+            notifySelection = true;
+            break;
+        case UiaBrowseActionKind::AddSelection:
+        case UiaBrowseActionKind::RemoveSelection: {
+            const bool selected = column.selectedIndices.contains(request.row);
+            const bool wanted = request.kind == UiaBrowseActionKind::AddSelection;
+            if (selected != wanted) {
+                ToggleSelection(column, request.row);
+                focus = request.column;
+                notifySelection = true;
+            }
+            break;
+        }
+        case UiaBrowseActionKind::FocusItem:
+            notifyFocus = focus != request.column || column.focusIndex != request.row;
+            focus = request.column;
+            column.focusIndex = request.row;
+            break;
+        case UiaBrowseActionKind::ScrollItem: {
+            ScrollUiaItemIntoViewLocked(request.pane, column, request.row);
+            scrolled = true;
+            break;
+        }
+        default: return false;
+        }
+    }
+    if (notifySelection) {
+        ActivatePane(request.pane);
+        NotifyUiaSelectionTransition(before, request.pane);
+    }
+    if (request.kind == UiaBrowseActionKind::FocusItem) {
+        ActivatePane(request.pane);
+        ::SetFocus(owner);
+        if (notifyFocus) NotifyUiaFocus();
+        return GetFocus() == owner;
+    }
+    if (scrolled && repaint_) repaint_();
+    return true;
 }
 
 bool ColumnView::UiaDispatchHomeAction(const UiaHomeActionRequest& request) {

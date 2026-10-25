@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -402,6 +403,103 @@ void TestSelectionPattern() {
     Check(SUCCEEDED(item3Selection->get_SelectionContainer(&container)), "SelectionContainer resolves");
     Check(container != nullptr && GetControlType(container.Get()) == UIA_ListControlTypeId,
           "SelectionContainer is the owning column");
+}
+
+// Replace the row after Resolve copied its identity, before the provider acts.
+class ReplacingColumnSurface final : public fftest::FakeUiaSurface {
+public:
+    mutable bool replaceAfterRead = false;
+    ffui::UiaItemInfo UiaItemInfoOf(int pane, int col, int row) const override {
+        auto item = FakeUiaSurface::UiaItemInfoOf(pane, col, row);
+        if (replaceAfterRead) {
+            replaceAfterRead = false;
+            auto& current = const_cast<ReplacingColumnSurface*>(this)->panes[0].columns[0].items[0];
+            current.name = L"replacement.txt";
+            current.fileIdLow = 9000;
+        }
+        return item;
+    }
+};
+
+void TestItemActionRejectsReplacementAfterResolve() {
+    for (int action = 0; action < 6; ++action) {
+        ReplacingColumnSurface surface;
+        static_cast<fftest::FakeUiaSurface&>(surface) = MakeSinglePaneSurface();
+        surface.panes[0].columns[0].items[0].selected = action == 2;
+        auto state = std::make_shared<ffui::UiaOwnerState>();
+        ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+        auto item = FirstChild(FirstChild(FirstChild(FirstChild(
+            static_cast<IRawElementProviderFragment*>(&root)).Get()).Get()).Get());
+        Microsoft::WRL::ComPtr<ISelectionItemProvider> selection;
+        Microsoft::WRL::ComPtr<IInvokeProvider> invoke;
+        Microsoft::WRL::ComPtr<IScrollItemProvider> scroll;
+        item.As(&selection);
+        item.As(&invoke);
+        item.As(&scroll);
+        surface.actions.clear();
+        surface.replaceAfterRead = true;
+        HRESULT result = E_FAIL;
+        switch (action) {
+        case 0: result = selection->Select(); break;
+        case 1: result = selection->AddToSelection(); break;
+        case 2: result = selection->RemoveFromSelection(); break;
+        case 3: result = item->SetFocus(); break;
+        case 4: result = invoke->Invoke(); break;
+        case 5: result = scroll->ScrollIntoView(); break;
+        }
+        Check(result == UIA_E_ELEMENTNOTAVAILABLE, "replacement during item action fails closed");
+        Check(surface.actions.empty(), "replacement never receives original item's action");
+    }
+}
+
+class DispatchBoundaryColumnSurface final : public fftest::FakeUiaSurface {
+public:
+    std::function<void(const ffui::UiaBrowseActionRequest&)> beforeDispatch;
+    bool UiaDispatchBrowseAction(const ffui::UiaBrowseActionRequest& request) override {
+        if (beforeDispatch) beforeDispatch(request);
+        return ffui::UiaSurface::UiaDispatchBrowseAction(request);
+    }
+};
+
+void TestItemDispatchLifetimeAndMembership() {
+    for (int change = 0; change < 5; ++change) {
+        DispatchBoundaryColumnSurface surface;
+        static_cast<fftest::FakeUiaSurface&>(surface) = MakeSinglePaneSurface();
+        auto state = std::make_shared<ffui::UiaOwnerState>();
+        ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+        auto item = FirstChild(FirstChild(FirstChild(FirstChild(
+            static_cast<IRawElementProviderFragment*>(&root)).Get()).Get()).Get());
+        Microsoft::WRL::ComPtr<ISelectionItemProvider> selection;
+        item.As(&selection);
+        surface.beforeDispatch = [&](const ffui::UiaBrowseActionRequest& request) {
+            switch (change) {
+            case 0: request.fragmentLifetime->alive = false; break;
+            case 1: request.ownerLifetime->alive = false; break;
+            case 2: surface.browseContentActive = false; break;
+            case 3: surface.panes[0].columns[0].path = L"C:\\Replacement"; break;
+            case 4: surface.panes[0].home = true; break;
+            }
+        };
+        Check(selection->Select() == UIA_E_ELEMENTNOTAVAILABLE && surface.actions.empty(),
+              "retired, hidden, Home or changed-column request rejects without mutation");
+    }
+    for (int add = 0; add < 2; ++add) {
+        DispatchBoundaryColumnSurface surface;
+        static_cast<fftest::FakeUiaSurface&>(surface) = MakeSinglePaneSurface();
+        surface.panes[0].columns[0].items[0].selected = add == 0;
+        auto state = std::make_shared<ffui::UiaOwnerState>();
+        ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+        auto item = FirstChild(FirstChild(FirstChild(FirstChild(
+            static_cast<IRawElementProviderFragment*>(&root)).Get()).Get()).Get());
+        Microsoft::WRL::ComPtr<ISelectionItemProvider> selection;
+        item.As(&selection);
+        surface.beforeDispatch = [&](const ffui::UiaBrowseActionRequest&) {
+            surface.panes[0].columns[0].items[0].selected = add != 0;
+        };
+        const HRESULT result = add ? selection->AddToSelection() : selection->RemoveFromSelection();
+        Check(result == S_OK && surface.actions.empty(),
+              "membership is checked at dispatch so Add/Remove remain idempotent");
+    }
 }
 
 void TestInvokeAndScrollItem() {
@@ -1406,6 +1504,8 @@ int main() {
     TestSelectionAddToSelectionMembership();
     TestSelectionRemoveFromSelectionMembership();
     TestSelectionDualPaneIsolation();
+    TestItemActionRejectsReplacementAfterResolve();
+    TestItemDispatchLifetimeAndMembership();
     TestInvokeAndScrollItem();
     TestScrollPattern();
     TestOffscreenAndBounds();

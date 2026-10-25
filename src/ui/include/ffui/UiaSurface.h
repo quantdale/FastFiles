@@ -99,6 +99,19 @@ struct UiaItemInfo {
     bool focused = false;        // row == the column's focusIndex
 };
 
+// column-uia-identity-dispatch: retain original provider identity until mutation.
+enum class UiaBrowseActionKind { Select, AddSelection, RemoveSelection, FocusItem, Invoke, ScrollItem, FocusRoot };
+struct UiaBrowseActionRequest {
+    UiaBrowseActionKind kind = UiaBrowseActionKind::Select;
+    int pane = -1;
+    int column = -1;
+    int row = -1;
+    uint64_t pathHash = 0;
+    uint64_t itemHash = 0;
+    UiaOwnerStatePtr ownerLifetime;
+    UiaOwnerStatePtr fragmentLifetime;
+};
+
 // One Home surface item (bounded <= kHomeMaxItems = 200 by the layout seam).
 struct UiaHomeItemInfo {
     int sectionKind = kUiaHomeSectionPinned;
@@ -219,6 +232,34 @@ public:
     virtual void UiaScrollPane(int pane, float deltaX, float deltaY) { (void)pane; (void)deltaX; (void)deltaY; }
     virtual void UiaSetHorizontalScroll(int pane, float offsetDip) { (void)pane; (void)offsetDip; }
     virtual void UiaScrollItemIntoView(int pane, int col, int row) { (void)pane; (void)col; (void)row; }
+
+    // Native adapters override this to validate and mutate under one model
+    // lock on the owner thread. The default supports single-threaded surfaces.
+    virtual bool UiaDispatchBrowseAction(const UiaBrowseActionRequest& request) {
+        if (!request.ownerLifetime || !request.ownerLifetime->alive) return false;
+        if (request.kind == UiaBrowseActionKind::FocusRoot) return true;
+        if (!request.fragmentLifetime || !request.fragmentLifetime->alive || !UiaBrowseContentActive() ||
+            request.pane < 0 || request.pane >= UiaPaneCount() || UiaPaneIsHome(request.pane) ||
+            request.column < 0 || request.column >= UiaColumnCount(request.pane)) return false;
+        const auto column = UiaColumnInfoOf(request.pane, request.column);
+        if (UiaHashWide(column.path) != request.pathHash || request.row < 0 || request.row >= column.itemCount) return false;
+        const auto item = UiaItemInfoOf(request.pane, request.column, request.row);
+        if (UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh, item.fullPath) != request.itemHash) return false;
+        switch (request.kind) {
+        case UiaBrowseActionKind::Select: UiaSelectItem(request.pane, request.column, request.row); break;
+        case UiaBrowseActionKind::AddSelection:
+            if (!item.selected) UiaToggleItem(request.pane, request.column, request.row);
+            break;
+        case UiaBrowseActionKind::RemoveSelection:
+            if (item.selected) UiaToggleItem(request.pane, request.column, request.row);
+            break;
+        case UiaBrowseActionKind::FocusItem: UiaSetItemFocus(request.pane, request.column, request.row); break;
+        case UiaBrowseActionKind::Invoke: UiaActivateItem(request.pane, request.column, request.row); break;
+        case UiaBrowseActionKind::ScrollItem: UiaScrollItemIntoView(request.pane, request.column, request.row); break;
+        default: return false;
+        }
+        return true;
+    }
 
     // --- actions (Home) ---
     virtual void UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) { (void)pane; (void)globalIndex; (void)openInNewTab; }

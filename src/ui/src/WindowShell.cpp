@@ -2450,6 +2450,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             searchPanel_.HandleCompletion(lParam);
             return 0;
 
+        case WM_APP_COLUMNVIEW_BROWSE_ACTION:
+            return lParam != 0 && columnView_.HandleUiaBrowseAction(
+                *reinterpret_cast<const UiaBrowseActionRequest*>(lParam)) ? 1 : 0;
+
         case WM_APP_COLUMNVIEW_HOME_ACTION:
             return lParam != 0 && columnView_.HandleUiaHomeAction(
                 *reinterpret_cast<const UiaHomeActionRequest*>(lParam)) ? 1 : 0;

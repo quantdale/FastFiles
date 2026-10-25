@@ -42,6 +42,7 @@
 
 namespace ffui {
 inline constexpr UINT WM_APP_COLUMNVIEW_HOME_ACTION = WM_APP + 45;
+inline constexpr UINT WM_APP_COLUMNVIEW_BROWSE_ACTION = WM_APP + 46;
 
 // semantic-treemap-uia 10.x: forward declaration -- ColumnView only stores
 // the pointer to the Storage Analysis treemap surface.
@@ -235,7 +236,8 @@ public:
     // Task 5.3/5.4/5.5: selecting an item in a column. Folders truncate
     // and (re)populate the next column; files never create a new column.
     // This is the "full" selection used by mouse clicks and Enter.
-    void ActivateItem(int columnIndex, int itemIndex, bool control = false, bool shift = false);
+    bool ActivateItem(int columnIndex, int itemIndex, bool control = false, bool shift = false,
+                      const UiaBrowseActionRequest* expected = nullptr);
 
     // Task 5.10: keyboard navigation. Up/Down move the visual selection
     // within the focused column only (no column population); Left/Right
@@ -403,6 +405,10 @@ public:
     void UiaScrollItemIntoView(int pane, int col, int row) override;
     void UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) override;
     void UiaActivateHomeClear(int pane, int clearKind) override;
+    bool UiaDispatchBrowseAction(const UiaBrowseActionRequest& request) override;
+    bool HandleUiaBrowseAction(const UiaBrowseActionRequest& request);
+    void ScrollUiaItemIntoViewLocked(int pane, Column& column, int row);
+    bool MatchesUiaBrowseItemLocked(const UiaBrowseActionRequest& request) const;
     bool UiaDispatchHomeAction(const UiaHomeActionRequest& request) override;
     bool HandleUiaHomeAction(const UiaHomeActionRequest& request);
     void UiaSetHomeFocusItem(int pane, int globalIndex) override;

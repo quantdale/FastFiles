@@ -1,6 +1,16 @@
 # Fast Files — Agent Workstate
 
-## Current resume checkpoint — original-vision journey recovery IN PROGRESS — 2026-10-25
+## Current resume checkpoint — atomic Column View UIA actions IN PROGRESS — 2026-10-25
+
+- Primary frontier: confirmed resolve-to-ordinal identity race in ColumnItemUiaProvider actions. Isolated successor column-uia-20261025 starts clean at product981a9ba, equal fetched origin product. Root sole writer; original dirty/diverged checkout untouched.
+- Parent product981a9ba: selected Debug126/126 (231.85s), release-test126/126 (226.04s), actual footer-aware visual21/21 at measured120DPI. Restricted reaper explicitly excluded. Derive live Git and hosted externally.
+- Red regression: six actions each return success and mutate replacement after Resolve (12 failed assertions). Closed request now preserves original path/item/lifetime; headless provider green passes. Native handler validates under columnsMutex_ with mutation/activation target capture, owner-window marshaling, no callbacks while locked. Native all-target Debug build and final incremental rebuild pass; focused7/7 (1.26s), strict change validation PASS. Additional retired/hidden/changed-column and membership-boundary tests pass. Actual native journeys remain pending.
+- Independent review unavailable after reviewer credit exhaustion and one fail-closed Hy3 doctor (required alias unavailable). Do not broaden historical approvals.
+- NEXT EXACT ACTION: commit atomic-action checkpoint, build diagnostic exact-source identity and run serialized real navigation/search/storage; then wider normal tests/Analyze. Update provenance, integration and push unmerged successor checkpoint. No main merges/releases.
+
+## Prior product checkpoint (historical)
+
+## Prior resume checkpoint — original-vision journey recovery IN PROGRESS — 2026-10-25
 
 - Primary frontier: final committed-source certification/publication, with bounded 1M acceptance oracle running separately. User authorizes continued successor execution. Owner controls existing PR merges and production release.
 - Current product implementation follows1208cb6 with two bounded fixes: category summary refinement also updates Treemap filter, and typed Home startup uses canonical NavigateToLocation. Live Storage red/green and actual Nested/Home close/relaunch now pass. Derive current HEAD and remotes externally; no self-referential SHA.
