@@ -520,6 +520,8 @@ private:
     UiBrushCache stateBrushes_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> badgeTextFormat_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> badgeLineLayout_;
+    float badgeLineWidth_ = 0.0f;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> glyphFormat_;
     // Task 3 restyle: hover overlay state (see OnMouseMove/OnMouseLeave/
     // HoverAnimating). hoverOpacity_ is advanced by Render every frame the

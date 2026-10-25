@@ -1,6 +1,21 @@
 # Fast Files — Agent Workstate
 
-## Current resume checkpoint — original-vision journey recovery IN PROGRESS — 2026-10-25
+## Current resume checkpoint — narrow native status text IN PROGRESS — 2026-10-26
+
+- Primary writer now uses native-text-20261026, branch fix/native-single-line-status-20261026, clean verified base981a9ba equal fetched origin product/PR18 before edits. This is independent of PR19 action/paint changes, so successor can target PR18 without duplicating PR19. Original dirty checkout remains untouched.
+- Actual normal/narrow captures in PR19 show footer paths and engine badge wrapping into clipped second lines. Root cause: bounded one-line surfaces use shared wrapping formats. Preserve existing Things/Native Precision reference lock; cached one-line text layouts avoid mutating multi-line loading/error/details formats.
+- Live Refero get_style rechecked Things0796cd74/shadcnc14c0a94; search_screens/get_screen examined file metadata f4eced6d and indexing status1a805882. Adapt secondary status hierarchy and restrained native typography, not web fonts/layout/branding. Truncation mechanics derive from measured native clipping, not an invented Refero finding.
+- PR19 is pushed/draft at93cd2b6 on PR18. Strict native normal/narrow-dual focus PASS with actual unmasked visual review, full E2E8/8, catalog21/21, current Analyze warning-clean. Selected Debug126/126 (246.03s); release-test still running in its frozen read-only worktree. Hosted40222586704 fails6jobs0steps with payment/spending annotation. No reruns/merges/releases; no independent reviewer resources available.
+- Disposable integrationa0afd5f includes PR16/14/15/17/18/19 and diagnostic72/72 build PASS; runtime/focused qualification pending. Do not launch another native UI session until PR19's serialized CTests finish. Source/status evidence stays under this worktree's build/native-text-20261026.
+- Development Debug445/445 build and focused5/5 pass; diagnostic445/445 build passes. Added real DirectWrite regression exposes hard CR/LF line breaks despite NO_WRAP (1 red assertion); current correction flattens only the display copy before layout. Compact labels preserve degraded/retry meaning and stale privilege rejection. No shared multi-line format mutation.
+- PR19 final93cd2b6 selected Debug126/126 (246.03s), release-test126/126 (217.85s), E2E8/8, visual21/21, strict native2modes PASS. Combined integrationa0afd5f E2E8/8 and strict normal/narrow focus PASS. UI slot is now free; focused combined frontend/backend checks and PR19 documentary closure still pending.
+- Actual four-frame light/dark status matrix PASS at measured120DPI (DWM1264/604x772); brightness235.59 vs32.54 proves theme switch. Narrow badge Basic search (degraded) and footer ellipsis visually inspected; no wrapped second line. Captures/Refero decision/evidence preserved under original-vision change. Hard-break regression green; focused5/5 (2.70s), Analyze67/67 warning-clean. Notices now precede long paths; native error/retry-specific journeys remain unqualified.
+- PR19 documentary/spec tip d2187aa is clean/pushed/equal remote, compiled src/cmake diff from qualified93cd2b6 empty, both strict native modes rebound/PASS. Hosted40225845692 fails6jobs0steps with payment/spending annotation; no rerun. Atomic Browse spec synced and bounded change locally completed. Integrationa0afd5f passes E2E8/8, focus2modes and focused12/12.
+- NEXT EXACT ACTION: commit status milestone, rebuild exact source, run full selected Debug/release-test and actual native light/dark/narrow qualification, merge simulation with PR19 and publish a separate draft sibling targeting PR18. No main merge/release. Continue supported file-operation/acceptance frontier after a clean checkpoint.
+
+## Prior product checkpoint retained as history
+
+## Prior resume checkpoint — original-vision journey recovery IN PROGRESS — 2026-10-25
 
 - Primary frontier: final committed-source certification/publication, with bounded 1M acceptance oracle running separately. User authorizes continued successor execution. Owner controls existing PR merges and production release.
 - Current product implementation follows1208cb6 with two bounded fixes: category summary refinement also updates Treemap filter, and typed Home startup uses canonical NavigateToLocation. Live Storage red/green and actual Nested/Home close/relaunch now pass. Derive current HEAD and remotes externally; no self-referential SHA.

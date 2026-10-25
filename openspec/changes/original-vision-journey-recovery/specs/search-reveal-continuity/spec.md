@@ -31,3 +31,14 @@ Filename, location and secondary metadata SHALL be clipped or ellipsized within 
 #### Scenario: Narrow high-DPI row
 - **WHEN** a long location and metadata occupy a narrow result row at 120 or 192 DPI
 - **THEN** location and metadata remain in separate bounds without overlapping
+
+### Requirement: Bounded status feedback remains legible
+Engine badges and workspace footer text SHALL remain on one line within their actual bounds and indicate omitted text with an ellipsis. Compact labels SHALL preserve degraded/unavailable/retry meaning and SHALL NOT claim privileged indexing outside the connected privileged state. Transient recovery/completion notices SHALL precede long path metadata. Full status descriptions and filesystem identities SHALL remain unchanged. Multi-line details and recovery text SHALL retain their wrapping behavior.
+
+#### Scenario: Narrow degraded workspace
+- **WHEN** the available workspace becomes narrow while degraded browsing is active
+- **THEN** the badge visibly identifies basic/degraded search and the footer truncates long paths without painting a clipped second line
+
+#### Scenario: Stale privileged flag during disconnection
+- **WHEN** the engine is starting or unavailable while a prior privileged flag remains true
+- **THEN** both detailed and compact status remain non-privileged and unavailable status retains retry guidance
