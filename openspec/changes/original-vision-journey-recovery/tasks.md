@@ -14,7 +14,7 @@
 - [x] 2.7 Paint the real command palette above native workspaces with sibling clipping, preserve surrounding context and consume outside dismissal clicks without invoking background controls. Compiled fc2fab7 full E2E8/8 and catalog21/21; actual palette image reviewed, outside dismissal preserves Storage.
 - [x] 2.8 Reserve Settings client geometry independently from caption/frame so OK/Cancel remain fully visible. Native120DPI red fails both bounds; repaired bounds and actual Cancel pointer dismissal pass. Catalog now rejects clipped footer controls.
 
-- [ ] 2.10 Give native conflict actions real accessible names and keyboard Tab stops; apply shared native dark/High Contrast control themes and erase the custom dialog with its actual theme brush. Exercise real Cancel/Skip/Keep both/Replace on marker-owned collisions, preserve native decisions and inspect light/dark screenshots.
+- [x] 2.10 Give native conflict actions real accessible names and keyboard Tab stops; apply shared native dark/High Contrast control themes and erase the custom dialog with its actual theme brush. Exercise real Cancel/Skip/Keep both/Replace on marker-owned collisions, preserve native decisions and inspect light/dark screenshots.
 
 ## 3. Search-to-navigation continuity
 
@@ -29,3 +29,5 @@
 - [ ] 4.2 Run broader local certification, independent review and integration simulation with PR14/15/16.
 - [ ] 4.3 Record exact source/evidence identity, commit, reconcile remote, publish unmerged successor work and report real limitations.
 - [x] 4.4 Preserve an already visible palette during capture activation and revalidate required surface visibility immediately before screenshot; retain red-capable headless input regression and actual pixel review. Two old-source checks fail; repaired full driver passes. Actual pixel review additionally found/repaired sibling painting in2.7.
+
+- [ ] 4.5 Repair and regression-test the E2E native Alt+F4 fallback; preserve close-route/error/input/exit observations and the unchanged10s deadline, then qualify actual cold restore. Retain initial Home-close failure and distinguish demonstrated fallback defect from unproven original attribution.

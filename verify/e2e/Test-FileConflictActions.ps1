@@ -31,6 +31,7 @@ Import-Module (Join-Path $repo 'verify/visual/VisualCapture.psm1') -Force -Disab
 $run = New-VisualCaptureRun -Root (Join-Path $artifacts 'images') -ApplicationSha (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -RepoRoot $repo
 $results = [Collections.Generic.List[object]]::new()
 $cleanups = [Collections.Generic.List[object]]::new()
+$captures = [Collections.Generic.List[object]]::new()
 $means = @{}
 $failure = $null
 try {
@@ -85,6 +86,8 @@ try {
                 # Missing names still fail below; this frame never certifies their presence.
                 if ($choice -eq 'Cancel') {
                     $shot = Capture-VisualWindow -Run $run -Element $dialog -ScenarioId ('conflict-'+$id) -AssertionPass ([bool]$dialog)
+                    if ($shot.Bounds.Dpi -le 0) { throw 'Conflict capture has no measured window DPI.' }
+                    [void]$captures.Add(@{id=$id;theme=$theme;image=[IO.Path]::GetFileName($shot.Path);sha256=$shot.Hash;bounds=$shot.Bounds})
                     Add-Type -AssemblyName System.Drawing
                     $bitmap = [Drawing.Bitmap]::new($shot.Path)
                     try {
@@ -163,7 +166,7 @@ try {
 } catch {
     $failure=$_.Exception.Message
 } finally {
-    @{passed=$results.Count;failure=$failure;cases=@($results.ToArray());cleanup=@($cleanups.ToArray());brightness=$means;shiftTabInputPreflight=@($backTab.sequence);pixelReviewRequired=$true} |
+    @{passed=$results.Count;failure=$failure;cases=@($results.ToArray());cleanup=@($cleanups.ToArray());captures=@($captures.ToArray());brightness=$means;shiftTabInputPreflight=@($backTab.sequence);pixelReviewRequired=$true} |
         ConvertTo-Json -Depth 14 | Set-Content (Join-Path $artifacts 'result.json') -Encoding utf8NoBOM
 }
 if ($failure) { throw $failure }

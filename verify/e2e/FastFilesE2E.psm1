@@ -1280,17 +1280,35 @@ function Invoke-E2EFileOperationsScenario {
 function Close-E2EContextWindow {
     param([Parameter(Mandatory)] $Context)
     if (-not $Context -or -not $Context.Main) { return $false }
+    $close = [pscustomobject][ordered]@{
+        processId = [int]$Context.Launched.Id
+        uiaCloseReturned = $false
+        uiaError = ''
+        fallbackAttempted = $false
+        fallbackKeys = ''
+        fallbackInput = @()
+        fallbackError = ''
+        deadlineMs = 10000
+        exitObserved = $false
+    }
+    $Context | Add-Member -NotePropertyName LastCloseObservation -NotePropertyValue $close -Force
     try {
         Invoke-UiaPattern -Driver $Context.Driver -Element (Get-E2EMain -Context $Context) -PatternName 'Window' -Method 'Close' | Out-Null
+        $close.uiaCloseReturned = $true
     } catch {
+        $close.uiaError = $_.Exception.Message
+        $close.fallbackAttempted = $true
+        $close.fallbackKeys = '{ALT}{F4}'
         try {
             Invoke-UiaActivateAppWindow -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) | Out-Null
-            Send-UiaInput -Driver $Context.Driver -Keys '%{F4}' | Out-Null
-        } catch { }
+            $sent = Send-UiaInput -Driver $Context.Driver -Keys $close.fallbackKeys
+            $close.fallbackInput = @($sent.sequence)
+        } catch { $close.fallbackError = $_.Exception.Message }
     }
     $wait = Wait-E2ECondition -TimeoutMs 10000 -Description 'FastFiles process exits after close' -Condition {
         try { Get-Process -Id ([int]$Context.Launched.Id) -ErrorAction Stop | Out-Null; return $false } catch { return $true }
     }
+    $close.exitObserved = [bool]$wait.Pass
     return $wait.Pass
 }
 
@@ -1316,7 +1334,8 @@ function Invoke-E2ERestoreScenario {
         }
         $sessionRoot = $first.SessionRoot
         if (-not (Close-E2EContextWindow -Context $first)) {
-            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'first-close' -Detail 'first FastFiles process did not exit within the close deadline' -DurationMs $watch.Elapsed.TotalMilliseconds
+            $close = if ($first.PSObject.Properties['LastCloseObservation']) { $first.LastCloseObservation } else { $null }
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'first-close' -Detail 'first FastFiles process did not exit within the close deadline' -DurationMs $watch.Elapsed.TotalMilliseconds -Data $close
             return $result
         }
         $firstCleanup = Remove-UiaScenarioContext -Context $first -LogFn { param($m) } -ArtifactsDir (Join-Path $ArtifactRoot 'cold-restore-first') -KeepSessionRoot
@@ -1339,7 +1358,8 @@ function Invoke-E2ERestoreScenario {
         }
         $homeCommand = Invoke-E2ENavigationCommand -Context $second -Query 'home' -Name 'Home' -CommandId 'navigation.home'
         if (-not $homeCommand.Pass -or -not (Close-E2EContextWindow -Context $second)) {
-            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'home-close' -Detail "Home navigation/close failed: $($homeCommand.Detail)" -DurationMs $watch.Elapsed.TotalMilliseconds
+            $close = if ($second.PSObject.Properties['LastCloseObservation']) { $second.LastCloseObservation } else { $null }
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'home-close' -Detail "Home navigation/close failed: $($homeCommand.Detail)" -DurationMs $watch.Elapsed.TotalMilliseconds -Data $close
             return $result
         }
         $secondCleanup = Remove-UiaScenarioContext -Context $second -LogFn { param($m) } -ArtifactsDir (Join-Path $ArtifactRoot 'cold-restore-second') -KeepSessionRoot
@@ -1355,8 +1375,10 @@ function Invoke-E2ERestoreScenario {
             $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'restored-home' -Detail 'Home did not restore its real pane after close/relaunch' -DurationMs $watch.Elapsed.TotalMilliseconds
             return $result
         }
+        $visible = Get-E2EVisibleObservation -Context $third
+        $visible | Add-Member -NotePropertyName closeObservations -NotePropertyValue @($first.LastCloseObservation, $second.LastCloseObservation)
         $result = New-E2EResult -Id 'cold-restore' -Status 'PASS' -Detail 'Nested directory and typed Home each restored after real close/relaunch in the same isolated state directory' `
-            -DurationMs $watch.Elapsed.TotalMilliseconds -Data (Get-E2EVisibleObservation -Context $third)
+            -DurationMs $watch.Elapsed.TotalMilliseconds -Data $visible
         return $result
     } catch {
         $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'exception' -Detail $_.Exception.Message -DurationMs $watch.Elapsed.TotalMilliseconds
