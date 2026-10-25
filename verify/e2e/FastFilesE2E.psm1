@@ -999,6 +999,12 @@ function Invoke-E2EStorageScenario {
                 -DurationMs $watch.Elapsed.TotalMilliseconds
         }
     }
+    $tileNames = @($tiles | ForEach-Object { Get-UiaElementProperty -Driver $Context.Driver -Element $_ -Name 'Name' })
+    if ($tileNames.Count -ne 1 -or $tileNames[0] -ne 'storage-note.txt') {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'category-treemap-continuity' `
+            -Detail "Document category refinement was lost on entering Treemap: tiles=$($tileNames -join ', ')" `
+            -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     $firstTile = $tiles | Select-Object -First 1
     try { Invoke-UiaPattern -Driver $Context.Driver -Element $firstTile -PatternName 'Invoke' -Method 'Invoke' | Out-Null } catch {
         return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'tile-invoke' -Detail "treemap tile was visible but could not be invoked: $($_.Exception.Message)" -DurationMs $watch.Elapsed.TotalMilliseconds
@@ -1275,6 +1281,7 @@ function Invoke-E2ERestoreScenario {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $first = $null
     $second = $null
+    $third = $null
     $fixture = $null
     $result = $null
     try {
@@ -1312,15 +1319,33 @@ function Invoke-E2ERestoreScenario {
                 -DurationMs $watch.Elapsed.TotalMilliseconds
             return $result
         }
-        $result = New-E2EResult -Id 'cold-restore' -Status 'PASS' -Detail 'Nested directory restored after a real close/relaunch in the same isolated state directory' `
-            -DurationMs $watch.Elapsed.TotalMilliseconds -Data (Get-E2EVisibleObservation -Context $second)
+        $homeCommand = Invoke-E2ENavigationCommand -Context $second -Query 'home' -Name 'Home' -CommandId 'navigation.home'
+        if (-not $homeCommand.Pass -or -not (Close-E2EContextWindow -Context $second)) {
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'home-close' -Detail "Home navigation/close failed: $($homeCommand.Detail)" -DurationMs $watch.Elapsed.TotalMilliseconds
+            return $result
+        }
+        $secondCleanup = Remove-UiaScenarioContext -Context $second -LogFn { param($m) } -ArtifactsDir (Join-Path $ArtifactRoot 'cold-restore-second') -KeepSessionRoot
+        if (-not $secondCleanup.Pass) {
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'home-cleanup' -Detail 'Home lifecycle cleanup left residue' -DurationMs $watch.Elapsed.TotalMilliseconds
+            return $result
+        }
+        $third = New-UiaScenarioContext -Exe $Exe -RepoRoot $RepoRoot -ScenarioId 'e2e-restore-home' -InvocationId ([guid]::NewGuid().ToString('N')) -LogFn { param($m) } -SessionRoot $sessionRoot
+        $restoredHome = Wait-E2ECondition -TimeoutMs 8000 -Description 'Home restored without navigation input' -Condition {
+            Find-UiaElement -Driver $third.Driver -AutomationId 'Pane.0.Home' -FromElement (Get-E2EMain -Context $third) -TimeoutMs 500
+        }
+        if (-not $restoredHome.Pass) {
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'restored-home' -Detail 'Home did not restore its real pane after close/relaunch' -DurationMs $watch.Elapsed.TotalMilliseconds
+            return $result
+        }
+        $result = New-E2EResult -Id 'cold-restore' -Status 'PASS' -Detail 'Nested directory and typed Home each restored after real close/relaunch in the same isolated state directory' `
+            -DurationMs $watch.Elapsed.TotalMilliseconds -Data (Get-E2EVisibleObservation -Context $third)
         return $result
     } catch {
         $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'exception' -Detail $_.Exception.Message -DurationMs $watch.Elapsed.TotalMilliseconds
         return $result
     } finally {
         if ($result -and $result.status -eq 'FAIL') {
-            $context = if ($second -and -not $second.Cleanup) { $second } elseif ($first -and -not $first.Cleanup) { $first } else { $null }
+            $context = if ($third -and -not $third.Cleanup) { $third } elseif ($second -and -not $second.Cleanup) { $second } elseif ($first -and -not $first.Cleanup) { $first } else { $null }
             if ($context) {
                 try {
                     Write-E2EFailureEvidence -Context $context -ArtifactDir (Join-Path $ArtifactRoot 'cold-restore') `
@@ -1328,6 +1353,9 @@ function Invoke-E2ERestoreScenario {
                         -ElapsedMs ([double]$result.durationMs) | Out-Null
                 } catch { }
             }
+        }
+        if ($third -and -not $third.Cleanup) {
+            try { Remove-UiaScenarioContext -Context $third -LogFn { param($m) } -ArtifactsDir (Join-Path $ArtifactRoot 'cold-restore-home') | Out-Null } catch { }
         }
         if ($second -and -not $second.Cleanup) {
             if ($fixture -and $second.Fixtures.Count -eq 0) { [void]$second.Fixtures.Add($fixture.Root) }

@@ -4,6 +4,14 @@ Make the primary Find -> reveal -> navigate journey preserve hierarchy, selectio
 
 ## ADDED Requirements
 
+### Requirement: Typed Home session restoration reaches presentation
+
+When the persisted location resolves to Home, startup SHALL apply Home to the navigation model, real active pane and chrome without filesystem enumeration of Home's empty path.
+
+#### Scenario: Close and reopen Home
+- **WHEN** a user closes on Home and reopens with session restoration enabled
+- **THEN** the real Home pane and its actions are visible without a navigation command
+
 ### Requirement: Search reveal synchronizes the native workspace
 
 Activating a search result SHALL leave Home/search mode in the active pane, establish the containing hierarchy and selected file or destination folder, expose the focused column, synchronize chrome and preserve the other pane.

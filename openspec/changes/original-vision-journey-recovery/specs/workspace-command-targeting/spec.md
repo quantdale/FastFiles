@@ -48,6 +48,10 @@ Category summaries SHALL NOT be converted into filesystem paths or support files
 - **WHEN** a category named Images is selected and a sibling file named Images exists
 - **THEN** category actions cannot open, cut or delete that sibling
 
+#### Scenario: Category refinement enters Treemap
+- **WHEN** a category summary refines the current list and the user enters Treemap
+- **THEN** Treemap retains the same category scope instead of showing unfiltered siblings
+
 ### Requirement: Storage list exposes real semantic rows
 
 Storage lists SHALL expose their rendered rows through semantic UI Automation with names, metadata, physical geometry, selection, scroll and activation actions backed by the same production model and mutations. Runtime identities SHALL be distinct from Search and stale rows SHALL fail rather than retarget. Client-held providers SHALL become safe unavailable elements after owner destruction.

@@ -2002,6 +2002,7 @@ void StorageAnalysis::ActivateListItem(size_t index) {
     if (!item.categoryId.empty()) {
         activeCategoryId_ = item.categoryId;
         PopulateCategoryFilter();
+        treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
         SetViewMode(ViewMode::LargestFiles);
     } else if (item.isDirectory) {
         currentPath_ = ffui::JoinPath(currentPath_, item.name);

@@ -1284,7 +1284,11 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     // Start publishes its running state. Restore the initial path only after
     // Start so a cold launch cannot strand every restored column on
     // "Refreshing…" until the user touches the address bar.
-    if (!initialLocation.IsHome() && !initialLocation.path.empty()) {
+    if (initialLocation.IsHome()) {
+        // original-vision-journey-recovery: resolving a typed Home location
+        // must also restore its real pane/model/chrome presentation.
+        NavigateToLocation(initialLocation);
+    } else if (!initialLocation.path.empty()) {
         columnView_.NavigateToPath(initialLocation.path);
         // ui-overhaul phase 3: a deep startup location must reveal its leaf
         // column immediately, exactly like an address/sidebar navigation. The
