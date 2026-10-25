@@ -35,18 +35,41 @@ on API error.
 - **THEN** the engine serves the query from the canonical cold scan
 - **AND** results remain correct (possibly slower)
 
-### Requirement: Cold-with-index results shall equal hot results
+### Requirement: Every production-reachable search route shall equal the canonical scan
 
-For every query class, results served with durable-index assistance on the
-cold path SHALL be identical in identity and ordering to results served by the
-hot projection path. This extends the pinned hot/cold equivalence contract to
-the durable generator.
+For every query class at 200k, 1M, 2M and 5M rows, results from each
+production-reachable route SHALL equal an independent full canonical scan that
+bypasses all candidate filtering. Equality SHALL cover ordered identities,
+volume/file/parent identity, name, folder and metadata, cap/truncation, query
+status and cancellation semantics. Where the corpus is resident, the hot
+projection and cold-with-index paths SHALL also equal each other. This extends
+the pinned hot/cold equivalence contract without requiring an oversized corpus
+to be wholly resident under the unchanged default memory budget.
 
-#### Scenario: Differential identity across scales
+#### Scenario: Canonical differential identity across scales
 
-- **WHEN** the same corpus and query set are executed hot and cold-with-index
-  at 200k, 1M, 2M, and 5M rows
-- **THEN** result identities and orderings match exactly for all query classes
+- **WHEN** the same deterministic corpus and query matrix execute through each
+  production-reachable search route at 200k, 1M, 2M and 5M rows
+- **THEN** each route matches the independent full canonical scan exactly for
+  every query class in ordered results, metadata, cap/truncation and status
+- **AND** the oracle proves it bypasses all candidate filtering and scans the
+  complete corpus rather than comparing two executions of the same route
+
+#### Scenario: Resident and mixed-residency route equivalence
+
+- **WHEN** queries run over actually resident, cold and mixed-residency volumes
+  under the unchanged default production budget, including eviction/reload
+  transitions and generation invalidation
+- **THEN** every exercised route matches the independent canonical result
+- **AND** the evidence establishes the actual route and residency, including
+  cancellation semantics, rather than inferring them from a hot/warm label
+
+#### Scenario: Oversized fully resident experiments are supplemental
+
+- **WHEN** a test uses an explicitly enlarged budget to keep an oversized corpus
+  wholly resident
+- **THEN** the evidence labels that budget as test-only
+- **AND** those results do not substitute for default-budget route acceptance
 
 ### Requirement: Index updates shall be crash-consistent with the entries table
 

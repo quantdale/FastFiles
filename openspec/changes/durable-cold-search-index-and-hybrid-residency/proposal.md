@@ -1,11 +1,12 @@
 # Proposal: durable-cold-search-index-and-hybrid-residency
 
-Status: **PROPOSAL / DECISION RECORD ONLY — implementation is explicitly not
-started.** This change was prepared during the `large-index-lifecycle-and-
-search-scalability` closure campaign (PR #14 handoff) as the separately scoped
-successor that campaign deliberately deferred. It must not be folded into PR
-#14 and must not begin production implementation without an explicit owner
-authorization and a completed measurement phase (task group 1).
+Status: **IMPLEMENTED; ACCEPTANCE ACTIVE.** The original proposal below records
+the measurement-first decision process. Alternative A was selected on
+2026-10-22 and implemented on the isolated PR #15 branch, stacked on PR #14.
+Current acceptance is owned by `tasks.md` and `evidence/final-closure/`.
+The owner's 2026-10-25 directive authorizes the production-reachable canonical
+equality clarification; it does not close unverified acceptance cells or
+authorize merging the existing PRs.
 
 ## Problem
 
@@ -77,10 +78,12 @@ record per alternative:
 5. **Bounded memory footprint.** The durable index is a disk structure, but
    caches/planners built on it must stay within documented bounds; no
    alternative may silently raise the default 500 MiB projection budget.
-6. **Cold/hot result equivalence.** Cold (durable-index-assisted) and hot
-   (projection-accelerated) results must remain byte-identical in identity
-   and ordering for every query class — the pinned contract from the
-   predecessor spec delta.
+6. **Canonical result equivalence.** Every production-reachable route must
+   match an independent full canonical scan at 200k/1M/2M/5M, including ordered
+   identities, metadata, caps/status and cancellation. Actually resident and
+   mixed-residency volumes must additionally exercise hot/cold equivalence,
+   transitions and generation invalidation under the unchanged default budget.
+   Enlarged-budget fully resident oversized experiments are supplemental only.
 7. **Startup/rebuild cost.** Index build during scan/ingestion, incremental
    maintenance per USN batch, and reopen/recovery cost must be measured;
    a durable index that doubles ingestion time is a regression.

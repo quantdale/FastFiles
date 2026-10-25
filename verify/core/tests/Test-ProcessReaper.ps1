@@ -19,6 +19,7 @@ function Check {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 Import-Module (Join-Path $repoRoot 'verify\core\RunTree.psm1') -Force
 $runner = Import-Module (Join-Path $repoRoot 'verify\core\CapabilityRunner.psm1') -Force -PassThru
+Import-Module (Join-Path $PSScriptRoot 'ProcessIdentityFixture.psm1') -Force
 $RunContext = [pscustomobject]@{ VerifyRoot = (Join-Path $repoRoot 'verify') }
 
 function Invoke-RunnerFunction {
@@ -56,18 +57,12 @@ if ($null -eq $pwsh) {
 } else {
     $live = Start-Process -FilePath $pwsh.Source -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 300') -PassThru -WindowStyle Hidden
     try {
-        $live.Refresh()
-        # System.Diagnostics.Path is filled lazily and can still be empty right
-        # after Start-Process under load; GetFullPath('') then aborted this
-        # fixture with 'The path is empty'. The production snapshot reads CIM
-        # ExecutablePath and skips empty paths, so record the exact path we
-        # launched instead of depending on the lazy property.
-        $liveIdentity = [pscustomobject]@{
-            pid = [int]$live.Id
-            path = [IO.Path]::GetFullPath([string]$pwsh.Source)
-            startTimeUtc = $live.StartTime.ToUniversalTime().ToString('o')
-            identityKey = "$($live.Id)|live"
-        }
+        # durable-cold-search-index-and-hybrid-residency 5.11: Store-installed
+        # PowerShell may launch through an alias. Capture the actual image,
+        # waiting for its lazy property, without weakening identity checks.
+        $liveIdentity = Wait-ProcessFixtureIdentity -Process $live
+        $liveIdentity.path = Invoke-RunnerFunction -Body 'param($P) Get-VerificationNormalizedExecutablePath -Path $P.Path' -Parameters @{ Path = $liveIdentity.path }
+        Check (Invoke-RunnerFunction -Body 'param($P) Test-VerificationProcessIdentityCurrent -Identity $P.Identity' -Parameters @{ Identity = $liveIdentity }) 'live owned fixture identity verifies before cleanup'
         $liveAfter = [pscustomobject]@{ identities = @($liveIdentity); errors = @(); verified = $true }
         $liveAttempt = Invoke-RunnerFunction -Body 'param($P) Stop-VerificationOwnedBuildProcesses -RunContext $P.RunContext -Before $P.Before -After $P.After' -Parameters @{ RunContext = $RunContext; Before = $emptyBefore; After = $liveAfter }
         Check ($liveAttempt.pass -and @($liveAttempt.residue).Count -eq 0) 'live owned identity is terminated with zero residue'
@@ -100,16 +95,11 @@ $volumeNormalized = Invoke-RunnerFunction -Body 'param($P) Get-VerificationNorma
 Check ($volumeNormalized -eq $volumePath) 'volume-GUID device paths are preserved verbatim'
 if ($null -ne $pwsh) {
     $live2 = Start-Process -FilePath $pwsh.Source -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 300') -PassThru -WindowStyle Hidden
-    $null = $live2.Refresh()
     try {
-        $cimPath = [string](Get-CimInstance Win32_Process -Filter "ProcessId=$($live2.Id)").ExecutablePath
+        $prefixedIdentity = Wait-ProcessFixtureIdentity -Process $live2
+        $cimPath = $prefixedIdentity.path
         # Record as the snapshot would: from a CIM path carrying the extended prefix.
-        $prefixedIdentity = [pscustomobject]@{
-            pid = [int]$live2.Id
-            path = (Invoke-RunnerFunction -Body 'param($P) Get-VerificationNormalizedExecutablePath -Path $P.Path' -Parameters @{ Path = "\\?\$cimPath" })
-            startTimeUtc = $live2.StartTime.ToUniversalTime().ToString('o')
-            identityKey = "$($live2.Id)|prefixed"
-        }
+        $prefixedIdentity.path = Invoke-RunnerFunction -Body 'param($P) Get-VerificationNormalizedExecutablePath -Path $P.Path' -Parameters @{ Path = "\\?\$cimPath" }
         Check (Invoke-RunnerFunction -Body 'param($P) Test-VerificationProcessIdentityCurrent -Identity $P.Identity' -Parameters @{ Identity = $prefixedIdentity }) 'identity recorded from a normalized extended-length path verifies against the live process'
     } finally {
         try { if (-not $live2.HasExited) { $live2.Kill(); $null = $live2.WaitForExit(5000) } } catch { }

@@ -1,5 +1,11 @@
 # Final engineering closure and owner-controlled integration
 
+> Historical final-closure report. The 2026-10-25 follow-up in
+> `acceptance-followup-20261025.md` supersedes the proposed-only task 4.1 decision
+> and unavailable scoped task 5.14 review statuses below. It also records a
+> fixture-only identity capture repair with non-destructive qualification;
+> full reaper/runtime/hosted acceptance is not relabeled PASS.
+
 ## Decision summary
 
 **Performance, ordinary operational characterization and combined Gallery/runtime

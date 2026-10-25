@@ -1,5 +1,16 @@
 # Independent review record and adjudication
 
+## Current scoped follow-up — 2026-10-25
+
+A fresh-context native read-only reviewer completed the requested exact
+`4c1c450..db7887c1` subtree/scheduler follow-up at inspected tip `8bffb329`:
+**APPROVE, no current P1/P2 findings in that delta**. Full source/evidence scope,
+four archive-hash checks and limitations are preserved in
+`reviews/native-final-delta-20261025.md`. Task 5.14 closes for that source review.
+This is not full runtime/merge certification or cross-provider independence.
+The broader task 5.10 stays open; task 4.1 route coverage, full reaper qualification
+and hosted execution remain separate. Provider failures below are historical.
+
 ## Identity and execution
 
 Four fresh-context, read-only native `reviewer` lanes actually completed against
