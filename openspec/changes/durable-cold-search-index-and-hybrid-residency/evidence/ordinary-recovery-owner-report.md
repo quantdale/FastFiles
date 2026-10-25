@@ -1,4 +1,8 @@
-# PR15 ordinary final-acceptance recovery — owner report
+# PR15 ordinary final-acceptance recovery — historical owner report
+
+**Checkpoint superseded by [final closure](final-closure/owner-report.md).**
+All measurements and qualifications below retain their original commit binding;
+they are not the latest campaign status. No earlier failure is silently erased.
 
 **Qualified local engineering checkpoint; campaign ACTIVE, NOT merge-ready.**
 No pull request was merged. Main, PR14 and PR16 were preserved.

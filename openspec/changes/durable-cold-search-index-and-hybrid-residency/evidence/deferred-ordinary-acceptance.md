@@ -1,7 +1,13 @@
-# Remaining acceptance and operational limits
+# Historical acceptance and operational limits — checkpoint 4c1c450
 
-Current implementation: `4c1c4501e5b1f0579a2d34f4f7afea5f83708979`.
-Current executed validation/measurement source: `269d1c36036cb84b40c3ef01baee3c2b6c990579`.
+**Superseded by [final closure owner report](final-closure/owner-report.md).**
+The table below preserves the actual earlier blocked checkpoint, not live state.
+Final performance/resource/Gallery execution is now completed; final review,
+owner4.1 decision and latest local reaper-fixture gate remain open. Lifecycle
+stays active. Do not reuse historical NOT_EXECUTED labels as current outcomes.
+
+Checkpoint implementation: `4c1c4501e5b1f0579a2d34f4f7afea5f83708979`.
+Checkpoint executed validation/measurement source: `269d1c36036cb84b40c3ef01baee3c2b6c990579`.
 Lifecycle remains active. No requirement is silently relaxed.
 
 | Requirement | Status / reason | Available evidence | Remaining work / merge impact |
