@@ -1,0 +1,12 @@
+{
+  "scenario": "cold-restore",
+  "stage": "home-close",
+  "expected": "Home navigation/close failed: palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1793015582,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":118960,\\\"tid\\\":107440,\\\"epochMs\\\":1793015582212}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":10033230,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":118960,\"popupClasses\":[]}",
+  "observed": "{\"processId\":118960,\"uiaCloseReturned\":true,\"uiaError\":\"\",\"fallbackAttempted\":false,\"fallbackKeys\":\"\",\"fallbackInput\":[],\"fallbackError\":\"\",\"deadlineMs\":10000,\"exitObserved\":false}",
+  "error": "",
+  "elapsedMs": 22361.9,
+  "generatedAtUtc": "2026-10-26T11:53:15.7164134Z",
+  "observation": null,
+  "processes": [],
+  "note": "UIA window was unavailable at the outer scenario boundary; no screenshot/tree could be captured."
+}

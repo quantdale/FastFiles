@@ -47,3 +47,33 @@ Focused clean5d70009 native run is interrupted before Paste during the large sel
 Next bounded fixture changes item count to512 at128KiB each (same64MiB, configurable4096 original mode retained). This narrows automation/UIA pressure rather than weakening actualpartial-copy, foreground/input, terminal total, exact source/destination name/hash or sentinel assertions. It cannot retrospectively qualify the4096-item native journey.
 
 Cleanfbf3c09 focused512 run observes four destination files at2146ms. Owned foreground is true, real SendInput Escape accepted at318ms after cancellation activation, yet terminal is complete512of512/0failed at6687ms: [failed actual receipt](file-operation-feedback-20261026/cancellation-fbf3c09/result.json). This is not a passing cancellation. Cleanup passes. Native child WM_KEYDOWN does not bubble to the main WindowShell procedure; its message loop previously forwarded search Escape but not outstanding-operation Escape. Route non-edit child Escape to the canonical shell handler after palette/settings/search precedence, preserving native text-edit ownership. A fresh native receipt must verify whether this addresses the actual journey; the prior run did not capture its focused child, so exact historical attribution is not established.
+
+## Verified implementation milestone
+
+Immutable clean source **9195788352a7bdba1996e42bda3c48570b794037**:
+
+| Check | Actual result |
+| --- | --- |
+| Full normal Debug build | 441/441 |
+| Selected Debug CTest | 126/126, 252.10 s, no skips |
+| Full unsigned release-test build | 445/445 |
+| Selected release-test CTest | 126/126, 232.06 s, no skips |
+| MSVC Analyze FastFiles | 67/67 |
+| Strict OpenSpec | 92/92 |
+| Owned native full journey | Seven cases PASS, cleanup PASS |
+| Focused native cancellation | One case PASS, cleanup PASS |
+| Ordinary native E2E | Seven PASS, one FAIL, zero skips |
+
+Both selected CTest runs explicitly exclude only restricted ffverify_process_reaper_ps_tests. They are not the unfiltered default suite. [Compressed exact-source logs and hashes](file-operation-feedback-20261026/qualified-9195788/certification/artifacts.json), [stage results](file-operation-feedback-20261026/qualified-9195788/certification/summary.json) and [source/worktree/PR ledger](file-operation-feedback-20261026/qualified-9195788/source-ledger.json) preserve the distinction.
+
+The [seven-case receipt](file-operation-feedback-20261026/qualified-9195788/all/result.json) includes exact terminal-column selection, distinct Unicode file hashes, copy source retention, move source removal, calibrated exact GUID/original-parent Recycle Bin positive control plus native Undo, permanent default Cancel and three zero-match observations after confirmed deletion, exclusive-lock stopped-with-errors feedback and manual retry, and an actually partial 512-item cancellation. Full run: 207/512 destinations remain; terminal arrives 2712 ms from cancellation activation. [Focused](file-operation-feedback-20261026/qualified-9195788/focused/result.json): 91/512, 2875 ms. Every source and remaining destination name/hash and the unrelated sentinel is checked. App/engine teardown leaves no process/pipe/session residue. These runs do not qualify 4,096 items.
+
+Provenance binds all five current diagnostic binaries to clean 9195788; embedded tree identity is NOT_EMBEDDED, not certified exact-tree embedding. Native Name versions are callback receipt order, not operation IDs. Recycle exclusion is the bounded calibrated shell-namespace observation, not a guarantee about arbitrary providers.
+
+Actual [permanent confirmation](file-operation-feedback-20261026/qualified-9195788/all/permanent-confirmation.png) and [actionable error](file-operation-feedback-20261026/qualified-9195788/all/operation-error.png) were viewed: 120 DPI, 552×281/262 physical frames. The [main-window error title](file-operation-feedback-20261026/qualified-9195788/all/operation-error-status.png) is readable at 120 DPI, 1008×632. Its inherited PR21 footer still wraps/clips; it is not visually approved, and combined PR20 qualification remains necessary.
+
+Independent final_backend_review approves cadence and child-Escape source; independent final_evidence_review inspects actual current receipts, matching binary/capture hashes and all three images: no P1/P2 within the scoped seven-case evidence. No worker executed competing UI/builds.
+
+Ordinary [native summary](file-operation-feedback-20261026/qualified-9195788/ordinary-native/summary.json), [binary source binding](file-operation-feedback-20261026/qualified-9195788/ordinary-native/source-binding.json) and [close failure](file-operation-feedback-20261026/qualified-9195788/ordinary-native/close-failure.json) retain **7/8**. Cold restore fails at Home-close: UIA Close returns without error, fallback is not attempted, process exit is not observed within 10 seconds; outer failure sees no remaining window/process. File operations and the other seven cases pass. Do not replace this failure with a retry PASS. Independent source review identifies COM/OLE destruction ordering, icon backlog and async-future admission issues for an isolated successor; actual timeout attribution requires phase evidence.
+
+Task 4.6 is complete within the stated scope. Broader product tasks 4.1/4.2/4.3/4.5 remain open. No shared PR merge, release, hosted CI, privileged path, physical display matrix or Explorer drag-in qualification is inferred.
