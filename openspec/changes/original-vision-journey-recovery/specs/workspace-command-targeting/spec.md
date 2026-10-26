@@ -4,6 +4,14 @@ Keep filesystem commands bound to the user's visible selection across browsing, 
 
 ## ADDED Requirements
 
+### Requirement: Shutdown qualification observes real application closure
+
+Native restore qualification SHALL close every app lifecycle through the actual public window-close path and retain each route and observed exit under the unchanged deadline. Forced fixture teardown SHALL NOT count as graceful application shutdown. Worker callback publication SHALL synchronize access to the retired shell target without claiming extended HWND lifetime.
+
+#### Scenario: Restored Home does not close
+- **WHEN** the third restored Home app does not exit within the native close deadline
+- **THEN** restoration qualification fails and retains its close observation instead of accepting later fixture cleanup as a pass
+
 ### Requirement: Settings completion controls fit the real dialog
 
 Settings SHALL reserve its intended DPI-scaled client area in addition to the actual non-client frame. OK and Cancel SHALL have positive, fully visible bounds inside the dialog, and visible Cancel SHALL remain pointer-reachable without changing saved settings.

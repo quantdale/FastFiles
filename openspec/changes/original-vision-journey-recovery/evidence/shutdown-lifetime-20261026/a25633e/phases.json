@@ -1,0 +1,156 @@
+{
+  "source": "a25633e2a3ea6332feccbf2260ecf7f51de36bf5",
+  "lifecycles": [
+    {
+      "pid": 123996,
+      "observedWmDestroyToOleEndMs": 44,
+      "engineStopMs": 2,
+      "iconJoinMs": 1,
+      "shellDestructionMs": 5,
+      "shellDestructionEndsBeforeOleUninitialize": true,
+      "phases": [
+        {
+          "phase": "wm-destroy",
+          "outcome": "begin",
+          "epochMs": 1793016427401
+        },
+        {
+          "phase": "wm-destroy-file-operations-stop",
+          "outcome": "end",
+          "epochMs": 1793016427412
+        },
+        {
+          "phase": "wm-destroy-preview-clear",
+          "outcome": "end",
+          "epochMs": 1793016427413
+        },
+        {
+          "phase": "wm-destroy-providers-release",
+          "outcome": "end",
+          "epochMs": 1793016427414
+        },
+        {
+          "phase": "message-loop-exit",
+          "outcome": "observed",
+          "epochMs": 1793016427429
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "begin",
+          "epochMs": 1793016427430
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "end",
+          "epochMs": 1793016427432
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "begin",
+          "epochMs": 1793016427434
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "begin",
+          "epochMs": 1793016427437
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "end",
+          "epochMs": 1793016427438
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "end",
+          "epochMs": 1793016427439
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "begin",
+          "epochMs": 1793016427440
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "end",
+          "epochMs": 1793016427445
+        }
+      ]
+    },
+    {
+      "pid": 125616,
+      "observedWmDestroyToOleEndMs": 67,
+      "engineStopMs": 4,
+      "iconJoinMs": 3,
+      "shellDestructionMs": 10,
+      "shellDestructionEndsBeforeOleUninitialize": true,
+      "phases": [
+        {
+          "phase": "wm-destroy",
+          "outcome": "begin",
+          "epochMs": 1793016423876
+        },
+        {
+          "phase": "wm-destroy-file-operations-stop",
+          "outcome": "end",
+          "epochMs": 1793016423882
+        },
+        {
+          "phase": "wm-destroy-preview-clear",
+          "outcome": "end",
+          "epochMs": 1793016423884
+        },
+        {
+          "phase": "wm-destroy-providers-release",
+          "outcome": "end",
+          "epochMs": 1793016423886
+        },
+        {
+          "phase": "message-loop-exit",
+          "outcome": "observed",
+          "epochMs": 1793016423917
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "begin",
+          "epochMs": 1793016423918
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "end",
+          "epochMs": 1793016423922
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "begin",
+          "epochMs": 1793016423925
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "begin",
+          "epochMs": 1793016423930
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "end",
+          "epochMs": 1793016423933
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "end",
+          "epochMs": 1793016423935
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "begin",
+          "epochMs": 1793016423937
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "end",
+          "epochMs": 1793016423943
+        }
+      ]
+    }
+  ],
+  "scope": "Two explicit natural closes only. Third restored Home was framework teardown, not graceful-close qualification. No timeout attribution or arbitrary Shell-call bound."
+}

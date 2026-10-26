@@ -95,8 +95,10 @@ function Invoke-UiaAddressBarNavigate { return [pscustomobject]@{Pass=$true} }
 function Wait-E2EItem { return [pscustomobject]@{Pass=$true} }
 function Close-E2EContextWindow {
     param($Context)
-    $Context | Add-Member LastCloseObservation ([pscustomobject]@{exitObserved=$true;route='recorded'}) -Force
-    return $true
+    $script:RecordedCloseCount++
+    $exited = -not ($script:RecordedFailThird -and $script:RecordedCloseCount -eq 3)
+    $Context | Add-Member LastCloseObservation ([pscustomobject]@{exitObserved=$exited;route='recorded';sequence=$script:RecordedCloseCount}) -Force
+    return $exited
 }
 function Remove-UiaScenarioContext {
     param($Context)
@@ -110,6 +112,9 @@ function Write-E2EFailureEvidence { throw 'Unexpected recorded restore failure' 
 '@
 $restoreSuffix = @'
 function Invoke-RecordedRestoreMetadata {
+    param([switch] $FailThird)
+    $script:RecordedCloseCount=0
+    $script:RecordedFailThird=[bool]$FailThird
     return Invoke-E2ERestoreScenario -Exe recorded -RepoRoot recorded -ArtifactRoot recorded
 }
 Export-ModuleMember -Function Invoke-RecordedRestoreMetadata
@@ -120,8 +125,12 @@ try {
     $restored = & $restoreFixture { Invoke-RecordedRestoreMetadata }
     Check ($restored.status -eq 'PASS') 'recorded restore traverses the real three-lifecycle scenario without live processes'
     $serialized = $restored | ConvertTo-Json -Depth 14 | ConvertFrom-Json
-    Check ($serialized.data.marker -eq 'recorded-visible' -and $serialized.data.closeObservations.Count -eq 2 -and
-        $serialized.data.closeObservations[0].exitObserved -and $serialized.data.closeObservations[1].exitObserved) 'restore JSON retains visibility and both close observations'
+    Check ($serialized.data.marker -eq 'recorded-visible' -and $serialized.data.closeObservations.Count -eq 3 -and
+        $serialized.data.closeObservations[0].exitObserved -and $serialized.data.closeObservations[1].exitObserved -and
+        $serialized.data.closeObservations[2].exitObserved -and $serialized.data.closeObservations[2].sequence -eq 3) 'restore JSON retains visibility and all three real close observations'
+    $thirdFailure = & $restoreFixture { Invoke-RecordedRestoreMetadata -FailThird }
+    Check ($thirdFailure.status -eq 'FAIL' -and $thirdFailure.stage -eq 'restored-home-close' -and
+        -not $thirdFailure.data.exitObserved) 'restored Home close failure cannot be accepted as a passing lifecycle'
 } finally {
     Remove-Module $restoreFixture -Force -ErrorAction SilentlyContinue
 }

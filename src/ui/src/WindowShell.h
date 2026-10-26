@@ -96,7 +96,9 @@ private:
     float NavigationViewportWidth() const;
     ffui::MainShellLayout CurrentShellLayout() const;
 
-    HWND hwnd_ = nullptr;
+    // Workers publish completion while WM_DESTROY retires the shell. Atomic
+    // publication removes the C++ data race; it does not extend HWND lifetime.
+    std::atomic<HWND> hwnd_{nullptr};
     bool uiaReady_ = false;
     Renderer renderer_;
     // Owns the bounded type-icon cache; the column view resolves icons through

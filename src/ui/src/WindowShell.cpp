@@ -209,7 +209,8 @@ WindowShell::WindowShell() : previewController_([this](uint64_t requestId, Previ
             case PreviewState::Loading: columnView_.SetUiaDetailsStatus(L"Preview: Loading"); break;
             case PreviewState::Unsupported: columnView_.SetUiaDetailsStatus(L"Preview: Unsupported"); break;
         }
-        if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_PREVIEW_READY, 0, 0);
+        const HWND target = hwnd_.load();
+        if (target != nullptr) PostMessageW(target, WM_APP_PREVIEW_READY, 0, 0);
     }
 }) {}
 
@@ -1270,16 +1271,19 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                    !pendingSnapshotGeneration_.compare_exchange_weak(pending, generation)) {
             }
             if (!snapshotRefreshPosted_.exchange(true)) {
-                PostMessageW(hwnd_, WM_APP_SNAPSHOT_UPDATED, 0, 0);
+                const HWND target = hwnd_.load();
+                if (target != nullptr) PostMessageW(target, WM_APP_SNAPSHOT_UPDATED, 0, 0);
             }
         },
         [this](EngineConnectionState state, bool privilegedPathActive) {
             columnView_.SetEngineStatus(state, privilegedPathActive);
-            PostMessageW(hwnd_, WM_APP_ENGINE_STATUS, static_cast<WPARAM>(state), privilegedPathActive ? 1 : 0);
+            const HWND target = hwnd_.load();
+            if (target != nullptr) PostMessageW(target, WM_APP_ENGINE_STATUS, static_cast<WPARAM>(state), privilegedPathActive ? 1 : 0);
         },
         [this](const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
             columnView_.OnDirectoryError(path, reason);
-            PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
+            const HWND target = hwnd_.load();
+            if (target != nullptr) PostMessageW(target, WM_APP_REPAINT, 0, 0);
         });
 
     // overnight-recovery-campaign: EngineClient drops directory requests until
@@ -1364,7 +1368,8 @@ int WindowShell::RunMessageLoop() {
 }
 
 void WindowShell::RequestRepaint() {
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    const HWND target = hwnd_.load();
+    if (target != nullptr) InvalidateRect(target, nullptr, FALSE);
 }
 
 bool WindowShell::IsSystemDark() const {
@@ -1748,7 +1753,8 @@ void WindowShell::RequestFileType(const std::wstring& path) {
             std::lock_guard<std::mutex> lock(fileTypeMutex_);
             fileTypes_[path] = std::move(description);
         }
-        if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
+        const HWND target = hwnd_.load();
+        if (target != nullptr) PostMessageW(target, WM_APP_REPAINT, 0, 0);
     }).share());
 }
 
@@ -2027,7 +2033,7 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                                 ffprotocol::FolderAggregateResultV2Payload{engineRequestId, status, itemCount, totalSizeBytes,
                                                                            totalAllocatedSizeBytes, allocatedBytesKnownCount,
                                                                            allocatedBytesTotalCount});
-                            const HWND target = hwnd_;
+                            const HWND target = hwnd_.load();
                             if (target != nullptr
                                 && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
                                                 reinterpret_cast<LPARAM>(payload.get()))) {
@@ -3054,7 +3060,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     engineClient_.RequestUnavailableVolumes([this](auto records) {
                         auto owned = std::make_unique<std::vector<ffprotocol::UnavailableVolumeRecord>>(
                             std::move(records));
-                        const HWND target = hwnd_;
+                        const HWND target = hwnd_.load();
                         if (target != nullptr
                             && PostMessageW(target, WM_APP_UNAVAILABLE_VOLUMES, 0,
                                             reinterpret_cast<LPARAM>(owned.get()))) {

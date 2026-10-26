@@ -42,6 +42,12 @@ Filesystem targets may disappear after validation; ordinary operation handlers s
 
 ## Validation
 
+### Shutdown qualification follow-up
+
+Atomic publication of the shell HWND removes the C++ read/write race between WM_DESTROY and preview, file-type, engine and aggregate callbacks. Each background post loads one target and retains existing heap-payload ownership on failure. A null repaint target is ignored rather than invalidating the desktop. This does not extend HWND lifetime or prevent destruction after a target was loaded.
+
+The initial a25633e targeted restore passes both explicit close/relaunch boundaries. Actual phase intervals from WM_DESTROY through OLE end are 44 and 67 ms, and shell destruction precedes OLE teardown. Its third restored Home app uses the existing framework teardown and therefore has no natural-close qualification. Strengthen the real scenario to close that third app through the same public helper and unchanged ten-second deadline, record all three observations, and fail if that close fails. The headless actual-scenario fixture fails the old two-close behavior and then verifies both three-close serialization and rejection of third-close failure. Earlier ordinary919 native7/8 remains an immutable failure; new phase timing does not establish its cause.
+
 Focused command/selection and geometry regressions, Home search E2E with destination identity, storage summary/action tests, native visual catalog and broader Debug/release-test suites. Avoid restricted termination tests and expensive unchanged PR15 benchmarks.
 
 ### Native conflict decisions remain readable and reachable
