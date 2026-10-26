@@ -60,6 +60,17 @@ inline bool StorageRankingContains(const StorageRankingScope& scope, std::wstrin
         normalized->matchPath[scope.matchPath.size()] == L'\\';
 }
 
+// Presentation only: keep the scope's repeated absolute prefix out of the
+// narrow Location column. UIA HelpText and operation targets retain full paths.
+inline std::wstring StorageRankingLocationText(std::wstring_view scopeFolder, std::wstring_view folder) {
+    const auto scope = NormalizeStorageRankingScope(scopeFolder);
+    const auto normalized = NormalizeStorageRankingScope(folder);
+    if (!scope || !normalized || !StorageRankingContains(*scope, folder)) return std::wstring(folder);
+    if (scope->matchPath.size() == normalized->matchPath.size()) return L"This folder";
+    const size_t offset = scope->matchPath.size() + (scope->matchPath.back() == L'\\' ? 0 : 1);
+    return normalized->matchPath.substr(offset);
+}
+
 inline bool StorageRankingCompletionMatches(uint64_t generation, uint64_t currentGeneration,
         std::wstring_view currentPath, const StorageRankingScope& completionScope,
         bool visible, bool recursive) {

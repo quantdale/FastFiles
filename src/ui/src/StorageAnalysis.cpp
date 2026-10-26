@@ -2209,7 +2209,8 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                 break;
             }
             case 8:
-                text = ffui::NormalizeDisplayPath(item.folder);
+                text = RecursiveRanking() ? StorageRankingLocationText(currentPath_, item.folder)
+                                          : ffui::NormalizeDisplayPath(item.folder);
                 break;
         }
         wcsncpy_s(info->item.pszText, static_cast<size_t>(info->item.cchTextMax), text.c_str(), _TRUNCATE);

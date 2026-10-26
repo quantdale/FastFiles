@@ -24,6 +24,19 @@ int main() {
           !ffui::NormalizeStorageRankingScope(L"\\\\server"), "relative, dot-component and incomplete UNC scopes are rejected");
     Check(ffui::StorageRankingContains(*scope, L"C:\\ROOT\\Nested") && !ffui::StorageRankingContains(*scope, L"C:\\Root-other") &&
           !ffui::StorageRankingContains(*scope, L"D:\\Root"), "scope is ordinal case-insensitive and component/volume bounded");
+    Check(ffui::StorageRankingLocationText(L"C:\\Root", L"C:\\Root") == L"This folder" &&
+          ffui::StorageRankingLocationText(L"c:\\root\\", L"\\\\?\\C:\\ROOT") == L"This folder",
+          "same-folder location stays concise across case, trailing separator and extended spelling");
+    Check(ffui::StorageRankingLocationText(L"C:\\Root", L"C:\\Root\\Nested") == L"Nested" &&
+          ffui::StorageRankingLocationText(L"\\\\?\\c:\\root", L"C:\\Root\\First\\Second\\Third") == L"First\\Second\\Third" &&
+          ffui::StorageRankingLocationText(L"C:\\", L"C:\\Nested") == L"Nested",
+          "descendant location shows the actual relative folder chain including drive-root scopes");
+    Check(ffui::StorageRankingLocationText(L"C:\\Root", L"C:\\Root-other\\Nested") == L"C:\\Root-other\\Nested" &&
+          ffui::StorageRankingLocationText(L"C:\\Root", L"\\\\?\\D:\\Other") == L"\\\\?\\D:\\Other" &&
+          ffui::StorageRankingLocationText(L"relative", L"original\\relative") == L"original\\relative",
+          "same-prefix outside, other-volume and unsupported scopes retain their full original location");
+    Check(ffui::StorageRankingLocationText(L"\\\\server\\share\\", L"\\\\?\\UNC\\server\\share\\Nested") == L"Nested",
+          "known UNC descendant display uses the same lexical matching normalization");
     Check(ffui::StorageRankingItemPath(L"\\\\?\\C:\\Root\\Nested", L"same.bin") == L"\\\\?\\C:\\Root\\Nested\\same.bin",
           "operation target retains original namespace and containing folder");
     Check(ffui::StorageRankingItemPath(L"C:\\Root", L"..\\outside.bin").empty() &&
