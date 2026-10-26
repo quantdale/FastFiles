@@ -51,6 +51,7 @@ LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
     if (message == ffui::WM_APP_FILE_OPERATION_EVENT) {
         std::unique_ptr<ffui::FileOperationEvent> event(reinterpret_cast<ffui::FileOperationEvent*>(lParam));
         if (event->kind == ffui::FileOperationEventKind::Progress && event->total > 0 && cancelOnProgress != nullptr) {
+            Check(cancelOnProgress->HasOutstandingWork(), "real cancellable progress lost outstanding work");
             cancelOnProgress->CancelCurrent();
             cancelOnProgress = nullptr;
         }
@@ -67,7 +68,7 @@ std::unique_ptr<ffui::FileOperationEvent> Run(ffui::FileOperations& operations, 
     operations.Enqueue(std::move(request));
     const ULONGLONG deadline = GetTickCount64() + 60000;
     MSG message{};
-    while (!lastEvent && GetTickCount64() < deadline) {
+    while ((!lastEvent || operations.HasOutstandingWork()) && GetTickCount64() < deadline) {
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
             TranslateMessage(&message);
             DispatchMessageW(&message);
@@ -75,6 +76,7 @@ std::unique_ptr<ffui::FileOperationEvent> Run(ffui::FileOperations& operations, 
         MsgWaitForMultipleObjects(0, nullptr, FALSE, 25, QS_ALLINPUT);
     }
     Check(lastEvent != nullptr, "file operation timed out");
+    Check(!operations.HasOutstandingWork(), "terminal operation did not drain outstanding work");
     return std::move(lastEvent);
 }
 
@@ -124,7 +126,14 @@ int main() {
     std::filesystem::create_directories(source);
     std::filesystem::create_directories(destination);
 
+    {
+        ffui::FileOperations queued;
+        Check(!queued.HasOutstandingWork(), "new worker must be idle");
+        queued.Enqueue({ffui::FileOperationKind::CreateFolder, {}, root.wstring(), L"not-started", true});
+        Check(queued.HasOutstandingWork(), "queued work must be outstanding before worker Start");
+    }
     ffui::FileOperations operations;
+    Check(!operations.HasOutstandingWork(), "idle operation queue must be unavailable for cancellation");
     Check(operations.Start(window), "worker did not start");
 
     // original-vision-journey-recovery 4.6: a stalled consumer must not
@@ -628,6 +637,7 @@ int main() {
         // An Escape with nothing outstanding must not latch into the next
         // enqueued batch (D4): the cancel scope is what was running or queued
         // at cancel time, not work enqueued afterwards.
+        Check(!operations.HasOutstandingWork(), "idle cancel fixture must have drained");
         operations.CancelCurrent();
         WriteText(source / L"after-idle-escape.txt", "hello");
         event = Run(operations, {ffui::FileOperationKind::Copy,

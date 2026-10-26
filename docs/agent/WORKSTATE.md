@@ -1,5 +1,16 @@
 # Fast Files — Agent Workstate
 
+## Current primary frontier - discoverable operation cancellation IMPLEMENTED / QUALIFICATION PENDING - 2026-10-26
+
+- Isolated owner cancel-command-20261026, branch feat/discoverable-operation-cancel-20261026, immutable source9195788352a7bdba1996e42bda3c48570b794037. Root remains sole integrator/publisher; other worktrees preserved. No push or merge by worker.
+- Added mutex-backed HasOutstandingWork; Global selection-independent file.cancel-operations has no default shortcut, idle explanation and fresh invocation/handler validation. Browse/Search registry menus inherit it; Storage hardcoded menu excluded. Escape keeps its existing precedence and uses the same action.
+- Palette enabled flags update in place without replacing query, selected command, list order or scroll. Payload-free worker notification after executing clears closes the terminal-event/idle race. No synthetic operation state, process/security changes, retry or cancellation-scope changes.
+- PASS: Debug configure; cmake --build --preset debug --target ffcommand_tests --parallel 2; ctest --test-dir build/debug -R '^ffcommand_tests$' --output-on-failure (1/1,0.10s); focused strict OpenSpec; git diff --check. Build warning-clean. Existing worker e2e lifecycle assertions added but NOT executed while root certification is active. No full build, live UI, engine/fake-session, privileged or fileoperation execution performed here.
+- Task4.7 remains unchecked pending integrated/native qualification; historical4.6 remains pending on919 for root closure. Existing Refero Dropbox reference reused; no new research/assets claimed.
+- NEXT EXACT ACTION: root reviews isolated commit, serially builds UI/worker targets and executes lifecycle/native palette cancellation qualification after its frozen919 certification, then integrates/publishes separately. Worker stops at clean committed handoff.
+
+## Historical root checkpoint (preserved)
+
 ## Current primary frontier — actionable file-operation errors IN PROGRESS — 2026-10-26
 
 - Sole writer: fileops-feedback-20261026 / fix/actionable-file-operation-errors-20261026. Base verified clean PR21 b028e1165e7d6199bc3cc04d8fece0a9b5f443aa, equal freshly fetched remote. No other branch/dirty owner work touched; no shared/main merge or release. Disposable combined simulation is clean checkpoint51903c6, native executed source de94; bounded independent review noP1/P2, E2E8/8/focus2/conflict8/8 with measured120DPI, strict96 and focused7+1 (not new full combined suites).

@@ -256,6 +256,7 @@ bool RegisterFileOperationCommands(CommandRegistry& registry, const BaselineHand
     ok = RegisterOne(registry, handlers, L"file.rename", L"Rename", L"File", kSingleItem, ShortcutScope::ActiveView, KeyChord{VK_F2, ModifierNone}, {}, L"Requires a single selected item") && ok;
     ok = RegisterOne(registry, handlers, L"file.delete", L"Delete", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{VK_DELETE, ModifierNone}, {}, L"Requires a selection") && ok;
     ok = RegisterOne(registry, handlers, L"file.delete-permanently", L"Delete Permanently", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{VK_DELETE, ModifierShift}, {}, L"Requires a selection") && ok;
+    ok = RegisterOne(registry, handlers, L"file.cancel-operations", L"Cancel File Operations", L"File", kAnySelection, ShortcutScope::Global, std::nullopt, [](const CommandContext& c) { return c.fileOperationsOutstanding; }, L"No file operations are running or queued") && ok;
     ok = RegisterOne(registry, handlers, L"file.undo", L"Undo Last File Operation", L"File", kAnySelection, ShortcutScope::ActiveView, KeyChord{'Z', ModifierControl}) && ok;
     return ok;
 }

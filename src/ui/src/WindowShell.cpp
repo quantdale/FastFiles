@@ -400,7 +400,8 @@ ffui::MainShellLayout WindowShell::CurrentShellLayout() const {
 CommandContext WindowShell::CurrentCommandContext() const {
     return {ClassifySelection(CurrentCommandSelection()),
             !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_),
-            !storageAnalysis_.Visible() && !searchPanel_.Visible()};
+            !storageAnalysis_.Visible() && !searchPanel_.Visible(),
+            fileOperations_.HasOutstandingWork()};
 }
 
 std::vector<SelectionItem> WindowShell::CurrentCommandSelection() const {
@@ -412,6 +413,10 @@ std::vector<SelectionItem> WindowShell::CurrentCommandSelection() const {
 bool WindowShell::InitializeCommands() {
     const BaselineHandlers handlers{[this](const std::wstring& commandId) -> CommandHandler {
         return [this, commandId](const std::vector<std::wstring>& paths) {
+            if (commandId == L"file.cancel-operations") {
+                CancelFileOperations();
+                return;
+            }
             const std::wstring activePath = columnView_.ActivePanePath();
             if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
                 navigationWorkspace_.Navigate(activePath);
@@ -867,6 +872,12 @@ void WindowShell::FinishInlineRename(bool commit) {
     fileOperations_.Enqueue({FileOperationKind::Rename, {path}, {}, value, true});
 }
 
+void WindowShell::CancelFileOperations() {
+    if (!fileOperations_.HasOutstandingWork()) return;
+    fileOperations_.CancelCurrent();
+    SetWindowTextW(hwnd_, L"FastFiles \u2014 cancelling operation\u2026");
+}
+
 bool WindowShell::InvokeCommand(const std::wstring& commandId) {
     const size_t workspacePaneCountBefore = navigationWorkspace_.ActivePaneCount();
     const size_t activePaneBefore = navigationWorkspace_.ActivePaneIndex();
@@ -885,7 +896,8 @@ bool WindowShell::InvokeCommand(const std::wstring& commandId) {
         return false;
     }
     const CommandContext context{ClassifySelection(*liveSelection),
-        !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_), browseWorkspace};
+        !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_), browseWorkspace,
+        fileOperations_.HasOutstandingWork()};
     const bool accepted = commandRegistry_.Invoke(commandId, context, paths);
     AppendUiCommandDiagnostic(commandId, accepted, workspacePaneCountBefore,
                               navigationWorkspace_.ActivePaneCount(), activePaneBefore,
@@ -1346,7 +1358,7 @@ int WindowShell::RunMessageLoop() {
         // ownership, then route a running operation's cancellation through the
         // same shell handler even when a navigation/preview child has focus.
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE &&
-            fileOpOutstanding_ && !nativeEditFocused &&
+            fileOperations_.HasOutstandingWork() && !nativeEditFocused &&
             msg.hwnd != hwnd_ && IsChild(hwnd_, msg.hwnd)) {
             SendMessageW(hwnd_, WM_KEYDOWN, msg.wParam, msg.lParam);
             continue;
@@ -2666,9 +2678,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_APP_FILE_OPERATION_AVAILABILITY:
+            if (commandPalette_.Visible()) commandPalette_.UpdateContext(CurrentCommandContext());
+            return 0;
+
         case WM_APP_FILE_OPERATION_EVENT: {
             std::unique_ptr<FileOperationEvent> event(reinterpret_cast<FileOperationEvent*>(lParam));
             if (!event) return 0;
+            if (commandPalette_.Visible()) commandPalette_.UpdateContext(CurrentCommandContext());
             if (event->kind == FileOperationEventKind::Queued || event->kind == FileOperationEventKind::Started) {
                 SetWindowTextW(hwnd_, event->kind == FileOperationEventKind::Queued ? L"FastFiles — operation queued" : L"FastFiles — operation in progress");
                 fileOpInProgress_ = true;
@@ -3024,10 +3041,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 }
                 // Only cancel when an operation is actually outstanding; an
                 // idle Escape must not claim "cancelling operation…".
-                if (fileOpOutstanding_) {
-                    fileOperations_.CancelCurrent();
-                    SetWindowTextW(hwnd_, L"FastFiles — cancelling operation…");
-                }
+                CancelFileOperations();
                 return 0;
             }
             if (searchPanel_.Visible() || storageAnalysis_.Visible()) return 0;

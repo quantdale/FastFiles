@@ -255,6 +255,11 @@ void FileOperations::Enqueue(FileOperationRequest request) {
     if (workerThreadId_ != 0) PostThreadMessageW(workerThreadId_, WM_APP_FILE_OPERATION_REQUEST, 0, 0);
 }
 
+bool FileOperations::HasOutstandingWork() const {
+    std::lock_guard<std::mutex> lock(queueMutex_);
+    return executing_ || !queue_.empty();
+}
+
 void FileOperations::CancelCurrent() {
     std::lock_guard<std::mutex> lock(queueMutex_);
     // An idle Escape (no running or queued work) must not latch into the next
@@ -331,6 +336,9 @@ void FileOperations::WorkerMain() {
                 std::lock_guard<std::mutex> lock(queueMutex_);
                 executing_ = false;
             }
+            // The terminal event may already have reached the UI before the
+            // worker became idle. Refresh availability after that transition.
+            if (eventWindow_ != nullptr) PostMessageW(eventWindow_, WM_APP_FILE_OPERATION_AVAILABILITY, 0, 0);
             // The batch that just finished consumed any cancel request observed
             // while it ran; siblings queued at that moment carry their own
             // cancelledBeforeStart bit. A request enqueued after the cancel is

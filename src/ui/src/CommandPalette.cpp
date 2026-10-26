@@ -148,6 +148,20 @@ void CommandPalette::Reposition() {
                  height - editHeight - Scaled(2), kPaletteOverlayLayoutFlags);
 }
 
+void CommandPalette::UpdateContext(CommandContext context) {
+    context_ = context;
+    if (!visible_) return;
+    bool changed = false;
+    for (auto& result : results_) {
+        const bool enabled = CommandEnabled(*result.command, context_);
+        changed = changed || result.enabled != enabled;
+        result.enabled = enabled;
+    }
+    // original-vision-journey-recovery 4.7: repaint availability in place;
+    // rebuilding the list would reset the query selection and scroll position.
+    if (changed) InvalidateRect(list_, nullptr, FALSE);
+}
+
 void CommandPalette::RefreshResults() {
     wchar_t query[512]{};
     GetWindowTextW(edit_, query, static_cast<int>(std::size(query)));

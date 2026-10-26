@@ -25,6 +25,8 @@
 
 ## 4. Qualification and handoff
 
+- [ ] 4.7 Expose selection-independent Cancel File Operations through the native palette and registry-driven Browse/Search File menus, refresh live availability without resetting palette intent, and preserve canonical Escape cancellation. Implementation and pure command regression pass in isolated successor; existing worker lifecycle assertions added but not executed here. Native/integrated qualification pending; Storage hardcoded menu excluded.
+
 - [ ] 4.6 Explain real file-operation failures with actionable source/destination-aware guidance and retain original path/HRESULT; exercise exact native multi-selection, calibrated recycle/Undo/permanent-delete, locked-source manual recovery and an actually in-flight cancellation on marker-owned files.
 
 - [ ] 4.1 Execute focused regressions, actual native E2E/UIA/visual review and correct actionable defects.

@@ -20,6 +20,7 @@ namespace ffui {
 // contains a COM interface or any other apartment-bound value.
 constexpr UINT WM_APP_FILE_OPERATION_EVENT = WM_APP + 2;
 constexpr UINT WM_APP_FILE_OPERATION_CONFLICT = WM_APP + 8;
+constexpr UINT WM_APP_FILE_OPERATION_AVAILABILITY = WM_APP + 14;
 
 struct FileOperationConflictQuestion {
     std::wstring source;
@@ -90,6 +91,7 @@ public:
     void Stop();
     void Enqueue(FileOperationRequest request);
     void CancelCurrent();
+    bool HasOutstandingWork() const;
 
     // Used by the worker-owned progress sink to return plain-data events to
     // the UI message loop.
@@ -102,7 +104,7 @@ private:
     HWND eventWindow_ = nullptr;
     std::atomic<DWORD> workerThreadId_{0};
     std::thread worker_;
-    std::mutex queueMutex_;
+    mutable std::mutex queueMutex_;
     std::deque<FileOperationRequest> queue_;
     // Guarded by queueMutex_: true while a dequeued request is executing.
     bool executing_ = false;

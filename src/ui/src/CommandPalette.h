@@ -16,6 +16,7 @@ public:
                     std::function<void(const std::wstring&)> execute);
     void Show(CommandContext context);
     void Hide();
+    void UpdateContext(CommandContext context);
     bool Visible() const { return visible_; }
     // final-local-certification-closure FC-001: verified focus acquisition.
     // Show() calls EnsureEditFocus() best-effort; text entry (product or

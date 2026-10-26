@@ -116,3 +116,19 @@ Conflict decision controls SHALL expose their visible names through native acces
 #### Scenario: Dark conflict dialog
 - **WHEN** the workspace is dark and a conflict decision is presented
 - **THEN** its real background and checkbox label remain legible without changing the operation policy
+
+### Requirement: Cancellation is discoverable independently of selection
+
+The native command palette and registry-driven Browse/Search File menus SHALL expose Cancel File Operations. It SHALL be enabled exactly when the worker has running or queued work, with an idle disabled reason, independently of workspace selection. Invocation SHALL revalidate real outstanding work and share the canonical cancellation action with Escape without changing modal, search, palette or native-edit Escape precedence. Cancellation SHALL retain its existing running-and-queued-at-cancel scope. A visible palette SHALL refresh availability without changing its query or selected command. Storage's hardcoded context menu is outside this requirement.
+
+#### Scenario: Idle discovery
+- **WHEN** the user searches for Cancel File Operations while no work is outstanding
+- **THEN** the command is visible and disabled with No file operations are running or queued, and cannot cancel later work
+
+#### Scenario: Work finishes while the palette is open
+- **WHEN** the last operation drains while the command palette is visible
+- **THEN** its cancellation choice becomes disabled while query, selected command and scroll remain unchanged
+
+#### Scenario: Selection changes during an operation
+- **WHEN** running or queued work exists in any workspace with an empty, file, folder or mixed selection
+- **THEN** the cancellation command remains enabled and acts on outstanding operations without consuming selected paths

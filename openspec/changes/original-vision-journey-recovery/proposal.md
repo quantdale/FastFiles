@@ -29,3 +29,5 @@ Native UI command routing, StorageAnalysis, SearchPanel, WindowShell, and E2E te
 The native conflict-decision slice also restores real accessible action names, Windows Tab traversal and coherent dialog/checkbox theming while preserving default Skip, all decision semantics and marker-owned validation.
 
 Native lifecycle qualification also corrects the E2E Alt+F4 fallback to the existing braced-modifier input contract and preserves close-route evidence without changing ownership controls, timeouts or product shutdown behavior.
+
+The bounded 4.7 follow-up exposes Cancel File Operations through the native command palette and registry-driven Browse/Search File menus. Availability reflects running or queued work independently of selection; Storage's hardcoded menu is outside this slice. Native qualification remains pending.
