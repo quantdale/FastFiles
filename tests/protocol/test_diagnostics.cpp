@@ -8,10 +8,26 @@
 #include "ffprotocol/Diagnostics.h"
 #include "ffprotocol/UiProtocol.h"
 #include "../TestSupport.h"
+#include "../../src/ui/src/ShutdownDiagnostics.h"
 
 using namespace fftest;
 
 int main() {
+    Check(std::wstring(ffprotocol::DiagnosticCodeName(
+              ffprotocol::DiagnosticCode::FFDIAG_UI_SHUTDOWN_PHASE))
+              == L"FFDIAG_UI_SHUTDOWN_PHASE",
+          "shutdown phase diagnostic keeps its stable append-only name");
+    ffprotocol::DiagnosticEvent shutdown{};
+    shutdown.category = ffprotocol::DiagnosticCategory::UiInteraction;
+    shutdown.code = ffprotocol::DiagnosticCode::FFDIAG_UI_SHUTDOWN_PHASE;
+    shutdown.state = L"engine-client-stop";
+    shutdown.outcome = L"begin";
+    const auto shutdownJson = ffprotocol::SerializeDiagnosticEvent(shutdown, ffprotocol::DiagnosticFormat::Json);
+    Check(shutdownJson.find(L"engine-client-stop") != std::wstring::npos &&
+          shutdownJson.find(L"begin") != std::wstring::npos &&
+          shutdownJson.find(L"\"pid\":") != std::wstring::npos &&
+          shutdownJson.find(L"\"timestamp\":") != std::wstring::npos,
+          "shutdown phase serialization identifies phase, outcome, process and time");
     Check(std::wstring(ffprotocol::DiagnosticCodeName(
               ffprotocol::DiagnosticCode::FFDIAG_UI_RESULT_SUPERSEDED))
               == L"FFDIAG_UI_RESULT_SUPERSEDED",
@@ -31,6 +47,18 @@ int main() {
         GetEnvironmentVariableW(L"PROGRAMDATA", oldProgramData.data(), oldProgramDataLength);
     }
     SetEnvironmentVariableW(L"LOCALAPPDATA", localAppData.c_str());
+    const DWORD oldShutdownLength = GetEnvironmentVariableW(L"FASTFILES_UIA_DIAGNOSTICS", nullptr, 0);
+    std::wstring oldShutdownValue(oldShutdownLength, L'\0');
+    if (oldShutdownLength != 0) {
+        GetEnvironmentVariableW(L"FASTFILES_UIA_DIAGNOSTICS", oldShutdownValue.data(), oldShutdownLength);
+    }
+    SetEnvironmentVariableW(L"FASTFILES_UIA_DIAGNOSTICS", L"0");
+    ffui::AppendShutdownPhase(L"test-phase-disabled", L"begin");
+    Check(!std::filesystem::exists(ffprotocol::DiagnosticLogPath()), "shutdown phases are opt-in");
+    SetEnvironmentVariableW(L"FASTFILES_UIA_DIAGNOSTICS", L"1");
+    ffui::AppendShutdownPhase(L"test-phase-enabled", L"begin");
+    SetEnvironmentVariableW(L"FASTFILES_UIA_DIAGNOSTICS",
+                            oldShutdownLength == 0 ? nullptr : oldShutdownValue.c_str());
 
     const ffprotocol::DiagnosticEvent event{
         ffprotocol::DiagnosticCategory::InaccessibleDirectory,
@@ -39,6 +67,9 @@ int main() {
     Check(ffprotocol::AppendDiagnostic(event), "diagnostic event is appended");
     std::wifstream input(ffprotocol::DiagnosticLogPath());
     std::wstring contents((std::istreambuf_iterator<wchar_t>(input)), {});
+    Check(contents.find(L"test-phase-enabled") != std::wstring::npos &&
+          contents.find(L"test-phase-disabled") == std::wstring::npos,
+          "enabled shutdown helper appends only the opted-in phase");
     Check(contents.find(L"category=inaccessible-directory") != std::wstring::npos, "category is logged");
     Check(contents.find(L"code=11") != std::wstring::npos, "structured numeric code is logged");
     Check(contents.find(L"codeName=FFDIAG_DIRECTORY_ACCESS_DENIED") != std::wstring::npos,

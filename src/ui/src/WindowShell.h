@@ -159,8 +159,8 @@ private:
     PreviewController previewController_;
     mutable std::mutex fileTypeMutex_;
     std::map<std::wstring, std::wstring> fileTypes_;
-    // shared_future destruction never blocks, so bounding this list cannot
-    // stall shutdown on stragglers stuck behind dead network paths.
+    // original-vision-journey-recovery 4.8: retain unfinished async states;
+    // final destruction joins before fileTypes_ and fileTypeMutex_ die.
     std::vector<std::shared_future<void>> fileTypeWork_;
     // Details-pane metadata is fetched once per selection change (not per
     // paint frame); a failed fetch renders "—" rather than epoch-zero times.

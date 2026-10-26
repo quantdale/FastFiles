@@ -31,3 +31,5 @@
 - [x] 4.4 Preserve an already visible palette during capture activation and revalidate required surface visibility immediately before screenshot; retain red-capable headless input regression and actual pixel review. Two old-source checks fail; repaired full driver passes. Actual pixel review additionally found/repaired sibling painting in2.7.
 
 - [x] 4.5 Repair and regression-test the E2E native Alt+F4 fallback; preserve close-route/error/input/exit observations and the unchanged10s deadline, then qualify actual cold restore. Retain initial Home-close failure and distinguish demonstrated fallback defect from unproven original attribution.
+
+- [ ] 4.8 Repair UI OLE/shell lifetime, discard queued icon work at stop, retain unfinished file-type tasks with saturation admission and add opt-in metadata shutdown phases; run focused controlled headless regressions and independently qualify instrumented native Home close within the unchanged10s bound. Original7/8 result and root-cause uncertainty remain until new evidence.

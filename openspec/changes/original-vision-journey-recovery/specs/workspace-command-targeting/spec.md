@@ -103,3 +103,15 @@ Conflict decision controls SHALL expose their visible names through native acces
 #### Scenario: Dark conflict dialog
 - **WHEN** the workspace is dark and a conflict decision is presented
 - **THEN** its real background and checkbox label remain legible without changing the operation policy
+
+### Requirement: Native shutdown preserves owner lifetimes
+
+The UI SHALL destroy shell COM owners before OLE teardown, abandon queued icon work on stop while joining active resolution, and decline saturated file-type lookup admission without releasing unfinished task state or caching an unstarted lookup. Opt-in shutdown diagnostics SHALL carry phase/outcome, PID and timestamp without file paths or content.
+
+#### Scenario: Saturated file-type lookup
+- **WHEN** the unfinished lookup limit is reached
+- **THEN** a new lookup is declined without joining or discarding existing tasks, and completed tasks later reopen admission
+
+#### Scenario: Close qualification remains truthful
+- **WHEN** native close does not exit within the existing10s bound
+- **THEN** qualification remains failed and phase evidence is retained without attributing an unproven cause

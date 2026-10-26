@@ -94,6 +94,8 @@ enum class DiagnosticCode : uint32_t {
     // The database was preserved and startup retried instead of deleting
     // (index-durability-false-success-closure D6).
     FFDIAG_DB_INTEGRITY_INCONCLUSIVE = 46,
+    // original-vision-journey-recovery 4.8: opt-in normal UI shutdown phases.
+    FFDIAG_UI_SHUTDOWN_PHASE = 47,
 };
 
 const wchar_t* DiagnosticCodeName(DiagnosticCode code);

@@ -1,4 +1,6 @@
 #include "WindowShell.h"
+#include "ShutdownDiagnostics.h"
+#include "ffui/AsyncWorkAdmission.h"
 #include "IconCache.h"
 #include "UITheme.h"
 #include "UiComponents.h" // ui-v3: shared state-panel presentation for details
@@ -1352,8 +1354,11 @@ int WindowShell::RunMessageLoop() {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    AppendShutdownPhase(L"message-loop-exit", L"observed");
     navigationWorkspace_.FlushState();
+    AppendShutdownPhase(L"engine-client-stop", L"begin");
     engineClient_.Stop();
+    AppendShutdownPhase(L"engine-client-stop", L"end");
     fileOperations_.Stop();
     return static_cast<int>(msg.wParam);
 }
@@ -1721,6 +1726,7 @@ void WindowShell::RefreshSelectionPresentation() {
 }
 
 void WindowShell::RequestFileType(const std::wstring& path) {
+    if (!AdmitAsyncWork(fileTypeWork_, kMaxInFlightFileTypeLookups)) return;
     {
         std::lock_guard<std::mutex> lock(fileTypeMutex_);
         if (fileTypes_.contains(path)) return;
@@ -1731,14 +1737,6 @@ void WindowShell::RequestFileType(const std::wstring& path) {
             fileTypes_.clear();
         }
         fileTypes_.emplace(path, L"");
-    }
-    fileTypeWork_.erase(std::remove_if(fileTypeWork_.begin(), fileTypeWork_.end(), [](std::shared_future<void>& work) {
-        return work.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
-    }), fileTypeWork_.end());
-    // Bound the in-flight list too. shared_future destruction never blocks,
-    // so abandoning the oldest lookup cannot stall the UI thread or shutdown.
-    if (fileTypeWork_.size() >= kMaxInFlightFileTypeLookups) {
-        fileTypeWork_.erase(fileTypeWork_.begin());
     }
     fileTypeWork_.push_back(std::async(std::launch::async, [this, path] {
         SHFILEINFOW info{};
@@ -3139,6 +3137,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_DESTROY:
+            AppendShutdownPhase(L"wm-destroy", L"begin");
             KillTimer(hwnd_, kWorkspaceSaveTimer);
             KillTimer(hwnd_, kUiScrollAnimTimer);
             navigationWorkspace_.FlushState();
@@ -3146,12 +3145,15 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             RevokeDragDrop(hwnd);
             dropTarget_.Reset();
             fileOperations_.Stop();
+            AppendShutdownPhase(L"wm-destroy-file-operations-stop", L"end");
             previewController_.Clear();
+            AppendShutdownPhase(L"wm-destroy-preview-clear", L"end");
             // semantic-uia-core-surfaces 2.5: release the app's provider
             // references; client-held elements become safe zombies via the
             // owner-lifetime token before the HWND is destroyed.
             columnView_.ReleaseUiaProvider();
             searchPanel_.ReleaseUiaProvider();
+            AppendShutdownPhase(L"wm-destroy-providers-release", L"end");
             hwnd_ = nullptr;
             PostQuitMessage(0);
             return 0;

@@ -1,3 +1,11 @@
+## Shutdown lifetime successor - IMPLEMENTATION COMPLETE / NATIVE QUALIFICATION PENDING 2026-10-26
+
+- Isolated branch fix/native-shutdown-lifetime-20261026, immutable base b028e1165e7d6199bc3cc04d8fece0a9b5f443aa (PR21). Root owns integration; no push or merge. Other worktrees and original dirty checkout untouched.
+- Primary frontier: original-vision-journey-recovery4.8. Main now destroys shell before OLE, including Initialize failure. IconCache discards queued work and post-stop active result while retaining join. RequestFileType uses AsyncWorkAdmission to reclaim ready states and decline new work before cache insertion at32; full path keys and final ownership retained.
+- FASTFILES_UIA_DIAGNOSTICS=1 enables appended diagnostic47 for normal shutdown phases, using existing PID/time writer with no paths/content. Root cause UNPROVEN: predecessor9195788 full ordinary E2E7/8, Home UIA Close true, no exit observed10s, absent13s. No timeout/fallback waiver.
+- Validation: VS-discovered Debug configure and focused build (parallel2) PASS; ffasync_work_admission_tests + ffprotocol_diagnostics_tests PASS2/2. After adding actual opt-in helper coverage, diagnostic target rebuilt and rerun PASS1/1. Strict OpenSpec validation PASS; git diff --check PASS. IconCache queue stop and Main ordering have source inspection only; current tests have no controlled resolver seam. No changed UI translation units compiled, live UI, process cleanup, privileged tests, full builds or benchmarks run by this worker.
+- NEXT EXACT ACTION: root integrator reviews/cherry-picks the isolated commit, compiles changed UI sources and qualifies instrumented native Home close/broader certification before4.8 closes. No next unrelated slice started.
+
 # Fast Files — Agent Workstate
 
 ## Current resume checkpoint — native conflict milestone COMPLETE LOCALLY — 2026-10-26
