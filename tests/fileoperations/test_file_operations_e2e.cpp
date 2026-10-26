@@ -1,5 +1,6 @@
 #include "FileOperations.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -125,6 +126,64 @@ int main() {
 
     ffui::FileOperations operations;
     Check(operations.Start(window), "worker did not start");
+
+    // original-vision-journey-recovery 4.6: a stalled consumer must not
+    // accumulate one UI message per file callback or lose terminal outcomes
+    // when its own queue reaches the Windows posted-message quota.
+    {
+        const auto burstStart = std::chrono::steady_clock::now();
+        operations.PostEvent({ffui::FileOperationEventKind::Queued, ffui::FileOperationKind::Copy, {}, 0, 0, 0, {}});
+        operations.PostEvent({ffui::FileOperationEventKind::Started, ffui::FileOperationKind::Copy, {}, 0, 100, 0, {}});
+        operations.PostEvent({ffui::FileOperationEventKind::Progress, ffui::FileOperationKind::Copy, {}, 0, 0, 0, {}});
+        operations.PostEvent({ffui::FileOperationEventKind::Progress, ffui::FileOperationKind::Copy, {}, 1, 100, 1, {}});
+        for (unsigned int index = 0; index < 40000; ++index) {
+            operations.PostEvent({ffui::FileOperationEventKind::Progress, ffui::FileOperationKind::Copy, {}, 50, 100, 50, {}});
+        }
+        const auto burstElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - burstStart);
+        operations.PostEvent({ffui::FileOperationEventKind::Completed, ffui::FileOperationKind::Copy,
+                              L"burst-finish", 99, 100, 99, {{L"burst-failure", E_ACCESSDENIED}}});
+        operations.PostEvent({ffui::FileOperationEventKind::Queued, ffui::FileOperationKind::Move, {}, 0, 0, 0, {}});
+        operations.PostEvent({ffui::FileOperationEventKind::Started, ffui::FileOperationKind::Move, {}, 0, 1, 0, {}});
+        operations.PostEvent({ffui::FileOperationEventKind::Progress, ffui::FileOperationKind::Move, {}, 0, 0, 0, {}});
+        operations.PostEvent({ffui::FileOperationEventKind::Cancelled, ffui::FileOperationKind::Move, {}, 0, 1, 0, {}});
+        unsigned int copyProgress = 0;
+        bool quantifiedProgress = false;
+        bool nextOperationProgress = false;
+        bool failurePreserved = false;
+        std::vector<ffui::FileOperationEventKind> controls;
+        MSG posted{};
+        while (PeekMessageW(&posted, window, ffui::WM_APP_FILE_OPERATION_EVENT,
+                            ffui::WM_APP_FILE_OPERATION_EVENT, PM_REMOVE)) {
+            std::unique_ptr<ffui::FileOperationEvent> observed(
+                reinterpret_cast<ffui::FileOperationEvent*>(posted.lParam));
+            if (observed->kind == ffui::FileOperationEventKind::Progress) {
+                if (observed->operation == ffui::FileOperationKind::Copy) {
+                    ++copyProgress;
+                    quantifiedProgress = quantifiedProgress || observed->total > 0;
+                } else {
+                    nextOperationProgress = true;
+                }
+            } else {
+                controls.push_back(observed->kind);
+                if (observed->kind == ffui::FileOperationEventKind::Completed) {
+                    failurePreserved = observed->completed == 99 && observed->total == 100 &&
+                        observed->failures.size() == 1 && observed->failures.front().path == L"burst-failure" &&
+                        observed->failures.front().error == E_ACCESSDENIED;
+                }
+            }
+        }
+        const std::vector expectedControls{
+            ffui::FileOperationEventKind::Queued, ffui::FileOperationEventKind::Started,
+            ffui::FileOperationEventKind::Completed, ffui::FileOperationEventKind::Queued,
+            ffui::FileOperationEventKind::Started, ffui::FileOperationEventKind::Cancelled};
+        Check(copyProgress <= 3u + static_cast<unsigned int>(burstElapsed.count() / 34),
+              "a progress burst flooded the posted-message queue");
+        Check(quantifiedProgress && nextOperationProgress,
+              "progress cadence lost first quantified progress or the next operation's first progress");
+        Check(controls == expectedControls && failurePreserved,
+              "progress pressure lost/reordered lifecycle or terminal failure details");
+    }
 
     auto event = Run(operations, {ffui::FileOperationKind::CreateFolder, {}, root.wstring(), L"created", true});
     Check(event->failures.empty() && std::filesystem::is_directory(root / L"created") &&

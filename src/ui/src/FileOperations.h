@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -107,6 +108,12 @@ private:
     bool executing_ = false;
     std::atomic<bool> stopping_{false};
     std::atomic<bool> cancelRequested_{false};
+    // Presentation cadence only. Queued events from the UI must not reset
+    // progress for the operation still executing on the worker.
+    mutable std::mutex progressMutex_;
+    mutable std::chrono::steady_clock::time_point lastProgressPost_{};
+    mutable bool progressPosted_ = false;
+    mutable bool quantifiedProgressPosted_ = false;
 };
 
 // Last-operation-errors retention contract: only terminal (Completed or

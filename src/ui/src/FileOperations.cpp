@@ -19,6 +19,7 @@ namespace ffui {
 namespace {
 
 constexpr UINT WM_APP_FILE_OPERATION_REQUEST = WM_APP + 41;
+constexpr auto kProgressPostInterval = std::chrono::milliseconds(34);
 
 class ProgressSink final : public IFileOperationProgressSink {
 public:
@@ -266,6 +267,22 @@ void FileOperations::CancelCurrent() {
 
 void FileOperations::PostEvent(FileOperationEvent event) const {
     if (eventWindow_ == nullptr) return;
+    // original-vision-journey-recovery 4.6: thousands of per-item progress
+    // messages can fill the window queue and lose the terminal result. Bound
+    // presentation traffic; every sink callback still checks cancellation.
+    if (event.kind == FileOperationEventKind::Started) {
+        std::lock_guard lock(progressMutex_);
+        progressPosted_ = false;
+        quantifiedProgressPosted_ = false;
+    } else if (event.kind == FileOperationEventKind::Progress) {
+        std::lock_guard lock(progressMutex_);
+        const auto now = std::chrono::steady_clock::now();
+        const bool firstQuantified = event.total > 0 && !quantifiedProgressPosted_;
+        if (progressPosted_ && !firstQuantified && now - lastProgressPost_ < kProgressPostInterval) return;
+        lastProgressPost_ = now;
+        progressPosted_ = true;
+        quantifiedProgressPosted_ = quantifiedProgressPosted_ || event.total > 0;
+    }
     auto owned = std::make_unique<FileOperationEvent>(std::move(event));
     if (PostMessageW(eventWindow_, WM_APP_FILE_OPERATION_EVENT, 0, reinterpret_cast<LPARAM>(owned.get()))) owned.release();
 }

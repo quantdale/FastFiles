@@ -23,6 +23,7 @@ $captures=[Collections.Generic.List[object]]::new()
 $terminalObservations=[Collections.Generic.List[object]]::new()
 $copySamples=[Collections.Generic.List[object]]::new()
 $copyObservation=[pscustomobject]@{polls=0;last=$null}
+$cancelInput=$null
 $ctx=$null; $failure=$null; $lock=$null; $cleanup=$null; $recyclePending=$false
 $titleObserver=$null; $script:operationTitleVersion=0L
 $script:phase='startup'
@@ -334,9 +335,17 @@ try {
         return $false
     }
     Check $started.Pass 'Could not observe an actual in-flight partial copy; cancellation is not qualified.'
-    $null=Set-UiaForeground -Driver $ctx.Driver -Element $ctx.Main
-    $null=Send-UiaInput -Driver $ctx.Driver -Keys '{ESC}'
+    Set-Phase in-flight-copy-cancel-input
+    $inputClock=[Diagnostics.Stopwatch]::StartNew()
+    $activated=Set-UiaForeground -Driver $ctx.Driver -Element $ctx.Main
+    $foreground=Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main
+    $cancelInput=@{activationReturned=$activated;foreground=$foreground;beforeTitle=$titleObserver.LatestTitle;beforeUtc=[DateTime]::UtcNow.ToString('o');afterInputMs=$null;result=$null;terminalMs=$null}
+    Check ($activated -and $foreground) 'Cancellation lacks verified owned foreground.'
+    $cancelInput.result=Send-UiaInput -Driver $ctx.Driver -Keys '{ESC}'
+    $cancelInput.afterInputMs=$inputClock.ElapsedMilliseconds
+    Check $cancelInput.result.ok 'Cancellation input was rejected.'
     $cancelled=Wait-Terminal
+    $cancelInput.terminalMs=$inputClock.ElapsedMilliseconds
     Check ($cancelled -match 'cancelled') ('In-flight Escape did not cancel: '+$cancelled)
     Check ($cancelled -match (' of '+$bulkCount+' ')) 'Cancellation did not target the complete selected batch.'
     $copied=@([IO.Directory]::GetFiles($bulkTarget))
@@ -383,7 +392,7 @@ try {
         }
         $cleanup=Remove-UiaScenarioContext -Context $ctx -ArtifactsDir $artifacts -LogFn {param($m) Write-Host $m}
     }
-    @{filter=$Filter;cases=@($cases.ToArray());captures=@($captures.ToArray());terminalObservations=@($terminalObservations.ToArray());copySamples=@($copySamples.ToArray());copyObservation=$copyObservation;failure=$failure;cleanup=$cleanup;scope='Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks'} |
+    @{filter=$Filter;cases=@($cases.ToArray());captures=@($captures.ToArray());terminalObservations=@($terminalObservations.ToArray());copySamples=@($copySamples.ToArray());copyObservation=$copyObservation;cancelInput=$cancelInput;failure=$failure;cleanup=$cleanup;scope='Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks'} |
         ConvertTo-Json -Depth 14 | Set-Content (Join-Path $artifacts 'result.json') -Encoding utf8NoBOM
 }
 if($failure) { throw $failure }
