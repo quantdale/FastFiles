@@ -199,7 +199,14 @@ std::u16string FileName(size_t index) {
 }
 
 bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint64_t seed,
-                  bool maintenanceEnabled) {
+                  bool maintenanceEnabled, bool engineRoots) {
+    constexpr size_t kBatch = 5000;
+    // Engine searches materialize complete parent chains; Store-only fixtures
+    // deliberately retain their historical flat identities unless requested.
+    if (engineRoots && (volumes == 0 || volumes > rows / kBatch)) {
+        std::fprintf(stderr, "--engine-roots requires one full batch per volume\n");
+        return false;
+    }
     DeleteFileW(dbPath.c_str());
     DeleteFileW((dbPath + L"-wal").c_str());
     DeleteFileW((dbPath + L"-shm").c_str());
@@ -230,19 +237,25 @@ bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint6
         }
         volumeIds.push_back(*id);
     }
-    constexpr size_t kBatch = 5000;
     for (size_t offset = 0; offset < rows; offset += kBatch) {
         std::vector<ffindexstore::EntryChange> batch;
         const size_t end = (offset + kBatch < rows) ? offset + kBatch : rows;
         for (size_t index = offset; index < end; ++index) {
             ffindexstore::EntryRecord record;
             const size_t seeded = index + static_cast<size_t>(seed % 977u);
-            record.id = {static_cast<uint64_t>(index + 1), 0};
+            record.id = {static_cast<uint64_t>(index + (engineRoots ? 16 : 1)), 0};
             record.parentId = {5, 0};
             record.name = FileName(seeded);
             record.sizeBytes = 4096;
             record.allocatedSizeKnown = true;
             record.allocatedSizeBytes = 4096;
+            if (engineRoots && offset / kBatch < volumes && index == offset) {
+                record.id = {5, 0};
+                record.name = u".";
+                record.attributes = FILE_ATTRIBUTE_DIRECTORY;
+                record.sizeBytes = 0;
+                record.allocatedSizeBytes = 0;
+            }
             batch.push_back({ffindexstore::EntryChangeKind::Upsert, record});
         }
         const ffindexstore::VolumeRowId targetVolume =
@@ -805,6 +818,7 @@ int wmain(int argc, wchar_t** argv) {
     size_t processCount = 5;
     size_t warmOpens = 0;
     bool fixtureMaintenanceOff = false;
+    bool fixtureEngineRoots = false;
     bool buildFixtureMode = false;
     bool measureMode = false;
     bool childMode = false;
@@ -829,6 +843,7 @@ int wmain(int argc, wchar_t** argv) {
         else if (argument == L"--measure") measureMode = true;
         else if (argument == L"--measure-child") childMode = true;
         else if (argument == L"--maintenance-off") fixtureMaintenanceOff = true;
+        else if (argument == L"--engine-roots") fixtureEngineRoots = true;
         else {
             std::fprintf(stderr, "unknown argument\n");
             return 2;
@@ -836,13 +851,14 @@ int wmain(int argc, wchar_t** argv) {
     }
     if (dbPath.empty() && !buildFixtureMode) {
         std::fprintf(stderr,
-            "Usage: bench_store_open --build-fixture <N> --db <path> [--seed S] [--volumes K]\n"
+            "Usage: bench_store_open --build-fixture <N> --db <path> [--seed S] [--volumes K] [--engine-roots]\n"
             "       bench_store_open --measure --db <path> --case <case> --processes <K> --output <json>\n"
             "       bench_store_open --measure-child --db <path> --case <case> [--warm-opens M]\n");
         return 2;
     }
     if (buildFixtureMode) {
-        return BuildFixture(dbPath, fixtureRows, fixtureVolumes, fixtureSeed, !fixtureMaintenanceOff) ? 0 : 1;
+        return BuildFixture(dbPath, fixtureRows, fixtureVolumes, fixtureSeed,
+                            !fixtureMaintenanceOff, fixtureEngineRoots) ? 0 : 1;
     }
     if (childMode) {
         return RunChild(dbPath, testCase, warmOpens);

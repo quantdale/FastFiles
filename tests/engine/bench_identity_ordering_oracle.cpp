@@ -435,6 +435,8 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
                 << ",\"candidate_admissions\":" << actual.candidateRoutes
                 << ",\"actual_count\":" << actual.response.candidates.size()
                 << ",\"canonical_count\":" << canonical.response.candidates.size()
+                << ",\"actual_status\":" << static_cast<unsigned>(actual.response.status)
+                << ",\"canonical_status\":" << static_cast<unsigned>(canonical.response.status)
                 << ",\"truncated\":" << (actual.response.truncated ? "true" : "false") << "}";
             out.flush();
             std::printf("%s %s/%s hot=%zu cold=%zu canonical=%zu\n",
