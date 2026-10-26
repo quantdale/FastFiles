@@ -121,10 +121,15 @@ function Invoke-OwnedPaletteCancellation {
     Check $selected.Pass ('Exact cancellation command was not selected: '+($observation.state | ConvertTo-Json -Compress -Depth 6))
     $cancelInput.beforeEnterCopied=[IO.Directory]::GetFiles($bulkTarget).Length
     $cancelInput.beforeEnterTitle=$titleObserver.LatestTitle
+    $cancelInput.beforeEnterEpochMs=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $cancelInput.logPath=Join-Path $ctx.SessionRoot 'LocalAppData/FastFiles/logs/diagnostics.log'
+    $cancelInput.logOffset=(Get-Item -LiteralPath $cancelInput.logPath).Length
     $enter=Send-UiaInput -Driver $ctx.Driver -Keys '{ENTER}'
     Check $enter.ok 'Cancellation palette Enter was rejected.'
     $dispatched=Wait-E2ECondition -TimeoutMs 2000 -PollIntervalMs 50 -Description 'actual cancellation dispatch' -Condition {
-        return & $validation { Get-UiaCommandDispatchEvidence -CommandId 'file.cancel-operations' }
+        return & $validation {param($path,$offset,$processId,$epoch)
+            Get-UiaCommandDispatchEvidence -CommandId 'file.cancel-operations' -LogPath $path -LogOffset $offset -ProcessId $processId -AfterEpochMs $epoch
+        } $cancelInput.logPath $cancelInput.logOffset $ctx.Launched.Id $cancelInput.beforeEnterEpochMs
     }
     Check ($dispatched.Pass -and $dispatched.Value.outcome -eq 'accepted') 'Cancellation lacks actual accepted command dispatch.'
     $closed=Wait-E2ECondition -TimeoutMs 3000 -PollIntervalMs 100 -Description 'cancellation palette closed' -Condition {

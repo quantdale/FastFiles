@@ -1090,9 +1090,34 @@ function Get-UiaDiagnosticsLogPath {
 }
 
 function Get-UiaCommandDispatchEvidence {
-    param([Parameter(Mandatory)] [string] $CommandId)
-    $logPath = Get-UiaDiagnosticsLogPath
+    param([Parameter(Mandatory)] [string] $CommandId, [string] $LogPath = '',
+        [long] $LogOffset = -1, [int] $ProcessId = 0, [long] $AfterEpochMs = 0)
+    if (-not $LogPath) { $LogPath = Get-UiaDiagnosticsLogPath }
     if (-not $logPath -or -not (Test-Path -LiteralPath $logPath)) { return $null }
+    if ($LogOffset -ge 0) {
+        # A timed action owns an exact session log and pre-input byte offset.
+        # Read forward so later provider traffic cannot evict its dispatch from
+        # a tail window. Bound scanning and require structured PID/time identity.
+        $stream=$null; $reader=$null
+        try {
+            $stream=[IO.File]::Open($LogPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+            if ($stream.Length -lt $LogOffset) { return $null }
+            $null=$stream.Seek($LogOffset,[IO.SeekOrigin]::Begin)
+            $reader=[IO.StreamReader]::new($stream,[Text.Encoding]::UTF8,$true)
+            $scanned=0
+            while ($scanned -lt 2MB -and -not $reader.EndOfStream) {
+                $line=$reader.ReadLine(); $scanned+=$line.Length
+                if ($line -notmatch 'FFDIAG_UI_COMMAND_DISPATCHED') { continue }
+                try { $event=$line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+                if ($event.codeName -ne 'FFDIAG_UI_COMMAND_DISPATCHED' -or
+                    [string]$event.message -notmatch ([regex]::Escape('command='+$CommandId)+'(?:;|$)') -or
+                    ($ProcessId -gt 0 -and $event.pid -ne $ProcessId) -or $event.epochMs -lt $AfterEpochMs) { continue }
+                return [pscustomobject]@{codeName=$event.codeName;message=$event.message;state=$event.state;outcome=$event.outcome;pid=$event.pid;epochMs=$event.epochMs;logOffset=$LogOffset}
+            }
+        } catch { return $null }
+        finally { if($reader) { $reader.Dispose() } elseif($stream) { $stream.Dispose() } }
+        return $null
+    }
     try {
         $commandPattern = [regex]::Escape("command=$CommandId")
         # completion-integrity-hardening-and-release-certification 2.6: opening

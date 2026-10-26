@@ -24,6 +24,8 @@ function Check {
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 & (Join-Path $PSScriptRoot 'Test-PaletteSiblingDiscovery.ps1')
 if ($LASTEXITCODE -ne 0) { throw 'Palette direct-sibling discovery regression failed' }
+& (Join-Path $PSScriptRoot 'Test-BoundCommandEvidence.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Owned command evidence regression failed' }
 $module = Join-Path $repo 'verify\uia-driver\UiaDriver.psm1'
 $treePath = Join-Path $repo 'verify\uia-driver\tests\recorded-trees\sample-files-window.json'
 Import-Module $module -Force
