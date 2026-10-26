@@ -1382,8 +1382,14 @@ function Invoke-E2ERestoreScenario {
             $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'restored-home-close' -Detail 'restored Home did not exit within the unchanged close deadline' -DurationMs $watch.Elapsed.TotalMilliseconds -Data $third.LastCloseObservation
             return $result
         }
+        $thirdCleanup = Remove-UiaScenarioContext -Context $third -LogFn { param($m) } -ArtifactsDir (Join-Path $ArtifactRoot 'cold-restore-home')
+        if (-not $thirdCleanup.Pass) {
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'restored-home-cleanup' -Detail 'final restored Home lifecycle cleanup left residue' -DurationMs $watch.Elapsed.TotalMilliseconds -Data $thirdCleanup
+            return $result
+        }
         # OrderedDictionary serialization includes keys, not ETS note properties.
         $visible['closeObservations'] = @($first.LastCloseObservation, $second.LastCloseObservation, $third.LastCloseObservation)
+        $visible['cleanupObservations'] = @($firstCleanup, $secondCleanup, $thirdCleanup)
         $result = New-E2EResult -Id 'cold-restore' -Status 'PASS' -Detail 'Nested directory and typed Home restored and all three app lifecycles closed normally in the same isolated state directory' `
             -DurationMs $watch.Elapsed.TotalMilliseconds -Data $visible
         return $result

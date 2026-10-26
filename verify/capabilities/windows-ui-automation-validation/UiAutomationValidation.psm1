@@ -1702,28 +1702,8 @@ function Remove-UiaScenarioContext {
         try { Close-UiaExplorerWindow -Driver $Context.Driver -WindowElement $win }
         catch { $cleanupFailures += "explorer-close-exception:$($_.Exception.Message)" }
     }
-    # Close any remaining visible test-owned Explorer windows (title contains a
-    # fixture leaf) that the bound-element close could not reach.
-    foreach ($fixture in @($Context.Fixtures)) {
-        $leaf = Split-Path $fixture -Leaf
-        if (-not $leaf) { continue }
-        try {
-            # Explorer windows are top-level root children. A recursive
-            # desktop `FindAll` during teardown can retain unrelated shell
-            # fragments and can itself fail while a window is closing.
-            $root = Get-UiaRootElement -Driver $Context.Driver
-            $leftovers = @(Get-UiaChildren -Driver $Context.Driver -Element $root | Where-Object {
-                (Get-UiaElementIdentity -Driver $Context.Driver -Element $_).ClassName -eq 'CabinetWClass'
-            })
-            foreach ($lo in $leftovers) {
-                $loName = (Get-UiaElementIdentity -Driver $Context.Driver -Element $lo).Name
-                if ($loName -like "*$leaf*") {
-                    try { Close-UiaExplorerWindow -Driver $Context.Driver -WindowElement $lo }
-                    catch { $cleanupFailures += "explorer-close-exception:$($_.Exception.Message)" }
-                }
-            }
-        } catch { }
-    }
+    # Fixtures own filesystem data only. Explorer windows must be explicitly
+    # registered above; a matching fixture title does not establish ownership.
     # hardening-campaign Phase 4: restore desktop input state before the
     # lifecycle goes away -- release any held modifiers and drop the topmost
     # style the foreground helpers set, so neither leaks past the scenario

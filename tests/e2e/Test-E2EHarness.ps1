@@ -102,7 +102,9 @@ function Close-E2EContextWindow {
 }
 function Remove-UiaScenarioContext {
     param($Context)
-    $Context.Cleanup=[pscustomobject]@{Pass=$true}
+    $script:RecordedCleanupCount++
+    $pass = -not ($script:RecordedFailThirdCleanup -and $script:RecordedCleanupCount -eq 3)
+    $Context.Cleanup=[pscustomobject]@{Pass=$pass}
     return $Context.Cleanup
 }
 function Invoke-E2ENavigationCommand { return [pscustomobject]@{Pass=$true} }
@@ -112,9 +114,11 @@ function Write-E2EFailureEvidence { throw 'Unexpected recorded restore failure' 
 '@
 $restoreSuffix = @'
 function Invoke-RecordedRestoreMetadata {
-    param([switch] $FailThird)
+    param([switch] $FailThird, [switch] $FailThirdCleanup)
     $script:RecordedCloseCount=0
     $script:RecordedFailThird=[bool]$FailThird
+    $script:RecordedCleanupCount=0
+    $script:RecordedFailThirdCleanup=[bool]$FailThirdCleanup
     return Invoke-E2ERestoreScenario -Exe recorded -RepoRoot recorded -ArtifactRoot recorded
 }
 Export-ModuleMember -Function Invoke-RecordedRestoreMetadata
@@ -131,6 +135,9 @@ try {
     $thirdFailure = & $restoreFixture { Invoke-RecordedRestoreMetadata -FailThird }
     Check ($thirdFailure.status -eq 'FAIL' -and $thirdFailure.stage -eq 'restored-home-close' -and
         -not $thirdFailure.data.exitObserved) 'restored Home close failure cannot be accepted as a passing lifecycle'
+    $cleanupFailure = & $restoreFixture { Invoke-RecordedRestoreMetadata -FailThirdCleanup }
+    Check ($cleanupFailure.status -eq 'FAIL' -and $cleanupFailure.stage -eq 'restored-home-cleanup' -and
+        -not $cleanupFailure.data.Pass) 'final restore cleanup failure cannot be ignored behind a passing scenario'
 } finally {
     Remove-Module $restoreFixture -Force -ErrorAction SilentlyContinue
 }
