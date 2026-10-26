@@ -875,7 +875,10 @@ void WindowShell::FinishInlineRename(bool commit) {
 void WindowShell::CancelFileOperations() {
     if (!fileOperations_.HasOutstandingWork()) return;
     fileOperations_.CancelCurrent();
-    SetWindowTextW(hwnd_, L"FastFiles \u2014 cancelling operation\u2026");
+    // original-vision-journey-recovery 4.7: a terminal event can reach the UI
+    // before the worker clears executing_. Request cancellation from live worker
+    // state, but never overwrite an already presented terminal caption.
+    if (fileOpOutstanding_) SetWindowTextW(hwnd_, L"FastFiles \u2014 cancelling operation\u2026");
 }
 
 bool WindowShell::InvokeCommand(const std::wstring& commandId) {
