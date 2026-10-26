@@ -1,0 +1,16 @@
+{
+  "status": "INTERRUPTED",
+  "source": "9b6042a0ac1f677e650fdedd33e8c56ac1b15a76",
+  "confirmedLogCases": ["multi-copy", "multi-move"],
+  "reason": "Own test interrupted with Ctrl+C after shared recursive UIA lookups delayed large-folder workflow. No final result/cleanup receipt was generated.",
+  "lastBulkCopyAcceptedEpochMs": 1793001229570,
+  "bulkPasteDispatchedInPreservedDiagnostics": false,
+  "bulkDestinationFilesLastObserved": 0,
+  "nativeAppAndEngineProcessesObservedAbsentAfterInterruption": true,
+  "cancellation": "NOT_EXECUTED",
+  "otherCaseCertification": "UNQUALIFIED_WITHOUT_FINAL_RECEIPT",
+  "retainedSandbox": "C:/Users/palac/AppData/Local/FastFilesUiaSessions/FastFiles-Uia-owned-operations-unbound-5792867bcdc94461bb4c14ed5681b233",
+  "sandboxCleanup": "POLICY_BLOCKED",
+  "policyReason": "blocked by policy",
+  "policyAction": "No deletion retry or bypass; retained bounded synthetic fixture and original marker."
+}

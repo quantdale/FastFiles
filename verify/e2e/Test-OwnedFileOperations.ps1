@@ -22,10 +22,39 @@ $captures=[Collections.Generic.List[object]]::new()
 $terminalObservations=[Collections.Generic.List[object]]::new()
 $ctx=$null; $failure=$null; $lock=$null; $cleanup=$null; $recyclePending=$false
 $titleObserver=$null; $script:operationTitleVersion=0L
+$script:phase='startup'
+function Set-Phase([string]$Name) {
+    $script:phase=$Name
+    Write-Host ('PHASE: '+$Name)
+    @{status='IN_PROGRESS';phase=$Name;utc=[DateTime]::UtcNow.ToString('o');cases=@($cases.ToArray());captures=@($captures.ToArray());terminalObservations=@($terminalObservations.ToArray())} |
+        ConvertTo-Json -Depth 14 | Set-Content (Join-Path $artifacts 'progress.json') -Encoding utf8NoBOM
+}
 function Check($Condition,[string]$Message) { if (-not $Condition) { throw $Message } }
 function Navigate([string]$Path) {
     $r=Invoke-UiaAddressBarNavigate -Driver $ctx.Driver -Main $ctx.Main -ProcessId $ctx.Launched.Id -Path $Path -ExpectedLeaf ([IO.Path]::GetFileName($Path))
     if (-not $r.Pass) { throw ('Navigate: '+($r | ConvertTo-Json -Compress -Depth 4)) }
+}
+function Navigate-Bulk([string]$Path) {
+    # The shared navigation helper recursively searches for absent tool nodes
+    # and tab buttons. Keep this large-directory journey on direct native
+    # children plus the existing pane/column seam; never walk thousands of rows.
+    $null=Reset-UiaModifierKeys -Driver $ctx.Driver
+    $null=Set-UiaForeground -Driver $ctx.Driver -Element $ctx.Main
+    Check (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main) 'Bulk navigation lacks owned foreground.'
+    $null=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}l'
+    $address=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -ControlType Edit -AutomationId '0' -TimeoutMs 3000
+    Check ([bool]$address) 'No direct native address edit.'
+    $set=Set-UiaElementValue -Driver $ctx.Driver -Element $address -Value $Path
+    Check $set.ok 'Cannot set actual address value.'
+    $null=Send-UiaInput -Driver $ctx.Driver -Keys '{ENTER}'
+    $validation=Get-Module UiAutomationValidation
+    $landed=Wait-E2ECondition -TimeoutMs 10000 -Description 'exact bulk terminal column' -Condition {
+        $columns=@(& $validation {param($c) Get-UiaColumnListElements -Driver $c.Driver -Main $c.Main -PaneId 'Pane.0' -ProcessId $c.Launched.Id} $ctx)
+        if($columns.Count -eq 0) { return $false }
+        $name=(Get-UiaElementIdentity -Driver $ctx.Driver -Element $columns[-1]).Name
+        return [string]::Equals($name.TrimEnd('\'),$Path.TrimEnd('\'),[StringComparison]::OrdinalIgnoreCase)
+    }
+    Check $landed.Pass 'Bulk navigation did not reach exact path.'
 }
 function Select-One([string]$Name) {
     $r=& $e2e { param($c,$n) Select-E2EItem -Context $c -Name $n } $ctx $Name
@@ -109,6 +138,7 @@ try {
         $hashes[$name]=Hash (Join-Path $source $name)
     }
     foreach($mode in @('copy','move')) {
+        Set-Phase ('multi-'+$mode)
         Navigate $source
         Select-One $names[0]
         foreach($name in $names[1..2]) {
@@ -142,15 +172,16 @@ try {
         Write-Host ('PASS: multi-'+$mode)
     }
     $recycled=Join-Path $source ('owned-'+[guid]::NewGuid().ToString('N')+'.txt')
+    Set-Phase recycle-delete-undo
     [IO.File]::WriteAllText($recycled,'Owned recycle positive control')
     $recycleHash=Hash $recycled
     Check (@(Get-OwnedRecycleMatch $recycled).Count -eq 0) 'Positive control already exists in bin.'
     Navigate $source
     Select-One ([IO.Path]::GetFileName($recycled))
+    $recyclePending=$true
     Command delete Delete file.delete
     $terminal=Wait-Terminal
     Check (-not(Test-Path -LiteralPath $recycled)) 'Recycle delete left source.'
-    $recyclePending=$true
     $binWait=Wait-E2ECondition -TimeoutMs 5000 -Description 'positive owned recycle entry' -Condition {
         return (@(Get-OwnedRecycleMatch $recycled).Count -eq 1)
     }
@@ -167,6 +198,7 @@ try {
     Check (@(Get-OwnedRecycleMatch $permanent).Count -eq 0) 'Permanent fixture already exists in bin.'
     Navigate $source
     foreach($confirm in @($false,$true)) {
+        Set-Phase ('permanent-confirm-'+$confirm)
         Select-One ([IO.Path]::GetFileName($permanent))
         Command permanent 'Delete permanently' file.delete-permanently
         $dialog=Find-UiaElement -Driver $ctx.Driver -Name 'Delete permanently' -ClassName '#32770' -ProcessId $ctx.Launched.Id -TimeoutMs 5000
@@ -199,6 +231,7 @@ try {
         Check ((Hash $sentinel) -eq $sentinelHash) 'Sentinel changed.'
     }
     $lockedName='locked-source.txt'
+    Set-Phase error-manual-recovery
     $healthyName='healthy-sibling.txt'
     foreach($name in @($lockedName,$healthyName)) {
         [IO.File]::WriteAllText((Join-Path $source $name),('Recovery fixture '+$name))
@@ -246,6 +279,7 @@ try {
     # A real top-level batch, not a conflict-dialog Cancel or a pre-start cancel.
     # Bounded64MiB payload; no large benchmark fixture or production files.
     $bulkSource=Join-Path $fixture.Root 'BulkSource'
+    Set-Phase in-flight-copy-fixture
     $bulkTarget=Join-Path $fixture.Root 'BulkTarget'
     $null=New-Item -ItemType Directory -Path $bulkSource,$bulkTarget
     $payload=[byte[]]::new(16KB)
@@ -253,11 +287,22 @@ try {
     $payloadHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($payload))
     $bulkCount=4096
     for($i=0;$i -lt $bulkCount;$i++) { [IO.File]::WriteAllBytes((Join-Path $bulkSource ('item-{0:D5}.bin' -f $i)),$payload) }
-    Navigate $bulkSource
-    Command 'select all' 'Select All' selection.select-all
-    Command copy Copy file.copy
-    Navigate $bulkTarget
-    Command paste Paste file.paste
+    Set-Phase in-flight-copy-source
+    Navigate-Bulk $bulkSource
+    $ready=Wait-E2ECondition -TimeoutMs 10000 -Description 'last bulk source identity is loaded' -Condition {
+        try {
+            return Find-UiaTerminalColumnItem -Driver $ctx.Driver -Main $ctx.Main -ProcessId $ctx.Launched.Id -Name 'item-04095.bin' -PaneId 'Pane.0' -TimeoutMs 900
+        } catch { return $false }
+    }
+    Check $ready.Pass 'Bulk source is not ready for Select All.'
+    # Public Windows shortcuts avoid recursive palette-dismissal searches.
+    $null=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}a'
+    $null=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}c'
+    Set-Phase in-flight-copy-destination
+    Navigate-Bulk $bulkTarget
+    $script:operationTitleVersion=$titleObserver.Version
+    $null=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}v'
+    Set-Phase in-flight-copy-observation
     $started=Wait-E2ECondition -TimeoutMs 10000 -Description 'actual partially copied batch' -Condition {
         $count=[IO.Directory]::GetFiles($bulkTarget).Length
         $title=Get-UiaElementProperty -Driver $ctx.Driver -Element $ctx.Main -Name Name
@@ -271,6 +316,7 @@ try {
     $null=Send-UiaInput -Driver $ctx.Driver -Keys '{ESC}'
     $cancelled=Wait-Terminal
     Check ($cancelled -match 'cancelled') ('In-flight Escape did not cancel: '+$cancelled)
+    Check ($cancelled -match (' of '+$bulkCount+' ')) 'Cancellation did not target the complete selected batch.'
     $copied=@([IO.Directory]::GetFiles($bulkTarget))
     Check ($copied.Count -gt 0 -and $copied.Count -lt $bulkCount) 'Cancellation did not leave an observed partial set.'
     foreach($path in $copied) {
@@ -286,8 +332,9 @@ try {
     }
     Check ((Hash $sentinel) -eq $sentinelHash) 'Cancellation changed unrelated sentinel.'
     [void]$cases.Add(@{id='in-flight-copy-cancel';pass=$true;observed=$started.Value;terminal=$cancelled;copied=$copied.Count;total=$bulkCount;payloadHash=$payloadHash;allSourceAndRemainingDestinationHashesMatch=$true})
+    Set-Phase verified
 } catch {
-    $failure=$_.Exception.Message
+    $failure=$script:phase+': '+$_.Exception.Message
     Write-Host ('FAIL: '+$failure)
 } finally {
     if($lock) { $lock.Dispose() }
@@ -296,9 +343,13 @@ try {
             # Only this scenario's most recent captured recycle operation is
             # outstanding. Restore it through the normal session Undo command.
             try {
-                Command undo 'Undo Last File Operation' file.undo
-                $null=Wait-Terminal
+                $matches=@(Get-OwnedRecycleMatch $recycled).Count
+                if(-not(Test-Path -LiteralPath $recycled) -and $matches -eq 1) {
+                    Command undo 'Undo Last File Operation' file.undo
+                    $null=Wait-Terminal
+                }
                 Check ((Hash $recycled) -eq $recycleHash) 'Positive-control cleanup failed.'
+                Check (@(Get-OwnedRecycleMatch $recycled).Count -eq 0) 'Positive-control cleanup left an owned bin entry.'
             } catch { $failure=([string]$failure+'; owned recycle cleanup: '+$_.Exception.Message) }
         }
         # Dismiss only a possible dialog belonging to this owned application.
