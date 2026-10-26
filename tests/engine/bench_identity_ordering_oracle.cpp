@@ -4,11 +4,14 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "IndexPipeline.h"
@@ -16,6 +19,8 @@
 #include "sqlite3.h"
 
 namespace {
+
+constexpr wchar_t kScratchMarker[] = L".fastfiles-oracle-owned";
 
 std::string Utf8(const std::wstring& value) {
     if (value.empty()) return {};
@@ -42,6 +47,23 @@ std::string Json(const std::string& value) {
     return out + "\"";
 }
 
+bool RemoveOwnedScratch(const std::filesystem::path& scratch) {
+    wchar_t temp[MAX_PATH]{};
+    if (!GetTempPathW(MAX_PATH, temp)) return false;
+    std::error_code error;
+    const auto root = std::filesystem::canonical(temp, error);
+    if (error) return false;
+    const auto target = std::filesystem::canonical(scratch, error);
+    if (error || target.parent_path() != root ||
+        !target.filename().native().starts_with(L"ffo") ||
+        !std::filesystem::is_regular_file(target / kScratchMarker, error) || error) {
+        std::fprintf(stderr, "refusing cleanup of an unverified oracle scratch directory\n");
+        return false;
+    }
+    std::filesystem::remove_all(target, error);
+    return !error;
+}
+
 // SQLite backup includes committed WAL content; never copy a live .db alone.
 // The source is read-only. The scratch directory is new and owned by this run.
 bool CopySnapshot(const std::string& source, std::filesystem::path& scratch, uint64_t& rows) {
@@ -51,6 +73,10 @@ bool CopySnapshot(const std::string& source, std::filesystem::path& scratch, uin
     DeleteFileW(unique);
     scratch = unique;
     if (!std::filesystem::create_directory(scratch)) return false;
+    std::ofstream marker(scratch / kScratchMarker, std::ios::binary);
+    marker << "owned FastFiles canonical oracle scratch\n";
+    marker.close();
+    if (!marker) return false;
     sqlite3* input = nullptr;
     sqlite3* output = nullptr;
     bool ok = sqlite3_open_v2(source.c_str(), &input, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK;
@@ -131,13 +157,18 @@ struct Run {
     size_t hotRows = 0;
     size_t candidateRoutes = 0;
     size_t fallbackRoutes = 0;
+    size_t generationRestarts = 0;
+    size_t durableFallbackRows = 0;
+    bool durableFallbackUsed = false;
     double elapsedMs = 0;
 };
 
-Run Search(ffengine::IndexPipeline& pipeline, const Cell& cell, bool canonical) {
+Run Search(ffengine::IndexPipeline& pipeline, const Cell& cell, bool canonical,
+           const std::function<void(ffengine::IndexPipeline::SearchPhase)>& onPhase = {}) {
     Run run;
     ffengine::IndexPipeline::SearchTestHooks hooks;
     hooks.forceCanonicalColdScan = canonical;
+    hooks.onPhase = onPhase;
     hooks.candidatePlannerProbe = [&](bool used, size_t) {
         if (used) ++run.candidateRoutes;
         else ++run.fallbackRoutes;
@@ -157,6 +188,9 @@ Run Search(ffengine::IndexPipeline& pipeline, const Cell& cell, bool canonical) 
         std::chrono::steady_clock::now() - start).count();
     run.coldRows = timings.coldRowsExamined;
     run.hotRows = timings.hotRowsExamined;
+    run.generationRestarts = timings.generationRestarts;
+    run.durableFallbackRows = timings.durableFallbackRowsStreamed;
+    run.durableFallbackUsed = timings.durableFallbackUsed;
     pipeline.SetSearchTestHooks({});
     return run;
 }
@@ -200,58 +234,7 @@ bool ComparatorSelfTest() {
     return !SequenceEqual(a, b);
 }
 
-} // namespace
-
-int wmain(int argc, wchar_t** argv) {
-    std::string source;
-    std::wstring sourceWide;
-    std::string output;
-    bool readOnlyFixture = false;
-    bool extended = false;
-    bool selfTest = false;
-    for (int index = 1; index < argc; ++index) {
-        const std::wstring option = argv[index];
-        if (option == L"--db" && index + 1 < argc) {
-            sourceWide = argv[++index];
-            source = Utf8(sourceWide);
-        }
-        else if (option == L"--output" && index + 1 < argc) output = Utf8(argv[++index]);
-        else if (option == L"--extended") extended = true;
-        else if (option == L"--self-test") selfTest = true;
-        else if (option == L"--readonly-fixture") readOnlyFixture = true;
-        else return 2;
-    }
-    if (!ComparatorSelfTest()) return 1;
-    if (selfTest) return 0;
-    if (source.empty() || output.empty()) return 2;
-
-    uint64_t rows = 0;
-    std::filesystem::path scratch;
-    std::string database;
-    if (readOnlyFixture) {
-        if (!OpenReadOnlyFixture(sourceWide, database, rows)) return 3;
-    } else {
-        if (!CopySnapshot(source, scratch, rows)) {
-            std::fprintf(stderr, "cannot create a nonempty, consistent scratch snapshot\n");
-            return 3;
-        }
-        database = Utf8((scratch / L"oracle.db").wstring());
-    }
-    std::ofstream out(output, std::ios::binary);
-    if (!out) return 3;
-    ffengine::IndexPipeline pipeline;
-    if (!pipeline.Open(database)) return 3;
-    pipeline.RebuildAll({});
-    const auto volumes = pipeline.GetAllVolumes();
-    if (volumes.empty()) return 3;
-    for (const auto& volume : volumes) {
-        ffprotocol::VolumeSetting setting;
-        setting.key = L"C:";
-        setting.enabled = true;
-        pipeline.SetVolumeRules(volume.rowId, setting);
-        pipeline.UnloadVolumeFromProjection(volume.rowId);
-    }
-
+std::vector<Cell> MakeCells(bool extended) {
     std::vector<Cell> cells{
         {"selective", L"unique_component_7391", 0, 4096, false, false, true},
         {"exact_name", L"unique_component_7391.txt", 0, 4096, false, false, true},
@@ -275,6 +258,303 @@ int wmain(int argc, wchar_t** argv) {
         cells.push_back({"cap_4096", L"report"});
     }
     cells.push_back({"cancel_immediate", L"common", 0, 4096, false, true});
+    return cells;
+}
+
+// durable-cold-search-index-and-hybrid-residency 4.1: equal rows alone
+// cannot certify an independent reference or its status/cap premises.
+bool CanonicalCellEqual(const Run& actual, const Run& reference,
+                        const Cell& cell, uint64_t rows) {
+    const auto status = cell.cancel ? ffprotocol::IndexedSearchStatus::Cancelled
+                                    : ffprotocol::IndexedSearchStatus::Completed;
+    const bool referenceScan = reference.hotRows == 0 &&
+        reference.coldRows == (cell.cancel ? uint64_t{0} : rows) &&
+        reference.candidateRoutes == 0 && reference.fallbackRoutes == 0;
+    const bool nonvacuous = cell.cancel
+        ? actual.response.candidates.empty() && reference.response.candidates.empty() &&
+            !actual.response.truncated && !reference.response.truncated
+        : (std::string(cell.name) == "no_match" ? reference.response.candidates.empty()
+                                               : !reference.response.candidates.empty());
+    return actual.response.status == status && reference.response.status == status &&
+        actual.response.requestId == 1 && reference.response.requestId == 2 &&
+        referenceScan && nonvacuous && SequenceEqual(actual.response, reference.response) &&
+        actual.response.truncated == reference.response.truncated &&
+        actual.response.candidates.size() <= cell.cap &&
+        reference.response.candidates.size() <= cell.cap;
+}
+
+bool ResidencyValidationSelfTest() {
+    const Cell cell{"probe", L"alpha", 0, 17};
+    Run actual;
+    actual.response.requestId = 1;
+    actual.response.status = ffprotocol::IndexedSearchStatus::Completed;
+    actual.response.candidates.emplace_back().name = L"alpha";
+    Run reference = actual;
+    reference.response.requestId = 2;
+    reference.coldRows = 2;
+    if (!CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    reference.coldRows = 1;
+    if (CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    reference.coldRows = 2;
+    reference.candidateRoutes = 1;
+    if (CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    reference.candidateRoutes = 0;
+    reference.hotRows = 1;
+    if (CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    reference.hotRows = 0;
+    actual.response.truncated = true;
+    if (CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    actual.response.truncated = false;
+    actual.response.candidates.front().allocatedSizeKnown = true;
+    if (CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    actual.response.candidates.front().allocatedSizeKnown = false;
+    actual.response.status = ffprotocol::IndexedSearchStatus::Unavailable;
+    if (CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    actual.response.status = ffprotocol::IndexedSearchStatus::Cancelled;
+    reference.response.status = ffprotocol::IndexedSearchStatus::Cancelled;
+    actual.response.candidates.clear();
+    reference.response.candidates.clear();
+    reference.coldRows = 0;
+    Cell cancelled = cell;
+    cancelled.cancel = true;
+    if (!CanonicalCellEqual(actual, reference, cancelled, 2)) return false;
+    actual.response.truncated = true;
+    reference.response.truncated = true;
+    return !CanonicalCellEqual(actual, reference, cancelled, 2);
+}
+
+size_t ColdVolumeCount(ffengine::IndexPipeline& pipeline,
+                       const std::vector<ffindexstore::VolumeMetadata>& volumes) {
+    size_t cold = 0;
+    for (const auto& volume : volumes) if (pipeline.IsVolumeEvicted(volume.rowId)) ++cold;
+    return cold;
+}
+
+bool ValidResidency(ffengine::IndexPipeline& pipeline,
+                    const std::vector<ffindexstore::VolumeMetadata>& volumes,
+                    size_t expectedCold) {
+    const auto memory = pipeline.GetProjectionMemoryDiagnostics();
+    constexpr size_t kProductionMaximum = size_t{500} * 1024 * 1024;
+    return memory.configuredMaximumBytes == kProductionMaximum &&
+        memory.estimatedBytes <= memory.configuredMaximumBytes &&
+        ColdVolumeCount(pipeline, volumes) == expectedCold;
+}
+
+bool RunResidencyOracle(const std::string& database, const std::string& source,
+                        const std::string& output, uint64_t rows, bool extended) {
+    std::ofstream out(output, std::ios::binary);
+    if (!out) return false;
+    const auto fail = [&](const char* reason) {
+        out << "{\"schema\":\"fastfiles-residency-canonical-oracle-v1\","
+            << "\"all_passed\":false,\"failure\":" << Json(reason) << "}\n";
+        std::fprintf(stderr, "%s\n", reason);
+        return false;
+    };
+    ffengine::IndexPipeline tested;
+    ffengine::IndexPipeline reference;
+    if (!tested.Open(database) || !reference.Open(database)) return fail("pipeline open failed");
+    const auto volumes = tested.GetAllVolumes();
+    if (volumes.size() != 2) return fail("residency routes require exactly two nonempty logical volumes");
+    uint64_t volumeRows = 0;
+    for (const auto& volume : volumes) {
+        if (volume.entryCount == 0 || volume.entryCount > rows || volumeRows > rows - volume.entryCount) {
+            return fail("fixture volume cardinality is invalid");
+        }
+        volumeRows += volume.entryCount;
+    }
+    if (volumeRows != rows) return fail("volume cardinalities do not cover the complete fixture");
+    tested.RebuildAll({});
+    reference.RebuildAll({});
+    for (size_t index = 0; index < volumes.size(); ++index) {
+        ffprotocol::VolumeSetting setting;
+        setting.key = index == 0 ? L"C:" : L"D:";
+        setting.enabled = true;
+        tested.SetVolumeRules(volumes[index].rowId, setting);
+        reference.SetVolumeRules(volumes[index].rowId, setting);
+        reference.UnloadVolumeFromProjection(volumes[index].rowId);
+    }
+    if (!ValidResidency(reference, volumes, volumes.size())) return fail("reference is not all-cold at the production budget");
+    const auto cells = MakeCells(extended);
+    const std::array<const char*, 4> stages{"resident", "mixed", "cold", "reloaded_resident"};
+    out << "{\n\"schema\":\"fastfiles-residency-canonical-oracle-v1\",\n\"build_identity\":"
+        << Json(ffsetup::kBuildIdentityAscii) << ",\n\"input\":" << Json(source)
+        << ",\n\"fixture_access\":\"owned-backup-copy\",\n\"fixture_rows\":" << rows
+        << ",\n\"reference\":\"separate all-cold pipeline; all candidate prefilters bypassed\","
+        << "\n\"volumes\":[";
+    for (size_t index = 0; index < volumes.size(); ++index) {
+        if (index != 0) out << ",";
+        out << "{\"row_id\":" << volumes[index].rowId << ",\"rows\":" << volumes[index].entryCount
+            << ",\"prefix\":" << Json(index == 0 ? "C:" : "D:") << "}";
+    }
+    out << "],\n\"stages\":[\n";
+    bool passed = true;
+    size_t passedCells = 0;
+    for (size_t stage = 0; stage < stages.size(); ++stage) {
+        if (stage == 1) tested.UnloadVolumeFromProjection(volumes.front().rowId);
+        if (stage == 2) {
+            for (const auto& volume : volumes) tested.UnloadVolumeFromProjection(volume.rowId);
+        }
+        if (stage == 3) tested.RebuildAll({});
+        const size_t expectedCold = stage == 1 ? size_t{1} : stage == 2 ? volumes.size() : size_t{0};
+        const auto memory = tested.GetProjectionMemoryDiagnostics();
+        const bool setup = ValidResidency(tested, volumes, expectedCold) &&
+            ValidResidency(reference, volumes, volumes.size());
+        if (stage != 0) out << ",\n";
+        out << "{\"route\":" << Json(stages[stage]) << ",\"configured_maximum_bytes\":"
+            << memory.configuredMaximumBytes << ",\"estimated_bytes\":" << memory.estimatedBytes
+            << ",\"actual_cold_volumes\":" << ColdVolumeCount(tested, volumes)
+            << ",\"expected_cold_volumes\":" << expectedCold
+            << ",\"residency_premises_valid\":" << (setup ? "true" : "false") << ",\"cells\":[";
+        if (!setup) {
+            out << "],\"all_passed\":false}";
+            passed = false;
+            break;
+        }
+        bool stagePassed = true;
+        size_t hotRows = 0;
+        size_t coldRows = 0;
+        for (size_t index = 0; index < cells.size(); ++index) {
+            const auto& cell = cells[index];
+            const Run actual = Search(tested, cell, false);
+            const Run canonical = Search(reference, cell, true);
+            hotRows += actual.hotRows;
+            coldRows += actual.coldRows + actual.durableFallbackRows;
+            const bool route = (expectedCold != 0 || actual.coldRows == 0) &&
+                (expectedCold != volumes.size() || actual.hotRows == 0) &&
+                (cell.cancel || !cell.requireIndex || expectedCold == 0 || actual.candidateRoutes != 0);
+            const bool valid = route && CanonicalCellEqual(actual, canonical, cell, rows);
+            stagePassed = stagePassed && valid;
+            if (valid) ++passedCells;
+            if (index != 0) out << ",";
+            out << "\n{\"cell\":" << Json(cell.name) << ",\"passed\":" << (valid ? "true" : "false")
+                << ",\"route_valid\":" << (route ? "true" : "false")
+                << ",\"hot_rows_examined\":" << actual.hotRows << ",\"cold_rows_examined\":" << actual.coldRows
+                << ",\"canonical_rows_examined\":" << canonical.coldRows
+                << ",\"canonical_hot_rows\":" << canonical.hotRows
+                << ",\"canonical_candidate_admissions\":" << canonical.candidateRoutes
+                << ",\"candidate_admissions\":" << actual.candidateRoutes
+                << ",\"actual_count\":" << actual.response.candidates.size()
+                << ",\"canonical_count\":" << canonical.response.candidates.size()
+                << ",\"truncated\":" << (actual.response.truncated ? "true" : "false") << "}";
+            out.flush();
+            std::printf("%s %s/%s hot=%zu cold=%zu canonical=%zu\n",
+                valid ? "PASS" : "FAIL", stages[stage], cell.name,
+                actual.hotRows, actual.coldRows, canonical.coldRows);
+            std::fflush(stdout);
+        }
+        const bool observedRoutes = (expectedCold == volumes.size() || hotRows != 0) &&
+            (expectedCold == 0 || coldRows != 0);
+        const bool released = tested.GetReadPlaneDiagnostics().activeDurableReaders == 0 &&
+            reference.GetReadPlaneDiagnostics().activeDurableReaders == 0;
+        stagePassed = stagePassed && observedRoutes && released &&
+            ValidResidency(tested, volumes, expectedCold);
+        out << "],\"actual_hot_rows\":" << hotRows << ",\"actual_cold_rows\":" << coldRows
+            << ",\"required_routes_observed\":" << (observedRoutes ? "true" : "false")
+            << ",\"reader_leases_released\":" << (released ? "true" : "false")
+            << ",\"all_passed\":" << (stagePassed ? "true" : "false") << "}";
+        passed = passed && stagePassed;
+        if (!stagePassed) break;
+    }
+    out << "\n],\n\"inflight_eviction\":";
+    if (passed) {
+        tested.RebuildAll({});
+        const bool before = ValidResidency(tested, volumes, 0);
+        bool evicted = false;
+        const Cell cell{"generation_restart", L"common"};
+        const Run actual = Search(tested, cell, false, [&](ffengine::IndexPipeline::SearchPhase phase) {
+            if (phase != ffengine::IndexPipeline::SearchPhase::WorkStarted || evicted) return;
+            evicted = true;
+            for (const auto& volume : volumes) tested.UnloadVolumeFromProjection(volume.rowId);
+        });
+        const Run canonical = Search(reference, cell, true);
+        const bool valid = before && evicted && actual.generationRestarts >= 1 &&
+            ValidResidency(tested, volumes, volumes.size()) &&
+            CanonicalCellEqual(actual, canonical, cell, rows) &&
+            tested.GetReadPlaneDiagnostics().activeDurableReaders == 0 &&
+            reference.GetReadPlaneDiagnostics().activeDurableReaders == 0;
+        if (valid) ++passedCells;
+        out << "{\"passed\":" << (valid ? "true" : "false")
+            << ",\"mutation_observed\":" << (evicted ? "true" : "false")
+            << ",\"generation_restarts\":" << actual.generationRestarts
+            << ",\"durable_fallback_used\":" << (actual.durableFallbackUsed ? "true" : "false")
+            << ",\"durable_fallback_rows\":" << actual.durableFallbackRows
+            << ",\"canonical_rows_examined\":" << canonical.coldRows << "}";
+        passed = passed && valid;
+        std::printf("%s inflight_eviction restarts=%zu canonical=%zu\n",
+            valid ? "PASS" : "FAIL", actual.generationRestarts, canonical.coldRows);
+    } else {
+        out << "null";
+    }
+    out << ",\n\"passed_cells\":" << passedCells << ",\n\"all_passed\":" << (passed ? "true" : "false") << "\n}\n";
+    reference.Close();
+    tested.Close();
+    return passed;
+}
+
+} // namespace
+
+int wmain(int argc, wchar_t** argv) {
+    std::string source;
+    std::wstring sourceWide;
+    std::string output;
+    bool readOnlyFixture = false;
+    bool extended = false;
+    bool selfTest = false;
+    bool residencyRoutes = false;
+    for (int index = 1; index < argc; ++index) {
+        const std::wstring option = argv[index];
+        if (option == L"--db" && index + 1 < argc) {
+            sourceWide = argv[++index];
+            source = Utf8(sourceWide);
+        }
+        else if (option == L"--output" && index + 1 < argc) output = Utf8(argv[++index]);
+        else if (option == L"--extended") extended = true;
+        else if (option == L"--self-test") selfTest = true;
+        else if (option == L"--residency-routes") residencyRoutes = true;
+        else if (option == L"--readonly-fixture") readOnlyFixture = true;
+        else return 2;
+    }
+    if (!ComparatorSelfTest() || !ResidencyValidationSelfTest()) return 1;
+    if (selfTest) return 0;
+    if (source.empty() || output.empty()) return 2;
+    if (residencyRoutes && readOnlyFixture) {
+        std::fprintf(stderr, "residency routes require the owned-backup-copy mode\n");
+        return 2;
+    }
+
+    uint64_t rows = 0;
+    std::filesystem::path scratch;
+    std::string database;
+    if (readOnlyFixture) {
+        if (!OpenReadOnlyFixture(sourceWide, database, rows)) return 3;
+    } else {
+        if (!CopySnapshot(source, scratch, rows)) {
+            std::fprintf(stderr, "cannot create a nonempty, consistent scratch snapshot\n");
+            return 3;
+        }
+        database = Utf8((scratch / L"oracle.db").wstring());
+    }
+    if (residencyRoutes) {
+        const bool passed = RunResidencyOracle(database, source, output, rows, extended);
+        const bool cleaned = RemoveOwnedScratch(scratch);
+        return passed && cleaned ? 0 : 1;
+    }
+    std::ofstream out(output, std::ios::binary);
+    if (!out) return 3;
+    ffengine::IndexPipeline pipeline;
+    if (!pipeline.Open(database)) return 3;
+    pipeline.RebuildAll({});
+    const auto volumes = pipeline.GetAllVolumes();
+    if (volumes.empty()) return 3;
+    for (const auto& volume : volumes) {
+        ffprotocol::VolumeSetting setting;
+        setting.key = L"C:";
+        setting.enabled = true;
+        pipeline.SetVolumeRules(volume.rowId, setting);
+        pipeline.UnloadVolumeFromProjection(volume.rowId);
+    }
+
+    const auto cells = MakeCells(extended);
 
     out << "{\n\"schema\":\"fastfiles-identity-ordering-oracle-v2\",\n\"build_identity\":"
         << Json(ffsetup::kBuildIdentityAscii) << ",\n\"input\":" << Json(source)
@@ -332,6 +612,6 @@ int wmain(int argc, wchar_t** argv) {
     out.close();
     pipeline.Close();
     // Only this run's newly-created scratch directory is removed.
-    if (!readOnlyFixture) std::filesystem::remove_all(scratch);
+    if (!readOnlyFixture && !RemoveOwnedScratch(scratch)) return 3;
     return passed ? 0 : 1;
 }

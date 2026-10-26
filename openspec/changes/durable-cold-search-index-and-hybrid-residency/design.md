@@ -86,3 +86,7 @@ These constrain the design space and come from the completed
   may achieve the latency targets without a schema change, and alternative E
   is retained only as a control arm.
 - The 500 MiB default budget is **not** raised by this proposal.
+
+## 2026-10-26 bounded independent residency-route qualification
+
+The optional oracle mode uses two ordinary IndexPipeline instances on a fresh owned SQLite backup: an independently all-cold, all-prefilter-bypassed reference and a tested resident/mixed/cold/reloaded projection under the unchanged500MiB production maximum. Reuse the existing deterministic Store fixture generator at200k/two logical volumes. Require actual residency/budget/row-route premises, complete canonical row enumeration, no reference candidate admission, ordered identity/all metadata/status/caps/cancellation equality and released durable readers. Trigger one eviction at captured WorkStarted, as the existing concurrency regression does, and require an actual generation restart with canonical equality. Keep the existing default v2 all-cold matrix behavior; no engine/storage schema/policy change. Negative self-tests reject equal candidate lists when full-scan/admission/cap/status premises are invalid. Cleanup may remove only factory-owned, marked, canonicalized temp scratch roots. Execution is pending and task4.1 stays open, including retained2M scope; this design does not close acceptance or repeat old expensive experiments.
