@@ -340,7 +340,8 @@ try {
     $inputClock=[Diagnostics.Stopwatch]::StartNew()
     $activated=Set-UiaForeground -Driver $ctx.Driver -Element $ctx.Main
     $foreground=Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main
-    $cancelInput=@{activationReturned=$activated;foreground=$foreground;beforeTitle=$titleObserver.LatestTitle;beforeUtc=[DateTime]::UtcNow.ToString('o');afterInputMs=$null;result=$null;terminalMs=$null}
+    $focus=Get-UiaElementIdentity -Driver $ctx.Driver -Element ([System.Windows.Automation.AutomationElement]::FocusedElement)
+    $cancelInput=@{activationReturned=$activated;foreground=$foreground;focusedElement=$focus;beforeTitle=$titleObserver.LatestTitle;beforeUtc=[DateTime]::UtcNow.ToString('o');afterInputMs=$null;result=$null;terminalMs=$null}
     Check ($activated -and $foreground) 'Cancellation lacks verified owned foreground.'
     $cancelInput.result=Send-UiaInput -Driver $ctx.Driver -Keys '{ESC}'
     $cancelInput.afterInputMs=$inputClock.ElapsedMilliseconds

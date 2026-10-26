@@ -1341,6 +1341,16 @@ int WindowShell::RunMessageLoop() {
             RequestRepaint();
             continue;
         }
+        // original-vision-journey-recovery 4.6: native child controls do not
+        // bubble WM_KEYDOWN to the shell. Preserve modal/search/edit Escape
+        // ownership, then route a running operation's cancellation through the
+        // same shell handler even when a navigation/preview child has focus.
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE &&
+            fileOpOutstanding_ && !nativeEditFocused &&
+            msg.hwnd != hwnd_ && IsChild(hwnd_, msg.hwnd)) {
+            SendMessageW(hwnd_, WM_KEYDOWN, msg.wParam, msg.lParam);
+            continue;
+        }
         if (!commandPalette_.Visible() && DispatchShortcut(msg, ShortcutScope::ActiveView, nativeEditFocused)) continue;
         // scan-generation-integrity-and-residual-certification-closure 6.4:
         // the shell is not a dialog and its message loop does not call
