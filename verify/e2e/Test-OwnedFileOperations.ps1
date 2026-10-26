@@ -3,6 +3,7 @@ param(
     [string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path,
     [Parameter(Mandatory)][string]$ArtifactsDir,
     [ValidateSet('all','cancellation')][string]$Filter='all',
+    [ValidateSet('Escape','Palette')][string]$CancellationRoute='Escape',
     [ValidateSet(512,4096)][int]$BatchItems=512
 )
 $ErrorActionPreference='Stop'
@@ -24,7 +25,7 @@ $captures=[Collections.Generic.List[object]]::new()
 $terminalObservations=[Collections.Generic.List[object]]::new()
 $copySamples=[Collections.Generic.List[object]]::new()
 $copyObservation=[pscustomobject]@{polls=0;last=$null}
-$cancelInput=$null
+$cancelInput=$null; $idleCancelInput=$null
 $ctx=$null; $failure=$null; $lock=$null; $cleanup=$null; $recyclePending=$false
 $titleObserver=$null; $script:operationTitleVersion=0L
 $script:phase='startup'
@@ -341,14 +342,28 @@ try {
     $activated=Set-UiaForeground -Driver $ctx.Driver -Element $ctx.Main
     $foreground=Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main
     $focus=Get-UiaElementIdentity -Driver $ctx.Driver -Element ([System.Windows.Automation.AutomationElement]::FocusedElement)
-    $cancelInput=@{activationReturned=$activated;foreground=$foreground;focusedElement=$focus;beforeTitle=$titleObserver.LatestTitle;beforeUtc=[DateTime]::UtcNow.ToString('o');afterInputMs=$null;result=$null;terminalMs=$null}
+    $cancelInput=@{route=$CancellationRoute;activationReturned=$activated;foreground=$foreground;focusedElement=$focus;beforeTitle=$titleObserver.LatestTitle;beforeUtc=[DateTime]::UtcNow.ToString('o');afterInputMs=$null;result=$null;terminalMs=$null}
     Check ($activated -and $foreground) 'Cancellation lacks verified owned foreground.'
-    $cancelInput.result=Send-UiaInput -Driver $ctx.Driver -Keys '{ESC}'
-    $cancelInput.afterInputMs=$inputClock.ElapsedMilliseconds
-    Check $cancelInput.result.ok 'Cancellation input was rejected.'
+    if($CancellationRoute -eq 'Palette') {
+        $cancelInput.result=& $e2e { param($c)
+            Invoke-E2ENavigationCommand -Context $c -Query 'Cancel File Operations' -Name 'Cancel File Operations' -CommandId 'file.cancel-operations'
+        } $ctx
+        $cancelInput.afterInputMs=$inputClock.ElapsedMilliseconds
+        Check $cancelInput.result.Pass ('Palette cancellation failed: '+($cancelInput.result | ConvertTo-Json -Compress -Depth 8))
+        # The public helper can accept a selected/closed palette without a log.
+        # This qualification additionally requires actual accepted dispatch.
+        $dispatchProperty=$cancelInput.result.PSObject.Properties['DispatchEvidence']
+        Check ([bool]$dispatchProperty -and [bool]$dispatchProperty.Value) 'Palette cancellation has no actual dispatch receipt.'
+        Check ($dispatchProperty.Value.outcome -eq 'accepted') 'Product rejected the cancellation command.'
+        Check ($cancelInput.result.CommandState.selectedName -eq 'Cancel File Operations') 'Palette cancellation selected the wrong command.'
+    } else {
+        $cancelInput.result=Send-UiaInput -Driver $ctx.Driver -Keys '{ESC}'
+        $cancelInput.afterInputMs=$inputClock.ElapsedMilliseconds
+        Check $cancelInput.result.ok 'Cancellation input was rejected.'
+    }
     $cancelled=Wait-Terminal
     $cancelInput.terminalMs=$inputClock.ElapsedMilliseconds
-    Check ($cancelled -match 'cancelled') ('In-flight Escape did not cancel: '+$cancelled)
+    Check ($cancelled -match 'cancelled') ('In-flight '+$CancellationRoute+' did not cancel: '+$cancelled)
     Check ($cancelled -match (' of '+$bulkCount+' ')) 'Cancellation did not target the complete selected batch.'
     $copied=@([IO.Directory]::GetFiles($bulkTarget))
     Check ($copied.Count -gt 0 -and $copied.Count -lt $bulkCount) 'Cancellation did not leave an observed partial set.'
@@ -364,8 +379,79 @@ try {
         Check ((Hash (Join-Path $bulkSource ('item-{0:D5}.bin' -f $i))) -eq $payloadHash) 'Cancellation changed a source name or bytes.'
     }
     Check ((Hash $sentinel) -eq $sentinelHash) 'Cancellation changed unrelated sentinel.'
-    [void]$cases.Add(@{id='in-flight-copy-cancel';pass=$true;observed=$started.Value;prepareElapsedMs=$started.ElapsedMs;terminal=$cancelled;copied=$copied.Count;total=$bulkCount;payloadHash=$payloadHash;allSourceAndRemainingDestinationHashesMatch=$true})
-    Check ($cases.Count -eq $(if($Filter -eq 'all') {7} else {1})) 'Requested case coverage is incomplete.'
+    [void]$cases.Add(@{id='in-flight-copy-cancel';route=$CancellationRoute;pass=$true;observed=$started.Value;prepareElapsedMs=$started.ElapsedMs;terminal=$cancelled;copied=$copied.Count;total=$bulkCount;payloadHash=$payloadHash;allSourceAndRemainingDestinationHashesMatch=$true})
+    if($CancellationRoute -eq 'Palette') {
+        Set-Phase idle-cancel-discovery
+        # All paths belong to this marked fixture. Compare real names and bytes
+        # before/after refused input, including the unrelated sentinel.
+        $beforeIdle=@(Get-ChildItem -LiteralPath $fixture.Root -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
+            [ordered]@{path=$_.FullName;hash=(Hash $_.FullName)}
+        }) | ConvertTo-Json -Compress -Depth 5
+        $idleCancelInput=@{route='Palette';beforeUtc=[DateTime]::UtcNow.ToString('o');open=$null;query=$null;enter=$null;dismiss=$null;close=$null;state=$null;dialogChildren=@()}
+        $null=Reset-UiaModifierKeys -Driver $ctx.Driver
+        $null=Set-UiaForeground -Driver $ctx.Driver -Element $ctx.Main
+        Check (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main) 'Idle discovery lacks owned foreground.'
+        $idleCancelInput.open=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}{SHIFT}p'
+        Check $idleCancelInput.open.ok 'Idle palette open input was rejected.'
+        $edit=Wait-UiaElement -Driver $ctx.Driver -AutomationId '6301' -FromElement $ctx.Main -TimeoutMs 4000
+        Check ([bool]$edit) 'Idle palette edit was not exposed.'
+        $edit.SetFocus()
+        Check (Get-UiaElementProperty -Driver $ctx.Driver -Element $edit -Name HasKeyboardFocus) 'Idle palette edit lacks keyboard focus.'
+        $idleCancelInput.query=Send-UiaText -Driver $ctx.Driver -Text 'Cancel File Operations'
+        Check $idleCancelInput.query.ok 'Idle palette query input was rejected.'
+        $validation=Get-Module UiAutomationValidation
+        Check ([bool]$validation) 'Public UIA validation module is unavailable.'
+        $idleState=[pscustomobject]@{value=$null}
+        $idleReady=Wait-E2ECondition -TimeoutMs 4000 -Description 'idle exact cancellation command is selected' -Condition {
+            $idleState.value=& $validation {param($c)
+                Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id -ExpectedCommandNames @('Cancel File Operations')
+            } $ctx
+            return $idleState.value.editPresent -and $idleState.value.listPresent -and $idleState.value.listVisible -and
+                @($idleState.value.listItems).Count -eq 1 -and $idleState.value.selectedName -eq 'Cancel File Operations'
+        }
+        Check $idleReady.Pass 'Idle cancellation command was not visibly discoverable and selected.'
+        $idleCancelInput.state=$idleState.value
+        Capture-Dialog $ctx.Main idle-cancel-palette
+        # A native listbox's IsEnabled does not describe individual owner-drawn
+        # command availability. Real Enter and the product refusal prove it.
+        Set-Phase idle-cancel-refusal
+        $idleCancelInput.enterUtc=[DateTime]::UtcNow.ToString('o')
+        $idleCancelInput.enter=Send-UiaInput -Driver $ctx.Driver -Keys '{ENTER}'
+        Check $idleCancelInput.enter.ok 'Idle cancellation Enter input was rejected.'
+        $unavailable=Find-UiaElement -Driver $ctx.Driver -Name 'Command unavailable' -ClassName '#32770' -ProcessId $ctx.Launched.Id -TimeoutMs 5000
+        Check ([bool]$unavailable) 'Idle cancellation did not show an owned standard refusal dialog.'
+        $idleCancelInput.dialogChildren=@(Get-UiaChildren -Driver $ctx.Driver -Element $unavailable | ForEach-Object {
+            Get-UiaElementIdentity -Driver $ctx.Driver -Element $_
+        })
+        $staticNames=@($idleCancelInput.dialogChildren | Where-Object { $_.ClassName -eq 'Static' } | ForEach-Object { $_.Name })
+        Check ($staticNames -contains 'No file operations are running or queued') 'Idle cancellation did not explain its actual unavailable reason.'
+        Check (@($idleCancelInput.dialogChildren | Where-Object { $_.ClassName -eq 'Button' -and $_.Name -eq 'OK' }).Count -eq 1) 'Idle refusal lacks its real OK button.'
+        Capture-Dialog $unavailable idle-cancel-unavailable
+        $null=Set-UiaForeground -Driver $ctx.Driver -Element $unavailable
+        Check (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $unavailable) 'Idle refusal lacks owned foreground.'
+        $idleCancelInput.dismiss=Send-UiaInput -Driver $ctx.Driver -Keys '{ENTER}'
+        Check $idleCancelInput.dismiss.ok 'Idle refusal dismissal input was rejected.'
+        $dialogGone=Wait-UiaElementGone -Driver $ctx.Driver -Name 'Command unavailable' -ClassName '#32770' -ProcessId $ctx.Launched.Id -TimeoutMs 3000
+        Check $dialogGone 'Idle refusal dialog did not dismiss normally.'
+        $idleCancelInput.afterDialogState=& $validation {param($c)
+            Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id -ExpectedCommandNames @('Cancel File Operations')
+        } $ctx
+        Check ($idleCancelInput.afterDialogState.editPresent -and $idleCancelInput.afterDialogState.listVisible -and
+            $idleCancelInput.afterDialogState.selectedName -eq 'Cancel File Operations') 'Idle refusal did not preserve the visible palette selection.'
+        Check (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main) 'Palette dismissal lacks owned foreground.'
+        $idleCancelInput.close=Send-UiaInput -Driver $ctx.Driver -Keys '{ESC}'
+        Check $idleCancelInput.close.ok 'Idle palette close input was rejected.'
+        $paletteGone=Wait-UiaElementGone -Driver $ctx.Driver -AutomationId '6301' -FromElement $ctx.Main -TimeoutMs 3000
+        Check $paletteGone 'Idle palette did not close normally.'
+        $afterIdle=@(Get-ChildItem -LiteralPath $fixture.Root -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
+            [ordered]@{path=$_.FullName;hash=(Hash $_.FullName)}
+        }) | ConvertTo-Json -Compress -Depth 5
+        Check ($beforeIdle -ceq $afterIdle -and (Hash $sentinel) -eq $sentinelHash) 'Idle refusal changed owned file names, content or sentinel.'
+        $idleCancelInput.afterUtc=[DateTime]::UtcNow.ToString('o')
+        [void]$cases.Add(@{id='idle-cancel-unavailable';pass=$true;reason='No file operations are running or queued';allOwnedNamesAndHashesUnchanged=$true})
+    }
+    $expectedCaseCount=$(if($Filter -eq 'all') {7} else {1})+$(if($CancellationRoute -eq 'Palette') {1} else {0})
+    Check ($cases.Count -eq $expectedCaseCount) 'Requested case coverage is incomplete.'
     Set-Phase verified
 } catch {
     $failure=$script:phase+': '+$_.Exception.Message
@@ -394,7 +480,7 @@ try {
         }
         $cleanup=Remove-UiaScenarioContext -Context $ctx -ArtifactsDir $artifacts -LogFn {param($m) Write-Host $m}
     }
-    @{filter=$Filter;cases=@($cases.ToArray());captures=@($captures.ToArray());terminalObservations=@($terminalObservations.ToArray());copySamples=@($copySamples.ToArray());copyObservation=$copyObservation;cancelInput=$cancelInput;failure=$failure;cleanup=$cleanup;scope='Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks'} |
+    @{filter=$Filter;cancellationRoute=$CancellationRoute;idleCancelInput=$idleCancelInput;cases=@($cases.ToArray());captures=@($captures.ToArray());terminalObservations=@($terminalObservations.ToArray());copySamples=@($copySamples.ToArray());copyObservation=$copyObservation;cancelInput=$cancelInput;failure=$failure;cleanup=$cleanup;scope='Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks'} |
         ConvertTo-Json -Depth 14 | Set-Content (Join-Path $artifacts 'result.json') -Encoding utf8NoBOM
 }
 if($failure) { throw $failure }
