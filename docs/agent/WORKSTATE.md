@@ -16,6 +16,8 @@
 
 ## Historical PR18 checkpoint (superseded frontier instructions)
 
+- Latest root native evidence: combined92d97fe full Storage journey PASS, including rank/order/partial source, relative Locations with full targets, exact reveal, hierarchical Treemap, all file hashes, normal close and cleanup. Root reviewed three actual120DPI images. They expose a separate visual defect: semantic selection/action target persists after palette Copy Path, but the native list loses its visible selection when focus leaves. Both list_ and overview_ lacked LVS_SHOWSELALWAYS. Tiny followup adds that native style to both controls, retaining standard inactive-selection drawing without colors, overlays or forced focus. No mirrored flag test; root strengthens actual post-palette selection and before/after image checks. This new style delta has not been compiled or natively qualified by worker;4.9 remains pending broader/root acceptance. NEXT: root cherry-picks, compiles/rebinds and re-exercises the owned journey before wider certification.
+
 ## Current resume checkpoint — original-vision journey recovery IN PROGRESS — 2026-10-25
 
 - Primary frontier: final committed-source certification/publication, with bounded 1M acceptance oracle running separately. User authorizes continued successor execution. Owner controls existing PR merges and production release.

@@ -897,10 +897,10 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     status_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_ENDELLIPSIS | SS_LEFTNOWORDWRAP,
                               0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
     list_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
-                            WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL | WS_TABSTOP,
+                            WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_TABSTOP,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListId)), nullptr, nullptr);
     overview_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
-                                WS_CHILD | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
+                                WS_CHILD | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_TABSTOP,
                                 0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewListId)), nullptr, nullptr);
     overviewButton_ = CreateWindowExW(0, L"BUTTON", L"Overview", StorageModeRadioStyle(0),
                                       0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewId)), nullptr, nullptr);
