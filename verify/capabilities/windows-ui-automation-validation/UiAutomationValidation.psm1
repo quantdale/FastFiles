@@ -610,7 +610,7 @@ function Get-UiaSafeInteractiveState {
 }
 
 function Get-UiaPaletteSemanticState {
-    param($Driver, $Main, [int] $ProcessId, [string[]] $ExpectedCommandNames = @(), [string[]] $ExpectedCommandNameLike = @())
+    param($Driver, $Main, [int] $ProcessId, [string[]] $ExpectedCommandNames = @(), [string[]] $ExpectedCommandNameLike = @(), [switch] $SkipInteractiveState)
     $state = [ordered]@{
         discoverySucceeded = $false
         editPresent = $false
@@ -625,7 +625,7 @@ function Get-UiaPaletteSemanticState {
         selectedName = $null
         expectedMatches = @()
         expectedNameLikeMatches = @()
-        interactive = Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId
+        interactive = $(if ($SkipInteractiveState) { $null } else { Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId })
     }
     $edit = $null
     $list = $null

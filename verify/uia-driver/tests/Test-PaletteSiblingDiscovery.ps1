@@ -9,6 +9,7 @@ $function=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDe
 . ([scriptblock]::Create($function.Extent.Text))
 $script:recursiveCalls=0; $script:enumerations=0; $script:unreadable=$false
 $script:listReadable=$true
+$script:interactiveReads=0
 $script:rows=@(0..4095 | ForEach-Object { @{Name=('file-'+$_)} })
 $main=@{Name='main'}
 $script:children=@(
@@ -16,7 +17,7 @@ $script:children=@(
     @{AutomationId='6301';ClassName='Edit';ProcessId=4242;HasKeyboardFocus=$true;IsOffscreen=$false;Text='Cancel File Operations'},
     @{AutomationId='6302';ClassName='ListBox';ProcessId=4242;IsEnabled=$true;IsOffscreen=$false;NativeWindowHandle=123}
 )
-function Get-UiaSafeInteractiveState {param($Driver,$ProcessId) return @{focusedAutomationId='6301'} }
+function Get-UiaSafeInteractiveState {param($Driver,$ProcessId) $script:interactiveReads++; return @{focusedAutomationId='6301'} }
 function Get-UiaChildren {param($Driver,$Element)
     $script:enumerations++
     if($script:unreadable) { throw 'Provider enumeration failed' }
@@ -35,6 +36,9 @@ $state=Get-UiaPaletteSemanticState -Driver @{} -Main $main -ProcessId 4242 -Expe
 Check ($state.editPresent -and $state.listPresent -and $state.listVisible -and $state.selectedName -eq 'Cancel File Operations') 'palette sibling remains discoverable after4096 earlier file rows'
 Check ($script:recursiveCalls -eq 0 -and $script:enumerations -eq 1) 'palette observation enumerates only direct siblings once'
 Check ($state.PSObject.Properties['discoverySucceeded'] -and $state.discoverySucceeded) 'successful enumeration establishes discovery authority'
+$beforeInteractive=$script:interactiveReads
+$timed=Get-UiaPaletteSemanticState -Driver @{} -Main $main -ProcessId 4242 -SkipInteractiveState
+Check ($timed.editPresent -and $timed.listVisible -and $timed.selectedName -eq 'Cancel File Operations' -and $script:interactiveReads -eq $beforeInteractive) 'timed observation retains real selection without optional desktop diagnostics'
 $script:children[1].ProcessId=9999
 $foreign=Get-UiaPaletteSemanticState -Driver @{} -Main $main -ProcessId 4242
 Check (-not $foreign.editPresent) 'same-ID foreign process control is rejected'

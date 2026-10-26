@@ -107,12 +107,12 @@ function Invoke-OwnedPaletteCancellation {
         return $false
     }
     Check $focused.Pass 'Cancellation palette edit did not acquire real owned focus.'
-    $typed=Send-UiaText -Driver $ctx.Driver -Text 'Cancel File Operations'
+    $typed=Send-UiaText -Driver $ctx.Driver -Text 'cancel'
     Check $typed.ok 'Cancellation palette query input was rejected.'
     $observation=[pscustomobject]@{state=$null}
     $selected=Wait-E2ECondition -TimeoutMs 3000 -PollIntervalMs 50 -Description 'exact cancellation command selection' -Condition {
         $observation.state=& $validation {param($c)
-            Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id -ExpectedCommandNames @('Cancel File Operations')
+            Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id -ExpectedCommandNames @('Cancel File Operations') -SkipInteractiveState
         } $ctx
         $s=$observation.state
         return $s.discoverySucceeded -and $s.editHasKeyboardFocus -and $s.listVisible -and $s.listEnabled -and
@@ -131,10 +131,13 @@ function Invoke-OwnedPaletteCancellation {
             Get-UiaCommandDispatchEvidence -CommandId 'file.cancel-operations' -LogPath $path -LogOffset $offset -ProcessId $processId -AfterEpochMs $epoch
         } $cancelInput.logPath $cancelInput.logOffset $ctx.Launched.Id $cancelInput.beforeEnterEpochMs
     }
-    Check ($dispatched.Pass -and $dispatched.Value.outcome -eq 'accepted') 'Cancellation lacks actual accepted command dispatch.'
+    $cancelInput.dispatchObservation=$dispatched
+    $cancelInput.afterEnterTitle=$titleObserver.LatestTitle
+    $cancelInput.afterEnterCopied=[IO.Directory]::GetFiles($bulkTarget).Length
+    Check ($dispatched.Pass -and $dispatched.Value.outcome -eq 'accepted') ('Cancellation lacks actual accepted command dispatch; title='+$cancelInput.afterEnterTitle+'; copied='+$cancelInput.afterEnterCopied)
     $closed=Wait-E2ECondition -TimeoutMs 3000 -PollIntervalMs 100 -Description 'cancellation palette closed' -Condition {
         $s=& $validation {param($c)
-            Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id
+            Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id -SkipInteractiveState
         } $ctx
         return $s.discoverySucceeded -and -not $s.editPresent -and -not $s.listPresent
     }
