@@ -1,5 +1,15 @@
 # Fast Files — Agent Workstate
 
+## Current integrator checkpoint — palette sibling discovery repaired / native qualification pending — 2026-10-27
+
+- Published shutdown successor PR24b683f33ba271c0de2b7eb4bc38faf5f9f391fa8c targetsPR22; clean/equal origin. Immutable097 full native8/8 with three normal closes/cleanups, selected Debug/release127/127 each, Analyze67/strict92 and final identity/drift/status3/3PASS. Hosted40366015091 sixjobs0steps; actual annotation account payment/spending blocker, no rerun/billing changes. Original timeout remains unattributed; all shared PRs/main unmerged.
+- Primary integrator now cancel-command worktree, published parentPR23 documentary fef merged locally as e6fa8ad. Diagnostic full445/445 and actual command/fileoperation tests4/4PASS8.94s. Final independent source review a4eb280 no P1/P2, source-only.
+- Actual native Palette attempts e6fa8ad are FAIL, both preserved under build/cancel-command-20261027:512 observed2copied then helper10.35s/Command unavailable;4096 observed1copied then helper9.26s/edit+list notfound although owned6301focused. Both cleanupsPASS. Same64MiB total fixture, no cancellation PASS. First completion-race inference remains unproven beyond unavailable dialog.
+- Independent inspection confirms generic DFS500ms/2000nodes can exhaust Browse descendants before direct native palette siblings. Actual semantic-function closed-mock RED4assertions→GREEN5checks after direct sibling enumeration; exactPID/class/ID retained. Discovery failure remains unresolved, so closure cannot pass merely from lookup error. Initial open and actual idle-close use direct-child/verified enumeration; no product hooks or weakened dispatch/partial assertions. Native correction awaits committed clean source rerun.
+- NEXT EXACT ACTION: finish helper headless tests, commit this bounded fix, rebuild diagnostic source identity, retry actual Palette4096 once with changed helper, inspect accepted dispatch/partial batch/idle refusal+captures. Preserve any new failure and narrow it rather than retry-loop. Then current-source broader certification and evidence review before4.7 closes; finally local combined qualification with PR20footer/shutdown/acceptance. No owner merge/release action.
+
+## Earlier cancellation implementation checkpoint (historical)
+
 ## Current primary frontier - discoverable operation cancellation IMPLEMENTED / QUALIFICATION PENDING - 2026-10-26
 
 - Isolated owner cancel-command-20261026, branch feat/discoverable-operation-cancel-20261026, immutable source9195788352a7bdba1996e42bda3c48570b794037. Root remains sole integrator/publisher; other worktrees preserved. No push or merge by worker.

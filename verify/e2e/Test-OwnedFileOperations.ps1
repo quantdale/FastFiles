@@ -393,7 +393,7 @@ try {
         Check (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main) 'Idle discovery lacks owned foreground.'
         $idleCancelInput.open=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}{SHIFT}p'
         Check $idleCancelInput.open.ok 'Idle palette open input was rejected.'
-        $edit=Wait-UiaElement -Driver $ctx.Driver -AutomationId '6301' -FromElement $ctx.Main -TimeoutMs 4000
+        $edit=Wait-UiaDirectChild -Driver $ctx.Driver -AutomationId '6301' -ClassName Edit -ProcessId $ctx.Launched.Id -Parent $ctx.Main -TimeoutMs 4000
         Check ([bool]$edit) 'Idle palette edit was not exposed.'
         $edit.SetFocus()
         Check (Get-UiaElementProperty -Driver $ctx.Driver -Element $edit -Name HasKeyboardFocus) 'Idle palette edit lacks keyboard focus.'
@@ -441,8 +441,13 @@ try {
         Check (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main) 'Palette dismissal lacks owned foreground.'
         $idleCancelInput.close=Send-UiaInput -Driver $ctx.Driver -Keys '{ESC}'
         Check $idleCancelInput.close.ok 'Idle palette close input was rejected.'
-        $paletteGone=Wait-UiaElementGone -Driver $ctx.Driver -AutomationId '6301' -FromElement $ctx.Main -TimeoutMs 3000
-        Check $paletteGone 'Idle palette did not close normally.'
+        $paletteGone=Wait-E2ECondition -TimeoutMs 3000 -Description 'owned palette controls closed' -Condition {
+            $closedState=& $validation {param($c)
+                Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id
+            } $ctx
+            return $closedState.discoverySucceeded -and -not $closedState.editPresent -and -not $closedState.listVisible
+        }
+        Check $paletteGone.Pass 'Idle palette did not close normally.'
         $afterIdle=@(Get-ChildItem -LiteralPath $fixture.Root -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
             [ordered]@{path=$_.FullName;hash=(Hash $_.FullName)}
         }) | ConvertTo-Json -Compress -Depth 5
