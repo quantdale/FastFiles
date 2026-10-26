@@ -22,7 +22,7 @@
 namespace {
 
 constexpr wchar_t kScratchMarker[] = L".fastfiles-oracle-owned";
-constexpr char kResidencySchema[] = "fastfiles-residency-canonical-oracle-v2";
+constexpr char kResidencySchema[] = "fastfiles-residency-canonical-oracle-v3";
 
 std::string Utf8(const std::wstring& value) {
     if (value.empty()) return {};
@@ -337,6 +337,12 @@ bool ResidencyValidationSelfTest() {
     reference.response.requestId = 2;
     reference.coldRows = 2;
     if (!CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    actual.response.requestId = 2;
+    if (CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    actual.response.requestId = 1;
+    reference.response.requestId = 1;
+    if (CanonicalCellEqual(actual, reference, cell, 2)) return false;
+    reference.response.requestId = 2;
     reference.coldRows = 1;
     if (CanonicalCellEqual(actual, reference, cell, 2)) return false;
     reference.coldRows = 2;
@@ -364,7 +370,61 @@ bool ResidencyValidationSelfTest() {
     if (!CanonicalCellEqual(actual, reference, cancelled, 2)) return false;
     actual.response.truncated = true;
     reference.response.truncated = true;
+    if (CanonicalCellEqual(actual, reference, cancelled, 2)) return false;
+    actual.response.truncated = false;
+    reference.response.truncated = false;
+    reference.response.requestId = 1;
     return !CanonicalCellEqual(actual, reference, cancelled, 2);
+}
+
+enum class ResidencyTransition { Keep, UnloadFirst, UnloadAll, Rebuild };
+
+struct ResidencyStage {
+    const char* name;
+    size_t expectedCold;
+    ResidencyTransition transition;
+};
+
+// durable-cold-search-index-and-hybrid-residency 4.1: a default-budget rebuild
+// may genuinely retain just one volume. Never label an all-cold rebuild warm.
+std::vector<ResidencyStage> PlanResidencyStages(size_t volumeCount, size_t initialCold) {
+    if (volumeCount != 2 || initialCold > 1) return {};
+    if (initialCold == 1) {
+        return {{"mixed", 1, ResidencyTransition::Keep},
+                {"cold", 2, ResidencyTransition::UnloadAll},
+                {"reloaded_mixed", 1, ResidencyTransition::Rebuild}};
+    }
+    return {{"resident", 0, ResidencyTransition::Keep},
+            {"mixed", 1, ResidencyTransition::UnloadFirst},
+            {"cold", 2, ResidencyTransition::UnloadAll},
+            {"reloaded_resident", 0, ResidencyTransition::Rebuild}};
+}
+
+bool ResidencyPlanSelfTest() {
+    const auto resident = PlanResidencyStages(2, 0);
+    const auto mixed = PlanResidencyStages(2, 1);
+    if (resident.size() != 4 || mixed.size() != 3 ||
+        !PlanResidencyStages(2, 2).empty() || !PlanResidencyStages(2, 3).empty() ||
+        !PlanResidencyStages(0, 0).empty() || !PlanResidencyStages(1, 0).empty() ||
+        !PlanResidencyStages(3, 1).empty()) return false;
+    // Follow each transition independently: an unchanged mixed start must not
+    // unload its remaining hot volume until the explicit all-cold stage.
+    for (const size_t initial : {size_t{0}, size_t{1}}) {
+        size_t cold = initial;
+        for (const auto& stage : PlanResidencyStages(2, initial)) {
+            switch (stage.transition) {
+            case ResidencyTransition::Keep: break;
+            case ResidencyTransition::UnloadFirst: ++cold; break;
+            case ResidencyTransition::UnloadAll: cold = 2; break;
+            case ResidencyTransition::Rebuild: cold = initial; break;
+            }
+            if (cold != stage.expectedCold) return false;
+        }
+    }
+    return std::string(resident.front().name) == "resident" &&
+        std::string(resident.back().name) == "reloaded_resident" &&
+        std::string(mixed.front().name) == "mixed" &&
+        std::string(mixed.back().name) == "reloaded_mixed";
 }
 
 size_t ColdVolumeCount(ffengine::IndexPipeline& pipeline,
@@ -419,10 +479,17 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
     }
     if (!ValidResidency(reference, volumes, volumes.size())) return fail("reference is not all-cold at the production budget");
     const auto cells = MakeCells(extended);
-    const std::array<const char*, 4> stages{"resident", "mixed", "cold", "reloaded_resident"};
+    const size_t initialCold = ColdVolumeCount(tested, volumes);
+    const auto stages = PlanResidencyStages(volumes.size(), initialCold);
+    if (stages.empty() || !ValidResidency(tested, volumes, initialCold)) {
+        return fail("tested rebuild must retain a complete resident volume at the production budget");
+    }
+    const size_t expectedCells = stages.size() * cells.size() + 1;
     out << "{\n\"schema\":" << Json(kResidencySchema) << ",\n\"build_identity\":"
         << Json(ffsetup::kBuildIdentityAscii) << ",\n\"input\":" << Json(source)
         << ",\n\"fixture_access\":\"owned-backup-copy\",\n\"fixture_rows\":" << rows
+        << ",\n\"initial_cold_volumes\":" << initialCold
+        << ",\n\"expected_cells\":" << expectedCells
         << ",\n\"reference\":\"separate all-cold pipeline; all candidate prefilters bypassed\","
         << "\n\"volumes\":[";
     for (size_t index = 0; index < volumes.size(); ++index) {
@@ -434,17 +501,23 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
     bool passed = true;
     size_t passedCells = 0;
     for (size_t stage = 0; stage < stages.size(); ++stage) {
-        if (stage == 1) tested.UnloadVolumeFromProjection(volumes.front().rowId);
-        if (stage == 2) {
+        const auto& planned = stages[stage];
+        switch (planned.transition) {
+        case ResidencyTransition::Keep: break;
+        case ResidencyTransition::UnloadFirst:
+            tested.UnloadVolumeFromProjection(volumes.front().rowId);
+            break;
+        case ResidencyTransition::UnloadAll:
             for (const auto& volume : volumes) tested.UnloadVolumeFromProjection(volume.rowId);
+            break;
+        case ResidencyTransition::Rebuild: tested.RebuildAll({}); break;
         }
-        if (stage == 3) tested.RebuildAll({});
-        const size_t expectedCold = stage == 1 ? size_t{1} : stage == 2 ? volumes.size() : size_t{0};
+        const size_t expectedCold = planned.expectedCold;
         const auto memory = tested.GetProjectionMemoryDiagnostics();
         const bool setup = ValidResidency(tested, volumes, expectedCold) &&
             ValidResidency(reference, volumes, volumes.size());
         if (stage != 0) out << ",\n";
-        out << "{\"route\":" << Json(stages[stage]) << ",\"configured_maximum_bytes\":"
+        out << "{\"route\":" << Json(planned.name) << ",\"configured_maximum_bytes\":"
             << memory.configuredMaximumBytes << ",\"estimated_bytes\":" << memory.estimatedBytes
             << ",\"actual_cold_volumes\":" << ColdVolumeCount(tested, volumes)
             << ",\"expected_cold_volumes\":" << expectedCold
@@ -487,7 +560,7 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
                 << ",\"truncated\":" << (actual.response.truncated ? "true" : "false") << "}";
             out.flush();
             std::printf("%s %s/%s hot=%zu cold=%zu canonical=%zu\n",
-                valid ? "PASS" : "FAIL", stages[stage], cell.name,
+                valid ? "PASS" : "FAIL", planned.name, cell.name,
                 actual.hotRows, actual.coldRows, canonical.coldRows);
             std::fflush(stdout);
         }
@@ -507,7 +580,7 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
     out << "\n],\n\"inflight_eviction\":";
     if (passed) {
         tested.RebuildAll({});
-        const bool before = ValidResidency(tested, volumes, 0);
+        const bool before = ValidResidency(tested, volumes, initialCold);
         bool evicted = false;
         const Cell cell{"generation_restart", L"common"};
         const Run actual = Search(tested, cell, false, [&](ffengine::IndexPipeline::SearchPhase phase) {
@@ -534,6 +607,7 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
     } else {
         out << "null";
     }
+    passed = passed && passedCells == expectedCells;
     out << ",\n\"passed_cells\":" << passedCells << ",\n\"all_passed\":" << (passed ? "true" : "false") << "\n}\n";
     reference.Close();
     tested.Close();
@@ -563,7 +637,7 @@ int wmain(int argc, wchar_t** argv) {
         else if (option == L"--readonly-fixture") readOnlyFixture = true;
         else return 2;
     }
-    if (!ComparatorSelfTest() || !ResidencyValidationSelfTest() || !SortPremisesSelfTest()) return 1;
+    if (!ComparatorSelfTest() || !ResidencyValidationSelfTest() || !SortPremisesSelfTest() || !ResidencyPlanSelfTest()) return 1;
     if (selfTest) return 0;
     if (source.empty() || output.empty()) return 2;
     if (residencyRoutes && readOnlyFixture) {
@@ -631,7 +705,8 @@ int wmain(int argc, wchar_t** argv) {
         const bool caps = indexed.response.truncated == canonical.response.truncated &&
                           indexed.response.candidates.size() <= cell.cap &&
                           canonical.response.candidates.size() <= cell.cap;
-        const bool valid = status && route && nonvacuous && order && caps && SortPremisesValid(canonical, cell);
+        const bool valid = status && route && nonvacuous && order && caps &&
+            CanonicalCellEqual(indexed, canonical, cell, rows);
         passed = passed && valid;
         if (!firstCell) out << ",\n";
         firstCell = false;

@@ -52,6 +52,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -199,12 +200,18 @@ std::u16string FileName(size_t index) {
 }
 
 bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint64_t seed,
-                  bool maintenanceEnabled, bool engineRoots, bool variedMetadata) {
+                  bool maintenanceEnabled, bool engineRoots, bool variedMetadata, size_t primaryVolumeRows) {
     constexpr size_t kBatch = 5000;
     // Engine searches materialize complete parent chains; Store-only fixtures
     // deliberately retain their historical flat identities unless requested.
     if (engineRoots && (volumes == 0 || volumes > rows / kBatch)) {
         std::fprintf(stderr, "--engine-roots requires one full batch per volume\n");
+        return false;
+    }
+    if (primaryVolumeRows != 0 && (!engineRoots || volumes != 2 ||
+        primaryVolumeRows < kBatch || primaryVolumeRows > rows ||
+        rows - primaryVolumeRows < kBatch || primaryVolumeRows % kBatch != 0)) {
+        std::fprintf(stderr, "--primary-volume-rows requires --engine-roots, two volumes, and batch-aligned primary rows with at least 5000 rows per volume\n");
         return false;
     }
     DeleteFileW(dbPath.c_str());
@@ -237,7 +244,11 @@ bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint6
         }
         volumeIds.push_back(*id);
     }
+    std::vector<bool> rootCreated(volumes, false);
     for (size_t offset = 0; offset < rows; offset += kBatch) {
+        const size_t volumeIndex = primaryVolumeRows == 0
+            ? (offset / kBatch) % volumeIds.size()
+            : (offset < primaryVolumeRows ? size_t{0} : size_t{1});
         std::vector<ffindexstore::EntryChange> batch;
         const size_t end = (offset + kBatch < rows) ? offset + kBatch : rows;
         for (size_t index = offset; index < end; ++index) {
@@ -255,7 +266,7 @@ bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint6
                 record.creationTime = 132000000000000000ull + (seeded % 997) * 10000000ull;
                 record.lastModifiedTime = 133000000000000000ull + ((seeded * 37) % 991) * 10000000ull;
             }
-            if (engineRoots && offset / kBatch < volumes && index == offset) {
+            if (engineRoots && !rootCreated[volumeIndex] && index == offset) {
                 record.id = {5, 0};
                 record.name = u".";
                 record.attributes = FILE_ATTRIBUTE_DIRECTORY;
@@ -265,12 +276,13 @@ bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint6
             batch.push_back({ffindexstore::EntryChangeKind::Upsert, record});
         }
         const ffindexstore::VolumeRowId targetVolume =
-            volumeIds[(offset / kBatch) % volumeIds.size()];
+            volumeIds[volumeIndex];
         if (!store.ApplyBatch(targetVolume, batch)) {
             std::fprintf(stderr, "fixture ingest failed at %zu\n", offset);
             ffindexstore::SetTestingCandidateMaintenanceDisabled(false);
             return false;
         }
+        rootCreated[volumeIndex] = true;
         store.CheckpointIfWalExceeds(32ull * 1024 * 1024);
     }
     ffindexstore::SetTestingCandidateMaintenanceDisabled(false);
@@ -820,6 +832,8 @@ int wmain(int argc, wchar_t** argv) {
     std::string exeSha256Expected;
     size_t fixtureRows = 0;
     size_t fixtureVolumes = 1;
+    size_t fixturePrimaryVolumeRows = 0;
+    bool fixturePrimaryVolumeRowsSpecified = false;
     uint64_t fixtureSeed = 1;
     size_t processCount = 5;
     size_t warmOpens = 0;
@@ -844,6 +858,20 @@ int wmain(int argc, wchar_t** argv) {
         else if (argument == L"--exe-sha256-expected") exeSha256Expected = ToUtf8(next());
         else if (argument == L"--build-fixture") { fixtureRows = static_cast<size_t>(_wtol(next().c_str())); buildFixtureMode = true; }
         else if (argument == L"--volumes") fixtureVolumes = static_cast<size_t>(_wtol(next().c_str()));
+        else if (argument == L"--primary-volume-rows") {
+            const auto value = next();
+            if (value.empty() || value.find_first_not_of(L"0123456789") != std::wstring::npos) {
+                std::fprintf(stderr, "invalid --primary-volume-rows\n");
+                return 2;
+            }
+            try {
+                fixturePrimaryVolumeRows = static_cast<size_t>(std::stoull(value));
+            } catch (const std::exception&) {
+                std::fprintf(stderr, "invalid --primary-volume-rows\n");
+                return 2;
+            }
+            fixturePrimaryVolumeRowsSpecified = true;
+        }
         else if (argument == L"--seed") fixtureSeed = static_cast<uint64_t>(_wtol(next().c_str()));
         else if (argument == L"--processes") processCount = static_cast<size_t>(_wtol(next().c_str()));
         else if (argument == L"--warm-opens") warmOpens = static_cast<size_t>(_wtol(next().c_str()));
@@ -857,16 +885,22 @@ int wmain(int argc, wchar_t** argv) {
             return 2;
         }
     }
+    if (fixturePrimaryVolumeRowsSpecified &&
+        (!buildFixtureMode || !fixtureEngineRoots || fixtureVolumes != 2)) {
+        std::fprintf(stderr, "--primary-volume-rows requires --build-fixture, --engine-roots and --volumes 2\n");
+        return 2;
+    }
     if (dbPath.empty() && !buildFixtureMode) {
         std::fprintf(stderr,
-            "Usage: bench_store_open --build-fixture <N> --db <path> [--seed S] [--volumes K] [--engine-roots] [--varied-metadata]\n"
+            "Usage: bench_store_open --build-fixture <N> --db <path> [--seed S] [--volumes K] [--engine-roots] [--varied-metadata] [--primary-volume-rows N]\n"
             "       bench_store_open --measure --db <path> --case <case> --processes <K> --output <json>\n"
             "       bench_store_open --measure-child --db <path> --case <case> [--warm-opens M]\n");
         return 2;
     }
     if (buildFixtureMode) {
         return BuildFixture(dbPath, fixtureRows, fixtureVolumes, fixtureSeed,
-                            !fixtureMaintenanceOff, fixtureEngineRoots, fixtureVariedMetadata) ? 0 : 1;
+                            !fixtureMaintenanceOff, fixtureEngineRoots, fixtureVariedMetadata,
+                            fixturePrimaryVolumeRows) ? 0 : 1;
     }
     if (childMode) {
         return RunChild(dbPath, testCase, warmOpens);
