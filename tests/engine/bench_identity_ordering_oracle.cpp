@@ -22,6 +22,7 @@
 namespace {
 
 constexpr wchar_t kScratchMarker[] = L".fastfiles-oracle-owned";
+constexpr char kResidencySchema[] = "fastfiles-residency-canonical-oracle-v2";
 
 std::string Utf8(const std::wstring& value) {
     if (value.empty()) return {};
@@ -388,7 +389,7 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
     std::ofstream out(output, std::ios::binary);
     if (!out) return false;
     const auto fail = [&](const char* reason) {
-        out << "{\"schema\":\"fastfiles-residency-canonical-oracle-v1\","
+        out << "{\"schema\":" << Json(kResidencySchema) << ","
             << "\"all_passed\":false,\"failure\":" << Json(reason) << "}\n";
         std::fprintf(stderr, "%s\n", reason);
         return false;
@@ -419,7 +420,7 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
     if (!ValidResidency(reference, volumes, volumes.size())) return fail("reference is not all-cold at the production budget");
     const auto cells = MakeCells(extended);
     const std::array<const char*, 4> stages{"resident", "mixed", "cold", "reloaded_resident"};
-    out << "{\n\"schema\":\"fastfiles-residency-canonical-oracle-v2\",\n\"build_identity\":"
+    out << "{\n\"schema\":" << Json(kResidencySchema) << ",\n\"build_identity\":"
         << Json(ffsetup::kBuildIdentityAscii) << ",\n\"input\":" << Json(source)
         << ",\n\"fixture_access\":\"owned-backup-copy\",\n\"fixture_rows\":" << rows
         << ",\n\"reference\":\"separate all-cold pipeline; all candidate prefilters bypassed\","

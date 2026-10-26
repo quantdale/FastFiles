@@ -1,0 +1,102 @@
+OWNED_FIXTURE_DIRECTORY=C:\Users\palac\AppData\Local\Temp\ff-owned-storage-pressure-119048-545917093
+ok: test forwarding VFS installs
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: interrupted missing-table fixture opens
+ok: interrupted repair seed commits
+ok: interrupted repair drops only FTS table
+ok: FULL interrupts missing-table clearing transaction
+ok: interrupted missing-table repair reaches actual failed WAL write
+ok: missing-table recovery retries after clearing rollback
+ok: interrupted schema repair cannot leave empty terms certified ready
+ok: enumeration seed opens
+ok: enumeration seed commits
+ok: migration obligation prepared
+ok: actual volume-enumeration VM is interrupted exactly once
+ok: failed volume enumeration cannot be reported as complete rebuild
+ok: interrupted rebuild retry succeeds
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: version-read error fixture opens
+ok: version-read error fixture has one volume
+ok: version-read fixture simulates a newer schema
+ok: schema-version lookup actually returns a SQLite prepare error
+ok: unknown schema version after read error must fail closed, not become fresh version zero
+ok: version-read result probe opens
+ok: failed version read must not downgrade newer schema marker
+ok: move-cache seed opens
+ok: move-cache seed commits
+ok: moved reader query completes
+ok: old reader caches ready verdict
+ok: new snapshot has incomplete candidate index
+ok: moved reader query completes
+ok: value move revalidates readiness for incoming snapshot and falls back
+ok: reconciliation read-error fixture opens
+ok: reconciliation read-error rows commit
+ok: reconciliation read-error pass sees root only
+ok: actual reconciliation identity enumeration returns an error
+ok: failed identity enumeration is not successful reconciliation exhaustion
+ok: retry after reconciliation read error converges without losing its obligation
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: cleanup read-error fixture opens
+ok: cleanup fixture authoritative and derived rows commit
+ok: cleanup fixture contains a real side-set identity
+FAIL: cleanup read error cannot report successful entry or volume removal
+FAIL: cleanup read error rolls back entries, maps, terms, exceptions and volume
+ok: cleanup read-error premise contains complete authoritative and candidate rows
+CLEANUP_READ_ERROR mode=row returned=0 interrupted=1 entries=4 map=4 terms=4 exceptions=1 volumes=1
+ok: cleanup read-error fixture interrupts the actual targeted SELECT once
+ok: cleanup read error cannot report successful entry or volume removal
+ok: cleanup read error rolls back entries, maps, terms, exceptions and volume
+ok: cleanup removal retries successfully after the read fault clears
+ok: cleanup retry removes authoritative and candidate rows together
+ok: cleanup retry leaves no orphan exception identities
+ok: cleanup retry preserves FTS internal integrity
+ok: successful absent-row lookup remains an idempotent removal
+ok: cleanup read-error fixture opens
+ok: cleanup fixture authoritative and derived rows commit
+ok: cleanup fixture contains a real side-set identity
+ok: forget fixture is eligible
+ok: cleanup read-error premise contains complete authoritative and candidate rows
+CLEANUP_READ_ERROR mode=volume returned=1 interrupted=1 entries=0 map=0 terms=3 exceptions=0 volumes=0
+ok: cleanup read-error fixture interrupts the actual targeted SELECT once
+OWNED_FIXTURE_CLEANED=1 failures=2

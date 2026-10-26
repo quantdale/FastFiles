@@ -499,13 +499,16 @@ struct CandidateStatements {
     }
 };
 
-int64_t CandidateTermRowid(CandidateStatements& stmts, int64_t volumeRowId, uint64_t frnLow, uint64_t frnHigh) {
+bool CandidateTermRowid(CandidateStatements& stmts, int64_t volumeRowId, uint64_t frnLow,
+                        uint64_t frnHigh, int64_t& termRowid) {
+    termRowid = -1;
     sqlite3_reset(stmts.lookup);
     sqlite3_bind_int64(stmts.lookup, 1, volumeRowId);
     sqlite3_bind_int64(stmts.lookup, 2, static_cast<sqlite3_int64>(frnLow));
     sqlite3_bind_int64(stmts.lookup, 3, static_cast<sqlite3_int64>(frnHigh));
-    if (sqlite3_step(stmts.lookup) != SQLITE_ROW) return -1;
-    return sqlite3_column_int64(stmts.lookup, 0);
+    const int step = sqlite3_step(stmts.lookup);
+    if (step == SQLITE_ROW) termRowid = sqlite3_column_int64(stmts.lookup, 0);
+    return step == SQLITE_ROW || step == SQLITE_DONE;
 }
 
 // ASCII-folded UTF-8 copy of the name (FoldAscii semantics: only ASCII A-Z
@@ -535,8 +538,8 @@ bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volum
     sqlite3_bind_int64(stmts.mapUpsert, 2, static_cast<sqlite3_int64>(frnLow));
     sqlite3_bind_int64(stmts.mapUpsert, 3, static_cast<sqlite3_int64>(frnHigh));
     if (sqlite3_step(stmts.mapUpsert) != SQLITE_DONE) return false;
-    const int64_t termRowid = CandidateTermRowid(stmts, volumeRowId, frnLow, frnHigh);
-    if (termRowid < 0) return false;
+    int64_t termRowid = -1;
+    if (!CandidateTermRowid(stmts, volumeRowId, frnLow, frnHigh, termRowid) || termRowid < 0) return false;
     if (timings != nullptr) {
         timings->candidateMapMs += ElapsedMs(mapStart);
         ++timings->candidateRowsProcessed;
@@ -580,7 +583,8 @@ bool CandidateIndexUpsert(sqlite3* db, CandidateStatements& stmts, int64_t volum
 bool CandidateIndexRemove(CandidateStatements& stmts, int64_t volumeRowId, uint64_t frnLow, uint64_t frnHigh) {
     if (gCandidateMaintenanceDisabled.load(std::memory_order_acquire)) return true;
     if (CandidateFaultFire()) return false;
-    const int64_t termRowid = CandidateTermRowid(stmts, volumeRowId, frnLow, frnHigh);
+    int64_t termRowid = -1;
+    if (!CandidateTermRowid(stmts, volumeRowId, frnLow, frnHigh, termRowid)) return false;
     if (termRowid < 0) return true;  // never indexed (or already removed)
     sqlite3_reset(stmts.clearException);
     sqlite3_bind_int64(stmts.clearException, 1, termRowid);
@@ -602,7 +606,11 @@ bool CandidateIndexRemoveVolume(sqlite3* db, int64_t volumeRowId) {
         Statement rows(db, "SELECT term_rowid FROM entry_name_index_map WHERE volume_id=?;");
         if (!rows.Valid()) return false;
         sqlite3_bind_int64(rows, 1, volumeRowId);
-        while (sqlite3_step(rows) == SQLITE_ROW) rowids.push_back(sqlite3_column_int64(rows, 0));
+        int step = SQLITE_OK;
+        while ((step = sqlite3_step(rows)) == SQLITE_ROW) rowids.push_back(sqlite3_column_int64(rows, 0));
+        // durable-cold-search-index-and-hybrid-residency 5.10: never clear
+        // identities after only a partial enumeration of their FTS rows.
+        if (step != SQLITE_DONE) return false;
     }
     for (const int64_t rowid : rowids) {
         Statement clearTerm(db, "DELETE FROM entry_name_terms WHERE rowid=?;");

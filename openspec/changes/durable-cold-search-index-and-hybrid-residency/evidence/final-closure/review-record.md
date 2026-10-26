@@ -1,3 +1,7 @@
+## Current review disposition — 2026-10-26
+
+Fresh independent production and evidence reviews completed; all confirmed source/acceptance P2 findings fixed and re-reviewed. Task5.10 source review COMPLETE; task4.1 actual larger-scale corrected sorting remains OPEN. See reviews/native-broad-review-20261026.md, residency-routes-20261026.md and cleanup-read-20261026.md. Below is historical review/provider evidence, not the current frontier. No runtime/merge/release approval follows from source review.
+
 # Independent review record and adjudication
 
 ## Current scoped follow-up — 2026-10-25

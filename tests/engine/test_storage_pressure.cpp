@@ -438,6 +438,92 @@ void TestReconciliationReadFailureRetainsObligation(const std::filesystem::path&
     Verify(path, 1);
 }
 
+void TestCandidateCleanupReadErrors(const std::filesystem::path& dir) {
+    // durable-cold-search-index-and-hybrid-residency 5.10: a failed cleanup
+    // lookup/enumeration is not successful exhaustion of derived identities.
+    for (const bool forget : {false, true}) {
+        const auto path = (dir / (forget ? "cleanup-volume-read-error.db" : "cleanup-row-read-error.db")).string();
+        Store store;
+        Check(OpenCaptured(store, path), "cleanup read-error fixture opens");
+        const auto volume = store.GetOrCreateVolume(VolumeKey{});
+        if (!volume) { Check(false, "cleanup fixture volume exists"); return; }
+        auto seed = Rows(1, 4, u"cleanup-hit.txt");
+        seed.back().record.name = u"\u017F_cleanup.txt";
+        Check(store.ApplyBatch(*volume, seed), "cleanup fixture authoritative and derived rows commit");
+        // A conservative side-set member is valid regardless of this host's
+        // ordinal-fold exceptions; make its rollback assertion nonvacuous.
+        Check(Sql(Fault::capturedDb,
+            "INSERT OR IGNORE INTO entry_name_exceptions(term_rowid) "
+            "SELECT term_rowid FROM entry_name_index_map WHERE frn_low=4;"),
+            "cleanup fixture contains a real side-set identity");
+        if (forget) Check(store.SetVolumeAvailable(*volume, false, 1), "forget fixture is eligible");
+        const auto counts = [&]() {
+            return std::vector<int64_t>{
+                Scalar(Fault::capturedDb, "SELECT count(*) FROM entries;"),
+                Scalar(Fault::capturedDb, "SELECT count(*) FROM entry_name_index_map;"),
+                Scalar(Fault::capturedDb, "SELECT count(*) FROM entry_name_terms;"),
+                Scalar(Fault::capturedDb, "SELECT count(*) FROM entry_name_exceptions;"),
+                Scalar(Fault::capturedDb, "SELECT count(*) FROM volumes;")};
+        };
+        const auto before = counts();
+        Check(before[0] == 4 && before[1] == 4 && before[2] == 4 && before[3] > 0 && before[4] == 1,
+              "cleanup read-error premise contains complete authoritative and candidate rows");
+        const char* target = forget
+            ? "SELECT term_rowid FROM entry_name_index_map WHERE volume_id=?;"
+            : "SELECT term_rowid FROM entry_name_index_map WHERE volume_id=? AND frn_low=? AND frn_high=?;";
+        bool interrupted = false;
+        Fault::onStatement = [&](sqlite3* db, const char* sql) {
+            if (sql && std::strcmp(sql, target) == 0) {
+                sqlite3_progress_handler(db, 1, [](void* state) -> int {
+                    auto& fired = *static_cast<bool*>(state);
+                    if (fired) return 0;
+                    fired = true;
+                    return 1;
+                }, &interrupted);
+            }
+        };
+        const EntryChange removal{EntryChangeKind::Remove, seed[1].record};
+        const auto perform = [&]() {
+            return forget ? store.ForgetVolume(*volume) : store.ApplyBatch(*volume, {removal});
+        };
+        const bool removed = perform();
+        Fault::onStatement = {};
+        sqlite3_progress_handler(Fault::capturedDb, 0, nullptr, nullptr);
+        const auto observed = counts();
+        std::printf("CLEANUP_READ_ERROR mode=%s returned=%d interrupted=%d entries=%lld map=%lld terms=%lld exceptions=%lld volumes=%lld\n",
+            forget ? "volume" : "row", removed ? 1 : 0, interrupted ? 1 : 0,
+            static_cast<long long>(observed[0]), static_cast<long long>(observed[1]),
+            static_cast<long long>(observed[2]), static_cast<long long>(observed[3]),
+            static_cast<long long>(observed[4]));
+        Check(interrupted, "cleanup read-error fixture interrupts the actual targeted SELECT once");
+        Check(!removed, "cleanup read error cannot report successful entry or volume removal");
+        Check(observed == before, "cleanup read error rolls back entries, maps, terms, exceptions and volume");
+        if (!removed) {
+            Check(perform(), "cleanup removal retries successfully after the read fault clears");
+            const auto after = counts();
+            const int64_t expected = forget ? 0 : 3;
+            Check(after[0] == expected && after[1] == expected && after[2] == expected &&
+                      after[4] == (forget ? 0 : 1),
+                  "cleanup retry removes authoritative and candidate rows together");
+            Check(Scalar(Fault::capturedDb,
+                "SELECT count(*) FROM entry_name_exceptions x LEFT JOIN entry_name_index_map m "
+                "ON m.term_rowid=x.term_rowid WHERE m.term_rowid IS NULL;") == 0,
+                "cleanup retry leaves no orphan exception identities");
+            Check(Sql(Fault::capturedDb,
+                "INSERT INTO entry_name_terms(entry_name_terms) VALUES('integrity-check');"),
+                "cleanup retry preserves FTS internal integrity");
+            if (!forget) {
+                const auto beforeMissing = counts();
+                auto missing = removal;
+                missing.record.id = {999, 0};
+                Check(store.ApplyBatch(*volume, {missing}) && counts() == beforeMissing,
+                      "successful absent-row lookup remains an idempotent removal");
+            }
+        }
+        store.Close();
+    }
+}
+
 int Child(const std::string& path, const std::wstring& eventName, int phase) {
     if (!Fault::Install()) return 11;
     HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName.c_str());
@@ -567,6 +653,7 @@ int wmain(int argc, wchar_t** argv) {
     }
     if (!crashAcceptance) TestCandidateRecoveryRegressions(dir);
     if (!crashAcceptance) TestReconciliationReadFailureRetainsObligation(dir);
+    if (!crashAcceptance) TestCandidateCleanupReadErrors(dir);
     if (!recoveryOnly && !crashAcceptance) TestChunkTwoFull(dir);
     if (crashAcceptance) TestCrash(dir);
     Fault::Uninstall();
