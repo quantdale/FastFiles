@@ -2627,6 +2627,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_APP_STORAGE_RANKING:
+            storageAnalysis_.HandleRankingCompletion(lParam);
+            return 0;
+
         case WM_APP_TREEMAP_AGGREGATE:
             storageAnalysis_.HandleTreemapCompletion(lParam);
             return 0;
@@ -3139,6 +3143,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_DESTROY:
+            storageAnalysis_.StopRanking();
             KillTimer(hwnd_, kWorkspaceSaveTimer);
             KillTimer(hwnd_, kUiScrollAnimTimer);
             navigationWorkspace_.FlushState();

@@ -9,6 +9,7 @@ The original Find/Navigate/Understand/Act vision is undermined by composition de
 - Make search reveal leave Home, preserve active-pane ownership, expose the destination hierarchy and synchronize navigation chrome.
 - Bound search location and metadata independently at real DPI.
 - Record the five-pillar audit and validate actual native journeys with stronger destination assertions.
+- Extend All-category Largest Files from immediate children to the100 largest logical-size known files under the selected folder, with source/coverage labels, visible containing locations and exact descendant actions. Preserve category refinements as explicitly immediate-folder views and retain hierarchical Treemap data.
 
 ## Capabilities
 

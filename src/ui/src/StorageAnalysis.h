@@ -1,7 +1,10 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -15,6 +18,7 @@
 #include "ffui/ShellLayout.h"
 #include "ffui/StorageVisibility.h"
 #include "ffui/StoragePercentage.h"
+#include "ffui/StorageRanking.h"
 #include "ffui/TreemapSemantics.h"
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
@@ -26,6 +30,7 @@
 namespace ffui {
 
 constexpr UINT WM_APP_STORAGE_AGGREGATE = WM_APP + 10;
+constexpr UINT WM_APP_STORAGE_RANKING = WM_APP + 55;
 
 // semantic-treemap-uia 11.x: value-only payload for marshaling a UIA Invoke to
 // the owning UI thread. Never carries pointers: the UI thread re-resolves the
@@ -62,6 +67,8 @@ public:
     bool HandleNotify(LPARAM lParam);
     bool HandleContextMenu(WPARAM wParam, LPARAM lParam);
     bool HandleCompletion(LPARAM lParam);
+    bool HandleRankingCompletion(LPARAM lParam);
+    void StopRanking();
     bool HandleTreemapCompletion(LPARAM lParam);
     bool HandleTreemapUiaNavigate(LPARAM lParam);
     bool HandleMouseMove(WPARAM wParam, LPARAM lParam);
@@ -153,6 +160,7 @@ private:
 
     struct DrillItem {
         std::wstring name;
+        std::wstring folder; // original source folder, including recursive descendants
         std::wstring categoryId; // nonempty only for synthetic category summaries
         bool isDirectory = false;
         uint64_t sizeBytes = 0;
@@ -194,6 +202,37 @@ private:
     };
 
     void RefreshData();
+    bool RecursiveRanking() const { return viewMode_ == ViewMode::LargestFiles && activeCategoryId_.empty(); }
+    void RefreshRanking();
+    void CancelRanking();
+    void QueueSnapshotRanking(uint64_t generation, StorageRankingScope scope);
+    void RankingWorkerMain();
+    void ConfigureListColumns();
+    struct RankingCallbackState {
+        std::mutex mutex;
+        bool alive = true;
+        HWND owner = nullptr;
+    };
+    struct RankingWork {
+        uint64_t generation = 0;
+        StorageRankingScope scope;
+    };
+    struct RankingCompletion {
+        uint64_t generation = 0;
+        StorageRankingScope scope;
+        bool indexed = false;
+        bool available = false;
+        bool truncated = false;
+        std::vector<ffsearch::Candidate> candidates;
+    };
+    std::shared_ptr<RankingCallbackState> rankingCallbackState_;
+    std::atomic<uint64_t> rankingGeneration_{0};
+    uint64_t indexedRankingRequestId_ = 0;
+    std::atomic<bool> rankingStopping_{false};
+    std::mutex rankingWorkMutex_;
+    std::condition_variable rankingWorkCv_;
+    std::optional<RankingWork> pendingRanking_;
+    std::thread rankingWorker_;
     void RefreshOverview();
     void ApplyModeVisibility();
     void RequestAggregateForItem(size_t index);
@@ -240,6 +279,10 @@ private:
     std::wstring activeCategoryId_; // empty means All categories
 
     std::vector<DrillItem> items_;
+    std::optional<DrillItem> rankingSelected_;
+    std::wstring rankingSelectionScope_;
+    std::optional<bool> recursiveColumns_;
+    float columnsDpi_ = 0;
     std::vector<VolumeItem> volumes_;    // storage-overview rows
     std::wstring currentPath_;
     std::wstring displayedPath_;

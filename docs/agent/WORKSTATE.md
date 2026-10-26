@@ -1,5 +1,19 @@
 # Fast Files — Agent Workstate
 
+## Isolated storage-ranking implementation checkpoint — 2026-10-27
+
+- Owner storage-ranking-20261027 / feat/recursive-storage-ranking-20261027; immutable verified base981a9ba678a191107c78eec22a60c9620eb5848e equals fresh origin PR18. Root remains sole integrator/publisher. Other worktrees, original dirty files and shared PRs/main untouched; no push/merge/release.
+- Current slice original-vision-journey-recovery4.9 implements All-category Largest Files as bounded recursive top100 logical-size known files. Reuses existing indexed scope1/sort3, additive kind:file owning/view pre-cap exclusion, weak callback ownership and actual generation/scope/visibility/mode gate. Published/browsed fallback streams successful known directories on cancellable worker and always labels partial; indexed source says coverage unverified. No schema/protocol/service/privilege or filesystem-walk changes.
+- Recursive rows own original containing folders for visible Location, action targets, reveal, selection restoration and UIA. Hard-link paths add path identity. Unknown allocation stays unknown; displayed subset sorting says so; category refinement remains immediate-folder; original hierarchical Treemap unchanged. Scope matching normalizes absolute drive/root/extended prefixes/trailing separators while operation spelling remains original; unsupported durable UNC uses published fallback.
+- Search Hide already cancels indexed work before Storage opens. Storage refresh/hide/mode/source transitions invalidate/cancel ranking; WM_DESTROY retires callback target, joins worker and drains owned completion payloads before window reuse. Source review/native runtime still required; no arbitrary Shell/worker deadline claim.
+- PASS: small Debug ranking build18/18 and query build; ffsearch_tests + ffstorage_ranking_tests2/2,0.23s. Includes true top100 after125 earlier rows, descendant/same-prefix scope, denied/directory exclusion, original paths, duplicate basenames, known-zero/unknown allocation, cancellation and actual stale completion gate. Changed UI translation units NOT COMPILED by worker; native/visual/full certification NOT EXECUTED.
+- Focused strict OpenSpec and git diff --check PASS; ffdoc_drift_tests1/1,11.72s. No full-suite/hosted/native result is inferred.
+- Initial pure fixture defaulted directory status NotFound and unguarded empty front caused Debug assertion; owning CTest reaped at120.19s. PID129956 absent before rerun. Corrected explicit Success + guarded access passes ranking1/1,0.11s; original timeout retained under ignored build/storage-ranking-20261027. No native UI/input or process experiment.
+- Research: root actually used Refero styles/screens/flows/images, existing Things Native Precision retained. Skiff3bf851bd and Lovableb398e2d0 support truthful data scope and filename/location/size hierarchy; flows10908/12320 inform identify-to-action continuity. No assets/branding/cloud-provider cards copied. Evidence note records exact references and limits.
+- NEXT EXACT ACTION: finish strict/diff checks and commit clean implementation, then freeze for root read-only review. Root compiles UI and qualifies native nested-largest + outside-scope duplicate, exact Copy Path/reveal/sentinel and measured-DPI screenshots before4.9 closes. Do not launch UI/full builds or mark runtime PASS from pure source tests.
+
+## Historical PR18 checkpoint (superseded frontier instructions)
+
 ## Current resume checkpoint — original-vision journey recovery IN PROGRESS — 2026-10-25
 
 - Primary frontier: final committed-source certification/publication, with bounded 1M acceptance oracle running separately. User authorizes continued successor execution. Owner controls existing PR merges and production release.

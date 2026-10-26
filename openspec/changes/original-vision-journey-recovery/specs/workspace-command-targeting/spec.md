@@ -4,6 +4,24 @@ Keep filesystem commands bound to the user's visible selection across browsing, 
 
 ## ADDED Requirements
 
+### Requirement: Recursive storage ranking preserves source scope and target identity
+
+All-category Largest Files SHALL rank at most100 files by logical size from the selected folder and known subfolders. Directory exclusion and component-bounded scope matching SHALL precede the ranking cap. Indexed records SHALL state that coverage is unverified; published/browsed fallback SHALL state partial coverage, including while service-connected. No successful directory listing, volume ID or capped result sum SHALL be presented as proof of recursive completeness.
+
+Each ranked row SHALL retain its source containing folder for visible location, UIA identity, selection restoration, file operations and canonical reveal. Equal basenames and separate hard-link paths SHALL not retarget each other. Unknown allocated size SHALL remain unknown. Configurable category refinements SHALL remain explicitly immediate-folder; sorting ranked rows SHALL describe sorting only the retained set. Treemap SHALL continue to use its hierarchical data.
+
+#### Scenario: A larger descendant beats an immediate child
+- **WHEN** a known nested file is larger than an immediate file and an even larger same-prefix sibling lies outside the selected scope
+- **THEN** the descendant ranks before the immediate file, the sibling is excluded before admission, and reveal/Copy Path target the descendant's actual containing folder
+
+#### Scenario: Indexed query is unavailable or empty
+- **WHEN** indexed ranking cannot supply rows while successful published/browsed listings contain known files
+- **THEN** a cancellable worker ranks those known files and labels the result partial without claiming missing subfolders are empty
+
+#### Scenario: Workspace changes before completion
+- **WHEN** a ranking completion arrives after hide, scope change, category/mode replacement or a newer request
+- **THEN** it cannot replace the current rows or supply actions to another workspace
+
 ### Requirement: Settings completion controls fit the real dialog
 
 Settings SHALL reserve its intended DPI-scaled client area in addition to the actual non-client frame. OK and Cancel SHALL have positive, fully visible bounds inside the dialog, and visible Cancel SHALL remain pointer-reachable without changing saved settings.

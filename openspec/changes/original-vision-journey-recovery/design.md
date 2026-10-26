@@ -42,4 +42,14 @@ Filesystem targets may disappear after validation; ordinary operation handlers s
 
 ## Validation
 
+### D7: Recursive Largest Files ranks known data, with exact path ownership
+
+Original-vision-journey-recovery4.9 uses existing CurrentFolderAndSubfolders indexed search, logical Size descending and max100. Add kind:file to owning and view predicates so directories are excluded before the true top-N heap. Indexed records are labelled coverage-unverified; neither a successful snapshot directory nor a volume ID proves recursive coverage. An unavailable or empty indexed result falls back to successful published/browsed listings on a cancellable worker, labelled partial even when service-connected. Missing descendants remain unknown. No filesystem walk, aggregate-per-file requests, new schema, privileged API or complete-storage claim.
+
+The existing Largest Files mode is recursive only with All categories. Configurable category refinement remains immediate-folder and says so; filtering a capped all-category rank cannot promise a category top-N. Every recursive row owns its actual containing folder. Native/UIA actions, Copy Path, selection restoration and reveal use that path; duplicate basenames and two hard-link paths remain distinct. Location is displayed beside filename and logical size. Sorting reorders the displayed top100 only; the status says that. Unknown allocated bytes remain unknown, and no whole-subtree percentage is computed from the capped sum. Treemap keeps its original hierarchical dataset.
+
+Normalize only matching scope spelling: absolute drive paths, drive roots, trailing separators and extended drive/UNC prefixes. Preserve original operation paths. Reject relative/dot-component scopes; UNC uses published snapshot fallback rather than claiming durable UNC support. Search Hide already cancels its indexed request before Storage opens. Storage hide/refresh/mode/source changes invalidate its generation and cancel its own indexed request before Search reopens. Weak callback ownership, worker cancellation/join and posted-payload draining retire ranking work on normal WM_DESTROY.
+
+Refero research adapts Things Native Precision and Lovable storage-table metadata/location hierarchy; Skiff's visible usage/data scope supports explicit source labels. Clipchamp10908 and Lovable12320 flows reinforce inspect→identify→contextual action rather than a decorative dashboard. Retain Segoe UI/shared tokens; do not copy cloud-provider cards, branding, upsells, warm palettes or bitmap assets. Root-owned actual native/visual qualification is required independently from the pure tests.
+
 Focused command/selection and geometry regressions, Home search E2E with destination identity, storage summary/action tests, native visual catalog and broader Debug/release-test suites. Avoid restricted termination tests and expensive unchanged PR15 benchmarks.

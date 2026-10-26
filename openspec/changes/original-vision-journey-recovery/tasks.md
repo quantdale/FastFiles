@@ -23,6 +23,8 @@
 
 ## 4. Qualification and handoff
 
+- [ ] 4.9 Make All-category Largest Files a bounded recursive ranking of known files, using the existing indexed query and a truthfully partial published/browsed fallback; preserve exact descendant targets and hierarchical Treemap, add before-cap file/scope and stale-result regressions, then qualify native nested-largest/duplicate-basename reveal and screenshots. Isolated implementation/pure validation is distinct from native certification; completion remains with the integrator.
+
 - [ ] 4.1 Execute focused regressions, actual native E2E/UIA/visual review and correct actionable defects.
 - [ ] 4.2 Run broader local certification, independent review and integration simulation with PR14/15/16.
 - [ ] 4.3 Record exact source/evidence identity, commit, reconcile remote, publish unmerged successor work and report real limitations.

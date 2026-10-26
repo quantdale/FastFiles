@@ -121,6 +121,12 @@ add_executable(ffui_icon_lru_tests test_icon_lru.cpp)
 target_include_directories(ffui_icon_lru_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffui_icon_lru_tests COMMAND ffui_icon_lru_tests)
 
+add_executable(ffstorage_ranking_tests test_storage_ranking.cpp)
+target_include_directories(ffstorage_ranking_tests PRIVATE ../../src/ui/include ../../src/protocol/include)
+target_link_libraries(ffstorage_ranking_tests PRIVATE ffsearch)
+add_test(NAME ffstorage_ranking_tests COMMAND ffstorage_ranking_tests)
+set_tests_properties(ffstorage_ranking_tests PROPERTIES TIMEOUT 120)
+
 add_executable(ffstorage_visibility_tests test_storage_visibility.cpp)
 target_include_directories(ffstorage_visibility_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffstorage_visibility_tests COMMAND ffstorage_visibility_tests)

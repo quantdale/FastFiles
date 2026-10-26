@@ -461,8 +461,8 @@ void StorageAnalysis::ReadListQuery(ListQuery& query) const {
     const DrillItem& item = items_[query.index];
     auto& info = query.info;
     info.name = item.name;
-    info.folder = currentPath_;
-    info.displayFolder = ffui::NormalizeDisplayPath(currentPath_);
+    info.folder = item.folder.empty() ? currentPath_ : item.folder;
+    info.displayFolder = ffui::NormalizeDisplayPath(info.folder);
     info.isDirectory = item.isDirectory;
     info.sizeBytes = item.totalSizeBytes;
     info.modifiedTime = item.lastModifiedTime;
@@ -475,9 +475,12 @@ void StorageAnalysis::ReadListQuery(ListQuery& query) const {
         info.description = L"Category summary, " + ffui::FormatSize(item.totalSizeBytes) + L" in this folder";
         info.displayFolder = L"Category summary";
     } else {
-        info.fullPath = ffui::JoinPath(currentPath_, item.name);
+        info.fullPath = StorageRankingItemPath(item.folder, item.name);
         info.identityHash = UiaHashMix(UiaHashWide(currentPath_),
             UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh, info.fullPath));
+        // A recursive rank can contain two hard-link paths with the same FRN.
+        // Preserve the selected directory entry, not just its shared file ID.
+        if (RecursiveRanking()) info.identityHash = UiaHashMix(info.identityHash, UiaHashWide(info.fullPath));
     }
     const UINT state = ListView_GetItemState(list_, static_cast<int>(query.index), LVIS_SELECTED | LVIS_FOCUSED);
     info.selected = (state & LVIS_SELECTED) != 0;
@@ -638,6 +641,7 @@ void StorageAnalysis::NotifyListChanged() {
     }
 }
 StorageAnalysis::~StorageAnalysis() {
+    StopRanking();
     listEvents_.Clear();
     if (listUiaState_) listUiaState_->alive = false;
     listProvider_.Reset();
@@ -931,9 +935,9 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     SetWindowSubclass(status_, StatusSubclassProc, kStatusSubclassId, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(list_, ListSubclassProc, kStorageListSubclass, reinterpret_cast<DWORD_PTR>(this));
 
-    const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"% of Volume", L"Modified", L"Size on Disk"};
-    const int widths[] = {260, 80, 100, 120, 100, 100, 145, 120};
-    for (int i = 0; i < 8; ++i) {
+    const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"% of Volume", L"Modified", L"Size on Disk", L"Location"};
+    const int widths[] = {260, 80, 100, 120, 100, 100, 145, 120, 0};
+    for (int i = 0; i < 9; ++i) {
         LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM};
         column.pszText = const_cast<wchar_t*>(columns[i]);
         column.cx = widths[i];
@@ -977,6 +981,9 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     // report lists keep system-white backgrounds in dark mode.
     SetDarkTheme(ffui::gUiDarkTheme);
     UpdateNavigationButtonState();
+    rankingCallbackState_ = std::make_shared<RankingCallbackState>();
+    rankingCallbackState_->owner = owner_;
+    rankingWorker_ = std::thread(&StorageAnalysis::RankingWorkerMain, this);
     return true;
 }
 
@@ -1114,6 +1121,7 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
 
 void StorageAnalysis::Hide() {
     if (!visible_) return;
+    CancelRanking();
     HWND currentFocus = GetFocus();
     const bool storageHadFocus = (currentFocus != nullptr &&
                                   (currentFocus == list_ || currentFocus == overview_ ||
@@ -1314,8 +1322,17 @@ void StorageAnalysis::RefreshOverview() {
 }
 
 void StorageAnalysis::RefreshData() {
+    CancelRanking();
+    ConfigureListColumns();
     NotifyListChanged();
     const auto selected = displayedPath_ == currentPath_ ? CaptureSelectedItem() : std::nullopt;
+    if (RecursiveRanking()) {
+        if (rankingSelectionScope_ != currentPath_ || selected || !items_.empty()) rankingSelected_ = selected;
+        rankingSelectionScope_ = currentPath_;
+    } else {
+        rankingSelected_.reset();
+        rankingSelectionScope_.clear();
+    }
     ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     displayedPath_ = currentPath_;
     if (!visible_) return;
@@ -1343,6 +1360,10 @@ void StorageAnalysis::RefreshData() {
     // are skipped entirely while it is active.
     if (viewMode_ == ViewMode::Overview) {
         RefreshOverview();
+        return;
+    }
+    if (RecursiveRanking()) {
+        RefreshRanking();
         return;
     }
     if (!engine_) {
@@ -1385,6 +1406,7 @@ void StorageAnalysis::RefreshData() {
     for (const auto& entry : directory.entries) {
         DrillItem item;
         item.name = entry.name;
+        item.folder = targetPath;
         item.isDirectory = entry.isDirectory;
         item.sizeBytes = entry.sizeBytes;
         item.totalSizeBytes = entry.isDirectory ? 0 : entry.sizeBytes;
@@ -1420,7 +1442,9 @@ void StorageAnalysis::RefreshData() {
         items_.push_back(item);
     }
 
-    const std::wstring statusText = StorageItemsStatusText(items_.size(), engineActive_);
+    const std::wstring statusText = StorageItemsStatusText(items_.size(), engineActive_) +
+        (viewMode_ == ViewMode::LargestFiles && !activeCategoryId_.empty()
+            ? L" — selected category, immediate files only" : L"");
     SetWindowTextW(status_, statusText.c_str());
 
     // Filter based on view mode
@@ -1481,6 +1505,193 @@ void StorageAnalysis::RefreshData() {
 
     SortItems(sortColumn_, sortAscending_);
     RestoreSelectedItem(selected);
+}
+
+void StorageAnalysis::CancelRanking() {
+    rankingGeneration_.fetch_add(1, std::memory_order_acq_rel);
+    {
+        std::lock_guard lock(rankingWorkMutex_);
+        pendingRanking_.reset();
+    }
+    if (engine_ && indexedRankingRequestId_ != 0) engine_->CancelIndexedSearch(indexedRankingRequestId_);
+    indexedRankingRequestId_ = 0;
+    rankingWorkCv_.notify_all();
+}
+
+void StorageAnalysis::StopRanking() {
+    if (rankingStopping_.exchange(true)) return;
+    CancelRanking();
+    if (rankingCallbackState_) {
+        std::lock_guard lock(rankingCallbackState_->mutex);
+        rankingCallbackState_->alive = false;
+        rankingCallbackState_->owner = nullptr;
+    }
+    rankingWorkCv_.notify_all();
+    if (rankingWorker_.joinable()) rankingWorker_.join();
+    if (owner_ != nullptr) {
+        MSG message{};
+        while (PeekMessageW(&message, owner_, WM_APP_STORAGE_RANKING, WM_APP_STORAGE_RANKING, PM_REMOVE)) {
+            delete reinterpret_cast<RankingCompletion*>(message.lParam);
+        }
+    }
+}
+
+void StorageAnalysis::ConfigureListColumns() {
+    if (!list_) return;
+    const bool recursive = RecursiveRanking();
+    if (recursiveColumns_ && *recursiveColumns_ == recursive && columnsDpi_ == UiDpiScale()) return;
+    recursiveColumns_ = recursive;
+    columnsDpi_ = UiDpiScale();
+    if (!recursive && sortColumn_ == 8) {
+        sortColumn_ = 3;
+        sortAscending_ = false;
+        SetSortIndicator(list_, sortColumn_, sortAscending_);
+    }
+    const int normalWidths[] = {260, 80, 100, 120, 100, 100, 145, 120, 0};
+    const int rankingWidths[] = {220, 0, 100, 0, 0, 0, 145, 120, 300};
+    int normalOrder[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+    int rankingOrder[] = {0, 2, 8, 7, 6, 1, 3, 4, 5};
+    for (int index = 0; index < 9; ++index) {
+        ListView_SetColumnWidth(list_, index, Scaled(recursive ? rankingWidths[index] : normalWidths[index]));
+    }
+    ListView_SetColumnOrderArray(list_, 9, recursive ? rankingOrder : normalOrder);
+}
+
+void StorageAnalysis::RefreshRanking() {
+    items_.clear();
+    ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
+    InvalidateRect(list_, nullptr, FALSE);
+    const auto scope = NormalizeStorageRankingScope(currentPath_);
+    if (!scope || !engine_ || rankingStopping_) {
+        SetWindowTextW(status_, L"Choose an absolute folder to rank its known files and subfolders.");
+        return;
+    }
+    const uint64_t generation = rankingGeneration_.load(std::memory_order_acquire);
+    if (!scope->indexedSupported) {
+        QueueSnapshotRanking(generation, *scope);
+        return;
+    }
+    SetWindowTextW(status_, L"Finding largest indexed known files in this folder and subfolders…");
+    const auto weak = std::weak_ptr<RankingCallbackState>(rankingCallbackState_);
+    indexedRankingRequestId_ = engine_->RequestIndexedSearch(L"kind:file", 1, scope->matchPath, 3, true,
+        static_cast<uint32_t>(kStorageRankingLimit),
+        [weak, generation, scope = *scope](ffprotocol::IndexedSearchResponse response) {
+            auto state = weak.lock();
+            if (!state) return;
+            auto completion = std::make_unique<RankingCompletion>();
+            completion->generation = generation;
+            completion->scope = scope;
+            completion->indexed = true;
+            completion->available = response.status == ffprotocol::IndexedSearchStatus::Completed &&
+                response.candidates.size() <= kStorageRankingLimit;
+            completion->truncated = response.truncated;
+            for (auto& candidate : response.candidates) {
+                if (candidate.isDirectory || !candidate.persistentIndexed || !StorageRankingContains(scope, candidate.folder) ||
+                    StorageRankingItemPath(candidate.folder, candidate.name).empty()) {
+                    completion->available = false;
+                    break;
+                }
+                ffsearch::Candidate item;
+                item.name = std::move(candidate.name);
+                item.folder = std::move(candidate.folder);
+                item.sizeBytes = candidate.sizeBytes;
+                item.modifiedTime = candidate.modifiedTime;
+                item.createdTime = candidate.createdTime;
+                item.volumeId = candidate.volumeId;
+                item.id = candidate.id;
+                item.parentId = candidate.parentId;
+                item.persistentIndexed = candidate.persistentIndexed;
+                item.allocatedSizeBytes = candidate.allocatedSizeBytes;
+                item.allocatedSizeKnown = candidate.allocatedSizeKnown;
+                completion->candidates.push_back(std::move(item));
+            }
+            std::lock_guard lock(state->mutex);
+            if (state->alive && state->owner != nullptr && PostMessageW(state->owner, WM_APP_STORAGE_RANKING,
+                    0, reinterpret_cast<LPARAM>(completion.get()))) completion.release();
+        });
+}
+
+void StorageAnalysis::QueueSnapshotRanking(uint64_t generation, StorageRankingScope scope) {
+    if (rankingStopping_ || generation != rankingGeneration_.load(std::memory_order_acquire)) return;
+    SetWindowTextW(status_, L"Ranking browsed/published subfolders only — coverage partial…");
+    {
+        std::lock_guard lock(rankingWorkMutex_);
+        pendingRanking_ = RankingWork{generation, std::move(scope)};
+    }
+    rankingWorkCv_.notify_one();
+}
+
+void StorageAnalysis::RankingWorkerMain() {
+    while (!rankingStopping_) {
+        RankingWork work;
+        {
+            std::unique_lock lock(rankingWorkMutex_);
+            rankingWorkCv_.wait(lock, [this] { return rankingStopping_ || pendingRanking_.has_value(); });
+            if (rankingStopping_) break;
+            work = std::move(*pendingRanking_);
+            pendingRanking_.reset();
+        }
+        const auto cancelled = [this, generation = work.generation] {
+            return rankingStopping_ || generation != rankingGeneration_.load(std::memory_order_acquire);
+        };
+        const auto snapshot = engine_->ReadSnapshot();
+        if (cancelled()) continue;
+        auto completion = std::make_unique<RankingCompletion>();
+        completion->generation = work.generation;
+        completion->scope = work.scope;
+        completion->available = snapshot.has_value();
+        if (snapshot) {
+            auto ranked = RankKnownStorageSnapshot(*snapshot, work.scope, cancelled);
+            if (ranked.cancelled || cancelled()) continue;
+            completion->truncated = ranked.truncated;
+            for (auto& result : ranked.results) completion->candidates.push_back(std::move(result.candidate));
+        }
+        if (cancelled()) continue;
+        std::lock_guard lock(rankingCallbackState_->mutex);
+        if (rankingCallbackState_->alive && rankingCallbackState_->owner != nullptr &&
+            PostMessageW(rankingCallbackState_->owner, WM_APP_STORAGE_RANKING, 0,
+                         reinterpret_cast<LPARAM>(completion.get()))) completion.release();
+    }
+}
+
+bool StorageAnalysis::HandleRankingCompletion(LPARAM lParam) {
+    std::unique_ptr<RankingCompletion> completion(reinterpret_cast<RankingCompletion*>(lParam));
+    if (!completion || rankingStopping_ || !StorageRankingCompletionMatches(completion->generation,
+        rankingGeneration_.load(std::memory_order_acquire), currentPath_, completion->scope,
+        visible_, RecursiveRanking())) return true;
+    indexedRankingRequestId_ = 0;
+    // An empty durable result must not hide useful degraded/browsed records.
+    // The fallback is always labelled published/browsed partial coverage.
+    if (completion->indexed && (!completion->available || completion->candidates.empty())) {
+        QueueSnapshotRanking(completion->generation, completion->scope);
+        return true;
+    }
+    NotifyListChanged();
+    const auto selected = rankingSelected_ ? rankingSelected_ : CaptureSelectedItem();
+    ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    items_.clear();
+    for (auto& candidate : completion->candidates) {
+        DrillItem item;
+        item.name = std::move(candidate.name);
+        item.folder = std::move(candidate.folder);
+        item.sizeBytes = item.totalSizeBytes = candidate.sizeBytes;
+        item.lastModifiedTime = candidate.modifiedTime;
+        item.creationTime = candidate.createdTime;
+        item.volumeRowId = candidate.volumeId;
+        item.fileIdLow = candidate.id;
+        item.parentFrnLow = candidate.parentId;
+        item.allocatedSizeBytes = candidate.allocatedSizeBytes;
+        item.allocatedSizeKnown = candidate.allocatedSizeKnown;
+        items_.push_back(std::move(item));
+    }
+    ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
+    SetWindowTextW(status_, completion->available
+        ? StorageRankingStatusText(items_.size(), completion->indexed, completion->truncated).c_str()
+        : L"No published snapshot available — subfolder coverage unknown. Browse folders or retry.");
+    SortItems(sortColumn_, sortAscending_);
+    RestoreSelectedItem(selected);
+    InvalidateRect(list_, nullptr, FALSE);
+    return true;
 }
 
 void StorageAnalysis::RequestAggregateForParent(const ffprotocol::SnapshotDirectory& directory) {
@@ -1641,13 +1852,40 @@ void StorageAnalysis::UpdateVolumeUsedBytes() {
 }
 
 void StorageAnalysis::SortItems(int column, bool ascending) {
-    if (column < 0 || column >= 8) return;
+    if (column < 0 || column >= 9) return;
     NotifyListChanged();
     const auto selected = CaptureSelectedItem();
     ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     sortColumn_ = column;
     sortAscending_ = ascending;
     SetSortIndicator(list_, column, ascending);
+
+    if (RecursiveRanking()) {
+        const auto ordinal = [](const std::wstring& left, const std::wstring& right) {
+            return CompareStringOrdinal(left.c_str(), static_cast<int>(left.size()), right.c_str(),
+                                        static_cast<int>(right.size()), TRUE) - CSTR_EQUAL;
+        };
+        std::sort(items_.begin(), items_.end(), [column, ascending, ordinal](const DrillItem& left, const DrillItem& right) {
+            int order = 0;
+            if (column == 7 && left.allocatedSizeKnown != right.allocatedSizeKnown) return left.allocatedSizeKnown;
+            if (column == 2 || column == 3 || column == 6 || column == 7) {
+                const uint64_t a = column == 6 ? left.lastModifiedTime : column == 7 ? left.allocatedSizeBytes : left.sizeBytes;
+                const uint64_t b = column == 6 ? right.lastModifiedTime : column == 7 ? right.allocatedSizeBytes : right.sizeBytes;
+                order = a == b ? 0 : a < b ? -1 : 1;
+            } else if (column == 8) {
+                order = ordinal(left.folder, right.folder);
+            }
+            if (order == 0) order = ordinal(left.name, right.name);
+            if (order == 0) order = ordinal(left.folder, right.folder);
+            if (order == 0 && left.volumeRowId != right.volumeRowId) order = left.volumeRowId < right.volumeRowId ? -1 : 1;
+            if (order == 0 && left.fileIdLow != right.fileIdLow) order = left.fileIdLow < right.fileIdLow ? -1 : 1;
+            return ascending ? order < 0 : order > 0;
+        });
+        ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
+        RestoreSelectedItem(selected);
+        InvalidateRect(list_, nullptr, FALSE);
+        return;
+    }
 
     struct SortKey {
         int group = 0;
@@ -1721,7 +1959,7 @@ void StorageAnalysis::RestoreSelectedItem(const std::optional<DrillItem>& select
     if (!selected) return;
     for (size_t index = 0; index < items_.size(); ++index) {
         const auto& item = items_[index];
-        if (item.name != selected->name || item.categoryId != selected->categoryId ||
+        if (item.name != selected->name || item.folder != selected->folder || item.categoryId != selected->categoryId ||
             item.isDirectory != selected->isDirectory || item.volumeRowId != selected->volumeRowId ||
             item.fileIdLow != selected->fileIdLow || item.fileIdHigh != selected->fileIdHigh) continue;
         ListView_SetItemState(list_, static_cast<int>(index), LVIS_SELECTED | LVIS_FOCUSED,
@@ -1837,6 +2075,11 @@ void StorageAnalysis::SetViewMode(ViewMode mode) {
         return;
     }
     viewMode_ = mode;
+    if (RecursiveRanking()) {
+        sortColumn_ = 2;
+        sortAscending_ = false;
+        SetSortIndicator(list_, sortColumn_, sortAscending_);
+    }
     CheckRadioButton(owner_, kOverviewId, kTreemapId,
                      mode == ViewMode::Overview ? kOverviewId :
                      mode == ViewMode::DrillDown ? kDrillDownId :
@@ -1965,6 +2208,9 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                 }
                 break;
             }
+            case 8:
+                text = ffui::NormalizeDisplayPath(item.folder);
+                break;
         }
         wcsncpy_s(info->item.pszText, static_cast<size_t>(info->item.cchTextMax), text.c_str(), _TRUNCATE);
         return true;
@@ -2005,12 +2251,12 @@ void StorageAnalysis::ActivateListItem(size_t index) {
         treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
         SetViewMode(ViewMode::LargestFiles);
     } else if (item.isDirectory) {
-        currentPath_ = ffui::JoinPath(currentPath_, item.name);
+        currentPath_ = StorageRankingItemPath(item.folder, item.name);
         UpdateNavigationButtonState();
         RefreshData();
         if (navigate_) navigate_(currentPath_, true);
     } else if (navigate_) {
-        navigate_(ffui::JoinPath(currentPath_, item.name), false);
+        navigate_(StorageRankingItemPath(item.folder, item.name), false);
     }
 }
 
@@ -2038,7 +2284,8 @@ bool StorageAnalysis::HandleTreemapCompletion(LPARAM lParam) {
 }
 
 void StorageAnalysis::SetEngineActive(bool active) {
-    if (engineActive_ == active) return;
+    // A connection/source transition can keep the same degraded/privileged
+    // flag. Still invalidate old ranking completions at that boundary.
     engineActive_ = active;
     if (visible_) RefreshData();
 }
@@ -2091,7 +2338,8 @@ std::vector<SelectionItem> StorageAnalysis::ActiveSelectionItems() const {
     if (selected < 0 || static_cast<size_t>(selected) >= items_.size()) return {};
     const DrillItem& item = items_[static_cast<size_t>(selected)];
     if (!item.categoryId.empty()) return {};
-    return {{ffui::JoinPath(currentPath_, item.name), item.isDirectory}};
+    const auto path = StorageRankingItemPath(item.folder, item.name);
+    return path.empty() ? std::vector<SelectionItem>{} : std::vector<SelectionItem>{{path, item.isDirectory}};
 }
 
 bool StorageAnalysis::HandleContextMenu(WPARAM wParam, LPARAM lParam) {
