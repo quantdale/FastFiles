@@ -1,0 +1,72 @@
+{
+  "implementation": "bd67375501c8e20306734ae789ce4760d63876f5",
+  "executions": [
+    {
+      "name": "routes-200k",
+      "rows": 200000,
+      "passed_cells": 93,
+      "input_sha256": "50FD5FBA088DCC8FCF293C22FD595777BAC6FE8B3E91C672E85E767393B5950F",
+      "oracle_sha256": "BF5C9F077F13D18DF24F9A95DE9C86301A6A1C3B889DBDB66E85DDF6AC6E0211",
+      "builder_sha256": "A5B3A83F3B1D6E46F46C2809E3ADD28D68BC268EDC1A446721D74D26B1443902"
+    },
+    {
+      "name": "routes-1m",
+      "rows": 1000000,
+      "passed_cells": 93,
+      "input_sha256": "0615E5C9A2029934A772322F5A81CB25A590877B48548776ACFA49630B0FB3FD",
+      "oracle_sha256": "BF5C9F077F13D18DF24F9A95DE9C86301A6A1C3B889DBDB66E85DDF6AC6E0211",
+      "builder_sha256": "A5B3A83F3B1D6E46F46C2809E3ADD28D68BC268EDC1A446721D74D26B1443902"
+    },
+    {
+      "name": "cold-2m",
+      "rows": 2000000,
+      "passed_cells": 23,
+      "input_sha256": "466E6884A3FD7A28381DF4E63E0A422E84B16C8A836983EC2751C176598CB825",
+      "oracle_sha256": "BF5C9F077F13D18DF24F9A95DE9C86301A6A1C3B889DBDB66E85DDF6AC6E0211",
+      "builder_sha256": "A5B3A83F3B1D6E46F46C2809E3ADD28D68BC268EDC1A446721D74D26B1443902"
+    },
+    {
+      "name": "cold-5m",
+      "rows": 5000000,
+      "passed_cells": 23,
+      "input_sha256": "10C7F671937CF7C6DFD1F7B25B9E2B2D646E1D7ACDD8CD43188D783B86A65180",
+      "oracle_sha256": "BF5C9F077F13D18DF24F9A95DE9C86301A6A1C3B889DBDB66E85DDF6AC6E0211",
+      "builder_sha256": "A5B3A83F3B1D6E46F46C2809E3ADD28D68BC268EDC1A446721D74D26B1443902"
+    }
+  ],
+  "debug": {
+    "passed": 130,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 245.01
+  },
+  "release_test": {
+    "passed": 129,
+    "failed": 0,
+    "skipped": 1,
+    "seconds": 249.37,
+    "skip": "ffbuild_identity_binding_tests",
+    "followup_passed": 1,
+    "followup_seconds": 0.43
+  },
+  "excluded": [
+    "ffverify_process_reaper_ps_tests"
+  ],
+  "strict_openspec": {
+    "passed": 93,
+    "failed": 0
+  },
+  "analyze": {
+    "target": "FastFilesEngine",
+    "steps": 48,
+    "passed": true
+  },
+  "cancellation_regression": {
+    "test_blob": "1b370937279251837df238c4851ff36f226c0717",
+    "fixture_rows": 4001,
+    "minimum_durable_lookup_callbacks_before_cancel": 32,
+    "immediate_negative": "one assertion fails as intended",
+    "restored_focused_passed": 1,
+    "restored_seconds": 5.51
+  }
+}

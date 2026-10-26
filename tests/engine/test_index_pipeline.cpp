@@ -1924,19 +1924,39 @@ void TestCancellationDuringColdStream() {
     request.scope = 3;
     request.maxResults = 4096;
     request.query = L"bulk";
-    std::atomic<size_t> cancellationChecks{0};
-    IndexPipeline::SearchTimings timings;
-    const auto response = pipeline.SearchIndexed(request, &timings, [&cancellationChecks] {
-        return cancellationChecks.fetch_add(1, std::memory_order_relaxed) >= 4;
+    // durable-cold-search-index-and-hybrid-residency 4.1: establish actual
+    // candidate path work before cancelling, rather than counting setup polls.
+    std::atomic<size_t> durableLookups{0};
+    pipeline.SetReadSessionFaultInjector([&durableLookups](const auto point) {
+        if (point == ReadSessionFaultPoint::FindEntry) {
+            durableLookups.fetch_add(1, std::memory_order_relaxed);
+        }
+        return false;
     });
+    IndexPipeline::SearchTestHooks hooks;
+    hooks.forceCanonicalColdScan = true;
+    pipeline.SetSearchTestHooks(hooks);
+    IndexPipeline::SearchTimings timings;
+    const auto response = pipeline.SearchIndexed(request, &timings, [&durableLookups] {
+        return durableLookups.load(std::memory_order_relaxed) >= 32;
+    });
+    pipeline.SetReadSessionFaultInjector({});
+    pipeline.SetSearchTestHooks({});
     Check(response.status == ffprotocol::IndexedSearchStatus::Cancelled,
           "cancelling during cold streaming reports Cancelled");
-    Check(timings.cancelled && response.candidates.empty(),
+    Check(timings.cancelled && response.candidates.empty() && !response.truncated &&
+              response.requestId == request.requestId,
           "a cancelled cold search discards partial results");
-    Check(timings.coldRowsExamined < records.size(),
-          "cold streaming stops before exhausting the volume when superseded");
+    Check(durableLookups.load() >= 32 && durableLookups.load() < records.size(),
+          "cold cancellation follows actual candidate materialization before corpus exhaustion");
+    Check(pipeline.GetReadPlaneDiagnostics().activeDurableReaders == 0,
+          "cancellation after candidate materialization releases its durable reader");
     Check(pipeline.IsVolumeEvicted(volume),
           "a cancelled cold search does not silently hydrate the volume");
+    const auto recovered = pipeline.SearchIndexed(request);
+    Check(recovered.status == ffprotocol::IndexedSearchStatus::Completed &&
+              recovered.candidates.size() == 4000 && !recovered.truncated,
+          "cold search completes normally after cancellation during materialization");
 }
 
 // rule-pruning-durability-and-reconciliation-failure-closure: MFT secondary
