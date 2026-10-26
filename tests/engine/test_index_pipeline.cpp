@@ -1351,8 +1351,13 @@ void TestRootChildFoldersRemainAbsoluteAcrossResidency() {
         request.scope = 3;
         request.maxResults = 4096;
         request.query = query;
-        const auto hot = pipeline.SearchIndexed(request);
+        IndexPipeline::SearchTimings hotTimings;
+        const auto hot = pipeline.SearchIndexed(request, &hotTimings);
+        Check(!pipeline.IsVolumeEvicted(volume) && hotTimings.hotRowsExamined != 0 &&
+                  hotTimings.coldRowsExamined == 0,
+              "root-child hot reference actually reads the resident projection");
         pipeline.UnloadVolumeFromProjection(volume);
+        Check(pipeline.IsVolumeEvicted(volume), "root-child cold routes are explicitly evicted");
         IndexPipeline::SearchTimings coldTimings;
         const auto cold = pipeline.SearchIndexed(request, &coldTimings);
         IndexPipeline::SearchTestHooks hooks;
@@ -1369,7 +1374,8 @@ void TestRootChildFoldersRemainAbsoluteAcrossResidency() {
         Check(signature(hot) == signature(cold) && signature(hot) == signature(canonical) &&
                   hot.truncated == cold.truncated && hot.truncated == canonical.truncated,
               "resident, indexed cold and canonical cold results match in order and every field");
-        Check(coldTimings.coldRowsExamined != 0 && canonicalTimings.coldRowsExamined == 4,
+        Check(coldTimings.coldRowsExamined != 0 && canonicalTimings.coldRowsExamined == 4 &&
+                  coldTimings.hotRowsExamined == 0 && canonicalTimings.hotRowsExamined == 0,
               "cold routes actually enumerate durable records");
         checkFolders(hot);
         checkFolders(cold);

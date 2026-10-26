@@ -1,0 +1,8 @@
+{
+  "fixture": "D:\\Documents\\tryPython\\FastFiles-worktrees\\acceptance-20261025\\build\\residency-canonical-20261026\\fixture-200k-two-volumes\\synthetic.db",
+  "generatorSha256": "1d325135e489fc96a445512c4ed0d1138d2cd9032a94e147210f2e88747f2183",
+  "fixtureSha256Before": "02119aeb252154a9de1530f6b244775d40898659d8c4f5006626ef64defdcd46",
+  "source": "b424c2e48ee6edadf5771bd1a6a1a810514e48b2",
+  "state": "clean",
+  "oracleSha256": "644a7d10038b67f64d31b36e16afe1fa9814d1f2bfe2510b332690be0db9f190"
+}
