@@ -1261,7 +1261,6 @@ void StorageAnalysis::ApplyModeVisibility() {
     apply(overview_, StorageControl::OverviewList);
     apply(categoryFilter_, StorageControl::CategoryFilter);
     apply(status_, StorageControl::Status);
-    if (viewMode_ == ViewMode::Treemap) SetWindowTextW(status_, StorageTreemapStatusText());
 
     if (visible_ && StorageControlVisible(viewMode_, StorageControl::TreemapSurface)) {
         if (!treemapView_.Visible()) treemapView_.ShowAndFocus(currentPath_);

@@ -8,6 +8,7 @@
 - Warning-clean focused Debug targets and CTest metadata/filter/layout/visibility/shell-layout5/5 PASS0.25s; actual red log preserved in ignored build/treemap-intelligence-20261027. Strict focused OpenSpec PASS; doc drift1/1 PASS12.79s; git diff --check PASS. Changed UI translation units remain UNCOMPILED, native/screenshots/lifecycle UNVERIFIED;4.10 remains OPEN.
 - Root performed Refero queries and found no suitable Treemap reference (graph/cloud/file-organizer results); raw root-research.json retained ignored. Existing Native Precision remains authoritative. Root consulted WizTree FAQ/changes for logical-vs-allocated semantics and persistent file-size context; no branding/assets copied or coverage equivalence claimed.
 - NEXT EXACT ACTION: commit clean worker milestone, freeze for root read-only source review, then root compiles UI and qualifies known3MiB plus known-file/unbrowsed-descendant fixtures, pointer-away light/dark captures, exact metadata/unknown allocation/parent percentages/navigation and normal cleanup before4.10 closes. No standalone/full-product readiness claim.
+- Final source self-review keeps status content owned by RefreshData: successful Treemap data gets coverage feedback, while waiting/unavailable/not-browsed errors remain intact. Visibility application must not overwrite a truthful error with generic coverage. This native-source-only follow-up still requires root compilation/runtime.
 
 ## Historical Storage-ranking checkpoints below
 
