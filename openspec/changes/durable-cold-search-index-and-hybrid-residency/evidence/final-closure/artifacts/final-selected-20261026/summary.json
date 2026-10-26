@@ -1,0 +1,25 @@
+{
+  "source": "f8208ebbf0931dec29d96d78408ccdc81f5806ca",
+  "production_source_equivalent_to": "bd67375501c8e20306734ae789ce4760d63876f5",
+  "debug": {
+    "passed": 130,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 247.86
+  },
+  "release_test": {
+    "passed": 130,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 233.68
+  },
+  "excluded": [
+    "ffverify_process_reaper_ps_tests"
+  ],
+  "openspec_tasks": {
+    "complete": 31,
+    "total": 31,
+    "lifecycle": "completed"
+  },
+  "native_combined": "pending current integration; previous63ffa59 evidence retains source scope"
+}

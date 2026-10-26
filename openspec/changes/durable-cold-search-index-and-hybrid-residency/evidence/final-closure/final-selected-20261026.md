@@ -1,0 +1,9 @@
+# Current selected-suite certification — 2026-10-26
+
+Immutable executed source `f8208ebbf0931dec29d96d78408ccdc81f5806ca`, clean before full builds/tests. Debug130 PASS/0 FAIL/0 SKIP247.86s; release-test130 PASS/0 FAIL/0 SKIP233.68s. Both explicitly exclude only `ffverify_process_reaper_ps_tests`, which remains NOT_EXECUTED, not passing. Current non-destructive identity fixture is included. New canonical planner/echo/sort and actual-materialization cancellation guards are included. Unique compressed logs and source/PR/worktree ledger: artifacts/final-selected-20261026.
+
+The earlier6d08dfc129/130 failure remains preserved: lifecycle active with zero unchecked tasks. Correcting the manifest to completed resolves the valid semantic failure; no test suppressed. Lifecycle and all31 local tasks now complete, with in-place evidence paths preserved. Full selected suites do not certify hosted execution, privileged service/signers, clean-host installation, physical display matrix, Explorer drag-in, release or whole-product completion.
+
+Production src tree exactly equals reviewed/analyzedbd673755. Corrected all-scale canonical executions atbd673755 and reviewed tests-only7a14b84 retain exact recorded source/executable/input identities. Current selected suites bind this committed certification source. A following documentation-only handoff must preserve that distinction; do not rename these runs as executed at an unseen commit.
+
+Current owner-controlled PR graph remains open/unmerged. This branch is stacked on PR15; productPR18 and siblings19/20/21 remain isolated. Native combined63ffa59 results are prior-source evidence; current backend integration/native qualification is the next frontier. Hosted latest inspected d4f0cbe runs40264206040/40264203148 failed six jobs before any step due payment/spending annotation; no rerun/account mutation. Additional agent usage-limit failure is recorded, not hidden by fabricated review.

@@ -1,6 +1,6 @@
 # Independent root-child folder review
 
-Read-only native explorer `/root/root_folder_review`, fresh context, inspected acceptance branch production patch and regression; no files modified and no experiments run.
+Read-only native explorer `/root/root_folder_review`, separate review role, inspected acceptance branch production patch and regression; no files modified and no experiments run.
 
 Production fix correct and narrowly scoped: append separator only after a successful durable walk with zero non-root segments. Hot root-child folder is `C:\`, old cold folder `C:`; Windows path joining in SearchPanel Open and WindowShell Reveal can resolve the latter relative to the drive current directory. Nested paths and root candidates retain existing behavior. No P1/P2 found in production delta.
 
