@@ -1,3 +1,12 @@
+## Current isolated checkpoint — UIA fixture window ownership COMPLETE — 2026-10-26
+
+- Bounded harness fix based on verified PR21 baseline `b028e1165e7d6199bc3cc04d8fece0a9b5f443aa`, isolated branch `fix/uia-fixture-window-ownership-20261026`. Root integrator owns publication; no push or shared-checkout changes from this slice.
+- Removed only the fixture-leaf/title Explorer fallback from actual `Remove-UiaScenarioContext`. Explicit `ExplorerWindows` closes and filesystem fixture cleanup remain; registered close failures remain cleanup residue. Fixtures do not establish window ownership.
+- Regression AST-extracts the actual function and stubs all external effects. Recorded desktop has registered and unrelated `CabinetWClass` windows sharing title `FastFilesE2E` and PID 4242. Covers registered success, no registered windows/nonempty fixtures, and failed registered close, with fixture removal throughout.
+- Validation: `pwsh -NoProfile -File verify/uia-driver/tests/run-tests.ps1` RED exit 1 / five failed ownership checks before fix; GREEN exit 0 / all headless tests passed after fix. Compact logs remain ignored under `build/fixture-ownership-20261026/{red,green}.txt`. Parser and diff checks passed. No live UI, filesystem fixture deletion, process termination, CTest, or builds performed.
+- Limitation: this fixes teardown authority only. `Get-UiaExplorerWindow` discovery's matching-descendant fallback is unchanged and is not claimed hardened. Existing drag-in/out paths explicitly register their returned/refreshed Explorer element.
+- NEXT EXACT ACTION: root integrator reviews/cherry-picks this committed slice and continues its current frontier; no further work authorized in this isolated slice.
+
 # Fast Files — Agent Workstate
 
 ## Current resume checkpoint — native conflict milestone COMPLETE LOCALLY — 2026-10-26
