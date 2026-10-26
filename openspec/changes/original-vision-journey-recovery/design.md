@@ -42,6 +42,14 @@ Filesystem targets may disappear after validation; ordinary operation handlers s
 
 ## Validation
 
+### File-operation feedback follow-up — 2026-10-26
+
+Actual clean combinedde94 owned-file validation reproduces a locked-source failure whose dialog is only a long path plus0x80270027. SDK sherrors.h identifies COPYENGINE_E_SHARING_VIOLATION_SRC, distinct from destination0x80270028. Preserve the existing native MessageBox, retained per-item failure list, original path/HRESULT and canonical manual Copy/Paste retry. Add presentation-only descriptions for actual source/destination sharing, ordinary Win32 locks, access, capacity and disappeared paths; bounded system-message lookup for other HRESULTs and a neutral fallback must always retain the code. No automatic retry, elevation prompt, new operation plan or success reclassification.
+
+Refero design lock remains Things0796cd74-edc2-4e12-9c71-25fac02a1cb2 / existing Native Precision. Live screen retrieval refreshed0cbae453-88aa-444e-9ffa-eed388d87bc9 (Uber Eats error/retry) andbbf53250-f313-4040-bee0-2ed8183883a0 (Dropbox transfer outcomes), following prior live style/screen/flow research. Adapt adjacent recovery explanation and truthful partial/completed outcomes; reject the untranslated raw error key visible in the Uber reference. Do not copy web styling, bitmap assets or add a Retry button without a safe repeat plan. Existing Segoe UI/theme/Windows modal geometry remains authoritative.
+
+Owned native acceptance uses a calibrated Shell Recycle Bin positive control before claiming permanent exclusion, actual terminal-column SelectionPattern sets, hash-bound multi-copy/move, a genuinely exclusive source lock followed by release/manual retry, and a bounded64MiB batch observed partially copied before real Escape. An unobserved or already finished batch is not passing cancellation evidence. Query only exact GUID-owned bin matches; never clear/restore unrelated entries. Standard MessageBox children expose Pane roles on this host, so class/name text is inspected truthfully without inventing a Text role. Preserve failed exploratory harness assumptions.
+
 Focused command/selection and geometry regressions, Home search E2E with destination identity, storage summary/action tests, native visual catalog and broader Debug/release-test suites. Avoid restricted termination tests and expensive unchanged PR15 benchmarks.
 
 ### Native conflict decisions remain readable and reachable

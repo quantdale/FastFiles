@@ -2,13 +2,16 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cwchar>
 #include <cwctype>
 #include <deque>
 #include <filesystem>
 #include <memory>
+#include <iterator>
 #include <shobjidl.h>
 #include <shlobj_core.h>
 #include <shellapi.h>
+#include <sherrors.h>
 #include <wrl/client.h>
 
 namespace ffui {
@@ -612,6 +615,47 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     }
     PostEvent(std::move(completion));
     sink->Release();
+}
+
+std::wstring DescribeFileOperationFailure(HRESULT error) {
+    std::wstring description;
+    switch (error) {
+        case COPYENGINE_E_SHARING_VIOLATION_SRC:
+            description = L"The source file is in use. Close the app using it, then try the operation again.";
+            break;
+        case COPYENGINE_E_SHARING_VIOLATION_DEST:
+            description = L"The destination file is in use. Close the app using it, then try the operation again.";
+            break;
+        case HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION):
+        case HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION):
+            description = L"A file is in use. Close the app using it, then try the operation again.";
+            break;
+        case E_ACCESSDENIED:
+            description = L"Access was denied. Check the file's permissions and read-only setting, or choose another destination.";
+            break;
+        case HRESULT_FROM_WIN32(ERROR_DISK_FULL):
+        case HRESULT_FROM_WIN32(ERROR_HANDLE_DISK_FULL):
+            description = L"There is not enough free space. Free space on the destination drive or choose another destination.";
+            break;
+        case HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND):
+        case HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND):
+            description = L"A file or folder is no longer available. Check its location and connected drives, then try again.";
+            break;
+        default: {
+            wchar_t message[1024]{};
+            const DWORD length = FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                nullptr, static_cast<DWORD>(error), 0, message, static_cast<DWORD>(std::size(message)), nullptr);
+            if (length > 0) {
+                description.assign(message, length);
+                while (!description.empty() && std::iswspace(description.back())) description.pop_back();
+            }
+            if (description.empty()) description = L"Windows could not complete this file operation.";
+            break;
+        }
+    }
+    wchar_t code[16]{};
+    swprintf_s(code, L"0x%08X", static_cast<unsigned int>(error));
+    return description + L" (" + code + L")";
 }
 
 void RetainLastOperationFailures(std::vector<FileOperationFailure>& retained, const FileOperationEvent& event) {

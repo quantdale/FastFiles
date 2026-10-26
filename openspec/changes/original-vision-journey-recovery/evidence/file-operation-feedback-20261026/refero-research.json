@@ -1,0 +1,69 @@
+{
+  "brief": "Native Windows file-operation control: observe progress, stop outstanding work, inspect failures and continue browsing safely.",
+  "research_date": "2026-10-26",
+  "tools_actually_used": [
+    "refero_search_styles",
+    "refero_get_style",
+    "refero_search_screens",
+    "refero_get_screen",
+    "refero_search_flows",
+    "refero_get_flow",
+    "refero_get_screen_image"
+  ],
+  "style_queries": [
+    "Things productivity calm compact desktop neutral restrained controls",
+    "compact neutral productivity utility design system",
+    "Dropbox file management restrained productivity"
+  ],
+  "style_lock": {
+    "implementation_target": "Existing FastFiles Native Precision UITheme/UiMetrics and Segoe UI",
+    "primary": "Things 0796cd74-edc2-4e12-9c71-25fac02a1cb2",
+    "secondary": [
+      "Dropbox 3585a6ac-12d4-4ace-88b8-a8089c109250",
+      "Desktop.fm 5b70f172-2ba2-4f26-9956-251d4cfc0329"
+    ],
+    "adapt": "Cool neutral hierarchy, restrained blue interaction and compact native secondary controls. Keep existing token roles, fonts and geometry conventions. Marketing hero imagery, large rounded cards and brand-specific colors/fonts are not application requirements."
+  },
+  "flows": [
+    {
+      "id": 13027,
+      "url": "https://refero.design/flows/13027",
+      "name": "Dropbox Team Folder Upload",
+      "finding": "Workspace remains usable while a transfer panel exposes status and cancel controls; completion becomes explicit and normal file actions remain available."
+    },
+    {
+      "id": 10847,
+      "url": "https://refero.design/flows/10847",
+      "name": "MonoDesk Team Files Upload",
+      "finding": "Distinguish queued/uploading, partial completion and completed items; transient success feedback complements persistent file-list state."
+    }
+  ],
+  "screens": [
+    {
+      "id": "bbf53250-f313-4040-bee0-2ed8183883a0",
+      "url": "https://refero.design/pages/bbf53250-f313-4040-bee0-2ed8183883a0",
+      "viewed_image": true,
+      "finding": "Uploads panel groups Cancel all with progress; tabs separate Completed/Skipped/Failed;100percent may still say Finalizing. Do not equate transfer percentage with terminal success."
+    },
+    {
+      "id": "0de18358-74d8-416f-9733-20926ce08b7b",
+      "url": "https://refero.design/pages/0de18358-74d8-416f-9733-20926ce08b7b",
+      "viewed_image": true,
+      "finding": "File name, size, progress and cancel share one row. Prefer explicit native Cancel text over ambiguous X, and avoid the large empty blocking modal."
+    },
+    {
+      "id": "0cbae453-88aa-444e-9ffa-eed388d87bc9",
+      "url": "https://refero.design/pages/0cbae453-88aa-444e-9ffa-eed388d87bc9",
+      "viewed_image": false,
+      "finding": "Recovery action is adjacent to failure; reject the raw untranslated error key and unnecessary blocking presentation."
+    }
+  ],
+  "current_source_observations": {
+    "source": "PR21 b028e116",
+    "permanent_delete": "Native MessageBox confirmation exists; needs owned-fixture journey qualification.",
+    "cancel": "Backend supports cancelling active and queued requests; main-window Escape route exists. No explicit visible Cancel button found.",
+    "errors": "app.last-operation-errors opens a native error message; no dedicated Retry command found.",
+    "not_proven": "Queued presentation and recursive-copy completion-count suspicions require runtime evidence before being called defects."
+  },
+  "next": "Finish acceptance publication/integration; capture actual native baseline before implementation. Own unique temp fixtures only; qualify permanent delete, multi-selection and true in-flight file-operation cancellation. These are separate from index-query cancellation."
+}

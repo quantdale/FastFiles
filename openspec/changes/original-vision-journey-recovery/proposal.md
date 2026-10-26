@@ -9,6 +9,7 @@ The original Find/Navigate/Understand/Act vision is undermined by composition de
 - Make search reveal leave Home, preserve active-pane ownership, expose the destination hierarchy and synchronize navigation chrome.
 - Bound search location and metadata independently at real DPI.
 - Record the five-pillar audit and validate actual native journeys with stronger destination assertions.
+- Explain common file-operation failures with source/destination-aware recovery guidance while preserving original HRESULTs and manual retry semantics; qualify the real owned-file daily-driver journeys.
 
 ## Capabilities
 

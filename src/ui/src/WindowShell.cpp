@@ -3067,12 +3067,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 case kMenuOperationDetails: {
                     std::wstring details;
                     for (const auto& failure : lastOperationFailures_) {
-                        if (!details.empty()) details += L"\n";
-                        wchar_t error[16]{};
-                        swprintf_s(error, L"0x%08X", static_cast<unsigned int>(failure.error));
+                        if (!details.empty()) details += L"\n\n";
                         details += (failure.path.empty() ? std::wstring(L"(operation)")
                                                          : ffui::NormalizeDisplayPath(failure.path)) +
-                                    std::wstring(L" — ") + error;
+                                    L"\n" + ffui::DescribeFileOperationFailure(failure.error);
                     }
                     if (!details.empty()) {
                         MessageBoxW(hwnd_, details.c_str(), L"Last operation errors", MB_OK | MB_ICONERROR);

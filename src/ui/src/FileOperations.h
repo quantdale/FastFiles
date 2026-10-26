@@ -114,4 +114,8 @@ private:
 // ticks never clear a recorded list. WindowShell calls this for every event.
 void RetainLastOperationFailures(std::vector<FileOperationFailure>& retained, const FileOperationEvent& event);
 
+// Human-readable recovery guidance followed by the original diagnostic code.
+// Presentation only: never changes failure classification or retries work.
+std::wstring DescribeFileOperationFailure(HRESULT error);
+
 } // namespace ffui

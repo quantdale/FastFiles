@@ -10,6 +10,7 @@
 #include <winioctl.h>
 #include <objbase.h>
 #include <aclapi.h>
+#include <sherrors.h>
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -501,6 +502,18 @@ int main() {
     // Progress tick never wipes the retained list, a terminal event replaces
     // it, and a later clean completion clears it.
     {
+        const auto sourceBusy = ffui::DescribeFileOperationFailure(COPYENGINE_E_SHARING_VIOLATION_SRC);
+        const auto destinationBusy = ffui::DescribeFileOperationFailure(COPYENGINE_E_SHARING_VIOLATION_DEST);
+        Check(sourceBusy.find(L"source") != std::wstring::npos &&
+              sourceBusy.find(L"Close the app") != std::wstring::npos &&
+              sourceBusy.find(L"0x80270027") != std::wstring::npos,
+              "real Shell source sharing failure lost its identity, recovery or diagnostic code");
+        Check(destinationBusy.find(L"destination") != std::wstring::npos &&
+              destinationBusy.find(L"0x80270028") != std::wstring::npos,
+              "destination sharing failure was confused with source sharing failure");
+        const auto unknown = ffui::DescribeFileOperationFailure(static_cast<HRESULT>(0x81234567u));
+        Check(!unknown.empty() && unknown.find(L"0x81234567") != std::wstring::npos,
+              "unrecognized failure lost its original diagnostic code");
         std::vector<ffui::FileOperationFailure> retained;
         ffui::FileOperationEvent progress{ffui::FileOperationEventKind::Progress,
                                           ffui::FileOperationKind::Copy, {}, 0, 0, 50, {}};
