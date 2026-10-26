@@ -139,6 +139,9 @@ bool MaterializeCandidateFolderDurable(
     }
     if (!reachedRoot) return false;
     std::wstring folder = prefixIt->second;
+    // durable-cold-search-index-and-hybrid-residency 4.1: C: is
+    // drive-relative. Keep root-child folders absolute, as on the hot path.
+    if (segmentsReversed.empty()) folder += L"\\";
     for (auto it = segmentsReversed.rbegin(); it != segmentsReversed.rend(); ++it) {
         folder += L"\\";
         folder += ToWString(*it);

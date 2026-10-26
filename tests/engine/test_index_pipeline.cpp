@@ -1300,6 +1300,83 @@ std::u16string U16FromWide(const std::wstring& text) {
 }
 } // namespace
 
+void TestRootChildFoldersRemainAbsoluteAcrossResidency() {
+    // durable-cold-search-index-and-hybrid-residency 4.1: a bare C: is
+    // drive-relative; root children must retain the separator when evicted.
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_root_child_folders.db")),
+          "root-child path fixture opens");
+    VolumeKey key;
+    key.serialNumber = 9401;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    pipeline.SetVolumeRules(volume, setting);
+    Check(pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(5, 5, u".", 0x10, 0),
+        MakeMftRecord(10, 5, u"boundary-file.txt", 0, 123),
+        MakeMftRecord(11, 5, u"boundary-dir", 0x10, 0),
+        MakeMftRecord(12, 11, u"boundary-nested.txt", 0, 456),
+    }), "root-child path fixture persists");
+    const auto signature = [](const ffprotocol::IndexedSearchResponse& response) {
+        std::vector<std::tuple<int64_t, uint64_t, uint64_t, std::wstring, std::wstring,
+                              uint64_t, uint64_t, uint64_t, bool, bool, uint64_t, bool>> result;
+        for (const auto& item : response.candidates) {
+            result.emplace_back(item.volumeId, item.id, item.parentId, item.name, item.folder,
+                                item.sizeBytes, item.createdTime, item.modifiedTime,
+                                item.isDirectory, item.persistentIndexed,
+                                item.allocatedSizeBytes, item.allocatedSizeKnown);
+        }
+        return result;
+    };
+    const auto checkFolders = [](const ffprotocol::IndexedSearchResponse& response) {
+        for (const auto& item : response.candidates) {
+            if (item.id == 5) {
+                Check(item.folder.empty() && item.name == L"C:\\",
+                      "volume-root candidate retains its intentional display name and empty folder");
+            } else {
+                const auto expected = item.id == 12 ? L"C:\\boundary-dir" : L"C:\\";
+                Check(item.folder == expected, "root and nested child folders are canonical and absolute");
+                Check((std::filesystem::path(item.folder) / item.name).is_absolute(),
+                      "joining a search result produces an absolute Windows path");
+            }
+        }
+    };
+    for (const auto* query : {L"boundary", L"kind:folder"}) {
+        pipeline.RebuildAll({});
+        Check(pipeline.MarkScanComplete(volume), "root-child fixture is search-ready after rebuild");
+        ffprotocol::IndexedSearchRequest request;
+        request.requestId = 9401;
+        request.scope = 3;
+        request.maxResults = 4096;
+        request.query = query;
+        const auto hot = pipeline.SearchIndexed(request);
+        pipeline.UnloadVolumeFromProjection(volume);
+        IndexPipeline::SearchTimings coldTimings;
+        const auto cold = pipeline.SearchIndexed(request, &coldTimings);
+        IndexPipeline::SearchTestHooks hooks;
+        hooks.forceCanonicalColdScan = true;
+        pipeline.SetSearchTestHooks(hooks);
+        IndexPipeline::SearchTimings canonicalTimings;
+        const auto canonical = pipeline.SearchIndexed(request, &canonicalTimings);
+        pipeline.SetSearchTestHooks({});
+        Check(hot.status == ffprotocol::IndexedSearchStatus::Completed &&
+                  cold.status == hot.status && canonical.status == hot.status,
+              "root-child searches complete on all residency routes");
+        Check(hot.candidates.size() == (request.query == L"boundary" ? 3u : 2u),
+              "root-child and root candidate checks are nonvacuous");
+        Check(signature(hot) == signature(cold) && signature(hot) == signature(canonical) &&
+                  hot.truncated == cold.truncated && hot.truncated == canonical.truncated,
+              "resident, indexed cold and canonical cold results match in order and every field");
+        Check(coldTimings.coldRowsExamined != 0 && canonicalTimings.coldRowsExamined == 4,
+              "cold routes actually enumerate durable records");
+        checkFolders(hot);
+        checkFolders(cold);
+        checkFolders(canonical);
+    }
+}
+
 void TestForcedEvictionSearchEquivalence() {
     IndexPipeline pipeline;
     const std::string dbPath = FreshDbPath("engine_test_eviction_equivalence.db");
@@ -2616,6 +2693,7 @@ int main() {
     TestIndexedSearchCancellationStopsProjectionWork();
         TestIndexedSearchPropagatesAllocatedSize();
         TestIndexedSearchOndiskFilter();
+    TestRootChildFoldersRemainAbsoluteAcrossResidency();
         TestForcedEvictionSearchEquivalence();
         TestEnforcementEvictionAdvancesQueryVisibleEpochs();
     TestCappedRootSearchMatchesColdAndRetainsTopN();
