@@ -1,0 +1,182 @@
+{
+  "terminalObservations": [
+    {
+      "title": "FastFiles — complete — 3 of 3 — 0 failed",
+      "terminalVersion": 18,
+      "afterVersion": 0
+    },
+    {
+      "title": "FastFiles — complete — 3 of 3 — 0 failed",
+      "terminalVersion": 33,
+      "afterVersion": 18
+    },
+    {
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "terminalVersion": 40,
+      "afterVersion": 33
+    },
+    {
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "terminalVersion": 47,
+      "afterVersion": 40
+    },
+    {
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "terminalVersion": 54,
+      "afterVersion": 47
+    },
+    {
+      "title": "FastFiles — cancelled — 1 of 2 — 1 failed (first: C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-5c3a08492f654cdd9f336d9fd36699f6\\Fixtures\\FastFilesE2E\\Source\\locked-source.txt)",
+      "terminalVersion": 66,
+      "afterVersion": 54
+    },
+    {
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "terminalVersion": 74,
+      "afterVersion": 66
+    }
+  ],
+  "cleanup": {
+    "Pass": true,
+    "OwnedPids": [
+      111628,
+      116764
+    ],
+    "Residue": [],
+    "PipePresentBefore": false,
+    "PipePresentAfter": false,
+    "PipeCleanup": {
+      "Pass": true,
+      "State": "absent"
+    },
+    "DiagnosticsPreserved": true,
+    "DiagnosticsCopyError": null,
+    "SessionRootRetained": false
+  },
+  "captures": [
+    {
+      "sha256": "b1b22e335fcfc2b3492cd92bdd97a7b61402880adc7e76b6ab6c46ec60cde2a9",
+      "id": "permanent-confirmation",
+      "image": "permanent-confirmation.png",
+      "bounds": {
+        "Hwnd": {
+          "value": 24713054
+        },
+        "X": 694,
+        "Y": 463,
+        "Width": 552,
+        "Height": 281,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      }
+    },
+    {
+      "sha256": "da7c85ac63ae7771bc2f4c250bd391b225eab56f583a80a6cb010ef14864163b",
+      "id": "operation-error",
+      "image": "operation-error.png",
+      "bounds": {
+        "Hwnd": {
+          "value": 1382132
+        },
+        "X": 694,
+        "Y": 473,
+        "Width": 552,
+        "Height": 262,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      }
+    }
+  ],
+  "failure": "in-flight-copy-source: No direct native address edit.",
+  "cases": [
+    {
+      "sentinelPreserved": true,
+      "selectedNames": [
+        "alpha.txt",
+        "beta.txt",
+        "unicode-λ.txt"
+      ],
+      "names": [
+        "alpha.txt",
+        "beta.txt",
+        "unicode-λ.txt"
+      ],
+      "id": "multi-copy",
+      "pass": true,
+      "hashes": {
+        "beta.txt": "DF714C17205DC4A623BCB6026DCFF1BEC79B53CE012213FEF98D10E4E6484BE6",
+        "alpha.txt": "439CA6F88DC5F159C57EC6EBFA42EA495C8CCDFFCAFC9EEE9BCA386EF2653027",
+        "unicode-λ.txt": "754B8383B4FFA4DE565910EF9062DEBCCAF5629ABB2FC65FCDE721486F9C7D44"
+      },
+      "terminal": "FastFiles — complete — 3 of 3 — 0 failed"
+    },
+    {
+      "sentinelPreserved": true,
+      "selectedNames": [
+        "alpha.txt",
+        "beta.txt",
+        "unicode-λ.txt"
+      ],
+      "names": [
+        "alpha.txt",
+        "beta.txt",
+        "unicode-λ.txt"
+      ],
+      "id": "multi-move",
+      "pass": true,
+      "hashes": {
+        "beta.txt": "DF714C17205DC4A623BCB6026DCFF1BEC79B53CE012213FEF98D10E4E6484BE6",
+        "alpha.txt": "439CA6F88DC5F159C57EC6EBFA42EA495C8CCDFFCAFC9EEE9BCA386EF2653027",
+        "unicode-λ.txt": "754B8383B4FFA4DE565910EF9062DEBCCAF5629ABB2FC65FCDE721486F9C7D44"
+      },
+      "terminal": "FastFiles — complete — 3 of 3 — 0 failed"
+    },
+    {
+      "hash": "E643A7DA6FE7E33B7DB36DA6205E5E0E2336881A3909D5277234600030B049D5",
+      "id": "recycle-delete-undo",
+      "pass": true,
+      "namespacePositiveControl": true,
+      "undo": "FastFiles — complete — 1 of 1 — 0 failed",
+      "terminal": "FastFiles — complete — 1 of 1 — 0 failed"
+    },
+    {
+      "id": "permanent-default-cancel",
+      "pass": true,
+      "hash": "5F598C233496EE1D050D14B5442502E21568D5F95BDEFDEB6F99F798610DF2ED"
+    },
+    {
+      "terminal": "FastFiles — complete — 1 of 1 — 0 failed",
+      "id": "permanent-confirm",
+      "pass": true,
+      "calibratedShellExclusion": [
+        {
+          "utc": "2026-10-26T08:06:55.3057957Z",
+          "matches": 0
+        },
+        {
+          "utc": "2026-10-26T08:06:55.6275779Z",
+          "matches": 0
+        },
+        {
+          "utc": "2026-10-26T08:06:55.9553469Z",
+          "matches": 0
+        }
+      ]
+    },
+    {
+      "recovery": "FastFiles — complete — 1 of 1 — 0 failed",
+      "id": "error-manual-recovery",
+      "pass": true,
+      "hashes": {
+        "locked-source.txt": "07ECD21080034364ED2A406F869F66C5E807683AC58536DA8D7600EB967353A6",
+        "beta.txt": "DF714C17205DC4A623BCB6026DCFF1BEC79B53CE012213FEF98D10E4E6484BE6",
+        "healthy-sibling.txt": "B8FC2A855D09398E5AE70060ADA23B388C508A35DAC21C6EC0B059F3427ED4FE",
+        "alpha.txt": "439CA6F88DC5F159C57EC6EBFA42EA495C8CCDFFCAFC9EEE9BCA386EF2653027",
+        "unicode-λ.txt": "754B8383B4FFA4DE565910EF9062DEBCCAF5629ABB2FC65FCDE721486F9C7D44"
+      },
+      "errorText": "OK\r\n\r\nC:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-5c3a08492f654cdd9f336d9fd36699f6\\Fixtures\\FastFilesE2E\\Source\\locked-source.txt\nThe source file is in use. Close the app using it, then try the operation again. (0x80270027)\r\nLast operation errors",
+      "terminal": "FastFiles — cancelled — 1 of 2 — 1 failed (first: C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-5c3a08492f654cdd9f336d9fd36699f6\\Fixtures\\FastFilesE2E\\Source\\locked-source.txt)"
+    }
+  ],
+  "scope": "Owned native multi-copy/move, calibrated recycle/permanent confirmation, error/manual recovery and observed in-flight cancellation"
+}

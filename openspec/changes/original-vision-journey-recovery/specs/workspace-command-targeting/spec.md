@@ -4,6 +4,19 @@ Keep filesystem commands bound to the user's visible selection across browsing, 
 
 ## ADDED Requirements
 
+### Requirement: File-operation failures provide truthful recovery feedback
+
+Retained failures SHALL show the original filesystem target and HRESULT with readable recovery guidance when the cause is known. Source and destination sharing violations SHALL remain distinct. Unknown failures SHALL retain their diagnostic code without claiming a successful action or automatic retry. An operation stopped with failures SHALL visibly identify errors rather than presenting only a cancellation notice; the existing manual retry and per-item failure contracts SHALL remain unchanged.
+
+#### Scenario: Source is in use
+- **WHEN** a source file is locked and another selected file copies successfully
+- **THEN** the stopped-with-errors feedback identifies the failure, the detail explains that the source is in use and suggests closing the app using it, and its original path/code remain available
+- **AND** releasing the lock and repeating normal Copy/Paste preserves the original bytes
+
+#### Scenario: Unknown failure
+- **WHEN** Windows reports an unmapped operation failure
+- **THEN** the user sees a bounded system description or neutral failure explanation and the unchanged diagnostic code
+
 ### Requirement: Settings completion controls fit the real dialog
 
 Settings SHALL reserve its intended DPI-scaled client area in addition to the actual non-client frame. OK and Cancel SHALL have positive, fully visible bounds inside the dialog, and visible Cancel SHALL remain pointer-reachable without changing saved settings.

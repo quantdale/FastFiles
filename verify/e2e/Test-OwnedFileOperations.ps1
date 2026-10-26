@@ -42,7 +42,9 @@ function Navigate-Bulk([string]$Path) {
     $null=Set-UiaForeground -Driver $ctx.Driver -Element $ctx.Main
     Check (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main) 'Bulk navigation lacks owned foreground.'
     $null=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}l'
-    $address=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -ControlType Edit -AutomationId '0' -TimeoutMs 3000
+    $chrome=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -ClassName FastFilesNavigationChrome -TimeoutMs 3000
+    Check ([bool]$chrome) 'No native navigation chrome.'
+    $address=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $chrome -ControlType Edit -AutomationId '0' -TimeoutMs 3000
     Check ([bool]$address) 'No direct native address edit.'
     $set=Set-UiaElementValue -Driver $ctx.Driver -Element $address -Value $Path
     Check $set.ok 'Cannot set actual address value.'
@@ -249,8 +251,10 @@ try {
     Command paste Paste file.paste
     $terminal=Wait-Terminal
     Check ($terminal -match '1 failed') ('Missing truthful failure: '+$terminal)
+    Check ($terminal -match 'stopped with errors|complete with errors') 'Failure is presented as ordinary completion or user cancellation.'
     Check ((Hash (Join-Path $errorDest $healthyName)) -eq $hashes[$healthyName]) 'Healthy sibling failed.'
     Check (-not(Test-Path -LiteralPath (Join-Path $errorDest $lockedName))) 'Locked file produced destination.'
+    Capture-Dialog $ctx.Main operation-error-status
     Command errors 'Last Operation Errors' app.last-operation-errors
     $dialog=Find-UiaElement -Driver $ctx.Driver -Name 'Last operation errors' -ClassName '#32770' -ProcessId $ctx.Launched.Id -TimeoutMs 5000
     Capture-Dialog $dialog operation-error

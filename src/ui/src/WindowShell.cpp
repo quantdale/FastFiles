@@ -2687,6 +2687,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 fileOpOutstanding_ = false;
                 RetainLastOperationFailures(lastOperationFailures_, *event);
                 std::wstring title = event->kind == FileOperationEventKind::Cancelled ? L"FastFiles — cancelled" : L"FastFiles — complete";
+                if (!event->failures.empty()) {
+                    title = event->kind == FileOperationEventKind::Cancelled
+                        ? L"FastFiles — stopped with errors" : L"FastFiles — complete with errors";
+                }
                 title += L" — " + std::to_wstring(event->completed) + L" of " + std::to_wstring(event->total);
                 if (event->skipped > 0) title += L" — " + std::to_wstring(event->skipped) + L" skipped";
                 title += L" — " + std::to_wstring(event->failures.size()) + L" failed";
@@ -2698,13 +2702,15 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 // also ride the non-modal status line, so an outcome is never
                 // visible only in the window title. Failures stay actionable
                 // through the existing last-operation-errors surface.
-                if (event->kind == FileOperationEventKind::Cancelled) {
-                    ShowStatusNotice(L"Cancelled after " + std::to_wstring(event->completed) + L" of " +
-                                     std::to_wstring(event->total) + L" item(s).");
-                } else if (!event->failures.empty()) {
+                if (!event->failures.empty()) {
                     ShowStatusNotice(std::to_wstring(event->failures.size()) + L" of " +
                                      std::to_wstring(event->total) +
-                                     L" item(s) failed. Right-click for last operation errors.");
+                                     L" item(s) failed. " +
+                                     (event->kind == FileOperationEventKind::Cancelled ? L"Operation stopped. " : L"") +
+                                     L"Right-click for last operation errors.");
+                } else if (event->kind == FileOperationEventKind::Cancelled) {
+                    ShowStatusNotice(L"Cancelled after " + std::to_wstring(event->completed) + L" of " +
+                                     std::to_wstring(event->total) + L" item(s).");
                 } else if (event->skipped > 0) {
                     // Skipped items are a user decision, not a failure: an
                     // all-skip batch must not read as "0 item(s) completed".

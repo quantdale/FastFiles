@@ -24,6 +24,8 @@ public sealed class FastFilesOperationTitleObserver : IDisposable {
         lock (sync) {
             ++version;
             if (title.StartsWith("FastFiles — complete —", StringComparison.Ordinal) ||
+                title.StartsWith("FastFiles — complete with errors —", StringComparison.Ordinal) ||
+                title.StartsWith("FastFiles — stopped with errors —", StringComparison.Ordinal) ||
                 title.StartsWith("FastFiles — cancelled —", StringComparison.Ordinal)) {
                 terminalVersion = version;
                 terminalTitle = title;
