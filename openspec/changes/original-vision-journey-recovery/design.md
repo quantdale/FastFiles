@@ -42,6 +42,10 @@ Filesystem targets may disappear after validation; ordinary operation handlers s
 
 ## Validation
 
+### Cancellation keeps one native progress owner
+
+Actual timed palette qualification at bcc7285 observes focused eltPauseButton on the same PID as FastFiles while its palette edit loses focus and remains empty. The Shell IFileOperation progress window can compete with the application that already renders ProgressSink events in its title/status. Add only FOF_SILENT to suppress that duplicate progress dialog, retaining sink callbacks, cancellation checks, existing error/no-confirmation/recycle flags, preflight conflicts and permanent-delete confirmation. Honor SetOperationFlags failure before submitting filesystem mutation. Microsoft documents this flag as suppressing the progress dialog: https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifileoperation-setoperationflags . Actual partial-copy cancellation and original operation/error journeys must qualify the changed flag; source inspection alone is insufficient.
+
 ### File-operation feedback follow-up — 2026-10-26
 
 Actual clean combinedde94 owned-file validation reproduces a locked-source failure whose dialog is only a long path plus0x80270027. SDK sherrors.h identifies COPYENGINE_E_SHARING_VIOLATION_SRC, distinct from destination0x80270028. Preserve the existing native MessageBox, retained per-item failure list, original path/HRESULT and canonical manual Copy/Paste retry. Add presentation-only descriptions for actual source/destination sharing, ordinary Win32 locks, access, capacity and disappeared paths; bounded system-message lookup for other HRESULTs and a neutral fallback must always retain the code. No automatic retry, elevation prompt, new operation plan or success reclassification.

@@ -476,16 +476,23 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
         return;
     }
     Microsoft::WRL::ComPtr<IFileOperation> operation;
-    const HRESULT createResult = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&operation));
-    if (FAILED(createResult)) {
+    HRESULT setupResult = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&operation));
+    if (SUCCEEDED(setupResult)) {
+        // original-vision-journey-recovery 4.7: the shell's separate progress
+        // window can steal focus from our live cancellation palette. Progress
+        // and cancellation remain on ProgressSink and the native shell UI.
+        // FOF_SILENT suppresses only the duplicate Shell progress dialog.
+        setupResult = operation->SetOperationFlags(FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI |
+            (request.kind == FileOperationKind::Delete && request.recycle ? FOF_ALLOWUNDO : 0));
+    }
+    if (FAILED(setupResult)) {
         const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size()));
         std::vector<FileOperationFailure> failures;
-        if (request.sources.empty()) failures.push_back({request.destination, createResult});
-        else for (const auto& source : request.sources) failures.push_back({source, createResult});
+        if (request.sources.empty()) failures.push_back({request.destination, setupResult});
+        else for (const auto& source : request.sources) failures.push_back({source, setupResult});
         PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0, total, 0, std::move(failures), request.sources});
         return;
     }
-    operation->SetOperationFlags(FOF_NOCONFIRMATION | FOF_NOERRORUI | (request.kind == FileOperationKind::Delete && request.recycle ? FOF_ALLOWUNDO : 0));
     auto* sink = new ProgressSink(*this, request.kind, cancelRequested_);
     DWORD cookie = 0;
     const HRESULT adviseResult = operation->Advise(sink, &cookie);
