@@ -1720,7 +1720,7 @@
     },
     {
       "name": "durable-cold-search-index-and-hybrid-residency",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1737,6 +1737,10 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/specs/index-engine/spec.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/evidence/final-closure/mixed-scale-closure-20261026.md"
         }
       ],
       "supersededBy": null,
