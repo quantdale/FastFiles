@@ -1,0 +1,531 @@
+{
+  "status": "FAIL",
+  "filter": "all",
+  "executable": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+  "artifactsDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\fileops-feedback-20261026\\native-full-9195788",
+  "passed": 7,
+  "failed": 1,
+  "skipped": 0,
+  "results": [
+    {
+      "id": "launch-ready",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "main window and engine handshake ready; pid=114824; ready=engine-connected",
+      "durationMs": 139.9,
+      "data": {
+        "main": {
+          "Name": "FastFiles",
+          "AutomationId": "MainWindow",
+          "ControlType": "Window",
+          "ClassName": "FastFilesMainWindow",
+          "ProcessId": 114824
+        },
+        "mainHelpText": "",
+        "tabLabels": [
+          "1: This PC"
+        ],
+        "pane": {
+          "Name": "Pane 1",
+          "AutomationId": "Pane.0",
+          "ControlType": "Pane",
+          "ClassName": "",
+          "ProcessId": 114824
+        },
+        "visibleColumns": [
+          {
+            "name": "This PC",
+            "automationId": "Pane.0.Column.0",
+            "itemCount": 2,
+            "visibleItemCount": 2,
+            "items": [
+              {
+                "name": "C:\\",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 508,
+                  "y": 387,
+                  "width": 300,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "D:\\",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 508,
+                  "y": 434,
+                  "width": 300,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          }
+        ],
+        "processId": 114824,
+        "sessionRoot": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f"
+      },
+      "artifactDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\fileops-feedback-20261026\\native-full-9195788\\launch-ready"
+    },
+    {
+      "id": "navigation-browse",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "Home, This PC terminal state, nested browse, Back, Forward, Up, direct path, stale-column, and terminal-item checks passed",
+      "durationMs": 16255.0,
+      "data": {
+        "main": {
+          "Name": "FastFiles",
+          "AutomationId": "MainWindow",
+          "ControlType": "Window",
+          "ClassName": "FastFilesMainWindow",
+          "ProcessId": 114824
+        },
+        "mainHelpText": "Preview: No selection",
+        "tabLabels": [
+          "1: Nested"
+        ],
+        "pane": {
+          "Name": "Pane 1",
+          "AutomationId": "Pane.0",
+          "ControlType": "Pane",
+          "ClassName": "",
+          "ProcessId": 114824
+        },
+        "visibleColumns": [
+          {
+            "name": "C:\\",
+            "automationId": "Pane.0.Column.0",
+            "itemCount": 45,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users",
+            "automationId": "Pane.0.Column.1",
+            "itemCount": 8,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac",
+            "automationId": "Pane.0.Column.2",
+            "itemCount": 157,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData",
+            "automationId": "Pane.0.Column.3",
+            "itemCount": 3,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData\\Local",
+            "automationId": "Pane.0.Column.4",
+            "itemCount": 204,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions",
+            "automationId": "Pane.0.Column.5",
+            "itemCount": 79,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f",
+            "automationId": "Pane.0.Column.6",
+            "itemCount": 5,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f\\Fixtures",
+            "automationId": "Pane.0.Column.7",
+            "itemCount": 1,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f\\Fixtures\\FastFilesE2E",
+            "automationId": "Pane.0.Column.8",
+            "itemCount": 2,
+            "visibleItemCount": 2,
+            "items": [
+              {
+                "name": "Browse",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 294,
+                  "y": 387,
+                  "width": 301,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": ".fastfiles-e2e-fixture",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 294,
+                  "y": 434,
+                  "width": 301,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f\\Fixtures\\FastFilesE2E\\Browse",
+            "automationId": "Pane.0.Column.9",
+            "itemCount": 5,
+            "visibleItemCount": 5,
+            "items": [
+              {
+                "name": "Nested",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 594,
+                  "y": 387,
+                  "width": 301,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Operations",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 594,
+                  "y": 434,
+                  "width": 301,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Search",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 594,
+                  "y": 482,
+                  "width": 301,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Storage",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 594,
+                  "y": 529,
+                  "width": 301,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "root-note.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 594,
+                  "y": 577,
+                  "width": 301,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f\\Fixtures\\FastFilesE2E\\Browse\\Nested",
+            "automationId": "Pane.0.Column.10",
+            "itemCount": 1,
+            "visibleItemCount": 1,
+            "items": [
+              {
+                "name": "restore-proof.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 894,
+                  "y": 387,
+                  "width": 301,
+                  "height": 48
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          }
+        ],
+        "processId": 114824,
+        "sessionRoot": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f"
+      },
+      "artifactDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\fileops-feedback-20261026\\native-full-9195788\\navigation-browse"
+    },
+    {
+      "id": "search-user-flow",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "Home search, exact, partial, no-result, superseded-query, full hierarchy, exact selected path, and visible result checks passed",
+      "durationMs": 12922.2,
+      "data": {
+        "main": {
+          "Name": "FastFiles",
+          "AutomationId": "MainWindow",
+          "ControlType": "Window",
+          "ClassName": "FastFilesMainWindow",
+          "ProcessId": 114824
+        },
+        "mainHelpText": "Preview: Ready",
+        "tabLabels": [
+          "1: Search"
+        ],
+        "pane": {
+          "Name": "Pane 1",
+          "AutomationId": "Pane.0",
+          "ControlType": "Pane",
+          "ClassName": "",
+          "ProcessId": 114824
+        },
+        "visibleColumns": [
+          {
+            "name": "C:\\",
+            "automationId": "Pane.0.Column.0",
+            "itemCount": 45,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users",
+            "automationId": "Pane.0.Column.1",
+            "itemCount": 8,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac",
+            "automationId": "Pane.0.Column.2",
+            "itemCount": 157,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData",
+            "automationId": "Pane.0.Column.3",
+            "itemCount": 3,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData\\Local",
+            "automationId": "Pane.0.Column.4",
+            "itemCount": 204,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions",
+            "automationId": "Pane.0.Column.5",
+            "itemCount": 79,
+            "visibleItemCount": 0,
+            "items": []
+          }
+        ],
+        "processId": 114824,
+        "sessionRoot": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f"
+      },
+      "artifactDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\fileops-feedback-20261026\\native-full-9195788\\search-user-flow"
+    },
+    {
+      "id": "storage-terminal-geometry",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "Storage.Treemap reached a terminal usable state with 1 tiles; group/tile UIA bounds were contained and a tile Invoke was accepted",
+      "durationMs": 8894.3,
+      "data": {
+        "group": {
+          "x": 523,
+          "y": 502,
+          "width": 701,
+          "height": 338
+        },
+        "main": {
+          "x": 224,
+          "y": 224,
+          "width": 1024,
+          "height": 640
+        },
+        "tileCount": 1
+      },
+      "artifactDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\fileops-feedback-20261026\\native-full-9195788\\storage-terminal-geometry"
+    },
+    {
+      "id": "preview-terminal-state",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "preview terminal states were distinct (Preview: Ready -> Preview: Unsupported); stale preview was not accepted as the new selection",
+      "durationMs": 8827.0,
+      "data": {
+        "firstStatus": "Preview: Ready",
+        "secondStatus": "Preview: Unsupported"
+      },
+      "artifactDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\fileops-feedback-20261026\\native-full-9195788\\preview-terminal-state"
+    },
+    {
+      "id": "file-operations",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "real create-folder, rename, copy, move, and recycle-delete operations verified under 'C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f\\Fixtures\\FastFilesE2E'; conflict case not invoked because the production default uses a modal conflict policy",
+      "durationMs": 38485.2,
+      "data": {
+        "created": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f\\Fixtures\\FastFilesE2E\\Browse\\Operations\\created-by-e2e",
+        "renamed": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f\\Fixtures\\FastFilesE2E\\Browse\\Operations\\renamed-by-e2e.txt",
+        "copied": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f\\Fixtures\\FastFilesE2E\\Browse\\Operations\\Destination\\copy-me.txt",
+        "moved": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-c4d881824b084e2e8c4a81e30ee01e9b-c3a662363b564b35b5962ea6e6bd463f\\Fixtures\\FastFilesE2E\\Browse\\Operations\\Destination\\move-me.txt",
+        "deleted": true
+      },
+      "artifactDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\fileops-feedback-20261026\\native-full-9195788\\file-operations"
+    },
+    {
+      "id": "cold-restore",
+      "status": "FAIL",
+      "stage": "home-close",
+      "detail": "Home navigation/close failed: palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1793015582,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":118960,\\\"tid\\\":107440,\\\"epochMs\\\":1793015582212}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":10033230,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":118960,\"popupClasses\":[]}",
+      "durationMs": 22361.9,
+      "data": {
+        "processId": 118960,
+        "uiaCloseReturned": true,
+        "uiaError": "",
+        "fallbackAttempted": false,
+        "fallbackKeys": "",
+        "fallbackInput": [],
+        "fallbackError": "",
+        "deadlineMs": 10000,
+        "exitObserved": false
+      },
+      "artifactDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\fileops-feedback-20261026\\native-full-9195788\\cold-restore"
+    },
+    {
+      "id": "process-lifecycle",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "completed 2 bounded launch/navigate/close iterations with no repo-owned process residue",
+      "durationMs": 11901.7,
+      "data": [
+        {
+          "iteration": 1,
+          "pid": 123996,
+          "closed": true,
+          "cleanup": {
+            "Pass": true,
+            "OwnedPids": [
+              123996,
+              123508
+            ],
+            "Residue": [],
+            "PipePresentBefore": false,
+            "PipePresentAfter": false,
+            "PipeCleanup": {
+              "Pass": true,
+              "State": "absent"
+            },
+            "DiagnosticsPreserved": true,
+            "DiagnosticsCopyError": null,
+            "SessionRootRetained": false
+          }
+        },
+        {
+          "iteration": 2,
+          "pid": 117840,
+          "closed": true,
+          "cleanup": {
+            "Pass": true,
+            "OwnedPids": [
+              117840,
+              34948
+            ],
+            "Residue": [],
+            "PipePresentBefore": false,
+            "PipePresentAfter": false,
+            "PipeCleanup": {
+              "Pass": true,
+              "State": "absent"
+            },
+            "DiagnosticsPreserved": true,
+            "DiagnosticsCopyError": null,
+            "SessionRootRetained": false
+          }
+        }
+      ],
+      "artifactDir": ""
+    }
+  ],
+  "binaryProvenance": {
+    "schemaVersion": 1,
+    "kind": "fastfiles-binary-provenance",
+    "mode": "exact-tree",
+    "stage": "e2e-preflight",
+    "source": {
+      "headSha": "9195788352a7bdba1996e42bda3c48570b794037",
+      "treeSha": "69c52c0a2df245d3ef407fa8f3e87d284382a0a4",
+      "treeSemantic": "HEAD^{tree}",
+      "sourceClean": true,
+      "stateDigest": "bf4da01ec365210ce6407fae58df43a22cb48e2a6de6eb98bfbe2b09b05150b6",
+      "reasonCodes": []
+    },
+    "binaries": [
+      {
+        "filename": "FastFiles.exe",
+        "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\fileops-feedback-20261026\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+        "exists": true,
+        "sha256": "396a8c821e6ecf7a9d6c0012664b5e213a7eb4b5e97907ecb905c86d95530377",
+        "buildIdentity": "9195788352a7bdba1996e42bda3c48570b794037",
+        "buildIdentityFormatValid": true,
+        "peArchitecture": "x64",
+        "productVersion": "0.1.0",
+        "fileVersion": "0.1.0.0",
+        "worktreeState": "clean",
+        "configuration": "Debug",
+        "issues": []
+      }
+    ],
+    "setIdentity": "9195788352a7bdba1996e42bda3c48570b794037",
+    "setConsistent": true,
+    "boundToHead": true,
+    "boundToTree": false,
+    "treeBindingStatus": "NOT_EMBEDDED",
+    "checkResult": {
+      "status": "PASS",
+      "issueCodes": [],
+      "reason": null
+    },
+    "checkedAtUtc": "2026-10-26T11:50:55.7676266Z"
+  }
+}

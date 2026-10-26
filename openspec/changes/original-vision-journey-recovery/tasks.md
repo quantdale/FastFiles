@@ -25,7 +25,7 @@
 
 ## 4. Qualification and handoff
 
-- [ ] 4.6 Explain real file-operation failures with actionable source/destination-aware guidance and retain original path/HRESULT; exercise exact native multi-selection, calibrated recycle/Undo/permanent-delete, locked-source manual recovery and an actually in-flight cancellation on marker-owned files.
+- [x] 4.6 Explain real file-operation failures with actionable source/destination-aware guidance and retain original path/HRESULT; exercise exact native multi-selection, calibrated recycle/Undo/permanent-delete, locked-source manual recovery and an actually in-flight cancellation on marker-owned files. Clean9195788 seven-case PASS, focused cancellation PASS, selected Debug/release126/126 each; evidence/file-operation-feedback-20261026.md. Ordinary Home-close remains a separate7/8 qualification failure.
 
 - [ ] 4.1 Execute focused regressions, actual native E2E/UIA/visual review and correct actionable defects.
 - [ ] 4.2 Run broader local certification, independent review and integration simulation with PR14/15/16.
