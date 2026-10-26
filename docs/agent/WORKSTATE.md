@@ -11,6 +11,8 @@
 
 ## Earlier cancellation implementation checkpoint (historical)
 
+- Integrator follow-up99e40b7:512 native correctedhelper stillrefused asunavailable after8.55s; direct discoverySucceededtrue with visible exactcommand, so DFSlookupdefect fixed atthis observation but cancellationnotqualified. Preservefailedreceipt/cleanupPASS. Calibrate one1024-item fixture within unchanged64MiB (512copy completes nearrobotpalettepreparetime;4096navigationunqualified). Add posthelperactualtitle/copiedcount toprove completion versusrejection onfuturefailure. This is bounded calibration, no removal of partial/dispatch/hash assertions; no1024or4096PASSyet.
+
 ## Current primary frontier - discoverable operation cancellation IMPLEMENTED / QUALIFICATION PENDING - 2026-10-26
 
 - Isolated owner cancel-command-20261026, branch feat/discoverable-operation-cancel-20261026, immutable source9195788352a7bdba1996e42bda3c48570b794037. Root remains sole integrator/publisher; other worktrees preserved. No push or merge by worker.

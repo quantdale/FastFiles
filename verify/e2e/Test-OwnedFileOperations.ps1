@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory)][string]$ArtifactsDir,
     [ValidateSet('all','cancellation')][string]$Filter='all',
     [ValidateSet('Escape','Palette')][string]$CancellationRoute='Escape',
-    [ValidateSet(512,4096)][int]$BatchItems=512
+    [ValidateSet(512,1024,4096)][int]$BatchItems=512
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -349,6 +349,8 @@ try {
             Invoke-E2ENavigationCommand -Context $c -Query 'Cancel File Operations' -Name 'Cancel File Operations' -CommandId 'file.cancel-operations'
         } $ctx
         $cancelInput.afterInputMs=$inputClock.ElapsedMilliseconds
+        $cancelInput.afterHelperTitle=$titleObserver.LatestTitle
+        $cancelInput.afterHelperCopied=[IO.Directory]::GetFiles($bulkTarget).Length
         Check $cancelInput.result.Pass ('Palette cancellation failed: '+($cancelInput.result | ConvertTo-Json -Compress -Depth 8))
         # The public helper can accept a selected/closed palette without a log.
         # This qualification additionally requires actual accepted dispatch.
