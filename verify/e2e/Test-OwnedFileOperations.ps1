@@ -2,7 +2,8 @@
 param(
     [string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path,
     [Parameter(Mandatory)][string]$ArtifactsDir,
-    [ValidateSet('all','cancellation')][string]$Filter='all'
+    [ValidateSet('all','cancellation')][string]$Filter='all',
+    [ValidateSet(512,4096)][int]$BatchItems=512
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -298,16 +299,16 @@ try {
     Set-Phase in-flight-copy-fixture
     $bulkTarget=Join-Path $fixture.Root 'BulkTarget'
     $null=New-Item -ItemType Directory -Path $bulkSource,$bulkTarget
-    $payload=[byte[]]::new(16KB)
+    $payload=[byte[]]::new(64MB / $BatchItems)
     for($i=0;$i -lt $payload.Length;$i++) { $payload[$i]=[byte]($i%251) }
     $payloadHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($payload))
-    $bulkCount=4096
+    $bulkCount=$BatchItems
     for($i=0;$i -lt $bulkCount;$i++) { [IO.File]::WriteAllBytes((Join-Path $bulkSource ('item-{0:D5}.bin' -f $i)),$payload) }
     Set-Phase in-flight-copy-source
     Navigate-Bulk $bulkSource
     $ready=Wait-E2ECondition -TimeoutMs 10000 -Description 'last bulk source identity is loaded' -Condition {
         try {
-            return Find-UiaTerminalColumnItem -Driver $ctx.Driver -Main $ctx.Main -ProcessId $ctx.Launched.Id -Name 'item-04095.bin' -PaneId 'Pane.0' -TimeoutMs 900
+            return Find-UiaTerminalColumnItem -Driver $ctx.Driver -Main $ctx.Main -ProcessId $ctx.Launched.Id -Name ('item-{0:D5}.bin' -f ($bulkCount-1)) -PaneId 'Pane.0' -TimeoutMs 900
         } catch { return $false }
     }
     Check $ready.Pass 'Bulk source is not ready for Select All.'

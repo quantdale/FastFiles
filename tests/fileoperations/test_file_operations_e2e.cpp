@@ -137,13 +137,15 @@ int main() {
         operations.PostEvent({ffui::FileOperationEventKind::Progress, ffui::FileOperationKind::Copy, {}, 0, 0, 0, {}});
         operations.PostEvent({ffui::FileOperationEventKind::Progress, ffui::FileOperationKind::Copy, {}, 1, 100, 1, {}});
         for (unsigned int index = 0; index < 40000; ++index) {
+            if (index == 20000) {
+                operations.PostEvent({ffui::FileOperationEventKind::Queued, ffui::FileOperationKind::Move, {}, 0, 0, 0, {}});
+            }
             operations.PostEvent({ffui::FileOperationEventKind::Progress, ffui::FileOperationKind::Copy, {}, 50, 100, 50, {}});
         }
         const auto burstElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - burstStart);
         operations.PostEvent({ffui::FileOperationEventKind::Completed, ffui::FileOperationKind::Copy,
                               L"burst-finish", 99, 100, 99, {{L"burst-failure", E_ACCESSDENIED}}});
-        operations.PostEvent({ffui::FileOperationEventKind::Queued, ffui::FileOperationKind::Move, {}, 0, 0, 0, {}});
         operations.PostEvent({ffui::FileOperationEventKind::Started, ffui::FileOperationKind::Move, {}, 0, 1, 0, {}});
         operations.PostEvent({ffui::FileOperationEventKind::Progress, ffui::FileOperationKind::Move, {}, 0, 0, 0, {}});
         operations.PostEvent({ffui::FileOperationEventKind::Cancelled, ffui::FileOperationKind::Move, {}, 0, 1, 0, {}});
@@ -175,7 +177,7 @@ int main() {
         }
         const std::vector expectedControls{
             ffui::FileOperationEventKind::Queued, ffui::FileOperationEventKind::Started,
-            ffui::FileOperationEventKind::Completed, ffui::FileOperationEventKind::Queued,
+            ffui::FileOperationEventKind::Queued, ffui::FileOperationEventKind::Completed,
             ffui::FileOperationEventKind::Started, ffui::FileOperationEventKind::Cancelled};
         Check(copyProgress <= 3u + static_cast<unsigned int>(burstElapsed.count() / 34),
               "a progress burst flooded the posted-message queue");
