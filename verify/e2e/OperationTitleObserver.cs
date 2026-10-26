@@ -10,6 +10,7 @@ public sealed class FastFilesOperationTitleObserver : IDisposable {
     private long version;
     private long terminalVersion;
     private string terminalTitle = "";
+    private string latestTitle = "";
 
     public FastFilesOperationTitleObserver(AutomationElement window) {
         element = window;
@@ -23,6 +24,7 @@ public sealed class FastFilesOperationTitleObserver : IDisposable {
         if (title == null) return;
         lock (sync) {
             ++version;
+            latestTitle = title;
             if (title.StartsWith("FastFiles — complete —", StringComparison.Ordinal) ||
                 title.StartsWith("FastFiles — complete with errors —", StringComparison.Ordinal) ||
                 title.StartsWith("FastFiles — stopped with errors —", StringComparison.Ordinal) ||
@@ -35,6 +37,7 @@ public sealed class FastFilesOperationTitleObserver : IDisposable {
 
     public long Version { get { lock (sync) { return version; } } }
     public long TerminalVersion { get { lock (sync) { return terminalVersion; } } }
+    public string LatestTitle { get { lock (sync) { return latestTitle; } } }
 
     public string TerminalAfter(long observedVersion) {
         lock (sync) {

@@ -21,6 +21,8 @@ $captureRun=New-VisualCaptureRun -Root (Join-Path $artifacts 'images') -Applicat
 $cases=[Collections.Generic.List[object]]::new()
 $captures=[Collections.Generic.List[object]]::new()
 $terminalObservations=[Collections.Generic.List[object]]::new()
+$copySamples=[Collections.Generic.List[object]]::new()
+$copyObservation=[pscustomobject]@{polls=0;last=$null}
 $ctx=$null; $failure=$null; $lock=$null; $cleanup=$null; $recyclePending=$false
 $titleObserver=$null; $script:operationTitleVersion=0L
 $script:phase='startup'
@@ -316,9 +318,16 @@ try {
     $script:operationTitleVersion=$titleObserver.Version
     $null=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}v'
     Set-Phase in-flight-copy-observation
-    $started=Wait-E2ECondition -TimeoutMs 10000 -Description 'actual partially copied batch' -Condition {
+    $samplingClock=[Diagnostics.Stopwatch]::StartNew()
+    $started=Wait-E2ECondition -TimeoutMs 30000 -PollIntervalMs 25 -Description 'actual partially copied batch' -Condition {
         $count=[IO.Directory]::GetFiles($bulkTarget).Length
-        $title=Get-UiaElementProperty -Driver $ctx.Driver -Element $ctx.Main -Name Name
+        # Read the existing managed public-Name observation; a synchronous UIA
+        # query here can wait behind the worker's thousands of progress events.
+        $title=$titleObserver.LatestTitle
+        $sample=@{elapsedMs=$samplingClock.ElapsedMilliseconds;copied=$count;title=$title}
+        $copyObservation.polls++
+        $copyObservation.last=$sample
+        if($copySamples.Count -lt 64) { [void]$copySamples.Add($sample) }
         if($count -gt 0 -and $count -lt $bulkCount -and $title -notmatch 'complete|cancelled') {
             return @{copied=$count;title=$title;utc=[DateTime]::UtcNow.ToString('o')}
         }
@@ -344,7 +353,7 @@ try {
         Check ((Hash (Join-Path $bulkSource ('item-{0:D5}.bin' -f $i))) -eq $payloadHash) 'Cancellation changed a source name or bytes.'
     }
     Check ((Hash $sentinel) -eq $sentinelHash) 'Cancellation changed unrelated sentinel.'
-    [void]$cases.Add(@{id='in-flight-copy-cancel';pass=$true;observed=$started.Value;terminal=$cancelled;copied=$copied.Count;total=$bulkCount;payloadHash=$payloadHash;allSourceAndRemainingDestinationHashesMatch=$true})
+    [void]$cases.Add(@{id='in-flight-copy-cancel';pass=$true;observed=$started.Value;prepareElapsedMs=$started.ElapsedMs;terminal=$cancelled;copied=$copied.Count;total=$bulkCount;payloadHash=$payloadHash;allSourceAndRemainingDestinationHashesMatch=$true})
     Check ($cases.Count -eq $(if($Filter -eq 'all') {7} else {1})) 'Requested case coverage is incomplete.'
     Set-Phase verified
 } catch {
@@ -374,7 +383,7 @@ try {
         }
         $cleanup=Remove-UiaScenarioContext -Context $ctx -ArtifactsDir $artifacts -LogFn {param($m) Write-Host $m}
     }
-    @{filter=$Filter;cases=@($cases.ToArray());captures=@($captures.ToArray());terminalObservations=@($terminalObservations.ToArray());failure=$failure;cleanup=$cleanup;scope='Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks'} |
+    @{filter=$Filter;cases=@($cases.ToArray());captures=@($captures.ToArray());terminalObservations=@($terminalObservations.ToArray());copySamples=@($copySamples.ToArray());copyObservation=$copyObservation;failure=$failure;cleanup=$cleanup;scope='Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks'} |
         ConvertTo-Json -Depth 14 | Set-Content (Join-Path $artifacts 'result.json') -Encoding utf8NoBOM
 }
 if($failure) { throw $failure }

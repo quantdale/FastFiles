@@ -1,0 +1,65 @@
+[
+  {
+    "Name": "",
+    "AutomationId": "8400",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 80788
+  },
+  {
+    "Name": "1: This PC",
+    "AutomationId": "8300",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 80788
+  },
+  {
+    "Name": "Fast Search",
+    "AutomationId": "8206",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 80788
+  },
+  {
+    "Name": "This PC",
+    "AutomationId": "",
+    "ControlType": "Edit",
+    "ClassName": "Edit",
+    "ProcessId": 80788
+  },
+  {
+    "Name": "",
+    "AutomationId": "8204",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 80788
+  },
+  {
+    "Name": "",
+    "AutomationId": "8207",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 80788
+  },
+  {
+    "Name": "",
+    "AutomationId": "8205",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 80788
+  },
+  {
+    "Name": "",
+    "AutomationId": "8202",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 80788
+  },
+  {
+    "Name": "",
+    "AutomationId": "8201",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 80788
+  }
+]
