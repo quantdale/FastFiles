@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path,
-    [Parameter(Mandatory)][string]$ArtifactsDir
+    [Parameter(Mandatory)][string]$ArtifactsDir,
+    [ValidateSet('all','cancellation')][string]$Filter='all'
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -44,8 +45,14 @@ function Navigate-Bulk([string]$Path) {
     $null=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}l'
     $chrome=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -ClassName FastFilesNavigationChrome -TimeoutMs 3000
     Check ([bool]$chrome) 'No native navigation chrome.'
-    $address=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $chrome -ControlType Edit -AutomationId '0' -TimeoutMs 3000
+    $children=@(Get-UiaChildren -Driver $ctx.Driver -Element $chrome | ForEach-Object {
+        Get-UiaElementIdentity -Driver $ctx.Driver -Element $_
+    })
+    $children | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $artifacts ('address-'+[IO.Path]::GetFileName($Path)+'-children.json')) -Encoding utf8NoBOM
+    $address=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $chrome -ClassName Edit -TimeoutMs 3000
     Check ([bool]$address) 'No direct native address edit.'
+    $addressIdentity=Get-UiaElementIdentity -Driver $ctx.Driver -Element $address
+    Check ([string]::IsNullOrEmpty($addressIdentity.AutomationId) -or $addressIdentity.AutomationId -eq '0') 'Unexpected native edit identity.'
     $set=Set-UiaElementValue -Driver $ctx.Driver -Element $address -Value $Path
     Check $set.ok 'Cannot set actual address value.'
     $null=Send-UiaInput -Driver $ctx.Driver -Keys '{ENTER}'
@@ -139,6 +146,7 @@ try {
         [IO.File]::WriteAllText((Join-Path $source $name),('Distinct owned bytes '+$name))
         $hashes[$name]=Hash (Join-Path $source $name)
     }
+    if($Filter -eq 'all') {
     foreach($mode in @('copy','move')) {
         Set-Phase ('multi-'+$mode)
         Navigate $source
@@ -280,6 +288,7 @@ try {
     foreach($name in @($lockedName,$healthyName)) { Check ((Hash (Join-Path $source $name)) -eq $hashes[$name]) 'Recovery altered source.' }
     Check ((Hash $sentinel) -eq $sentinelHash) 'Recovery altered sentinel.'
     [void]$cases.Add(@{id='error-manual-recovery';pass=$true;terminal=$terminal;errorText=$texts;recovery=$recovery;hashes=$hashes})
+    }
     # A real top-level batch, not a conflict-dialog Cancel or a pre-start cancel.
     # Bounded64MiB payload; no large benchmark fixture or production files.
     $bulkSource=Join-Path $fixture.Root 'BulkSource'
@@ -336,6 +345,7 @@ try {
     }
     Check ((Hash $sentinel) -eq $sentinelHash) 'Cancellation changed unrelated sentinel.'
     [void]$cases.Add(@{id='in-flight-copy-cancel';pass=$true;observed=$started.Value;terminal=$cancelled;copied=$copied.Count;total=$bulkCount;payloadHash=$payloadHash;allSourceAndRemainingDestinationHashesMatch=$true})
+    Check ($cases.Count -eq $(if($Filter -eq 'all') {7} else {1})) 'Requested case coverage is incomplete.'
     Set-Phase verified
 } catch {
     $failure=$script:phase+': '+$_.Exception.Message
@@ -364,7 +374,7 @@ try {
         }
         $cleanup=Remove-UiaScenarioContext -Context $ctx -ArtifactsDir $artifacts -LogFn {param($m) Write-Host $m}
     }
-    @{cases=@($cases.ToArray());captures=@($captures.ToArray());terminalObservations=@($terminalObservations.ToArray());failure=$failure;cleanup=$cleanup;scope='Owned native multi-copy/move, calibrated recycle/permanent confirmation, error/manual recovery and observed in-flight cancellation'} |
+    @{filter=$Filter;cases=@($cases.ToArray());captures=@($captures.ToArray());terminalObservations=@($terminalObservations.ToArray());failure=$failure;cleanup=$cleanup;scope='Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks'} |
         ConvertTo-Json -Depth 14 | Set-Content (Join-Path $artifacts 'result.json') -Encoding utf8NoBOM
 }
 if($failure) { throw $failure }
