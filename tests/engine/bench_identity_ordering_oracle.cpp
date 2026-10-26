@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "IndexPipeline.h"
+#include "ffsearch/Search.h"
 #include "ffsetup/BuildIdentity.h"
 #include "sqlite3.h"
 
@@ -235,6 +236,9 @@ bool ComparatorSelfTest() {
 }
 
 std::vector<Cell> MakeCells(bool extended) {
+    const auto sizeSort = static_cast<uint8_t>(ffsearch::SortField::Size);
+    const auto modifiedSort = static_cast<uint8_t>(ffsearch::SortField::Modified);
+    const auto createdSort = static_cast<uint8_t>(ffsearch::SortField::Created);
     std::vector<Cell> cells{
         {"selective", L"unique_component_7391", 0, 4096, false, false, true},
         {"exact_name", L"unique_component_7391.txt", 0, 4096, false, false, true},
@@ -246,12 +250,12 @@ std::vector<Cell> MakeCells(bool extended) {
         {"mixed_case", L"CoMmOn_CoMpOnEnT"}, {"short_prefix", L"co"}
     };
     if (extended) {
-        cells.push_back({"size_asc", L"report", 2});
-        cells.push_back({"size_desc", L"report", 2, 4096, true});
-        cells.push_back({"modified_asc", L"report", 3});
-        cells.push_back({"modified_desc", L"report", 3, 4096, true});
-        cells.push_back({"created_asc", L"report", 4});
-        cells.push_back({"created_desc", L"report", 4, 4096, true});
+        cells.push_back({"size_asc", L"report", sizeSort});
+        cells.push_back({"size_desc", L"report", sizeSort, 4096, true});
+        cells.push_back({"modified_asc", L"report", modifiedSort});
+        cells.push_back({"modified_desc", L"report", modifiedSort, 4096, true});
+        cells.push_back({"created_asc", L"report", createdSort});
+        cells.push_back({"created_desc", L"report", createdSort, 4096, true});
         cells.push_back({"cap_1", L"report", 0, 1});
         cells.push_back({"cap_2", L"report", 0, 2});
         cells.push_back({"cap_17", L"report", 0, 17});
@@ -259,6 +263,44 @@ std::vector<Cell> MakeCells(bool extended) {
     }
     cells.push_back({"cancel_immediate", L"common", 0, 4096, false, true});
     return cells;
+}
+
+bool SortPremisesValid(const Run& reference, const Cell& cell) {
+    const std::string name(cell.name);
+    if (!name.starts_with("size_") && !name.starts_with("modified_") &&
+        !name.starts_with("created_")) return true;
+    const auto key = [&](const ffprotocol::IndexedSearchCandidate& item) {
+        if (cell.sort == static_cast<uint8_t>(ffsearch::SortField::Size)) return item.sizeBytes;
+        if (cell.sort == static_cast<uint8_t>(ffsearch::SortField::Modified)) return item.modifiedTime;
+        return item.createdTime;
+    };
+    return reference.response.candidates.size() > 1 &&
+        std::is_sorted(reference.response.candidates.begin(), reference.response.candidates.end(),
+            [&](const auto& left, const auto& right) {
+                return cell.descending ? key(left) > key(right) : key(left) < key(right);
+            }) &&
+        std::any_of(reference.response.candidates.begin() + 1, reference.response.candidates.end(),
+            [&](const auto& item) { return key(item) != key(reference.response.candidates.front()); });
+}
+
+bool SortPremisesSelfTest() {
+    for (const auto& cell : MakeCells(true)) {
+        const std::string name(cell.name);
+        if (!name.starts_with("size_") && !name.starts_with("modified_") &&
+            !name.starts_with("created_")) continue;
+        Run reference;
+        reference.response.candidates.resize(2);
+        auto& first = reference.response.candidates[0];
+        auto& second = reference.response.candidates[1];
+        first.sizeBytes = first.modifiedTime = first.createdTime = cell.descending ? 2 : 1;
+        second.sizeBytes = second.modifiedTime = second.createdTime = cell.descending ? 1 : 2;
+        if (!SortPremisesValid(reference, cell)) return false;
+        std::swap(first, second);
+        if (SortPremisesValid(reference, cell)) return false;
+        second = first;
+        if (SortPremisesValid(reference, cell)) return false;
+    }
+    return true;
 }
 
 // durable-cold-search-index-and-hybrid-residency 4.1: equal rows alone
@@ -277,7 +319,8 @@ bool CanonicalCellEqual(const Run& actual, const Run& reference,
                                                : !reference.response.candidates.empty());
     return actual.response.status == status && reference.response.status == status &&
         actual.response.requestId == 1 && reference.response.requestId == 2 &&
-        referenceScan && nonvacuous && SequenceEqual(actual.response, reference.response) &&
+        referenceScan && nonvacuous && SortPremisesValid(reference, cell) &&
+        SequenceEqual(actual.response, reference.response) &&
         actual.response.truncated == reference.response.truncated &&
         actual.response.candidates.size() <= cell.cap &&
         reference.response.candidates.size() <= cell.cap;
@@ -376,7 +419,7 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
     if (!ValidResidency(reference, volumes, volumes.size())) return fail("reference is not all-cold at the production budget");
     const auto cells = MakeCells(extended);
     const std::array<const char*, 4> stages{"resident", "mixed", "cold", "reloaded_resident"};
-    out << "{\n\"schema\":\"fastfiles-residency-canonical-oracle-v1\",\n\"build_identity\":"
+    out << "{\n\"schema\":\"fastfiles-residency-canonical-oracle-v2\",\n\"build_identity\":"
         << Json(ffsetup::kBuildIdentityAscii) << ",\n\"input\":" << Json(source)
         << ",\n\"fixture_access\":\"owned-backup-copy\",\n\"fixture_rows\":" << rows
         << ",\n\"reference\":\"separate all-cold pipeline; all candidate prefilters bypassed\","
@@ -427,6 +470,9 @@ bool RunResidencyOracle(const std::string& database, const std::string& source,
             if (valid) ++passedCells;
             if (index != 0) out << ",";
             out << "\n{\"cell\":" << Json(cell.name) << ",\"passed\":" << (valid ? "true" : "false")
+                << ",\"sort_field\":" << static_cast<unsigned>(cell.sort)
+                << ",\"descending\":" << (cell.descending ? "true" : "false")
+                << ",\"sort_premises_valid\":" << (SortPremisesValid(canonical, cell) ? "true" : "false")
                 << ",\"route_valid\":" << (route ? "true" : "false")
                 << ",\"hot_rows_examined\":" << actual.hotRows << ",\"cold_rows_examined\":" << actual.coldRows
                 << ",\"canonical_rows_examined\":" << canonical.coldRows
@@ -516,7 +562,7 @@ int wmain(int argc, wchar_t** argv) {
         else if (option == L"--readonly-fixture") readOnlyFixture = true;
         else return 2;
     }
-    if (!ComparatorSelfTest() || !ResidencyValidationSelfTest()) return 1;
+    if (!ComparatorSelfTest() || !ResidencyValidationSelfTest() || !SortPremisesSelfTest()) return 1;
     if (selfTest) return 0;
     if (source.empty() || output.empty()) return 2;
     if (residencyRoutes && readOnlyFixture) {
@@ -558,7 +604,7 @@ int wmain(int argc, wchar_t** argv) {
 
     const auto cells = MakeCells(extended);
 
-    out << "{\n\"schema\":\"fastfiles-identity-ordering-oracle-v2\",\n\"build_identity\":"
+    out << "{\n\"schema\":\"fastfiles-identity-ordering-oracle-v3\",\n\"build_identity\":"
         << Json(ffsetup::kBuildIdentityAscii) << ",\n\"input\":" << Json(source)
         << ",\n\"fixture_access\":" << Json(readOnlyFixture ? "sqlite-enforced-read-only-uri" : "owned-backup-copy")
         << ",\n\"fixture_rows\":" << rows << ",\n\"cells\":[\n";
@@ -584,11 +630,14 @@ int wmain(int argc, wchar_t** argv) {
         const bool caps = indexed.response.truncated == canonical.response.truncated &&
                           indexed.response.candidates.size() <= cell.cap &&
                           canonical.response.candidates.size() <= cell.cap;
-        const bool valid = status && route && nonvacuous && order && caps;
+        const bool valid = status && route && nonvacuous && order && caps && SortPremisesValid(canonical, cell);
         passed = passed && valid;
         if (!firstCell) out << ",\n";
         firstCell = false;
         out << "{\"cell\":" << Json(cell.name) << ",\"premises_valid\":" << (status && route && nonvacuous ? "true" : "false")
+            << ",\"sort_field\":" << static_cast<unsigned>(cell.sort)
+            << ",\"descending\":" << (cell.descending ? "true" : "false")
+            << ",\"sort_premises_valid\":" << (SortPremisesValid(canonical, cell) ? "true" : "false")
             << ",\"identities_equal\":" << (valid ? "true" : "false")
             << ",\"ordering_equal\":" << (valid ? "true" : "false")
             << ",\"caps_equal\":" << (status && route && caps ? "true" : "false")

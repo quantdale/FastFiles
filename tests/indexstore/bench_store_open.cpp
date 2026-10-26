@@ -199,7 +199,7 @@ std::u16string FileName(size_t index) {
 }
 
 bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint64_t seed,
-                  bool maintenanceEnabled, bool engineRoots) {
+                  bool maintenanceEnabled, bool engineRoots, bool variedMetadata) {
     constexpr size_t kBatch = 5000;
     // Engine searches materialize complete parent chains; Store-only fixtures
     // deliberately retain their historical flat identities unless requested.
@@ -249,6 +249,12 @@ bool BuildFixture(const std::wstring& dbPath, size_t rows, size_t volumes, uint6
             record.sizeBytes = 4096;
             record.allocatedSizeKnown = true;
             record.allocatedSizeBytes = 4096;
+            if (variedMetadata) {
+                record.sizeBytes = 4096 + (seeded % 137) * 1024;
+                record.allocatedSizeBytes = ((record.sizeBytes + 4095) / 4096) * 4096;
+                record.creationTime = 132000000000000000ull + (seeded % 997) * 10000000ull;
+                record.lastModifiedTime = 133000000000000000ull + ((seeded * 37) % 991) * 10000000ull;
+            }
             if (engineRoots && offset / kBatch < volumes && index == offset) {
                 record.id = {5, 0};
                 record.name = u".";
@@ -819,6 +825,7 @@ int wmain(int argc, wchar_t** argv) {
     size_t warmOpens = 0;
     bool fixtureMaintenanceOff = false;
     bool fixtureEngineRoots = false;
+    bool fixtureVariedMetadata = false;
     bool buildFixtureMode = false;
     bool measureMode = false;
     bool childMode = false;
@@ -844,6 +851,7 @@ int wmain(int argc, wchar_t** argv) {
         else if (argument == L"--measure-child") childMode = true;
         else if (argument == L"--maintenance-off") fixtureMaintenanceOff = true;
         else if (argument == L"--engine-roots") fixtureEngineRoots = true;
+        else if (argument == L"--varied-metadata") fixtureVariedMetadata = true;
         else {
             std::fprintf(stderr, "unknown argument\n");
             return 2;
@@ -851,14 +859,14 @@ int wmain(int argc, wchar_t** argv) {
     }
     if (dbPath.empty() && !buildFixtureMode) {
         std::fprintf(stderr,
-            "Usage: bench_store_open --build-fixture <N> --db <path> [--seed S] [--volumes K] [--engine-roots]\n"
+            "Usage: bench_store_open --build-fixture <N> --db <path> [--seed S] [--volumes K] [--engine-roots] [--varied-metadata]\n"
             "       bench_store_open --measure --db <path> --case <case> --processes <K> --output <json>\n"
             "       bench_store_open --measure-child --db <path> --case <case> [--warm-opens M]\n");
         return 2;
     }
     if (buildFixtureMode) {
         return BuildFixture(dbPath, fixtureRows, fixtureVolumes, fixtureSeed,
-                            !fixtureMaintenanceOff, fixtureEngineRoots) ? 0 : 1;
+                            !fixtureMaintenanceOff, fixtureEngineRoots, fixtureVariedMetadata) ? 0 : 1;
     }
     if (childMode) {
         return RunChild(dbPath, testCase, warmOpens);
