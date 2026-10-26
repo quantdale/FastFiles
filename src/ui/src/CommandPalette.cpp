@@ -190,7 +190,8 @@ void CommandPalette::ExecuteSelected() {
     if (selected == LB_ERR || static_cast<size_t>(selected) >= results_.size()) return;
     const auto& result = results_[static_cast<size_t>(selected)];
     if (!result.enabled) {
-        MessageBoxW(owner_, L"That command is not available for the current selection.",
+        const auto& reason = result.command->disabledReason;
+        MessageBoxW(owner_, reason.empty() ? L"That command is not available for the current selection." : reason.c_str(),
                     L"Command unavailable", MB_OK | MB_ICONINFORMATION);
         return;
     }
