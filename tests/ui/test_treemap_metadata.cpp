@@ -466,7 +466,81 @@ void TestEmptyStateClassification() {
 
 } // namespace
 
+void TestPartialAggregateRollup() {
+    ffui::TreemapNode root;
+    root.isDirectory = true;
+    auto child = std::make_unique<ffui::TreemapNode>();
+    child->name = L"Nested";
+    child->isDirectory = true;
+    ffui::ResolveDegradedTreemapTotals(*child, {1, 3 * 1024 * 1024, 4096, 1, 1, false, false});
+    root.children.push_back(std::move(child));
+    ffui::RecomputeTreemapTotals(root);
+    Check(root.children[0]->totalSizeBytes == 3 * 1024 * 1024 && root.children[0]->aggregateFailed,
+          "actual rollup preserves positive partial aggregate leaf and its state");
+    Check(root.totalSizeBytes == 3 * 1024 * 1024 && root.aggregateFailed && !root.calculating,
+          "root retains known lower bound with partial denominator");
+    const auto info = ffui::BuildTreemapItemMetadata(*root.children[0], root.totalSizeBytes, !root.aggregateFailed, {}, L"C:\\", 1, 2, 0, 0, 100, 100, false);
+    Check(info.percentOfParent < 0.0 && !info.logicalSizeKnown,
+          "partial aggregate never gains a misleading exact percentage");
+    Check(info.fullDescription.find(L"At least 3.0 MB") != std::wstring::npos &&
+          info.fullDescription.find(L"Partial") != std::wstring::npos,
+          "partial logical lower bound is shared by tile and accessible metadata");
+    Check(!info.allocatedSizeKnown && info.allocatedPartial &&
+          info.hoverLines[2].find(L"Partial") != std::wstring::npos,
+          "observed allocation is not exact when logical descendants are missing");
+    Check(root.totalAllocatedSizeBytes == 4096 && root.allocatedKnownCount == 1 && root.allocatedTotalCount == 2,
+          "root retains known allocation and counts the unknown directory record independently");
+
+    auto pending = std::make_unique<ffui::TreemapNode>();
+    pending->isDirectory = true;
+    pending->aggregateLeaf = true;
+    pending->calculating = true;
+    root.children.push_back(std::move(pending));
+    ffui::RecomputeTreemapTotals(root);
+    Check(root.calculating && root.aggregateFailed && root.totalSizeBytes == 3 * 1024 * 1024,
+          "pending sibling never clears an already known partial denominator");
+
+    ffui::ResolveDegradedTreemapTotals(*root.children[0], {1, 3 * 1024 * 1024, 4096, 1, 1, true, true});
+    root.children.pop_back();
+    ffui::RecomputeTreemapTotals(root);
+    Check(!root.calculating && !root.aggregateFailed && root.totalSizeBytes == 3 * 1024 * 1024,
+          "complete leaf resolves pending or partial root state without losing its bytes");
+    ffui::ResolveDegradedTreemapTotals(*root.children[0], {1, 3 * 1024 * 1024, 4096, 1, 1, true, false});
+    ffui::RecomputeTreemapTotals(root);
+    const auto allocationOnly = ffui::BuildTreemapItemMetadata(*root.children[0], root.totalSizeBytes, true, {}, L"C:\\", 1, 2, 0, 0, 100, 100, false);
+    Check(allocationOnly.logicalSizeKnown && !allocationOnly.allocatedSizeKnown && allocationOnly.allocatedPartial,
+          "allocation incompleteness does not downgrade exact logical enumeration or become exact allocation");
+    std::vector<std::unique_ptr<ffui::TreemapNode>> syntheticStorage;
+    auto* synthetic = ffui::BuildSyntheticCatchAll({root.children[0].get()}, syntheticStorage, 1);
+    Check(synthetic->allocatedAggregateIncomplete && !synthetic->allocatedSizeKnown,
+          "tiny-tile aggregation cannot erase allocation incompleteness");
+
+    root.children.clear();
+    root.totalSizeBytes = 12345;
+    root.totalAllocatedSizeBytes = 999;
+    root.aggregateResolved = true;
+    ffui::RecomputeTreemapTotals(root);
+    Check(root.totalSizeBytes == 0 && root.totalAllocatedSizeBytes == 0 && root.allocatedTotalCount == 0,
+          "empty represented container never retains a prior unfiltered aggregate");
+    for (uint64_t allocated : {UINT64_MAX, uint64_t{1}}) {
+        auto file = std::make_unique<ffui::TreemapNode>();
+        file->sizeBytes = 1;
+        file->totalSizeBytes = 1;
+        file->allocatedSizeKnown = true;
+        file->allocatedSizeBytes = allocated;
+        root.children.push_back(std::move(file));
+    }
+    ffui::RecomputeTreemapTotals(root);
+    Check(root.totalSizeBytes == 2 && !root.aggregateFailed && root.totalAllocatedSizeBytes == UINT64_MAX &&
+              root.allocatedAggregateIncomplete,
+          "allocation saturation retains a bound without corrupting independent logical totals");
+    const auto overflow = ffui::BuildTreemapItemMetadata(root, 2, true, {}, L"C:\\", 1, 2, 0, 0, 100, 100, false);
+    Check(overflow.logicalSizeKnown && !overflow.allocatedSizeKnown && overflow.allocatedPartial,
+          "saturated allocation cannot become exact through matching known counts");
+}
+
 int main() {
+    TestPartialAggregateRollup();
     TestFormatSize();
     TestNodeIdentityHash();
     TestBuildMetadataNormalFile();

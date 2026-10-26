@@ -87,7 +87,6 @@ private:
     void BuildTree(const std::wstring& path);
     void RebuildLayout();
     static TreemapNode* FindNode(TreemapNode* root, const std::wstring& path);
-    static uint64_t RecomputeTotals(TreemapNode& node);
     TreemapUiaItemInfo BuildTileInfoLocked(const TreemapNode& node, const TreemapRect& rect) const;
     void EmitUiaEvent(const UiaEventNotification& notification);
 
@@ -131,6 +130,7 @@ private:
 
     TreemapNode* hoveredNode_ = nullptr;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> backgroundBrush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> tileBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> textBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> borderBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hoverBrush_;

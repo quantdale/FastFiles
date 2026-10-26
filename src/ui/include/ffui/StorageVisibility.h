@@ -64,7 +64,7 @@ constexpr bool StorageControlVisible(StorageViewMode mode, StorageControl contro
                mode == StorageViewMode::LargestFiles ||
                mode == StorageViewMode::ByCategory;
     case StorageControl::Status:
-        return mode != StorageViewMode::Treemap;
+        return true;
     case StorageControl::TreemapSurface:
         return mode == StorageViewMode::Treemap;
     }
@@ -81,6 +81,10 @@ inline std::wstring StorageItemsStatusText(size_t itemCount, bool engineActive) 
     std::wstring text = std::to_wstring(itemCount) + L" items in this folder";
     if (!engineActive) text += L" (degraded mode — partial coverage)";
     return text;
+}
+
+inline constexpr const wchar_t* StorageTreemapStatusText() noexcept {
+    return L"Known data only — coverage may be partial; logical sizes shown.";
 }
 
 inline constexpr const wchar_t* StorageCoverageText(bool rootAvailable) noexcept {

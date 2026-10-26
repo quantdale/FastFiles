@@ -289,6 +289,7 @@ private:
     std::wstring currentPath_;
     std::wstring displayedPath_;
     bool visible_ = false;
+    ShellLayoutRect lastSurfaceRect_;
     bool engineActive_ = false;
     bool darkTheme_ = false;
     ViewMode viewMode_ = ViewMode::Overview;

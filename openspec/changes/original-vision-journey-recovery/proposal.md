@@ -24,4 +24,6 @@ None. The new contracts make cross-surface composition explicit without weakenin
 
 ## Impact
 
+The bounded Treemap follow-up preserves partial folder lower bounds through the actual rollup and makes logical size and coverage visible without hover, retaining existing native hierarchy, navigation and data sources.
+
 Native UI command routing, StorageAnalysis, SearchPanel, WindowShell, and E2E tests. No process, IPC, database, service, trust, or installer contract changes. Existing PRs remain separate and unmerged.

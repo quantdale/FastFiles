@@ -119,6 +119,9 @@ void TestEmptyCategoryClearsTheModel() {
 
     Check(root->children.empty(), "empty category produces no stale Treemap children");
     Check(root->totalSizeBytes == 0, "empty category produces a zero aggregate");
+    ffui::RecomputeTreemapTotals(*root);
+    Check(root->totalSizeBytes == 0 && root->totalAllocatedSizeBytes == 0,
+          "production rollup never resurrects unfiltered bytes after an empty category result");
 }
 
 void TestClassifierIsSharedWithTheFilter() {

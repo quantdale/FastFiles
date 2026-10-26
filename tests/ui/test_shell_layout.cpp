@@ -51,6 +51,12 @@ void TestHiddenDetailsAndAlternateSurface() {
           "alternate surfaces use the full post-navigation content width");
 
     const auto storage = ffui::ComputeStorageSurfaceLayout(hidden.contentRect);
+    const auto treemapStatus = ffui::StorageStatusRect(storage, true);
+    Check(treemapStatus.left == storage.categoryFilter.left && treemapStatus.right == storage.status.right &&
+              treemapStatus.bottom <= storage.list.top && treemapStatus.Width() >= storage.status.Width(),
+          "Treemap coverage reuses the whole hidden-filter row without occupying the canvas");
+    Check(ffui::StorageStatusRect(storage, false).left == storage.status.left,
+          "ordinary Storage modes retain separate filter and status geometry");
     bool controlsFit = true;
     for (const auto& button : storage.buttons) {
         controlsFit = controlsFit && button.left >= hidden.contentRect.left &&

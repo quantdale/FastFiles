@@ -1,5 +1,16 @@
 # Fast Files — Agent Workstate
 
+## Isolated Treemap partial-intelligence checkpoint — 2026-10-27
+
+- Sole writer treemap-intelligence-20261027 / fix/treemap-partial-intelligence-20261027, verified parent26cc17f5f063b4479cb847fe5c0aaed11e14ee03. Root owns integration/publication; other worktrees, original dirty state, shared PRs/main remain untouched. No native UI, process operation, privileged action, full build or benchmark executed here.
+- Slice original-vision-journey-recovery4.10 extracts the actual rollup into TreemapLayout and distinguishes atomic aggregateLeaf from represented containers. RED actual helper test fails three assertions for positive partial3MiB leaf/root/state/percentage; corrected model preserves lower bounds, pending/partial flags and independent allocated completeness. Root/synthetic sums saturate, directory own records count separately, empty/categoryfiltered containers cannot resurrect old totals.
+- Shared logical-size text retains At least3.0MB/Partial; missing descendants cannot make observed disk bytes exact. Unknown allocation stays Unknown, independent allocation incompleteness does not downgrade complete logical enumeration. Persistent native tile name/size uses shared semantics and existing surface token; High Contrast keeps prior canvas fallback. Treemap status uses the existing reserved row across hidden filter space; mode transitions reposition it. No new data source or category colors.
+- Warning-clean focused Debug targets and CTest metadata/filter/layout/visibility/shell-layout5/5 PASS0.25s; actual red log preserved in ignored build/treemap-intelligence-20261027. Strict focused OpenSpec PASS; doc drift1/1 PASS12.79s; git diff --check PASS. Changed UI translation units remain UNCOMPILED, native/screenshots/lifecycle UNVERIFIED;4.10 remains OPEN.
+- Root performed Refero queries and found no suitable Treemap reference (graph/cloud/file-organizer results); raw root-research.json retained ignored. Existing Native Precision remains authoritative. Root consulted WizTree FAQ/changes for logical-vs-allocated semantics and persistent file-size context; no branding/assets copied or coverage equivalence claimed.
+- NEXT EXACT ACTION: commit clean worker milestone, freeze for root read-only source review, then root compiles UI and qualifies known3MiB plus known-file/unbrowsed-descendant fixtures, pointer-away light/dark captures, exact metadata/unknown allocation/parent percentages/navigation and normal cleanup before4.10 closes. No standalone/full-product readiness claim.
+
+## Historical Storage-ranking checkpoints below
+
 ## Isolated storage-ranking implementation checkpoint — 2026-10-27
 
 - Owner storage-ranking-20261027 / feat/recursive-storage-ranking-20261027; immutable verified base981a9ba678a191107c78eec22a60c9620eb5848e equals fresh origin PR18. Root remains sole integrator/publisher. Other worktrees, original dirty files and shared PRs/main untouched; no push/merge/release.

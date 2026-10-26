@@ -42,6 +42,14 @@ Filesystem targets may disappear after validation; ordinary operation handlers s
 
 ## Validation
 
+### Treemap lower bounds and persistent facts (4.10)
+
+The root's actual complete-folder Treemap capture shows a settled tile painted with the canvas brush and only its name; size is hover-only and mode visibility hides the reserved status control. Separately, source inspection identifies positive partial aggregate loss: ResolveDegradedTreemapTotals marks an incomplete 3 MiB folder unresolved/partial, then native RecomputeTotals recursively sums its unrepresented children and replaces the subtotal with zero while clearing partial state. A complete-folder fixture cannot detect this interaction.
+
+Use one extracted production rollup for the native view and headless regression. Explicit aggregateLeaf distinguishes immediate folder summaries from represented containers, including an empty filtered root. Preserve leaf values/states and roll up container bytes with saturation rather than wrap or a misleading zero. Pending and partial child states propagate independently. Allocation totals/counts retain independent incompleteness; a complete logical enumeration does not make allocation exact, and a missing logical descendant cannot make an observed allocation subtotal exact. Folder own allocation records contribute to their parent independently of descendant aggregates. Tiny synthetic aggregation carries the same incompleteness.
+
+Show the shared logical-size text below names when tile geometry permits. Positive partial sizes retain their lower bound, while full UIA/hover descriptions share the same model. Use the existing surface token for settled tiles and preserve the existing High Contrast canvas fallback; no new color literals or category color meaning. Keep coverage feedback visible across Treemap mode in the existing reserved status row, expanding only into the hidden category-filter space. Reposition on mode transition; no additional toolbar rows or new data source. Root compiles native UI and exercises pointer-away complete/partial fixtures and actual screenshots before task4.10 closes.
+
 ### D7: Recursive Largest Files ranks known data, with exact path ownership
 
 Original-vision-journey-recovery4.9 uses existing CurrentFolderAndSubfolders indexed search, logical Size descending and max100. Add kind:file to owning and view predicates so directories are excluded before the true top-N heap. Indexed records are labelled coverage-unverified; neither a successful snapshot directory nor a volume ID proves recursive coverage. An unavailable or empty indexed result falls back to successful published/browsed listings on a cancellable worker, labelled partial even when service-connected. Missing descendants remain unknown. No filesystem walk, aggregate-per-file requests, new schema, privileged API or complete-storage claim.

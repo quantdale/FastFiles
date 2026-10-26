@@ -1210,6 +1210,7 @@ void StorageAnalysis::Hide() {
 }
 
 void StorageAnalysis::Reposition(const ShellLayoutRect& surfaceRect) {
+    lastSurfaceRect_ = surfaceRect;
     if (!visible_) return;
     const auto scaledDip = [](float dip) {
         return static_cast<int>(std::lround(ffui::UiScale(dip)));
@@ -1232,7 +1233,8 @@ void StorageAnalysis::Reposition(const ShellLayoutRect& surfaceRect) {
     place(byCategory_, layout.buttons[6]);
     place(treemap_, layout.buttons[7]);
     place(categoryFilter_, layout.categoryFilter);
-    place(status_, layout.status);
+    const auto statusRect = StorageStatusRect(layout, viewMode_ == ViewMode::Treemap);
+    place(status_, statusRect);
     place(list_, layout.list);
     place(overview_, layout.overview);
 }
@@ -1259,6 +1261,7 @@ void StorageAnalysis::ApplyModeVisibility() {
     apply(overview_, StorageControl::OverviewList);
     apply(categoryFilter_, StorageControl::CategoryFilter);
     apply(status_, StorageControl::Status);
+    if (viewMode_ == ViewMode::Treemap) SetWindowTextW(status_, StorageTreemapStatusText());
 
     if (visible_ && StorageControlVisible(viewMode_, StorageControl::TreemapSurface)) {
         if (!treemapView_.Visible()) treemapView_.ShowAndFocus(currentPath_);
@@ -1511,7 +1514,7 @@ void StorageAnalysis::RefreshData() {
     const std::wstring statusText = StorageItemsStatusText(items_.size(), engineActive_) +
         (viewMode_ == ViewMode::LargestFiles && !activeCategoryId_.empty()
             ? L" — selected category, immediate files only" : L"");
-    SetWindowTextW(status_, statusText.c_str());
+    SetWindowTextW(status_, viewMode_ == ViewMode::Treemap ? StorageTreemapStatusText() : statusText.c_str());
 
     // Filter based on view mode
     if (viewMode_ == ViewMode::LargestFolders) {
@@ -2138,6 +2141,7 @@ bool StorageAnalysis::HandleDrawItem(LPARAM lParam) {
 void StorageAnalysis::SetViewMode(ViewMode mode) {
     if (viewMode_ == mode) {
         ApplyModeVisibility();
+        Reposition(lastSurfaceRect_);
         return;
     }
     viewMode_ = mode;
@@ -2157,6 +2161,7 @@ void StorageAnalysis::SetViewMode(ViewMode mode) {
     }
     RefreshData();
     ApplyModeVisibility();
+    Reposition(lastSurfaceRect_);
 }
 
 bool StorageAnalysis::HandleNotify(LPARAM lParam) {

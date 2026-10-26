@@ -4,6 +4,23 @@ Keep filesystem commands bound to the user's visible selection across browsing, 
 
 ## ADDED Requirements
 
+### Requirement: Treemap preserves partial facts through presentation
+
+Treemap folder aggregate leaves SHALL retain known logical and allocated lower bounds and their partial or pending state when parent totals are recomputed. Represented containers SHALL derive their own totals from retained children, including empty filtered results. Allocation completeness SHALL remain independent of logical enumeration completeness. Positive partial sizes SHALL retain visible lower-bound text, and unknown allocation SHALL NOT become zero or exact logical bytes. Logical size and coverage feedback SHALL be available without requiring pointer hover on sufficiently large tiles.
+
+#### Scenario: Known file with an unbrowsed descendant
+- **WHEN** a folder aggregate contains a known 3 MiB subtotal and a missing descendant listing
+- **THEN** actual root recomputation preserves the subtotal and partial state, exact parent percentages remain unavailable, and size text identifies the known lower bound
+- **AND** observed allocation counts do not imply complete allocation for missing descendants
+
+#### Scenario: Empty category result
+- **WHEN** category filtering removes every represented child
+- **THEN** the root does not retain the previous unfiltered logical or allocated totals
+
+#### Scenario: Pointer away from a settled tile
+- **WHEN** a sufficiently large settled tile is visible without pointer hover
+- **THEN** its name and logical size remain readable and the existing reserved status row explains that data coverage may be partial
+
 ### Requirement: Recursive storage ranking preserves source scope and target identity
 
 All-category Largest Files SHALL rank at most100 files by logical size from the selected folder and known subfolders. Directory exclusion and component-bounded scope matching SHALL precede the ranking cap. Indexed records SHALL state that coverage is unverified; published/browsed fallback SHALL state partial coverage, including while service-connected. No successful directory listing, volume ID or capped result sum SHALL be presented as proof of recursive completeness.

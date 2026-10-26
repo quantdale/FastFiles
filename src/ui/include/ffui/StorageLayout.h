@@ -22,6 +22,11 @@ struct StorageSurfaceLayout {
     int buttonRows = 0;
 };
 
+inline ShellLayoutRect StorageStatusRect(const StorageSurfaceLayout& layout, bool treemap) noexcept {
+    return treemap ? ShellLayoutRect{layout.categoryFilter.left, layout.status.top,
+                                    layout.status.right, layout.status.bottom} : layout.status;
+}
+
 inline StorageSurfaceLayout ComputeStorageSurfaceLayout(const ShellLayoutRect& surfaceRect) noexcept {
     StorageSurfaceLayout result;
     constexpr std::array<float, 8> kButtonWidths = {80.0f, 80.0f, 100.0f, 110.0f,

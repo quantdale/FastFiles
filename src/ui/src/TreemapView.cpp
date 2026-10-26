@@ -92,31 +92,6 @@ TreemapNode* TreemapView::FindNode(TreemapNode* root, const std::wstring& path) 
     return nullptr;
 }
 
-uint64_t TreemapView::RecomputeTotals(TreemapNode& node) {
-    if (!node.isDirectory || node.aggregateResolved) return node.totalSizeBytes;
-
-    uint64_t total = 0;
-    bool pending = false;
-    bool failed = false;
-    for (auto& child : node.children) {
-        const uint64_t childTotal = RecomputeTotals(*child);
-        if (UINT64_MAX - total < childTotal) {
-            total = 0;
-            failed = true;
-            break;
-        }
-        total += childTotal;
-        pending = pending || child->calculating;
-        failed = failed || child->aggregateFailed;
-    }
-    node.totalSizeBytes = total;
-    // "Calculating" is reserved for genuinely pending aggregates; once every
-    // child resolved, a partial subtree is known-partial, never pending.
-    node.calculating = pending && !failed;
-    node.aggregateFailed = !pending && failed;
-    return node.totalSizeBytes;
-}
-
 void TreemapView::RebuildLayout() {
     layout_.clear();
     syntheticNodes_.clear();
@@ -186,6 +161,7 @@ void TreemapView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwr
     if (resourcesCreated_) return;
     const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
     context->CreateSolidColorBrush(theme.background, &backgroundBrush_);
+    context->CreateSolidColorBrush(UiSystemHighContrast() ? theme.background : theme.surface, &tileBrush_);
     context->CreateSolidColorBrush(theme.text, &textBrush_);
     context->CreateSolidColorBrush(theme.border, &borderBrush_);
     context->CreateSolidColorBrush(theme.hoverOverlay, &hoverOverlayBrush_);
@@ -201,6 +177,7 @@ void TreemapView::SetDarkTheme(bool dark) {
     darkTheme_ = dark;
     resourcesCreated_ = false;
     backgroundBrush_.Reset();
+    tileBrush_.Reset();
     textBrush_.Reset();
     borderBrush_.Reset();
     hoverBrush_.Reset();
@@ -317,6 +294,7 @@ void TreemapView::BuildTree(const std::wstring& path) {
         node->name = entry.name;
         node->path = joinPath(path, entry.name);
         node->isDirectory = entry.isDirectory;
+        node->aggregateLeaf = entry.isDirectory;
         node->sizeBytes = entry.sizeBytes;
         // allocated-size-storage-accuracy 7.2: per-entry size-on-disk with
         // its explicit known state.
@@ -351,7 +329,7 @@ void TreemapView::BuildTree(const std::wstring& path) {
     // this the scope total stays zero and every share is unknown, even when
     // every child size is already known. Aggregate completions recompute
     // again on arrival (HandleAggregateCompletion).
-    RecomputeTotals(*root_);
+    RecomputeTreemapTotals(*root_);
     RebuildLayout();
 }
 
@@ -419,7 +397,7 @@ void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFact
         // drawing rect is inset, shrinking on tiny tiles so it never inverts.
         const float inset = std::min(1.0f, std::min(rw, rh) * 0.25f);
         D2D1_RECT_F drawRect = D2D1::RectF(rx + inset, ry + inset, rx + rw - inset, ry + rh - inset);
-        ffui::UiFillRoundedRect(context, drawRect, rect.node->calculating ? calculatingBrush_.Get() : backgroundBrush_.Get(), tileRadius);
+        ffui::UiFillRoundedRect(context, drawRect, rect.node->calculating ? calculatingBrush_.Get() : tileBrush_.Get(), tileRadius);
         ffui::UiDrawRoundedRect(context, drawRect, borderBrush_.Get(), tileRadius, kBorderWidth);
 
         if (hoverLiftEnabled && rect.node == hoveredNode_) {
@@ -440,7 +418,12 @@ void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFact
                 label += L'\\';
             }
             D2D1_RECT_F textRect = D2D1::RectF(rx + 4, ry + 2, rx + rw - 4, ry + rh - 2);
-            context->DrawText(label.c_str(), static_cast<UINT32>(label.size()), textFormat_.Get(), textRect, textBrush_.Get());
+            context->DrawText(label.c_str(), static_cast<UINT32>(label.size()), textFormat_.Get(), textRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            if (rw > 120.0f && rh > 44.0f) {
+                const std::wstring size = TreemapLogicalSizeText(*rect.node);
+                const auto sizeRect = D2D1::RectF(rx + 4, ry + 20, rx + rw - 4, ry + 38);
+                context->DrawText(size.c_str(), static_cast<UINT32>(size.size()), textFormat_.Get(), sizeRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
         }
 
         // semantic-treemap-uia 7.x: hover metadata comes from the same pure
@@ -452,8 +435,8 @@ void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFact
         // draw the lines; the FullDescription always carries everything.
         if (rect.node != nullptr && rect.node == hoveredNode_ && rw > 160.0f) {
             const TreemapUiaItemInfo hoverInfo = BuildTileInfoLocked(*rect.node, rect);
-            const bool full = rh > 76.0f;    // path/size/disk/percentages
-            const bool compact = rh > 52.0f; // path/size
+            const bool full = rh > 112.0f;    // room below persistent name/size
+            const bool compact = rh > 80.0f;
             if (full || compact) {
                 const int lineCount = full ? 4 : 2;
                 float lineY = ry + rh - (full ? 68.0f : 36.0f);
@@ -517,7 +500,7 @@ bool TreemapView::HandleAggregateCompletion(LPARAM lParam) {
             newStatus = L"Partial";
         }
 
-        if (root_) RecomputeTotals(*root_);
+        if (root_) RecomputeTreemapTotals(*root_);
         RebuildLayout();
         InvalidateRect(owner_, nullptr, FALSE);
     }
