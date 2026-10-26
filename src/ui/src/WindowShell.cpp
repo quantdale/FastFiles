@@ -2688,7 +2688,11 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         case WM_APP_FILE_OPERATION_EVENT: {
             std::unique_ptr<FileOperationEvent> event(reinterpret_cast<FileOperationEvent*>(lParam));
             if (!event) return 0;
-            if (commandPalette_.Visible()) commandPalette_.UpdateContext(CurrentCommandContext());
+            // Progress cannot change availability; avoid rebuilding a potentially
+            // large selection and clipboard context for every presentation tick.
+            if (event->kind != FileOperationEventKind::Progress && commandPalette_.Visible()) {
+                commandPalette_.UpdateContext(CurrentCommandContext());
+            }
             if (event->kind == FileOperationEventKind::Queued || event->kind == FileOperationEventKind::Started) {
                 SetWindowTextW(hwnd_, event->kind == FileOperationEventKind::Queued ? L"FastFiles — operation queued" : L"FastFiles — operation in progress");
                 fileOpInProgress_ = true;
