@@ -636,6 +636,9 @@ function Get-UiaPaletteSemanticState {
         $children = @(Get-UiaChildren -Driver $Driver -Element $Main)
         foreach ($child in $children) {
             $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
+            # Identity reads may return an all-null record after a provider
+            # error. Such a child cannot establish authoritative absence.
+            if (-not $identity.ProcessId -or $identity.ProcessId -le 0) { return [pscustomobject]$state }
             if ($identity.ProcessId -ne $ProcessId) { continue }
             if ($identity.AutomationId -eq '6301' -and $identity.ClassName -eq 'Edit' -and
                 -not (Get-UiaElementProperty -Driver $Driver -Element $child -Name IsOffscreen)) { $edit = $child }
@@ -778,7 +781,7 @@ function Invoke-UiaPaletteCommand {
     $null = Send-UiaInput -Driver $Driver -Keys '{ENTER}'
     $paletteClosed = Wait-UiaCondition -Driver $Driver -TimeoutMs 3000 -PollIntervalMs 200 -Description 'native palette controls closed' -ScriptBlock {
         $closedState = Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId
-        return $closedState.discoverySucceeded -and -not $closedState.editPresent -and -not $closedState.listVisible
+        return $closedState.discoverySucceeded -and -not $closedState.editPresent -and -not $closedState.listPresent
     }
     if (-not $paletteClosed) {
         return [pscustomobject]@{ Pass = $false; Detail = "palette '$Query' did not close after one Enter; commandId='$ExpectedCommandId'; state=$((ConvertTo-Json (Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId -ExpectedCommandNames @($ExpectedCommandName)) -Compress -Depth 8))"; CommandState = $commandState }

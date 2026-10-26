@@ -445,7 +445,7 @@ try {
             $closedState=& $validation {param($c)
                 Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id
             } $ctx
-            return $closedState.discoverySucceeded -and -not $closedState.editPresent -and -not $closedState.listVisible
+            return $closedState.discoverySucceeded -and -not $closedState.editPresent -and -not $closedState.listPresent
         }
         Check $paletteGone.Pass 'Idle palette did not close normally.'
         $afterIdle=@(Get-ChildItem -LiteralPath $fixture.Root -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
