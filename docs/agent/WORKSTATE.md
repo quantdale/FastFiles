@@ -11,6 +11,8 @@
 
 ## Earlier cancellation implementation checkpoint (historical)
 
+- e73abcb1024 actualreceipt confirms completed1024/1024 aftergeneralhelper12.84s; initialeditlookupfailed despitefocused6301. No native cancellationPASS. Replace only timed qualification's generalnavigationhelper route with realforeground-ownedCtrlShiftP→actualfocusedPID/ID/Edit→typedquery→exactsemanticselectedcommand→Enter→mandatoryaccepteddispatch→verifieddirectclosure. This avoids desktopreacquisition/cadences while operationfinishes, adds beforeEntercopied/title; allpartial/terminal/names/hash/sentinel assertions remain. Independent source assessment requested. Commit/rebind then bounded1024native with this changedmethod, no same-method rerun.
+
 - Integrator follow-up99e40b7:512 native correctedhelper stillrefused asunavailable after8.55s; direct discoverySucceededtrue with visible exactcommand, so DFSlookupdefect fixed atthis observation but cancellationnotqualified. Preservefailedreceipt/cleanupPASS. Calibrate one1024-item fixture within unchanged64MiB (512copy completes nearrobotpalettepreparetime;4096navigationunqualified). Add posthelperactualtitle/copiedcount toprove completion versusrejection onfuturefailure. This is bounded calibration, no removal of partial/dispatch/hash assertions; no1024or4096PASSyet.
 
 ## Current primary frontier - discoverable operation cancellation IMPLEMENTED / QUALIFICATION PENDING - 2026-10-26

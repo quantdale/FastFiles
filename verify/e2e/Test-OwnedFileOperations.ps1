@@ -92,6 +92,50 @@ function Wait-Terminal {
     return [string]$r.Value
 }
 function Hash([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
+function Invoke-OwnedPaletteCancellation {
+    # Timed operation input starts from the already verified owned foreground.
+    # Observe the real focused edit rather than reacquiring the entire desktop
+    # through the general navigation helper while the operation can finish.
+    $validation=Get-Module UiAutomationValidation
+    Check ([bool]$validation) 'Palette validation module is unavailable.'
+    $open=Send-UiaInput -Driver $ctx.Driver -Keys '{CTRL}{SHIFT}p'
+    Check $open.ok 'Cancellation palette open input was rejected.'
+    $focused=Wait-E2ECondition -TimeoutMs 2000 -PollIntervalMs 25 -Description 'owned palette edit focus' -Condition {
+        $element=[System.Windows.Automation.AutomationElement]::FocusedElement
+        $identity=Get-UiaElementIdentity -Driver $ctx.Driver -Element $element
+        if($identity.ProcessId -eq $ctx.Launched.Id -and $identity.AutomationId -eq '6301' -and $identity.ClassName -eq 'Edit') { return $element }
+        return $false
+    }
+    Check $focused.Pass 'Cancellation palette edit did not acquire real owned focus.'
+    $typed=Send-UiaText -Driver $ctx.Driver -Text 'Cancel File Operations'
+    Check $typed.ok 'Cancellation palette query input was rejected.'
+    $observation=[pscustomobject]@{state=$null}
+    $selected=Wait-E2ECondition -TimeoutMs 3000 -PollIntervalMs 50 -Description 'exact cancellation command selection' -Condition {
+        $observation.state=& $validation {param($c)
+            Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id -ExpectedCommandNames @('Cancel File Operations')
+        } $ctx
+        $s=$observation.state
+        return $s.discoverySucceeded -and $s.editHasKeyboardFocus -and $s.listVisible -and $s.listEnabled -and
+            @($s.listItems).Count -eq 1 -and $s.selectedName -eq 'Cancel File Operations'
+    }
+    Check $selected.Pass ('Exact cancellation command was not selected: '+($observation.state | ConvertTo-Json -Compress -Depth 6))
+    $cancelInput.beforeEnterCopied=[IO.Directory]::GetFiles($bulkTarget).Length
+    $cancelInput.beforeEnterTitle=$titleObserver.LatestTitle
+    $enter=Send-UiaInput -Driver $ctx.Driver -Keys '{ENTER}'
+    Check $enter.ok 'Cancellation palette Enter was rejected.'
+    $dispatched=Wait-E2ECondition -TimeoutMs 2000 -PollIntervalMs 50 -Description 'actual cancellation dispatch' -Condition {
+        return & $validation { Get-UiaCommandDispatchEvidence -CommandId 'file.cancel-operations' }
+    }
+    Check ($dispatched.Pass -and $dispatched.Value.outcome -eq 'accepted') 'Cancellation lacks actual accepted command dispatch.'
+    $closed=Wait-E2ECondition -TimeoutMs 3000 -PollIntervalMs 100 -Description 'cancellation palette closed' -Condition {
+        $s=& $validation {param($c)
+            Get-UiaPaletteSemanticState -Driver $c.Driver -Main $c.Main -ProcessId $c.Launched.Id
+        } $ctx
+        return $s.discoverySucceeded -and -not $s.editPresent -and -not $s.listPresent
+    }
+    Check $closed.Pass 'Cancellation palette did not close after accepted dispatch.'
+    return [pscustomobject]@{Pass=$true;CommandState=$observation.state;DispatchEvidence=$dispatched.Value;open=$open;typed=$typed;enter=$enter;PaletteClosed=$true}
+}
 function Capture-Dialog($Dialog,[string]$Id) {
     $shot=Capture-VisualWindow -Run $captureRun -Element $Dialog -ScenarioId $Id -AssertionPass $true
     Check ($shot.Bounds.Dpi -gt 0) 'Capture lacks measured DPI.'
@@ -345,9 +389,7 @@ try {
     $cancelInput=@{route=$CancellationRoute;activationReturned=$activated;foreground=$foreground;focusedElement=$focus;beforeTitle=$titleObserver.LatestTitle;beforeUtc=[DateTime]::UtcNow.ToString('o');afterInputMs=$null;result=$null;terminalMs=$null}
     Check ($activated -and $foreground) 'Cancellation lacks verified owned foreground.'
     if($CancellationRoute -eq 'Palette') {
-        $cancelInput.result=& $e2e { param($c)
-            Invoke-E2ENavigationCommand -Context $c -Query 'Cancel File Operations' -Name 'Cancel File Operations' -CommandId 'file.cancel-operations'
-        } $ctx
+        $cancelInput.result=Invoke-OwnedPaletteCancellation
         $cancelInput.afterInputMs=$inputClock.ElapsedMilliseconds
         $cancelInput.afterHelperTitle=$titleObserver.LatestTitle
         $cancelInput.afterHelperCopied=[IO.Directory]::GetFiles($bulkTarget).Length
