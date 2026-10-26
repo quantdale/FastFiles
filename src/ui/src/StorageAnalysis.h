@@ -151,6 +151,8 @@ private:
 
     static LRESULT CALLBACK StorageButtonSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                                       UINT_PTR subclassId, DWORD_PTR refData);
+    static LRESULT CALLBACK InactiveSelectionSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                         UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK RadioSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                               UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK StatusSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,

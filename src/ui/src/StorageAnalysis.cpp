@@ -37,10 +37,50 @@ constexpr UINT_PTR kStorageButtonSubclassBase = 0x5340;
 constexpr UINT_PTR kRadioSubclassBase = 0x5346;
 constexpr UINT_PTR kStatusSubclassId = 0x5350;
 constexpr size_t kStorageRadioCount = kStorageModeCount;
+constexpr UINT_PTR kInactiveSelectionSubclass = 0x5352;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
     return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+}
+
+void DrawInactiveStorageSelection(HWND hwnd, HDC dc, bool darkTheme) {
+    if (!dc || UiSystemHighContrast()) return;
+    const HWND focused = GetFocus();
+    if (focused == hwnd || (focused != nullptr && IsChild(hwnd, focused))) return;
+    const int selected = ListView_GetNextItem(hwnd, -1, LVNI_SELECTED);
+    if (selected < 0) return;
+    RECT row{};
+    RECT body{};
+    if (!ListView_GetItemRect(hwnd, selected, &row, LVIR_BOUNDS) || !GetClientRect(hwnd, &body)) return;
+    const HWND header = ListView_GetHeader(hwnd);
+    RECT headerRect{};
+    if (header != nullptr && IsWindowVisible(header) && GetWindowRect(header, &headerRect)) {
+        MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&headerRect), 2);
+        body.top = (std::max)(body.top, headerRect.bottom);
+    }
+    RECT visible{};
+    if (!IntersectRect(&visible, &row, &body)) return;
+    const int saved = SaveDC(dc);
+    if (saved == 0) return;
+    IntersectClipRect(dc, body.left, body.top, body.right, body.bottom);
+    const UINT dpi = GetDpiForWindow(hwnd);
+    const int stroke = (std::max)(1, MulDiv(1, static_cast<int>(dpi), 96));
+    const int strip = (std::max)(stroke, MulDiv(3, static_cast<int>(dpi), 96));
+    // Solid selection edges plus a leading strip retain the selected shape;
+    // this is not the keyboard focus ring and does not replace native text.
+    HBRUSH brush = CreateSolidBrush(ToColorRef(GetUiTheme(darkTheme).accent));
+    if (brush != nullptr) {
+        const RECT edges[] = {
+            {body.left, row.top, body.right, row.top + stroke},
+            {body.left, row.bottom - stroke, body.right, row.bottom},
+            {body.left, row.top, body.left + strip, row.bottom},
+            {body.right - stroke, row.top, body.right, row.bottom}
+        };
+        for (const RECT& edge : edges) FillRect(dc, &edge, brush);
+        DeleteObject(brush);
+    }
+    RestoreDC(dc, saved);
 }
 
 void DrawStorageFocusRing(HDC dc, const RECT& rect, COLORREF color) {
@@ -653,6 +693,9 @@ StorageAnalysis::~StorageAnalysis() {
         }
         RemoveWindowSubclass(list_, ListSubclassProc, kStorageListSubclass);
     }
+    for (HWND control : {list_, overview_}) {
+        if (control != nullptr) RemoveWindowSubclass(control, InactiveSelectionSubclassProc, kInactiveSelectionSubclass);
+    }
     const HWND pushButtons[] = {back_, up_};
     for (size_t i = 0; i < std::size(pushButtons); ++i) {
         if (pushButtons[i] != nullptr) {
@@ -675,6 +718,26 @@ StorageAnalysis::~StorageAnalysis() {
     uiaState_.reset();
     treemapView_.SetUiaEventHandler(nullptr);
     Hide();
+}
+
+LRESULT CALLBACK StorageAnalysis::InactiveSelectionSubclassProc(HWND hwnd, UINT message, WPARAM wParam,
+                                                               LPARAM lParam, UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<StorageAnalysis*>(refData);
+    if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
+    const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+    if (message == WM_PAINT) {
+        const HDC dc = GetDC(hwnd);
+        DrawInactiveStorageSelection(hwnd, dc, self->darkTheme_);
+        if (dc != nullptr) ReleaseDC(hwnd, dc);
+    } else if (message == WM_PRINTCLIENT) {
+        DrawInactiveStorageSelection(hwnd, reinterpret_cast<HDC>(wParam), self->darkTheme_);
+    } else if (message == WM_SETFOCUS || message == WM_KILLFOCUS || message == LVM_SETITEMSTATE ||
+               message == WM_THEMECHANGED || message == WM_SYSCOLORCHANGE) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    } else if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, InactiveSelectionSubclassProc, subclassId);
+    }
+    return result;
 }
 
 LRESULT CALLBACK StorageAnalysis::StorageButtonSubclassProc(HWND hwnd, UINT message, WPARAM wParam,
@@ -934,6 +997,9 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     }
     SetWindowSubclass(status_, StatusSubclassProc, kStatusSubclassId, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(list_, ListSubclassProc, kStorageListSubclass, reinterpret_cast<DWORD_PTR>(this));
+    for (HWND control : {list_, overview_}) {
+        SetWindowSubclass(control, InactiveSelectionSubclassProc, kInactiveSelectionSubclass, reinterpret_cast<DWORD_PTR>(this));
+    }
 
     const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"% of Volume", L"Modified", L"Size on Disk", L"Location"};
     const int widths[] = {260, 80, 100, 120, 100, 100, 145, 120, 0};
