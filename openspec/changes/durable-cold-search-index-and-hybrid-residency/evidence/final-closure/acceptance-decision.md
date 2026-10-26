@@ -66,3 +66,9 @@ clarification. The bounded1M and200k follow-up is now recorded in
 independent-canonical resident/mixed/transition route coverage and a scope
 determination for retained2M oracle inputs. Task4.1 stays open until those
 cells are resolved; the accepted contract is not a correctness waiver.
+
+## 2026-10-26 scope correction from independent review
+
+Historical 23-cell matrices used numeric sort fields2/3/4 under labels Size/Modified/Created, but those values mean Path/Size/Modified. Ordinary fixture sizes/timestamps tied. Those reports prove their actual numeric routes and tie-break behavior; they do not prove Created or nondegenerate primary sorting. Historical raw files remain unchanged. The earlier2M13 cells cover only default queries/cancellation, not the extended10. Independent source review bounds equivalence269d1c3..db7887c1 over the subtree-only correction; the new root-child path fix is a production change and prevents exact-source inheritance to current HEAD.
+
+New corrected fresh varied20k/200k residency matrices each93/93 at f22f401 verify intended Size/Modified/Created both directions, all-field canonical equality and actual resident/mixed/cold/reloaded/generation routes at the unchanged default budget. See residency-routes-20261026.md. Larger-scale corrected sort evidence remains open; a contract edit or previous mislabeled report cannot close4.1.
