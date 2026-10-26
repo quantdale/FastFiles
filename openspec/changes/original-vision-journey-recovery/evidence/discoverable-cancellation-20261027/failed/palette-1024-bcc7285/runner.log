@@ -1,0 +1,15 @@
+[owned-operations] pid=77700; waiting for main window
+[owned-operations] main=True ready=True (engine-connected)
+PHASE: in-flight-copy-fixture
+PHASE: in-flight-copy-source
+PHASE: in-flight-copy-destination
+PHASE: in-flight-copy-observation
+PHASE: in-flight-copy-cancel-input
+FAIL: in-flight-copy-cancel-input: Exact cancellation command was not selected: {"discoverySucceeded":true,"editPresent":true,"editHasKeyboardFocus":false,"editTextPresent":false,"listPresent":true,"listEnabled":true,"listNativeHandle":1840834,"listVisible":true,"listItems":["Add to Bookmarks","Analyze Storage","Back","Cancel File Operations","Close Tab","Export Diagnostics Bundle","Focus Path Entry","Forget Unavailable Drive","Forward","Home","Last Operation Errors","New File","New Folder","New Tab","Next Tab","Open Command Palette","Open Terminal Here","Paste","Previous Tab","Refresh","Reopen Closed Tab","Search","Select All","Settings","Toggle Details Pane","Toggle Dual Pane","Undo Last File Operation","Up","Copy","Copy Path","Copy Relative Path","Cut","Delete","Delete Permanently","Open","Open Containing Folder","Open With","Properties","Rename"],"selectedIndex":0,"selectedName":"Add to Bookmarks","expectedMatches":["Cancel File Operations"],"expectedNameLikeMatches":[],"interactive":{"foregroundHwnd":3872456,"foregroundEvidenceAvailable":true,"foregroundTitle":"<foreign>","focusedAutomationId":"eltPauseButton","focusedControlType":"Button","focusedProcessId":77700,"popupClasses":[]}}
+[owned-operations] lifecycle teardown complete; cleanupPass=True; residue=
+Exception: D:\Documents\tryPython\FastFiles-worktrees\cancel-command-20261026\verify\e2e\Test-OwnedFileOperations.ps1:535
+Line |
+ 535 |  if($failure) { throw $failure }
+     |                 ~~~~~~~~~~~~~~
+     | in-flight-copy-cancel-input: Exact cancellation command was not selected:
+     | {"discoverySucceeded":true,"editPresent":true,"editHasKeyboardFocus":false,"editTextPresent":false,"listPresent":true,"listEnabled":true,"listNativeHandle":1840834,"listVisible":true,"listItems":["Add to Bookmarks","Analyze Storage","Back","Cancel File Operations","Close Tab","Export Diagnostics Bundle","Focus Path Entry","Forget Unavailable Drive","Forward","Home","Last Operation Errors","New File","New Folder","New Tab","Next Tab","Open Command Palette","Open Terminal Here","Paste","Previous Tab","Refresh","Reopen Closed Tab","Search","Select All","Settings","Toggle Details Pane","Toggle Dual Pane","Undo Last File Operation","Up","Copy","Copy Path","Copy Relative Path","Cut","Delete","Delete Permanently","Open","Open Containing Folder","Open With","Properties","Rename"],"selectedIndex":0,"selectedName":"Add to Bookmarks","expectedMatches":["Cancel File Operations"],"expectedNameLikeMatches":[],"interactive":{"foregroundHwnd":3872456,"foregroundEvidenceAvailable":true,"foregroundTitle":"<foreign>","focusedAutomationId":"eltPauseButton","focusedControlType":"Button","focusedProcessId":77700,"popupClasses":[]}}

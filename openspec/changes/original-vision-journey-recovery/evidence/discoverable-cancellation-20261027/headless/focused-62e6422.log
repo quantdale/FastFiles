@@ -1,0 +1,13 @@
+Test project D:/Documents/tryPython/FastFiles-worktrees/cancel-command-20261026/build/debug-diagnostic
+    Start 45: ffcommand_tests
+1/4 Test #45: ffcommand_tests ..................   Passed    0.09 sec
+    Start 46: fffileoperations_tests
+2/4 Test #46: fffileoperations_tests ...........   Passed    0.22 sec
+    Start 47: fffileoperations_e2e_tests
+3/4 Test #47: fffileoperations_e2e_tests .......   Passed    7.94 sec
+    Start 98: ffuia_driver_ps_tests
+4/4 Test #98: ffuia_driver_ps_tests ............   Passed    5.33 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =  13.64 sec

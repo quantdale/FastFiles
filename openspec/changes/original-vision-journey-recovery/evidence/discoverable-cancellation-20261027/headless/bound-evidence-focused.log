@@ -1,0 +1,9 @@
+Test project D:/Documents/tryPython/FastFiles-worktrees/cancel-command-20261026/build/debug-diagnostic
+    Start  98: ffuia_driver_ps_tests
+1/2 Test  #98: ffuia_driver_ps_tests ............   Passed    6.32 sec
+    Start 115: ffe2e_harness_ps_tests
+2/2 Test #115: ffe2e_harness_ps_tests ...........   Passed    3.09 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   9.44 sec

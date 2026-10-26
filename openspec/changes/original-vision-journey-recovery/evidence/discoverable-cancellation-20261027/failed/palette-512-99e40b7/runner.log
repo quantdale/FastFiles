@@ -1,0 +1,16 @@
+[owned-operations] pid=113384; waiting for main window
+[owned-operations] main=True ready=True (engine-connected)
+PHASE: in-flight-copy-fixture
+PHASE: in-flight-copy-source
+PHASE: in-flight-copy-destination
+PHASE: in-flight-copy-observation
+PHASE: in-flight-copy-cancel-input
+FAIL: in-flight-copy-cancel-input: Palette cancellation failed: {"Pass":false,"Detail":"palette 'Cancel File Operations' did not close after one Enter; commandId='file.cancel-operations'; state={\"discoverySucceeded\":true,\"editPresent\":true,\"editHasKeyboardFocus\":false,\"editTextPresent\":true,\"listPresent\":true,\"listEnabled\":false,\"listNativeHandle\":3020370,\"listVisible\":true,\"listItems\":[\"Cancel File Operations\"],\"selectedIndex\":0,\"selectedName\":\"Cancel File Operations\",\"expectedMatches\":[\"Cancel File Operations\"],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":3086024,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"<foreign>\",\"focusedAutomationId\":\"2\",\"focusedControlType\":\"Button\",\"focusedProcessId\":113384,\"popupClasses\":[\"#32770\"]}}","CommandState":{"discoverySucceeded":true,"editPresent":true,"editHasKeyboardFocus":true,"editTextPresent":true,"listPresent":true,"listEnabled":true,"listNativeHandle":3020370,"listVisible":true,"listItems":["Cancel File Operations"],"selectedIndex":0,"selectedName":"Cancel File Operations","expectedMatches":["Cancel File Operations"],"expectedNameLikeMatches":[],"interactive":{"foregroundHwnd":9442856,"foregroundEvidenceAvailable":true,"foregroundTitle":"FastFiles","focusedAutomationId":"6301","focusedControlType":"Edit","focusedProcessId":113384,"popupClasses":[]}}}
+[owned-operations] lifecycle teardown complete; cleanupPass=True; residue=
+Exception: D:\Documents\tryPython\FastFiles-worktrees\cancel-command-20261026\verify\e2e\Test-OwnedFileOperations.ps1:491
+Line |
+ 491 |  if($failure) { throw $failure }
+     |                 ~~~~~~~~~~~~~~
+     | in-flight-copy-cancel-input: Palette cancellation failed: {"Pass":false,"Detail":"palette 'Cancel File
+     | Operations' did not close after one Enter; commandId='file.cancel-operations';
+     | state={\"discoverySucceeded\":true,\"editPresent\":true,\"editHasKeyboardFocus\":false,\"editTextPresent\":true,\"listPresent\":true,\"listEnabled\":false,\"listNativeHandle\":3020370,\"listVisible\":true,\"listItems\":[\"Cancel File Operations\"],\"selectedIndex\":0,\"selectedName\":\"Cancel File Operations\",\"expectedMatches\":[\"Cancel File Operations\"],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":3086024,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"<foreign>\",\"focusedAutomationId\":\"2\",\"focusedControlType\":\"Button\",\"focusedProcessId\":113384,\"popupClasses\":[\"#32770\"]}}","CommandState":{"discoverySucceeded":true,"editPresent":true,"editHasKeyboardFocus":true,"editTextPresent":true,"listPresent":true,"listEnabled":true,"listNativeHandle":3020370,"listVisible":true,"listItems":["Cancel File Operations"],"selectedIndex":0,"selectedName":"Cancel File Operations","expectedMatches":["Cancel File Operations"],"expectedNameLikeMatches":[],"interactive":{"foregroundHwnd":9442856,"foregroundEvidenceAvailable":true,"foregroundTitle":"FastFiles","focusedAutomationId":"6301","focusedControlType":"Edit","focusedProcessId":113384,"popupClasses":[]}}}

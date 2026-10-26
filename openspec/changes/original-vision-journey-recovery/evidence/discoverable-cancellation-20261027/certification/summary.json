@@ -1,0 +1,36 @@
+{
+  "source": "650744faf72e91bc6250d49e0b19fd4432276994",
+  "stages": [
+    {
+      "id": "debug-build",
+      "exitCode": 0,
+      "seconds": 3.2161461
+    },
+    {
+      "id": "debug-selected",
+      "exitCode": 0,
+      "seconds": 252.4634314
+    },
+    {
+      "id": "release-test-build",
+      "exitCode": 0,
+      "seconds": 149.5786761
+    },
+    {
+      "id": "release-test-selected",
+      "exitCode": 0,
+      "seconds": 218.2142396
+    },
+    {
+      "id": "analyze-ui",
+      "exitCode": 0,
+      "seconds": 63.0837376
+    },
+    {
+      "id": "strict-openspec",
+      "exitCode": 0,
+      "seconds": 11.6777875
+    }
+  ],
+  "excludedTest": "ffverify_process_reaper_ps_tests"
+}

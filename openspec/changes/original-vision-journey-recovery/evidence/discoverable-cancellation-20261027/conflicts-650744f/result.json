@@ -1,0 +1,261 @@
+{
+  "shiftTabInputPreflight": [
+    {
+      "vk": 16,
+      "down": true
+    },
+    {
+      "vk": 9,
+      "down": true
+    },
+    {
+      "vk": 9,
+      "down": false
+    },
+    {
+      "vk": 16,
+      "down": false
+    }
+  ],
+  "failure": null,
+  "brightness": {
+    "Light": 243.2492017879897,
+    "Dark": 27.932311621966786
+  },
+  "cleanup": [
+    {
+      "Pass": true,
+      "OwnedPids": [
+        3788,
+        98092
+      ],
+      "Residue": [],
+      "PipePresentBefore": false,
+      "PipePresentAfter": false,
+      "PipeCleanup": {
+        "Pass": true,
+        "State": "absent"
+      },
+      "DiagnosticsPreserved": null,
+      "DiagnosticsCopyError": null,
+      "SessionRootRetained": false
+    },
+    {
+      "Pass": true,
+      "OwnedPids": [
+        121220,
+        123240
+      ],
+      "Residue": [],
+      "PipePresentBefore": false,
+      "PipePresentAfter": false,
+      "PipeCleanup": {
+        "Pass": true,
+        "State": "absent"
+      },
+      "DiagnosticsPreserved": null,
+      "DiagnosticsCopyError": null,
+      "SessionRootRetained": false
+    }
+  ],
+  "captures": [
+    {
+      "sha256": "bdd6bc66c4d477245e63c21ffdc9bdd763eb17694eff356982ef9a2f3adda33d",
+      "bounds": {
+        "Hwnd": {
+          "value": 2758320
+        },
+        "X": 235,
+        "Y": 260,
+        "Width": 809,
+        "Height": 367,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "id": "light-cancel",
+      "image": "conflict-light-cancel.png",
+      "theme": "Light"
+    },
+    {
+      "sha256": "fe991be9608082943a9f09b8d2374602d88c9f64cc3a144a2e6f24be1e4ea900",
+      "bounds": {
+        "Hwnd": {
+          "value": 5313896
+        },
+        "X": 363,
+        "Y": 388,
+        "Width": 809,
+        "Height": 367,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "id": "dark-cancel",
+      "image": "conflict-dark-cancel.png",
+      "theme": "Dark"
+    }
+  ],
+  "cases": [
+    {
+      "inputRoute": "native Invoke or real pointer fallback",
+      "sourceAndSentinelPreserved": true,
+      "pass": true,
+      "id": "light-cancel",
+      "bounds": {
+        "x": 227,
+        "y": 260,
+        "width": 825,
+        "height": 375
+      },
+      "initialSkipFocus": true,
+      "tabOrder": [
+        "Keep both",
+        "Cancel",
+        "Do this for all remaining conflicts",
+        "Replace",
+        "Skip"
+      ]
+    },
+    {
+      "inputRoute": "native Invoke or real pointer fallback",
+      "sourceAndSentinelPreserved": true,
+      "pass": true,
+      "id": "light-skip",
+      "bounds": {
+        "x": 227,
+        "y": 260,
+        "width": 825,
+        "height": 375
+      },
+      "initialSkipFocus": true,
+      "tabOrder": [
+        "Keep both",
+        "Cancel",
+        "Do this for all remaining conflicts",
+        "Replace",
+        "Skip"
+      ]
+    },
+    {
+      "inputRoute": "native Invoke or real pointer fallback",
+      "sourceAndSentinelPreserved": true,
+      "pass": true,
+      "id": "light-keep-both",
+      "bounds": {
+        "x": 227,
+        "y": 260,
+        "width": 825,
+        "height": 375
+      },
+      "initialSkipFocus": true,
+      "tabOrder": [
+        "Keep both",
+        "Cancel",
+        "Do this for all remaining conflicts",
+        "Replace",
+        "Skip"
+      ]
+    },
+    {
+      "inputRoute": "native Invoke or real pointer fallback",
+      "sourceAndSentinelPreserved": true,
+      "pass": true,
+      "id": "light-replace",
+      "bounds": {
+        "x": 227,
+        "y": 260,
+        "width": 825,
+        "height": 375
+      },
+      "initialSkipFocus": true,
+      "tabOrder": [
+        "Keep both",
+        "Cancel",
+        "Do this for all remaining conflicts",
+        "Replace",
+        "Skip"
+      ]
+    },
+    {
+      "inputRoute": "real keyboard",
+      "sourceAndSentinelPreserved": true,
+      "pass": true,
+      "id": "dark-cancel",
+      "bounds": {
+        "x": 355,
+        "y": 388,
+        "width": 825,
+        "height": 375
+      },
+      "initialSkipFocus": true,
+      "tabOrder": [
+        "Keep both",
+        "Cancel",
+        "Do this for all remaining conflicts",
+        "Replace",
+        "Skip"
+      ]
+    },
+    {
+      "inputRoute": "real keyboard",
+      "sourceAndSentinelPreserved": true,
+      "pass": true,
+      "id": "dark-skip",
+      "bounds": {
+        "x": 355,
+        "y": 388,
+        "width": 825,
+        "height": 375
+      },
+      "initialSkipFocus": true,
+      "tabOrder": [
+        "Keep both",
+        "Cancel",
+        "Do this for all remaining conflicts",
+        "Replace",
+        "Skip"
+      ]
+    },
+    {
+      "inputRoute": "real keyboard",
+      "sourceAndSentinelPreserved": true,
+      "pass": true,
+      "id": "dark-keep-both",
+      "bounds": {
+        "x": 355,
+        "y": 388,
+        "width": 825,
+        "height": 375
+      },
+      "initialSkipFocus": true,
+      "tabOrder": [
+        "Keep both",
+        "Cancel",
+        "Do this for all remaining conflicts",
+        "Replace",
+        "Skip"
+      ]
+    },
+    {
+      "inputRoute": "real keyboard",
+      "sourceAndSentinelPreserved": true,
+      "pass": true,
+      "id": "dark-replace",
+      "bounds": {
+        "x": 355,
+        "y": 388,
+        "width": 825,
+        "height": 375
+      },
+      "initialSkipFocus": true,
+      "tabOrder": [
+        "Keep both",
+        "Cancel",
+        "Do this for all remaining conflicts",
+        "Replace",
+        "Skip"
+      ]
+    }
+  ],
+  "passed": 8,
+  "pixelReviewRequired": true
+}
