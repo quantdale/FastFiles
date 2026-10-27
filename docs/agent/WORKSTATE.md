@@ -1,3 +1,11 @@
+# Storage focused resize qualified — 2026-10-27
+
+- Driverbdc460f has real combined5a focused620/1600 mode/focus transitions and stable-category mode/focus proof, actual ComboBox patterns and full original ranked/action/hierarchy/Treemap/file-integrity/normalclose/cleanup PASS. Independent source and allfiveactual120DPIimages review approves bounded geometry/text/focus; warm tint means intended palette fidelity remains unqualified. Exact listed component blobs equal combined5a; no production C++ changed since092 fullDebug127/127.
+- Task4.12 closed for bounded adaptive navigation; existing63 narrowdark/8efwidelight retained. PR26 remains draft onPR18; PR17 andPR22-safeautomation/clientbootstrap dependencies explicit. No wholecomputer/physicaldisplay/release claim.
+- NEXT EXACT ACTION: strict/parser/whitespace and focuseddrift; commit evidence, freshfetch/reconcile and normalpush PR26; root continues separate nativeverification and execution-consent safety diagnosis. Do not run standalone native teardown from this branch.
+
+## Prior checkpoint
+
 # Fast Files — Agent Workstate
 
 ## Storage successor ready for draft publication — 2026-10-27
