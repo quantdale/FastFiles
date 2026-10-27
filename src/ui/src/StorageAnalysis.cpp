@@ -1,3 +1,4 @@
+#include "OwnedMessageDrain.h"
 #include "StorageAnalysis.h"
 
 #include "NativeChrome.h"
@@ -471,10 +472,9 @@ LRESULT CALLBACK StorageAnalysis::ListSubclassProc(HWND hwnd, UINT message, WPAR
         if (self->listUiaState_) self->listUiaState_->alive = false;
         self->listProvider_.Reset();
         self->listUiaState_.reset();
-        MSG pending{};
-        while (PeekMessageW(&pending, hwnd, kStorageListActivate, kStorageListActivate, PM_REMOVE)) {
+        DrainOwnedMessages(hwnd, kStorageListActivate, [](const MSG& pending) {
             delete reinterpret_cast<ListAction*>(pending.lParam);
-        }
+        });
         RemoveWindowSubclass(hwnd, ListSubclassProc, subclassId);
     }
     return DefSubclassProc(hwnd, message, wParam, lParam);
@@ -692,10 +692,9 @@ StorageAnalysis::~StorageAnalysis() {
     listProvider_.Reset();
     listUiaState_.reset();
     if (list_ != nullptr) {
-        MSG pending{};
-        while (PeekMessageW(&pending, list_, kStorageListActivate, kStorageListActivate, PM_REMOVE)) {
+        DrainOwnedMessages(list_, kStorageListActivate, [](const MSG& pending) {
             delete reinterpret_cast<ListAction*>(pending.lParam);
-        }
+        });
         RemoveWindowSubclass(list_, ListSubclassProc, kStorageListSubclass);
     }
     for (HWND control : {list_, overview_}) {
@@ -1690,10 +1689,9 @@ void StorageAnalysis::StopRanking() {
     rankingWorkCv_.notify_all();
     if (rankingWorker_.joinable()) rankingWorker_.join();
     if (owner_ != nullptr) {
-        MSG message{};
-        while (PeekMessageW(&message, owner_, WM_APP_STORAGE_RANKING, WM_APP_STORAGE_RANKING, PM_REMOVE)) {
+        DrainOwnedMessages(owner_, WM_APP_STORAGE_RANKING, [](const MSG& message) {
             delete reinterpret_cast<RankingCompletion*>(message.lParam);
-        }
+        });
     }
 }
 

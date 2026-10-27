@@ -1664,6 +1664,18 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "preserve-ui-quit-through-message-drains",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-ui-quit-through-message-drains/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

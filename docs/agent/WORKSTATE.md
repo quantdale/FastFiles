@@ -1,3 +1,12 @@
+# Quit-preservation primary frontier — 2026-10-27
+
+- Root resumed worker-owned worktree after session agents ended. Fresh fetch; clean verified base275172a currentPR26; no existing tracked worker edits, only newchangeYAML. Root now sole writer here. Existing dirty original checkout/sharedPRs preserved.
+- Combined5a restoredHomeclose fails afterWM_DESTROYproviderrelease, beforemessageloopexit. Actual same-thread message-only regression now demonstrates source defect: quiet posted queue legacy drain consumes WM_QUIT as payload and losesexit; eightassertionsFAIL, fixedhelperPASS. Earlier unrelated-postedwork maskedvirtualquit, and initialtestcheckedquittooearly; intermediatefailures/maskedpasses retained ignored, notproductproof. Original failingprocessconsumption remainsunobserved.
+- OwnedMessageDrain.h preservesquit/exitcode afterdrain; Search, Storagelist/destructor/ranking andFileOperationsconflictcleanup now sharehelper. Existing lifetime/producerlocks untouched; noinput/foreignprocess/globalsettings. FocusedtargetbuildPASS; actuallegacyRED/fixedGREEN. FullUIbuild67/67PASS, focusedCTest1/1PASS0.06s, strict93/93/driftPASS; rootsource review, independentreviewunavailable aftersessionresourcesended; currentDebugCTestUIAfeature separatelyrunning, noactualFFsessions.
+- NEXT EXACT ACTION: finishwarningcleanUIbuild, focusedCTest+strict/drift/lifecycle, independentreviewifavailable, commitlogicalmilestone. RootintegrateswithPR22safecombined/clientrepair; rebuild andactualclosequalification withshutdownphaseevidence. Do notclaimoriginalfailurecause/wholeproductreadyfromsourcefixturealone.
+
+## Inherited storage checkpoint
+
 # Storage focused resize qualified — 2026-10-27
 
 - Driverbdc460f has real combined5a focused620/1600 mode/focus transitions and stable-category mode/focus proof, actual ComboBox patterns and full original ranked/action/hierarchy/Treemap/file-integrity/normalclose/cleanup PASS. Independent source and allfiveactual120DPIimages review approves bounded geometry/text/focus; warm tint means intended palette fidelity remains unqualified. Exact listed component blobs equal combined5a; no production C++ changed since092 fullDebug127/127.

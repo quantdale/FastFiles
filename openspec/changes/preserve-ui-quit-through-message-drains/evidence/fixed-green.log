@@ -1,0 +1,48 @@
+ok: own message-only windows created
+ok: queue first owned payload
+ok: queue unrelated window payload
+ok: queue unrelated message
+ok: queue second owned payload
+ok: only expected window message reaches payload disposal
+ok: quit or unrelated data never reaches payload disposal
+ok: only expected window message reaches payload disposal
+ok: quit or unrelated data never reaches payload disposal
+ok: both owned payloads disposed exactly once
+ok: unrelated window payload remains queued
+ok: unrelated message remains queued
+ok: outer loop retains original quit and exit code
+ok: fixture leaves message queue empty
+ok: queue first owned payload
+ok: queue unrelated window payload
+ok: queue unrelated message
+ok: queue second owned payload
+ok: only expected window message reaches payload disposal
+ok: quit or unrelated data never reaches payload disposal
+ok: only expected window message reaches payload disposal
+ok: quit or unrelated data never reaches payload disposal
+ok: both owned payloads disposed exactly once
+ok: unrelated window payload remains queued
+ok: unrelated message remains queued
+ok: outer loop retains original quit and exit code
+ok: fixture leaves message queue empty
+ok: queue first owned payload
+ok: queue second owned payload
+ok: only expected window message reaches payload disposal
+ok: quit or unrelated data never reaches payload disposal
+ok: only expected window message reaches payload disposal
+ok: quit or unrelated data never reaches payload disposal
+ok: both owned payloads disposed exactly once
+ok: outer loop retains original quit and exit code
+ok: fixture leaves message queue empty
+ok: queue first owned payload
+ok: queue second owned payload
+ok: only expected window message reaches payload disposal
+ok: quit or unrelated data never reaches payload disposal
+ok: only expected window message reaches payload disposal
+ok: quit or unrelated data never reaches payload disposal
+ok: both owned payloads disposed exactly once
+ok: outer loop retains original quit and exit code
+ok: fixture leaves message queue empty
+ok: real outer GetMessage receives preserved quit
+ok: target normal destruction
+ok: other normal destruction

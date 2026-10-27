@@ -1,3 +1,4 @@
+#include "OwnedMessageDrain.h"
 #include "FileOperations.h"
 
 #include <algorithm>
@@ -219,9 +220,7 @@ void FileOperations::Stop() {
     }
     stopping_ = true;
     if (eventWindow_ != nullptr) {
-        MSG pending{};
-        while (PeekMessageW(&pending, eventWindow_, WM_APP_FILE_OPERATION_CONFLICT,
-                            WM_APP_FILE_OPERATION_CONFLICT, PM_REMOVE)) {
+        DrainOwnedMessages(eventWindow_, WM_APP_FILE_OPERATION_CONFLICT, [](const MSG& pending) {
             // The posted heap shared_ptr owns the message's reference; release
             // it (and answer Cancel) so a later dispatch cannot see it.
             std::unique_ptr<FileOperationConflictQuestionRef> posted(
@@ -234,7 +233,7 @@ void FileOperations::Stop() {
                 }
                 (*posted)->answeredCondition.notify_one();
             }
-        }
+        });
     }
     if (workerThreadId_ != 0) PostThreadMessageW(workerThreadId_, WM_QUIT, 0, 0);
     if (worker_.joinable()) worker_.join();
