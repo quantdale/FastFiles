@@ -1,3 +1,12 @@
+# Native verification publication and Debug certification — 2026-10-27
+
+- Root owns this main-based branch, immutable implementation34ae727 atop3fae3cb. Common/runner/contract exact blobs match combined5a; no product C++ delta. Standard rawWin32 fixture coldPASS4.44s, portable18checks/full driver and actual runner20checks PASS; independent source reviewers approve.
+- Actual combined9c genuine operation events restored; sixownedcasesPASS then512cancellationFAILcopycompletebeforeaccepteddispatch. Focused1024twoPASS stops259, exacthashes/sentinel/cleanup. Conflict7PASS with realCheckBoxToggle Off/On/noWin32fallback; retainedPNGemptycheckbox visuallyUNQUALIFIED. Combined5a actualComboBoxpatterns+focusedresize/fullStoragejourneyPASS. Independent actualreceipts/image review approves precise scope. Captureswarmtinted; palette fidelity/physicalmatrix remainunqualified.
+- All5-gated ordinary E2E5a7/8FAIL restoredHomeclose10s, othercasesPASS. LastWM_DESTROYprovidersrelease/end, nomessageloopexit; source childPeek drains canconsumeWM_QUIT, actualconsumptionunproven. Separate quit-preservation worktree/worker owns deterministicred/green andsourcefix; no waiver/repeatedblindappattempt.
+- NEXT EXACT ACTION: commit this exact evidence checkpoint, full isolatedDebugbuild/selectedsuite excluding onlyrestrictedreaper, strict/drift/lifecycle; close3.4onlyaftercurrentresults, freshfetch/normalpush/newdraftPRonmain. No product-complete/native8of8/checkboxpainting/Explorerdrop/privileged/hostedpass claim. Root integrates quit-preservation separately; do not editworkerworktree.
+
+## Prior checkpoints
+
 # Fast Files — Agent Workstate
 
 ## Current isolated frontier — native UI verification fidelity — 2026-10-27

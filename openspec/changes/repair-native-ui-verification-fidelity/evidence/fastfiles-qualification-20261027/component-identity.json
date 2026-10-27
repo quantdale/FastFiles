@@ -1,0 +1,23 @@
+{
+  "featureImplementation": "34ae7271fb380612f0d788a2c78e6e8c33dd208a",
+  "combinedNativeSource": "5a0ccbb",
+  "scope": "Exact verification component blobs, not whole executable equivalence",
+  "components": [
+    {
+      "path": "verify/uia-driver/internal/Common.ps1",
+      "featureBlob": "16b69ac54fc36b58667a17825f7e28cc5beab54f",
+      "combinedBlob": "16b69ac54fc36b58667a17825f7e28cc5beab54f"
+    },
+    {
+      "path": "verify/e2e/Run-FastFilesE2E.ps1",
+      "featureBlob": "d3f4d8191eb6a1e50189dc783cb5d272bda26325",
+      "combinedBlob": "d3f4d8191eb6a1e50189dc783cb5d272bda26325"
+    },
+    {
+      "path": "tests/e2e/Test-E2EProvenance.ps1",
+      "featureBlob": "e63e3564478e03dd2ef6f396c4dc8cab6134b1c3",
+      "combinedBlob": "e63e3564478e03dd2ef6f396c4dc8cab6134b1c3"
+    }
+  ],
+  "captureHelperScope": "Input.ps1 includes additional safe-foreground changes in combined source; no whole-file equivalence asserted. Independently reviewed returned-TID correction is identical."
+}
