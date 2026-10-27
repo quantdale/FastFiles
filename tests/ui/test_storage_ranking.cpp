@@ -15,6 +15,22 @@ ffprotocol::SnapshotDirectoryEntry File(std::wstring name, uint64_t size) {
 }
 
 int main() {
+    for (const float width : {224.0f, 240.0f, 276.0f, 586.0f, 1059.0f}) {
+        const auto columns = ffui::ComputeStorageRankingColumnWidths(width);
+        Check(columns.name >= 96.0f && columns.size >= 64.0f && columns.location >= 64.0f &&
+              std::abs(columns.name + columns.size + columns.location - width) < 0.01f,
+              "name, size and Location fit together at narrow, normal and wide widths");
+        for (const float scale : {1.0f, 1.25f, 2.0f}) {
+            const int physicalWidth = static_cast<int>(std::lround(width * scale));
+            const int name = static_cast<int>(std::lround(columns.name * scale));
+            const int size = static_cast<int>(std::lround(columns.size * scale));
+            Check(physicalWidth - name - size >= static_cast<int>(std::lround(64.0f * scale)),
+                  "physical Location remains readable after96/120/192DPI rounding");
+        }
+    }
+    const auto invalid = ffui::ComputeStorageRankingColumnWidths(std::numeric_limits<float>::quiet_NaN());
+    Check(invalid.name == 96.0f && invalid.size == 64.0f && invalid.location == 64.0f,
+          "unavailable or invalid geometry retains finite readable minima");
     const auto scope = ffui::NormalizeStorageRankingScope(L"\\\\?\\c:/Root/");
     Check(scope && scope->indexedSupported && scope->matchPath == L"c:\\Root", "extended drive and trailing separator normalize for matching only");
     Check(ffui::NormalizeStorageRankingScope(L"C:\\")->matchPath == L"C:\\", "absolute volume root keeps its separator");
@@ -94,8 +110,25 @@ int main() {
           !ffui::StorageRankingCompletionMatches(2, 2, L"C:\\Root", *scope, false, true) &&
           !ffui::StorageRankingCompletionMatches(2, 2, L"C:\\Root", *scope, true, false),
           "actual completion gate rejects old generation, changed scope, hidden and replaced presentation");
-    Check(ffui::StorageRankingStatusText(2, false, false).find(L"partial coverage") != std::wstring::npos &&
-          ffui::StorageRankingStatusText(2, true, false).find(L"coverage unverified") != std::wstring::npos,
+    Check(ffui::StorageRankingStatusText(2, false, false).find(L"Partial coverage") == 0 &&
+          ffui::StorageRankingStatusText(2, true, false).find(L"Coverage unverified") == 0,
           "both data routes describe their actual coverage limits");
+    const auto completedScope = ffui::NormalizeStorageRankingScope(L"C:\\RankScope");
+    Check(completedScope.has_value(), "completed display scope fixture is absolute");
+    if (completedScope) {
+        const std::optional<ffui::StorageRankingDisplayIdentity> display{{*completedScope, 7, false}};
+        Check(ffui::StorageRankingDisplayCanRefresh(display, L"c:/rankscope/", 7, true, true),
+              "same normalized completed display survives a replacement request generation");
+        Check(!ffui::StorageRankingDisplayCanRefresh(display, L"C:\\RankScope-other", 7, true, true) &&
+              !ffui::StorageRankingDisplayCanRefresh(display, L"C:\\RankScope\\Nested", 7, true, true) &&
+              !ffui::StorageRankingDisplayCanRefresh(display, L"C:\\RankScope", 8, true, true) &&
+              !ffui::StorageRankingDisplayCanRefresh(display, L"C:\\RankScope", 7, false, true) &&
+              !ffui::StorageRankingDisplayCanRefresh(display, L"C:\\RankScope", 7, true, false) &&
+              !ffui::StorageRankingDisplayCanRefresh(std::nullopt, L"C:\\RankScope", 7, true, true),
+              "scope source hidden mode/category and absent-display transitions invalidate retained rows");
+        Check(std::wstring(ffui::StorageRankingRefreshingStatusText(false)).starts_with(L"Partial coverage") &&
+              std::wstring(ffui::StorageRankingRefreshingStatusText(true)).starts_with(L"Coverage unverified"),
+              "previous known rows retain explicit coverage limits during refresh");
+    }
     return FailureCount() == 0 ? 0 : 1;
 }

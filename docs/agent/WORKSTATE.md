@@ -1,5 +1,16 @@
 # Fast Files — Agent Workstate
 
+## Storage successor composition — 2026-10-27
+
+- Root sole writer storage-ranking-20261027 / feat/storage-intelligence-navigation-20261027; preserved original recursive-storage branch1d37c1e. Successor base is current PR18 product981a9ba, with five original ranking commits, reviewed Treemap66/c3, responsive columns/alpha and compact/coherent-refresh follow-ups. No unrelated PR14–17/19–25 commits duplicated. No shared merge/release.
+- Eight source/test/driver files copied as exact Git blobs from combined1041081, not inferred equivalent. New narrow/refresh code independently reviewed at180ea28/d77fcfd, root combined diagnostic43/43 and focused4/4 PASS. Normal-light/wide-partial native d77 PASS. Narrow104 full journey nowPASS with normalclose/cleanup, actualcompactranking/partialTreemapframesviewed; current-source storage broader suite and actual narrow full visual closure pending. Do not mark4.9/4.10/4.12 complete from source alone.
+- Production root search folder correctness depends on PR17, and further native automation uses PR22 registered-window cleanup. The combined validation source includes these dependencies plus other unmerged PRs; its app results are not standalone branch certification. This branch has no Restore/cancellation/shutdown changes. Native UI is not run here.
+- NEXT EXACT ACTION: compile focused source/tests and verify exact Storage blob equality; incorporate actual final combined receipt/images with explicit dependencies, prepare reviewable draft successor, fetch/push normally and inspect hosted result once. Root integration continues safe native/current full certification independently. Original dirty checkout preserved.
+
+## Inherited Storage history
+
+# Fast Files — Agent Workstate
+
 ## Isolated Treemap partial-intelligence checkpoint — 2026-10-27
 
 - Sole writer treemap-intelligence-20261027 / fix/treemap-partial-intelligence-20261027, verified parent26cc17f5f063b4479cb847fe5c0aaed11e14ee03. Root owns integration/publication; other worktrees, original dirty state, shared PRs/main remain untouched. No native UI, process operation, privileged action, full build or benchmark executed here.

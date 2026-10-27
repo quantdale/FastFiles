@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <map>
 #include <optional>
@@ -14,6 +15,22 @@
 namespace ffui {
 
 inline constexpr size_t kStorageRankingLimit = 100;
+
+struct StorageRankingColumnWidths {
+    float name = 96.0f;
+    float size = 64.0f;
+    float location = 64.0f;
+};
+
+// Keep the three identifying columns visible together on usable narrow panes.
+// Smaller panes retain readable minima and native horizontal scrolling.
+inline StorageRankingColumnWidths ComputeStorageRankingColumnWidths(float availableDip) noexcept {
+    if (!std::isfinite(availableDip)) availableDip = 0.0f;
+    availableDip = (std::max)(0.0f, availableDip);
+    const float name = std::clamp(availableDip * 0.38f, 96.0f, 220.0f);
+    const float size = std::clamp(availableDip * 0.18f, 64.0f, 100.0f);
+    return {name, size, (std::max)(64.0f, availableDip - name - size)};
+}
 
 struct StorageRankingScope {
     std::wstring matchPath;
@@ -48,6 +65,29 @@ inline std::optional<StorageRankingScope> NormalizeStorageRankingScope(std::wstr
     if (unc && components < 2) return std::nullopt;
     while (normalized.size() > 3 && normalized.back() == L'\\') normalized.pop_back();
     return StorageRankingScope{std::move(normalized), drive};
+}
+
+struct StorageRankingDisplayIdentity {
+    StorageRankingScope scope;
+    uint64_t sourceEpoch = 0;
+    bool indexed = false;
+};
+
+// Display identity is independent of a replacement request's generation.
+// Only a snapshot refresh can retain coherent rows; callers invalidate this
+// identity on mode/category/scope/source changes and Hide.
+inline bool StorageRankingDisplayCanRefresh(const std::optional<StorageRankingDisplayIdentity>& display,
+        std::wstring_view currentPath, uint64_t sourceEpoch, bool visible, bool recursive) {
+    if (!display || !visible || !recursive || display->sourceEpoch != sourceEpoch) return false;
+    const auto scope = NormalizeStorageRankingScope(currentPath);
+    return scope && scope->matchPath.size() == display->scope.matchPath.size() &&
+        CompareStringOrdinal(scope->matchPath.c_str(), static_cast<int>(scope->matchPath.size()),
+            display->scope.matchPath.c_str(), static_cast<int>(display->scope.matchPath.size()), TRUE) == CSTR_EQUAL;
+}
+
+inline const wchar_t* StorageRankingRefreshingStatusText(bool indexed) noexcept {
+    return indexed ? L"Coverage unverified — refreshing previous known files…"
+                   : L"Partial coverage — refreshing previous known files…";
 }
 
 inline bool StorageRankingContains(const StorageRankingScope& scope, std::wstring_view folder) {
@@ -130,8 +170,7 @@ inline ffsearch::SearchResponse RankKnownStorageSnapshot(
 }
 
 inline std::wstring StorageRankingStatusText(size_t count, bool indexed, bool truncated) {
-    return (indexed ? L"Indexed known files: " : L"Browsed/published files: ") + std::to_wstring(count) +
-        (indexed ? L" — coverage unverified" : L" — partial coverage") +
+    return (indexed ? L"Coverage unverified — indexed files: " : L"Partial coverage — known files: ") + std::to_wstring(count) +
         L"; subfolders included; " + (truncated ? L"top 100 logical sizes" : L"up to 100 logical sizes") +
         L"; sorting affects displayed rows";
 }

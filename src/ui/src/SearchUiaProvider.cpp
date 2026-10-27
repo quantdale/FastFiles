@@ -1,5 +1,6 @@
 #include "SearchUiaProvider.h"
 #include "UiaHostQuery.h"
+#include "ffprotocol/Diagnostics.h"
 
 #include "ffui/SearchResultMetadata.h" // indexed-search-allocated-size D9: shared Size-on-Disk wording
 #include <algorithm>
@@ -13,6 +14,26 @@ namespace ffui {
 namespace {
 
 constexpr HRESULT kElementNotAvailable = UIA_E_ELEMENTNOTAVAILABLE;
+
+// original-vision-journey-recovery 4.9: opt-in rejection metadata distinguishes
+// a retired row from an action-dispatch failure. No names, paths or content.
+void TraceResultRejection(const wchar_t* reason, size_t index, uint64_t expected,
+                          uint64_t actual, size_t count) noexcept {
+    wchar_t enabled[8]{};
+    if (GetEnvironmentVariableW(L"FASTFILES_UIA_DIAGNOSTICS", enabled, 8) != 1 || enabled[0] != L'1') return;
+    try {
+        ffprotocol::DiagnosticEvent event{};
+        event.category = ffprotocol::DiagnosticCategory::UiInteraction;
+        event.code = ffprotocol::DiagnosticCode::FFDIAG_UI_RESULT_SUPERSEDED;
+        event.state = L"uia-result=" + std::wstring(reason) + L";index=" + std::to_wstring(index) +
+            L";expected=" + std::to_wstring(expected) + L";actual=" + std::to_wstring(actual);
+        event.itemCount = count;
+        event.errorCode = static_cast<uint32_t>(UIA_E_ELEMENTNOTAVAILABLE);
+        event.outcome = L"rejected";
+        ffprotocol::AppendDiagnostic(event, ffprotocol::DiagnosticFormat::Json);
+    } catch (...) { } // Observation must never change the rejection result.
+}
+
 
 SAFEARRAY* MakeIntArray(const std::vector<int>& values) {
     if (values.empty()) return nullptr;
@@ -535,14 +556,19 @@ SearchResultUiaProvider::SearchResultUiaProvider(SearchUiaProvider* owner, size_
 
 bool SearchResultUiaProvider::Resolve(UiaSearchResultInfo& info) const {
     if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+        TraceResultRejection(L"owner-unavailable", index_, idHash_, 0, 0);
         return false;
     }
     UiaSurface* surface = owner_->Surface();
-    if (index_ >= surface->UiaSearchResultCount()) {
+    const size_t count = surface->UiaSearchResultCount();
+    if (index_ >= count) {
+        TraceResultRejection(L"outside-current-count", index_, idHash_, 0, count);
         return false;
     }
     info = surface->UiaSearchResultInfoOf(index_);
-    return SemanticListItemIdentity(info) == idHash_;
+    const uint64_t actual = SemanticListItemIdentity(info);
+    if (actual != idHash_) TraceResultRejection(L"identity-mismatch", index_, idHash_, actual, count);
+    return actual == idHash_;
 }
 
 STDMETHODIMP SearchResultUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept {
@@ -722,7 +748,10 @@ STDMETHODIMP SearchResultUiaProvider::Select() noexcept {
     if (!Resolve(info)) {
         return kElementNotAvailable;
     }
-    if (!owner_->Surface()->UiaListDispatchAction(index_, idHash_, 0)) return kElementNotAvailable;
+    if (!owner_->Surface()->UiaListDispatchAction(index_, idHash_, 0)) {
+        TraceResultRejection(L"select-dispatch", index_, idHash_, 0, 0);
+        return kElementNotAvailable;
+    }
     return S_OK;
 }
 

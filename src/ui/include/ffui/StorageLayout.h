@@ -19,6 +19,9 @@ struct StorageSurfaceLayout {
     ShellLayoutRect status;
     ShellLayoutRect list;
     ShellLayoutRect overview;
+    ShellLayoutRect viewLabel;
+    ShellLayoutRect viewSelector;
+    bool compactModes = false;
     int buttonRows = 0;
 };
 
@@ -48,7 +51,26 @@ inline StorageSurfaceLayout ComputeStorageSurfaceLayout(const ShellLayoutRect& s
     const float left = surfaceRect.left + kLeftInset;
     const bool fullToolbar = width >= kFullToolbarWidth;
 
-    if (fullToolbar) {
+    // original-vision-journey-recovery 4.12: at narrow widths expose the same
+    // six modes through one native selector, leaving height for actual files.
+    result.compactModes = innerWidth < 370.0f;
+    if (result.compactModes) {
+        const float navigationGap = (std::min)(kGap, innerWidth);
+        const float halfWidth = (innerWidth - navigationGap) / 2.0f;
+        result.buttons[0] = {left, top, left + halfWidth, top + kButtonHeight};
+        result.buttons[1] = {left + halfWidth + navigationGap, top,
+                             left + innerWidth, top + kButtonHeight};
+        result.buttonRows = 1;
+        const float viewTop = top + kButtonHeight + kGap;
+        result.viewLabel = {left, viewTop, (std::min)(left + 40.0f, left + innerWidth),
+                            viewTop + kButtonHeight};
+        result.viewSelector = {(std::min)(result.viewLabel.right + kGap, left + innerWidth), viewTop,
+                               left + innerWidth, viewTop + kButtonHeight};
+        const float categoryTop = viewTop + kButtonHeight + kGap;
+        result.categoryFilter = {left, categoryTop, left + innerWidth, categoryTop + kButtonHeight};
+        result.status = {left, result.categoryFilter.bottom + kGap,
+                         left + innerWidth, result.categoryFilter.bottom + kGap + 20.0f};
+    } else if (fullToolbar) {
         constexpr std::array<float, 8> kButtonLefts = {12.0f, 96.0f, 180.0f, 284.0f,
                                                         398.0f, 522.0f, 636.0f, 750.0f};
         for (size_t index = 0; index < kButtonWidths.size(); ++index) {
@@ -86,14 +108,12 @@ inline StorageSurfaceLayout ComputeStorageSurfaceLayout(const ShellLayoutRect& s
 
         const float secondaryTop = top + static_cast<float>(result.buttonRows) *
                                          (kButtonHeight + kGap);
-        const float secondaryWidth = (std::max)(0.0f, innerWidth - kCategoryStatusGap);
-        const float categoryWidth = secondaryWidth / 2.0f;
-        result.categoryFilter = {left, secondaryTop, left + categoryWidth, secondaryTop + kButtonHeight};
-        result.status = {left + categoryWidth + kCategoryStatusGap, secondaryTop + 4.0f,
-                         surfaceRect.right - kRightInset, secondaryTop + 24.0f};
+        result.categoryFilter = {left, secondaryTop, left + innerWidth, secondaryTop + kButtonHeight};
+        result.status = {left, result.categoryFilter.bottom + kGap,
+                         left + innerWidth, result.categoryFilter.bottom + kGap + 20.0f};
     }
 
-    const float listTop = result.categoryFilter.bottom + 8.0f;
+    const float listTop = (std::max)(result.categoryFilter.bottom, result.status.bottom) + 8.0f;
     const float listLeft = surfaceRect.left + kLeftInset;
     const float listRight = (std::max)(listLeft, surfaceRect.right - kRightInset);
     const float listBottom = (std::max)(listTop, surfaceRect.bottom - 12.0f);

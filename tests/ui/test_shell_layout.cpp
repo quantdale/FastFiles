@@ -79,10 +79,31 @@ void TestHiddenDetailsAndAlternateSurface() {
           "compact Storage toolbar wraps to label-fitting rows instead of clipping radio labels (V3-06)");
     Check(storage.categoryFilter.top > storage.buttons.back().bottom,
           "narrow standard Storage surfaces wrap secondary controls below mode buttons");
-    Check(NearlyEqual(storage.list.top, storage.categoryFilter.bottom + 8.0f) &&
+    Check(NearlyEqual(storage.list.top, storage.status.bottom + 8.0f) &&
               storage.list.top >= storage.categoryFilter.bottom &&
               storage.list.bottom >= storage.list.top,
           "Storage data surface begins below the two-row toolbar with its documented gap");
+
+    for (const float scale : {1.0f, 1.25f, 2.0f}) {
+        const auto compact = ffui::ComputeStorageSurfaceLayout({220.0f, 100.0f, 480.0f, 620.0f});
+        Check(compact.compactModes && compact.buttonRows == 1 && compact.list.top < 280.0f,
+              "narrow Storage leaves content height instead of stacking eight buttons");
+        Check(compact.buttons[0].right <= compact.buttons[1].left &&
+                  compact.viewLabel.right < compact.viewSelector.left && compact.viewSelector.Width() >= 160.0f &&
+                  compact.viewSelector.bottom <= compact.categoryFilter.top &&
+                  compact.categoryFilter.bottom < compact.status.top && compact.status.bottom < compact.list.top,
+              "native selector navigation filter coverage and data never overlap at supported DPI");
+        Check(std::lround(compact.status.Width() * scale) >= std::lround(236.0f * scale),
+              "narrow coverage uses the whole content row in physical pixels");
+    }
+
+    for (const float width : {0.0f, 24.0f, 100.0f, 260.0f, 393.0f}) {
+        const auto compact = ffui::ComputeStorageSurfaceLayout({220.0f, 100.0f, 220.0f + width, 620.0f});
+        Check(compact.compactModes && compact.viewSelector.Width() >= 0.0f && compact.buttons[0].Width() >= 0.0f &&
+                  compact.buttons[1].Width() >= 0.0f && compact.buttons[0].right <= compact.buttons[1].left &&
+                  compact.buttons[1].right <= 220.0f + (std::max)(12.0f, width - 12.0f),
+              "even below supported minimum widths compact controls have bounded nonnegative rectangles");
+    }
 
     const auto search = ffui::ComputeSearchSurfaceLayout(hidden.contentRect);
     Check(search.query.left >= hidden.contentRect.left &&

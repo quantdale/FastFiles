@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path,
-    [Parameter(Mandatory)][string]$ArtifactsDir
+    [Parameter(Mandatory)][string]$ArtifactsDir,
+    [switch]$PartialDescendant,
+    [ValidateSet('System','Light','Dark')][string]$Theme='System',
+    [ValidateSet(0,620,1008,1600)][int]$WindowWidth=0
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -41,6 +44,40 @@ function Command([string]$Query,[string]$Name,[string]$Id) {
     [void]$observations.Add(@{commandId=$Id;result=$result})
 }
 function Mode([string]$Name) {
+    $selector=Find-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -AutomationId '7213' -ClassName ComboBox -ProcessId $ctx.Launched.Id
+    if($selector -and -not (Get-UiaElementProperty -Driver $ctx.Driver -Element $selector -Name IsOffscreen)) {
+        $modes=@('Overview','Drill Down','Largest Folders','Largest Files','By Category','Treemap')
+        $index=[Array]::IndexOf($modes,$Name)
+        Check ($index -ge 0) 'Unknown native Storage view.'
+        $null=Set-UiaForeground -Driver $ctx.Driver -Element $ctx.Main
+        $bounds=Get-UiaElementProperty -Driver $ctx.Driver -Element $selector -Name BoundingRectangle
+        Check ($bounds -and $bounds.width -gt 0 -and $bounds.height -gt 0) 'Native view selector has no reachable bounds.'
+        $focusInput=Send-UiaMouseInput -Driver $ctx.Driver -X ([int]($bounds.x+$bounds.width/2)) -Y ([int]($bounds.y+$bounds.height/2)) -Button Left -Action Click
+        Check $focusInput.ok 'Real native selector focus input rejected.'
+        $handle=[IntPtr]$selector.Current.NativeWindowHandle
+        [uint32]$ownerPid=0
+        $thread=[FfNativeInput]::GetWindowThreadProcessId($handle,[ref]$ownerPid)
+        Check ($ownerPid -eq $ctx.Launched.Id) 'Native selector no longer belongs to the owned process.'
+        $focusSettled=Wait-E2ECondition -TimeoutMs 2500 -Description 'native selector processes real focus input' -Condition {
+            $probe=[FfNativeInput+GUITHREADINFO]::new()
+            $probe.cbSize=[Runtime.InteropServices.Marshal]::SizeOf([type][FfNativeInput+GUITHREADINFO])
+            if([FfNativeInput]::GetGUIThreadInfo($thread,[ref]$probe) -and $probe.hwndFocus -eq $handle) { return @{nativeFocus=$probe.hwndFocus.ToInt64()} }; return $false
+        }
+        Check $focusSettled.Pass 'Actual native selector did not acquire keyboard focus after accepted pointer input.'
+        $keys='{HOME}'+('{DOWN}'*$index)+'{ENTER}'
+        $input=Send-UiaInput -Driver $ctx.Driver -Keys $keys
+        Check $input.ok 'Native view selector keyboard input rejected.'
+        $identity=Get-UiaElementIdentity -Driver $ctx.Driver -Element $selector
+        $handle=[IntPtr]$selector.Current.NativeWindowHandle
+        Check ($handle -ne [IntPtr]::Zero -and $identity.ProcessId -eq $ctx.Launched.Id -and $identity.AutomationId -eq '7213') 'Cannot bind view selection observation to owned native combo.'
+        $settled=Wait-E2ECondition -TimeoutMs 2500 -Description 'native selector processes accepted keyboard input' -Condition {
+            if([FfButtonDefault]::SendMessage($handle,0x0147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -eq $index) { return $true }; return $false
+        }
+        $selected=[FfButtonDefault]::SendMessage($handle,0x0147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64()
+        [void]$observations.Add(@{id='storage-view';name=$Name;route='real pointer focus then native keyboard';focusInput=$focusInput;nativeFocus=$focusSettled.Value.nativeFocus;focusSettled=$focusSettled;input=$input;selectedIndex=$selected;expectedIndex=$index;settled=$settled;identity=$identity})
+        Check $settled.Pass ('Actual native view selector retained item '+$selected+' instead of '+$index)
+        return
+    }
     $button=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -Name $Name -ProcessId $ctx.Launched.Id -TimeoutMs 4000
     Check ([bool]$button) ('Storage mode missing: '+$Name)
     $invoked=& $e2e {param($c,$b) Invoke-E2EButton -Context $c -Element $b} $ctx $button
@@ -59,18 +96,53 @@ function RowEvidence($Row) {
         folder=[string](Get-UiaElementProperty -Driver $ctx.Driver -Element $Row -Name HelpText)
         description=[string](Get-UiaElementProperty -Driver $ctx.Driver -Element $Row -Name FullDescription)
         identity=(Get-UiaElementIdentity -Driver $ctx.Driver -Element $Row)
+        runtimeId=@($Row.GetRuntimeId())
         bounds=(Get-UiaElementProperty -Driver $ctx.Driver -Element $Row -Name BoundingRectangle)
     }
 }
-function Capture([string]$Id) {
+function ExactRankedRow([string]$Folder,[string]$Name) {
+    return Wait-E2ECondition -TimeoutMs 5000 -Description 'fresh exact ranked file' -Condition {
+        foreach($row in @(Rows)) {
+            $identity=Get-UiaElementIdentity -Driver $ctx.Driver -Element $row
+            if($identity.ProcessId -eq $ctx.Launched.Id -and $identity.Name -eq $Name -and
+                [string]::Equals([string](Get-UiaElementProperty -Driver $ctx.Driver -Element $row -Name HelpText),$Folder,[StringComparison]::OrdinalIgnoreCase)) { return $row }
+        }
+        return $false
+    }
+}
+function Capture([string]$Id,[bool]$AssertionPass=$true) {
     Check (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main) 'Screenshot lacks owned foreground.'
-    $shot=Capture-VisualWindow -Run $captureRun -Element $ctx.Main -ScenarioId $Id -AssertionPass $true
+    $shot=Capture-VisualWindow -Run $captureRun -Element $ctx.Main -ScenarioId $Id -AssertionPass $AssertionPass
     Check ($shot.Bounds.Dpi -gt 0) 'Screenshot lacks measured DPI.'
     [void]$captures.Add(@{id=$Id;image=[IO.Path]::GetFileName($shot.Path);sha256=$shot.Hash;bounds=$shot.Bounds})
 }
 try {
-    $ctx=New-UiaScenarioContext -Exe $exe -RepoRoot $repo -ScenarioId recursive-storage -InvocationId ([guid]::NewGuid().ToString('N')) -LogFn {param($m) Write-Host $m}
+    $invocation=[guid]::NewGuid().ToString('N')
+    $sessionRoot=''
+    if($Theme -ne 'System') {
+        $validation=Get-Module UiAutomationValidation
+        $sandbox=& $validation {param($id) New-UiaSessionSandbox -ScenarioId recursive-storage -InvocationId $id} $invocation
+        $sessionRoot=$sandbox.SessionRoot
+        $settingsDir=Join-Path $sessionRoot 'LocalAppData/FastFiles'
+        $null=New-Item -ItemType Directory -Path $settingsDir -Force
+        @{schemaVersion=1;appearance=@{theme=$Theme;density='Compact'}} | ConvertTo-Json -Depth 3 |
+            Set-Content (Join-Path $settingsDir 'settings.json') -Encoding utf8NoBOM
+    }
+    $ctx=New-UiaScenarioContext -Exe $exe -RepoRoot $repo -ScenarioId recursive-storage -InvocationId $invocation -SessionRoot $sessionRoot -LogFn {param($m) Write-Host $m}
     Check ([bool]$ctx -and [bool]$ctx.Main -and $ctx.Ready) 'Owned application context is unavailable.'
+    if($WindowWidth -gt 0) {
+        if(-not ('FfStorageQualificationWindow' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class FfStorageQualificationWindow {
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
+}
+'@
+        }
+        Check ([FfStorageQualificationWindow]::SetWindowPos([IntPtr]$ctx.Main.Current.NativeWindowHandle,[IntPtr]::Zero,40,32,$WindowWidth,780,0x44)) 'Owned window resize failed.'
+    }
     $fixture=New-E2EFixture -SessionFixtureRoot $ctx.FixtureRoot
     # Do not populate Context.Fixtures: the marked session root owns cleanup,
     # never a fixture-name/title guess about an unrelated Explorer window.
@@ -86,6 +158,11 @@ try {
         @{path=(Join-Path $outside 'shared.bin');bytes=4MB;fill=55},
         @{path=(Join-Path $fixture.Root 'ranking-sentinel.txt');bytes=32;fill=66}
     )
+    if($PartialDescendant) {
+        $unbrowsed=Join-Path $nested 'Unbrowsed'
+        $null=New-Item -ItemType Directory -Path $unbrowsed
+        $paths+=@{path=(Join-Path $unbrowsed 'unpublished-largest.bin');bytes=5MB;fill=77}
+    }
     foreach($entry in $paths) {
         $validated=Assert-E2EPathWithinRoot -Root $fixture.Root -Path $entry.path
         $bytes=[byte[]]::new($entry.bytes)
@@ -108,14 +185,17 @@ try {
     Check $ranked.Pass 'Recursive ranking did not expose exactly four scoped known files.'
     $rows=@($ranked.Value)
     $evidence=@($rows | ForEach-Object { RowEvidence $_ })
+    [void]$observations.Add(@{id='ranked-row-observation';rows=$evidence})
+    $evidence | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $artifacts 'ranked-rows.json') -Encoding utf8NoBOM
     Check ($evidence[0].name -eq 'shared.bin' -and [string]::Equals($evidence[0].folder,$nested,[StringComparison]::OrdinalIgnoreCase)) 'Largest nested file did not rank first at its actual location.'
     Check ($evidence[1].name -eq 'deep-only.bin' -and $evidence[2].name -eq 'shared.bin' -and $evidence[3].name -eq 'small.txt') 'Logical-size descending order is incorrect.'
     Check (@($evidence | Where-Object { [string]::Equals($_.folder,$outside,[StringComparison]::OrdinalIgnoreCase) }).Count -eq 0) 'Same-prefix sibling leaked into recursive scope.'
-    Check ($evidence[0].identity.AutomationId -ne $evidence[2].identity.AutomationId) 'Duplicate basenames share action identity.'
+    Check ($evidence[0].runtimeId.Count -gt 0 -and $evidence[2].runtimeId.Count -gt 0 -and
+        ($evidence[0].runtimeId -join ',') -ne ($evidence[2].runtimeId -join ',')) 'Duplicate basenames share runtime action identity.'
     $status=Wait-E2ECondition -TimeoutMs 4000 -Description 'actual partial published source label' -Condition {
         foreach($child in @(Get-UiaChildren -Driver $ctx.Driver -Element $ctx.Main)) {
             $id=Get-UiaElementIdentity -Driver $ctx.Driver -Element $child
-            if($id.ClassName -eq 'Static' -and $id.Name -like 'Browsed/published files: 4*partial coverage*subfolders included*') { return [string]$id.Name }
+            if($id.ClassName -eq 'Static' -and $id.Name -like 'Partial coverage — known files: 4*subfolders included*') { return [string]$id.Name }
         }
         return $false
     }
@@ -129,8 +209,16 @@ try {
     Check ($locationBounds -and $locationBounds.width -gt 0 -and $locationBounds.height -gt 0 -and
         -not (Get-UiaElementProperty -Driver $ctx.Driver -Element $headers[0] -Name IsOffscreen)) 'Ranked Location header is not physically reachable.'
     [void]$observations.Add(@{id='recursive-rank';rows=$evidence;status=$status.Value;scope=$scope;nested=$nested;outside=$outside})
-    $null=Invoke-UiaPattern -Driver $ctx.Driver -Element $rows[0] -PatternName SelectionItem -Method Select
-    Check ([bool](Invoke-UiaPattern -Driver $ctx.Driver -Element $rows[0] -PatternName SelectionItem -Method GetSelection)) 'Largest nested row could not be selected.'
+    $selectionTarget=ExactRankedRow $nested shared.bin
+    Check $selectionTarget.Pass 'The exact nested ranking target is unavailable before selection.'
+    try {
+        $null=Invoke-UiaPattern -Driver $ctx.Driver -Element $selectionTarget.Value -PatternName SelectionItem -Method Select
+    } catch {
+        @{error=$_.Exception.ToString();hresult=$_.Exception.HResult;inner=$(if($_.Exception.InnerException){$_.Exception.InnerException.ToString()});currentRows=@(Rows | ForEach-Object {RowEvidence $_})} |
+            ConvertTo-Json -Depth 12 | Set-Content (Join-Path $artifacts 'selection-rejection.json') -Encoding utf8NoBOM
+        throw
+    }
+    Check ([bool](Invoke-UiaPattern -Driver $ctx.Driver -Element $selectionTarget.Value -PatternName SelectionItem -Method GetSelection)) 'Largest nested row could not be selected.'
     Phase exact-ranked-target
     Command 'copy path' 'Copy Path' item.copy-path
     $target=Join-Path $nested 'shared.bin'
@@ -138,8 +226,14 @@ try {
         [string]::Equals(([string](Get-Clipboard -Raw)).TrimEnd([char[]]([string][char]13+[char]10)),$target,[StringComparison]::OrdinalIgnoreCase)
     }
     Check $copied.Pass 'Copy Path retargeted an immediate or outside duplicate basename.'
+    # Snapshot refresh and palette focus transitions may retire client-held
+    # providers. Reacquire by the original full target, never by row position.
+    $fresh=ExactRankedRow $nested shared.bin
+    Check $fresh.Pass 'Actual nested ranking target is no longer available.'
+    Check ([bool](Invoke-UiaPattern -Driver $ctx.Driver -Element $fresh.Value -PatternName SelectionItem -Method GetSelection)) 'Palette transition lost the actual ranked selection.'
+    [void]$observations.Add(@{id='fresh-ranked-target';row=(RowEvidence $fresh.Value)})
     Capture recursive-largest-files
-    $null=Invoke-UiaPattern -Driver $ctx.Driver -Element $rows[0] -PatternName Invoke -Method Invoke
+    $null=Invoke-UiaPattern -Driver $ctx.Driver -Element $fresh.Value -PatternName Invoke -Method Invoke
     Phase exact-hierarchical-reveal
     $revealed=Wait-E2ECondition -TimeoutMs 10000 -Description 'actual nested hierarchy and selected duplicate' -Condition {
         $validation=Get-Module UiAutomationValidation
@@ -178,8 +272,28 @@ try {
     }
     Check $tiles.Pass 'Treemap lost the actual immediate Nested folder.'
     Check ($tiles.Value.names -notcontains 'deep-only.bin') 'Treemap incorrectly visualizes a flat recursive rank as hierarchical data.'
+    $nestedTile=@($tiles.Value.items | Where-Object { (Get-UiaElementIdentity -Driver $ctx.Driver -Element $_).Name -eq 'Nested' })
+    Check ($nestedTile.Count -eq 1) 'Treemap has an ambiguous Nested tile.'
+    $tileStatus=Wait-E2ECondition -TimeoutMs 10000 -Description 'settled expected logical completeness' -Condition {
+        $state=[string](Get-UiaElementProperty -Driver $ctx.Driver -Element $nestedTile[0] -Name ItemStatus)
+        if($PartialDescendant) { if($state -eq 'Partial') { return @{value=$state} } }
+        elseif([string]::IsNullOrEmpty($state)) { return @{value=$state} }
+        return $false
+    }
+    Check $tileStatus.Pass 'Treemap did not retain the expected complete/partial aggregate state.'
+    $coverage=Wait-E2ECondition -TimeoutMs 4000 -Description 'visible Treemap coverage status' -Condition {
+        foreach($child in @(Get-UiaChildren -Driver $ctx.Driver -Element $ctx.Main)) {
+            $id=Get-UiaElementIdentity -Driver $ctx.Driver -Element $child
+            if($id.ClassName -eq 'Static' -and $id.Name -eq 'Known data only — coverage may be partial; logical sizes shown.' -and
+                -not (Get-UiaElementProperty -Driver $ctx.Driver -Element $child -Name IsOffscreen)) { return $id.Name }
+        }
+        return $false
+    }
+    Check $coverage.Pass 'Treemap coverage status is not visibly available.'
+    $windowBounds=Get-UiaElementProperty -Driver $ctx.Driver -Element $ctx.Main -Name BoundingRectangle
+    Check ([FfNativeInput]::MouseMove($windowBounds.x+30,$windowBounds.y+18)) 'Pointer-away input was rejected.'
     Capture hierarchical-treemap
-    [void]$observations.Add(@{id='hierarchical-treemap';tileNames=$tiles.Value.names})
+    [void]$observations.Add(@{id='hierarchical-treemap';tileNames=$tiles.Value.names;itemStatus=$tileStatus.Value.value;coverage=$coverage.Value;pointerAway=$true;partialDescendantRequested=[bool]$PartialDescendant})
     Phase unchanged-files
     foreach($entry in $paths) { Check ((Test-Path -LiteralPath $entry.path -PathType Leaf) -and (Hash $entry.path) -eq $entry.hash) ('Fixture content changed: '+$entry.path) }
     [void]$observations.Add(@{id='content-integrity';files=@($paths);allNamesAndHashesUnchanged=$true})
@@ -190,6 +304,7 @@ try {
 } catch {
     $failure=$script:phase+': '+$_.Exception.Message
     Write-Host ('FAIL: '+$failure)
+    try { if($ctx -and $ctx.Main -and (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main)) { Capture ('failure-'+$script:phase) $false } } catch { }
 } finally {
     if($ctx) {
         try {
@@ -197,7 +312,7 @@ try {
             if(-not $cleanup.Pass -and -not $failure) { $failure='cleanup: '+($cleanup.Residue -join ',') }
         } catch { if(-not $failure) { $failure='cleanup: '+$_.Exception.Message } }
     }
-    @{status=$(if($failure){'FAIL'}else{'PASS'});phase=$script:phase;failure=$failure;scope='Seeded degraded known-file recursive ranking; exact public UIA/actions and file hashes; screenshots require separate visual review';observations=@($observations.ToArray());captures=@($captures.ToArray());cleanup=$cleanup;binaryProvenance=$gate.evidence} |
+    @{status=$(if($failure){'FAIL'}else{'PASS'});phase=$script:phase;failure=$failure;requestedTheme=$Theme;requestedWindowWidth=$WindowWidth;partialDescendantRequested=[bool]$PartialDescendant;scope='Seeded degraded known-file recursive ranking; exact public UIA/actions and file hashes; screenshots require separate visual review';observations=@($observations.ToArray());captures=@($captures.ToArray());cleanup=$cleanup;binaryProvenance=$gate.evidence} |
         ConvertTo-Json -Depth 22 | Set-Content (Join-Path $artifacts 'result.json') -Encoding utf8NoBOM
 }
 if($failure) { throw $failure }

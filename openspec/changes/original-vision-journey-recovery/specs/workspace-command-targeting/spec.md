@@ -122,3 +122,15 @@ Storage lists SHALL expose their rendered rows through semantic UI Automation wi
 #### Scenario: Replaced row
 - **WHEN** a client retains a provider while its row is replaced or its owner destroyed
 - **THEN** access reports element unavailable and never targets a new occupant
+
+### Requirement: Narrow Storage prioritizes data and coverage
+
+Narrow Storage surfaces SHALL offer all existing view modes through a labeled native selector instead of vertically stacking every mode button. The selector and wider radio controls SHALL share the canonical mode action and selected mode. Resize SHALL move focus only when its currently focused mode control is hidden. Cached hidden radio actions SHALL be rejected. Coverage limitations SHALL precede optional status details and occupy a full-width row below category controls when the toolbar wraps.
+
+#### Scenario: Narrow keyboard ranking to Treemap
+- **WHEN** a user chooses Largest Files and then Treemap with the native selector keyboard interaction
+- **THEN** the real known-file ranking and hierarchical Treemap are shown with truthful partial coverage, and the data viewport remains usable
+
+#### Scenario: Resize preserves active interaction
+- **WHEN** a focused mode radio is replaced by the compact selector or the focused selector is replaced by radios
+- **THEN** focus moves to the corresponding visible control without changing the view or stealing focus from another surface

@@ -203,9 +203,9 @@ private:
         size_t itemIndex = 0;
     };
 
-    void RefreshData();
+    void RefreshData(bool snapshotRefresh = false);
     bool RecursiveRanking() const { return viewMode_ == ViewMode::LargestFiles && activeCategoryId_.empty(); }
-    void RefreshRanking();
+    void RefreshRanking(bool retainDisplay);
     void CancelRanking();
     void QueueSnapshotRanking(uint64_t generation, StorageRankingScope scope);
     void RankingWorkerMain();
@@ -262,6 +262,9 @@ private:
     HWND overview_ = nullptr;
     HWND categoryFilter_ = nullptr; // storage-analysis 5.4: category filter combo
     HWND status_ = nullptr;
+    HWND modeLabel_ = nullptr;
+    HWND modeSelector_ = nullptr;
+    bool compactModes_ = false;
     HWND back_ = nullptr;
     HWND up_ = nullptr;
     HWND overviewButton_ = nullptr;
@@ -282,9 +285,12 @@ private:
 
     std::vector<DrillItem> items_;
     std::optional<DrillItem> rankingSelected_;
+    std::optional<StorageRankingDisplayIdentity> rankingDisplay_;
+    uint64_t rankingSourceEpoch_ = 1;
     std::wstring rankingSelectionScope_;
     std::optional<bool> recursiveColumns_;
     float columnsDpi_ = 0;
+    int columnsViewportWidth_ = 0;
     std::vector<VolumeItem> volumes_;    // storage-overview rows
     std::wstring currentPath_;
     std::wstring displayedPath_;
