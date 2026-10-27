@@ -5,7 +5,7 @@
   "changes": [
     {
       "name": "repair-native-ui-verification-fidelity",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",

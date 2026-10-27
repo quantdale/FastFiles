@@ -14,7 +14,7 @@
 - [x] 3.2 Integrator: qualify actual owned FastFiles checkbox/combo and genuine operation title events on combined safe-cleanup source. Actual9c CheckBox/Toggle Off→On and genuine Name versions;5a ComboBox patterns/focus/mode journey PASS. Checkbox painting remains visually unqualified; evidence/fastfiles-qualification-20261027.md.
 - [x] 3.3 Integrator: rerun affected owned-operation/native acceptance, retaining original failures and honest Explorer capture limitations. Six owned cases plus focused1024 cancellation2/2 and conflict7/7 pass; original512 batch fails. All5-gated E2E7/8 retains Home-close product failure, separately diagnosed; no blanket native pass.
 
-- [ ] 3.4 Run current isolated portable Debug certification (excluding only restricted process-reaper), verify no product C++ delta, reconcile lifecycle and publish normally with hosted state distinct.
+- [x] 3.4 Run current isolated portable Debug certification (excluding only restricted process-reaper), verify no product C++ delta, reconcile lifecycle and publish normally with hosted state distinct. Immutable3a69 Debug445 build and selected126/126PASS0fail0skip305.89s; restrictedreaperonlyexcluded. No productsrc/CMake delta. Publication derives live refs and hosted result separately.
 
 ## 4. Repair E2E preflight fidelity
 
