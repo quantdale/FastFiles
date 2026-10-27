@@ -1671,7 +1671,7 @@
     },
     {
       "name": "repair-address-navigation-discovery",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",

@@ -1,3 +1,9 @@
+# Navigation verification slice COMPLETE — draft PR31 published on PR28
+
+- Draft https://github.com/quantdale/FastFiles/pull/31 contains implementation2d29f1e/d33e319 and exact evidence on safe combined3ac: Debug/release140/140each, strict101, literal negative/positive native checks, Escape20/1024 and accepted Palette425/4096+idle refusal, all hashes/cleanup. Earlier failures and source limitations retained. Ordinary88ac8/8 and owned88ac six cases separately recorded. Global tint/physical/Explorer/privileged boundaries remain; no whole-product, single owned8/8, whole-executable or independent-review claim.
+- This bounded lifecycle is complete and unmerged. Derive live branch/HEAD/remote/hosted result externally after final normalpush; do not edit tracked state merely to embed that run. Main/other PRs and original dirty files untouched. Additional ASan on shortcut d143 passes2/2 via developer wrapper; missing runtime PATH startup failures retained.
+- NEXT EXACT ACTION: final strict/whitespace and normalpush this publication record, inspect latest hosted SHA once; finish separate shortcut successor on PR30 with current component/native/ASan evidence, then execute the compact command-palette wave already researched below. Root remains primary integrator; no other native UI/CTest process is active.
+
 # Publication frontier — both safety milestones locally certified
 
 - Final combined3ac Debug140/140PASS285.98s, release140/140PASS248.69s, strict101PASS; immutable isolated navigation source d33/initial2d. Native literal5checks, Escape20/1024, Palette425/4096+idle refusal PASS with exact hashes/sentinel/cleanup. Ordinary88ac8/8 and owned88ac six cases remain separately bound; original b868/Palette1024 failures preserved, not waived. All current120DPI images viewed; warm tint/physical matrix unqualified. Whole navigation/test equality and unchanged tracked product source manifest retained.
