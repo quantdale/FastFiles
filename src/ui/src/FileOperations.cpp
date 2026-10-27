@@ -70,8 +70,11 @@ public:
     }
     IFACEMETHODIMP PreNewItem(DWORD, IShellItem*, LPCWSTR) override { return CancelledResult(); }
     IFACEMETHODIMP PostNewItem(DWORD, IShellItem*, LPCWSTR newName, LPCWSTR, DWORD, HRESULT result, IShellItem* created) override {
-        if (FAILED(result)) failures_.push_back({newName ? newName : L"", result});
-        else {
+        if (FAILED(result)) {
+            if (!IsRequestedCancellationFailure(static_cast<std::int32_t>(result), cancelled_.load())) {
+                failures_.push_back({newName ? newName : L"", result});
+            }
+        } else {
             ++completed_;
             completedPaths_.push_back({{}, ItemPath(created), {}});
         }
@@ -128,7 +131,9 @@ private:
     }
     HRESULT PostItem(IShellItem* item, HRESULT result, IShellItem* created) {
         if (FAILED(result)) {
-            failures_.push_back({ItemPath(item), result});
+            if (!IsRequestedCancellationFailure(static_cast<std::int32_t>(result), cancelled_.load())) {
+                failures_.push_back({ItemPath(item), result});
+            }
         } else if (IsRoot(item)) {
             ++completed_;
             completedPaths_.push_back({ItemPath(item), ItemPath(created), {}});

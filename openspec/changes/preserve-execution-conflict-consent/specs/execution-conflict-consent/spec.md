@@ -42,3 +42,18 @@ Successful descendant callbacks SHALL NOT inflate completion counts beyond the s
 - **WHEN** a mixed request is cancelled after some ordinary files transfer but before the ordinary phase finishes
 - **THEN** the approved replacement phase does not overwrite its destination
 - **AND** terminal counts match the exact completed ordinary file inventory
+
+### Requirement: Requested user cancellation is distinct from IO failure
+
+Known Win32 ERROR_CANCELLED and Shell user-cancelled callback results SHALL NOT enter the IO failure list when cancellation was requested. Unrequested cancellation, access denial, sharing violations and generic or ambiguous abort results SHALL remain diagnosable failures.
+
+#### Scenario: Accepted cancellation interrupts a native item
+
+- **WHEN** the user requests cancellation and the native callback returns a known user-cancellation result
+- **THEN** the request remains cancelled with its actual completed count
+- **AND** cancellation alone does not create a stopped-with-errors failure notice
+
+#### Scenario: Genuine failure accompanies cancellation
+
+- **WHEN** an access or sharing failure is reported while cancellation was requested
+- **THEN** the failure and original code remain visible

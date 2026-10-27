@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <shlobj.h>
+#include <sherrors.h>
 #include <unordered_set>
 #include <thread>
 #include <windows.h>
@@ -16,6 +17,20 @@ using namespace fftest;
 
 int main() {
     using namespace ffui;
+    Check(IsRequestedCancellationFailure(static_cast<std::int32_t>(HRESULT_FROM_WIN32(ERROR_CANCELLED)), true),
+          "requested Win32 cancellation is not an IO failure");
+    Check(IsRequestedCancellationFailure(static_cast<std::int32_t>(COPYENGINE_E_USER_CANCELLED), true),
+          "requested Shell user cancellation is not an IO failure");
+    for (const auto error : {HRESULT_FROM_WIN32(ERROR_CANCELLED), COPYENGINE_E_USER_CANCELLED}) {
+        Check(!IsRequestedCancellationFailure(static_cast<std::int32_t>(error), false),
+              "unrequested cancellation result is retained for diagnosis");
+    }
+    for (const auto error : {E_ACCESSDENIED, HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION),
+                             HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED), COPYENGINE_E_CANCELLED, E_ABORT, E_FAIL}) {
+        Check(!IsRequestedCancellationFailure(static_cast<std::int32_t>(error), true),
+              "genuine or ambiguous error survives concurrent cancellation");
+    }
+
     Check(SUCCEEDED(OleInitialize(nullptr)), "OLE initialization failed");
     std::wstring reason;
     Check(IsValidFileName(L"quarterly report.txt", &reason), "valid name rejected");

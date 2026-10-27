@@ -1,12 +1,17 @@
 #pragma once
 
 #include <functional>
+#include <cstdint>
 #include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace ffui {
+
+// preserve-execution-conflict-consent: known user cancellation is not an IO
+// failure. Other errors remain failures even when cancellation was requested.
+bool IsRequestedCancellationFailure(std::int32_t error, bool requested) noexcept;
 
 enum class ConflictChoice { Replace, Skip, KeepBoth, Cancel };
 

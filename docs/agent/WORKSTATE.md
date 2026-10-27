@@ -1,3 +1,11 @@
+# Native cancellation root cause fixed; actual requalification next
+
+- Fullcontext e077 reproduces stoppederrors140/1024 and diagnosticactualLastOperationErrors shows0x800704C7 usercancel. Originalc40741codeunobserved preserved; focusedgreenunchangedCPPnotrootcauseproof. NewpolicyIsRequestedCancellationFailure omitsonlyknownWin32Cancelled/ShellUserCancelledwhenrequested; othercodes/unrequestedcases retained. PostItem/PostNewItemusepolicy, WindowShellerrorprecedenceunchanged. Focusedpolicy+worker+consent3/3PASS12.59s, includes10positive/negativepolicychecks; actualnativefixpending.
+- Rootownsisolatedtest/execution-conflict-consent worktree; core4b, documentaryeb5; pendingclassificationCPP/Policy/header/tests+spec/evidence. No otherwriter. Integrationcurrente077 sourcec40productCPP beforefix; noUIcurrentlyrunning afterfullprobecompleted/cleanupPASS. Noactualworker/FFuntilrootstartsnextserializedslot.
+- NEXT EXACT ACTION: strict/whitespace andcommitclassificationfix; integrateeb5+newfix whilepreservingWORKSTATE/lifecycle, diagnosticbuildall5/focusedpolicy. Actualfullowned1024 then7conflicts/250mspaintopportunity andfullordinary8; inspectreceipts/realpixels. FullcurrentselectedDebug/release/Analyze/strict, isolatedsourcefullDebug beforedraftPRon27. Preserveallpriorfailures. Do notwaiveIOerrorsorclaimnativepassfromunit tests.
+
+## Previous checkpoints
+
 # Primary frontier — native cancellation failure classification, source repair otherwise qualified
 
 - Source4b51907 core safelyprotectsCopyMoveRestore andcorrectsrootcounts; nativecombinedc40 fullowned6PASS then acceptedPalette stops741/1024 withstopped-with-errors1failure. CleanupPASS. ActualHRESULT notcapturedbeforeteardown; cannotassumeusercancelcodeorwaiveIOerror. SourceWindowShellmapsCancelled+nonemptyfailures tothiscaption.

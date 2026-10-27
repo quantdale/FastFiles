@@ -6,8 +6,14 @@
 #include <unordered_set>
 
 #include "ffprotocol/WindowsPath.h"
+#include <sherrors.h>
 
 namespace ffui {
+
+bool IsRequestedCancellationFailure(std::int32_t error, bool requested) noexcept {
+    return requested && (error == static_cast<std::int32_t>(HRESULT_FROM_WIN32(ERROR_CANCELLED)) ||
+                         error == static_cast<std::int32_t>(COPYENGINE_E_USER_CANCELLED));
+}
 
 namespace {
 
