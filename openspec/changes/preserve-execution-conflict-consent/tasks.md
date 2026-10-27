@@ -9,5 +9,5 @@
 
 ## 2. Certification
 
-- [ ] 2.1 Compile affected UI warning-clean, focused/pure/full portable checks and strict/lifecycle/drift; preserve exact source evidence and independent review where available.
-- [ ] 2.2 Integrate with quit/client/safe cleanup composition and qualify actual conflict/file-operation/cancellation journeys, then publish unmerged successor normally.
+- [x] 2.1 Compile affected UI warning-clean, focused/pure/full portable checks and strict/lifecycle/drift; preserve exact source evidence and independent review where available. Standalone40b Debug128/128; combinedbbe Debug/release137/137each, Analyze9/strict99PASS; onlyrestrictedreaperexcluded. Newindependentreviewunavailableexplicitlyrecorded.
+- [x] 2.2 Integrate with quit/client/safe cleanup composition and qualify actual conflict/file-operation/cancellation journeys, then publish unmerged successor normally. Native7dc owned8/conflicts7/ordinary8 PASS, cancel426/1024zero falseerrors, realsharingerrorretained; currenttickcaptureviewed. Evidence/final-qualification-20261027; normaldraftpublicationonPR27, no merge/release.

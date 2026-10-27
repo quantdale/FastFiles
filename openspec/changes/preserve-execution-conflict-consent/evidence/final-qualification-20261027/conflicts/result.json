@@ -1,0 +1,534 @@
+{
+  "failure": null,
+  "cases": [
+    {
+      "expectedInventory": {
+        "Target\\alpha.txt": "C3FC41F2EABFE1443A3CE9DB5AAC299F52FAD90AB90C0F65C48C2A41B7C9823B",
+        "Target\\fresh.txt": "99E722681C649B0961C7AA22EEF861137E08A40BF5E240740FCE744BA07031B0",
+        "Target\\unrelated-sentinel.txt": "9658ED30421AB6776985FEA4F83C210319104C39628F389AAD0F14870ED92839",
+        "Target\\beta.txt": "BFE80C9154683F95494AC5852FCAC01ABD67005F6F63E0F1A5286061FE559542",
+        "Target\\alpha (2).txt": "1C1CD9DFEEF3E486E0F88D711C668DCC9C02B8A1E2F510E47B434BEAE4814EC6",
+        "Source\\beta.txt": "BFE80C9154683F95494AC5852FCAC01ABD67005F6F63E0F1A5286061FE559542",
+        "Source\\gamma.txt": "A1E220F3C7541199FDFA6C7223AF52A68FCB7C818ED1EBC9FF54037EB8B38F73",
+        "Target\\gamma.txt": "A1E220F3C7541199FDFA6C7223AF52A68FCB7C818ED1EBC9FF54037EB8B38F73",
+        "Source\\alpha.txt": "C3FC41F2EABFE1443A3CE9DB5AAC299F52FAD90AB90C0F65C48C2A41B7C9823B",
+        "Source\\fresh.txt": "99E722681C649B0961C7AA22EEF861137E08A40BF5E240740FCE744BA07031B0"
+      },
+      "id": "copy-replace",
+      "terminal": "FastFiles — complete — 4 of 4 — 0 failed",
+      "pass": true,
+      "allNamesAndHashesMatch": true,
+      "input": {
+        "checkboxInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 440,
+          "y": 416,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "decisionInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 282,
+          "y": 512,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "apply": true,
+        "choice": "Replace"
+      },
+      "scopeReset": {
+        "input": {
+          "checkboxInput": null,
+          "decisionInput": {
+            "used": "SendInput",
+            "fallback": true,
+            "ok": true,
+            "inputAccepted": true,
+            "action": "Click",
+            "x": 892,
+            "y": 512,
+            "modifier": "",
+            "dryRun": {
+              "IsPresent": false
+            }
+          },
+          "apply": false,
+          "choice": "Cancel"
+        },
+        "allNamesAndHashesUnchanged": true,
+        "terminal": "FastFiles — cancelled — 0 of 2 — 0 failed",
+        "freshUncheckedPrompt": true
+      }
+    },
+    {
+      "expectedInventory": {
+        "Target\\alpha.txt": "A4DE4F511480B7D984E8507A550A0BD6FBE27467168DF28B3557C1B714A4B135",
+        "Target\\fresh.txt": "DBD7E6F7CF3B2D17105EC889D1F9C3D20BEB4528E057B41A04655B338490FE07",
+        "Target\\unrelated-sentinel.txt": "9658ED30421AB6776985FEA4F83C210319104C39628F389AAD0F14870ED92839",
+        "Target\\beta.txt": "35E8BFA99B0637E81C60363784F346C01E4EFB032D2831059E09157EA39C23D7",
+        "Target\\alpha (2).txt": "1C1CD9DFEEF3E486E0F88D711C668DCC9C02B8A1E2F510E47B434BEAE4814EC6",
+        "Source\\beta.txt": "5A4EE607726C6634BFA4423BE64C21CFD304FAA71597EE5B511D2BFDFD37E512",
+        "Source\\gamma.txt": "1FF92AE7789837A604DAA21D89566E4E11860F285221A242E2C0918D0FD5C872",
+        "Target\\gamma.txt": "B6B21EDD3D9838D3A9235AF94EA7EF4BA0A364B3FA152417E64C53487A11526A",
+        "Source\\alpha.txt": "2E8F0E7C47885424982195A783C31E9C627C1E02F7A7B9C87E43DDC675D3A1E0",
+        "Source\\fresh.txt": "DBD7E6F7CF3B2D17105EC889D1F9C3D20BEB4528E057B41A04655B338490FE07"
+      },
+      "id": "copy-skip",
+      "terminal": "FastFiles — complete — 1 of 4 — 3 skipped — 0 failed",
+      "pass": true,
+      "allNamesAndHashesMatch": true,
+      "input": {
+        "checkboxInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 440,
+          "y": 416,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "decisionInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 452,
+          "y": 512,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "apply": true,
+        "choice": "Skip"
+      },
+      "scopeReset": {
+        "input": {
+          "checkboxInput": null,
+          "decisionInput": {
+            "used": "SendInput",
+            "fallback": true,
+            "ok": true,
+            "inputAccepted": true,
+            "action": "Click",
+            "x": 892,
+            "y": 512,
+            "modifier": "",
+            "dryRun": {
+              "IsPresent": false
+            }
+          },
+          "apply": false,
+          "choice": "Cancel"
+        },
+        "allNamesAndHashesUnchanged": true,
+        "terminal": "FastFiles — cancelled — 0 of 2 — 0 failed",
+        "freshUncheckedPrompt": true
+      }
+    },
+    {
+      "expectedInventory": {
+        "Target\\beta.txt": "0A864703810E4000580C07F532C6D6761D3ECA59CA8859F37FB4671ED478AE98",
+        "Source\\alpha.txt": "B30B13745575DD047585C95DEF4176D59518FC25AC1725D352BAB12AD7D6CA0A",
+        "Target\\alpha (3).txt": "B30B13745575DD047585C95DEF4176D59518FC25AC1725D352BAB12AD7D6CA0A",
+        "Source\\gamma.txt": "97F7CDE8A4B20EAD5BE77644283AE2DDBB900CFF22344E179B2586EB79294752",
+        "Target\\unrelated-sentinel.txt": "9658ED30421AB6776985FEA4F83C210319104C39628F389AAD0F14870ED92839",
+        "Target\\gamma.txt": "47D94A52A4AFFBB364D7DBDD370D90B86C00C6F0D1E677E9E9D9F354921FAE87",
+        "Target\\beta (2).txt": "C92F958E2CF70916134906A8037EE52CB4A2844E4A8505F8CE6A939A176CC81B",
+        "Target\\alpha.txt": "9244E418C8FD911FE7BBF9E0BAEE778770D5E4F2CE77114FEA1EC63956385717",
+        "Source\\beta.txt": "C92F958E2CF70916134906A8037EE52CB4A2844E4A8505F8CE6A939A176CC81B",
+        "Source\\fresh.txt": "4CC3ADA9FB220F7AF53F9A31673DD4C72E25A627920665065666815AB1F400E8",
+        "Target\\fresh.txt": "4CC3ADA9FB220F7AF53F9A31673DD4C72E25A627920665065666815AB1F400E8",
+        "Target\\gamma (2).txt": "97F7CDE8A4B20EAD5BE77644283AE2DDBB900CFF22344E179B2586EB79294752",
+        "Target\\alpha (2).txt": "1C1CD9DFEEF3E486E0F88D711C668DCC9C02B8A1E2F510E47B434BEAE4814EC6"
+      },
+      "id": "copy-keep-both",
+      "terminal": "FastFiles — complete — 4 of 4 — 0 failed",
+      "pass": true,
+      "allNamesAndHashesMatch": true,
+      "input": {
+        "checkboxInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 440,
+          "y": 416,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "decisionInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 617,
+          "y": 512,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "apply": true,
+        "choice": "Keep both"
+      },
+      "scopeReset": {
+        "input": {
+          "checkboxInput": null,
+          "decisionInput": {
+            "used": "SendInput",
+            "fallback": true,
+            "ok": true,
+            "inputAccepted": true,
+            "action": "Click",
+            "x": 892,
+            "y": 512,
+            "modifier": "",
+            "dryRun": {
+              "IsPresent": false
+            }
+          },
+          "apply": false,
+          "choice": "Cancel"
+        },
+        "allNamesAndHashesUnchanged": true,
+        "terminal": "FastFiles — cancelled — 0 of 2 — 0 failed",
+        "freshUncheckedPrompt": true
+      }
+    },
+    {
+      "expectedInventory": {
+        "Target\\alpha.txt": "7BA23821888729615D2B4EFFA352263E365C4DED9362DA29D500117A02174F70",
+        "Target\\fresh.txt": "AD4B237D041CE1E552EAECBC1455E7D771C1052291BE16A289FC8C50C261ACF6",
+        "Target\\unrelated-sentinel.txt": "9658ED30421AB6776985FEA4F83C210319104C39628F389AAD0F14870ED92839",
+        "Target\\beta.txt": "35FA3166BE7FF649D36F641528AB3138874E160E54C18E224B9D0F8C6CD1D702",
+        "Target\\alpha (2).txt": "1C1CD9DFEEF3E486E0F88D711C668DCC9C02B8A1E2F510E47B434BEAE4814EC6",
+        "Target\\gamma.txt": "24062998FF08CCF98F0FB36674DDBF8965A7109E960CEEB01162CE13CEEF1225"
+      },
+      "id": "move-replace",
+      "terminal": "FastFiles — complete — 4 of 4 — 0 failed",
+      "pass": true,
+      "allNamesAndHashesMatch": true,
+      "input": {
+        "checkboxInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 440,
+          "y": 416,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "decisionInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 282,
+          "y": 512,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "apply": true,
+        "choice": "Replace"
+      },
+      "scopeReset": {
+        "input": {
+          "checkboxInput": null,
+          "decisionInput": {
+            "used": "SendInput",
+            "fallback": true,
+            "ok": true,
+            "inputAccepted": true,
+            "action": "Click",
+            "x": 892,
+            "y": 512,
+            "modifier": "",
+            "dryRun": {
+              "IsPresent": false
+            }
+          },
+          "apply": false,
+          "choice": "Cancel"
+        },
+        "allNamesAndHashesUnchanged": true,
+        "terminal": "FastFiles — cancelled — 0 of 2 — 0 failed",
+        "freshUncheckedPrompt": true
+      }
+    },
+    {
+      "expectedInventory": {
+        "Target\\alpha.txt": "8F7CDDB84AEFCD7481C6ADAF8033093F78D86AA404739F97E5293D5FAF5FE59F",
+        "Target\\fresh.txt": "279335F16F53EDA77B16E1A03995A9AAAC081656122DD2491F7AE6C21F49EC26",
+        "Target\\unrelated-sentinel.txt": "9658ED30421AB6776985FEA4F83C210319104C39628F389AAD0F14870ED92839",
+        "Target\\beta.txt": "342783AA57C61275AA29DDA13B20D6F1A4D7E39CCAD1D577D73BAF6299425F5C",
+        "Target\\alpha (2).txt": "1C1CD9DFEEF3E486E0F88D711C668DCC9C02B8A1E2F510E47B434BEAE4814EC6",
+        "Source\\beta.txt": "766DA630455F38E21ED0496A4E7E22A133326604025D315BE7682BE1388B0355",
+        "Source\\gamma.txt": "FF8209B03C61BFA4A5D70D40CD840AED3B971F23329FB7FFB93DA944A18BDF95",
+        "Target\\gamma.txt": "E14EEE693DD608CC44B80EC875C58D055CA01AC27D28C696AD60AF095B0359E7",
+        "Source\\alpha.txt": "B629438BCAD0EB7035711905C1061C7CD6981B5FA8CB09C56805E812C9F88CD8"
+      },
+      "id": "move-skip",
+      "terminal": "FastFiles — complete — 1 of 4 — 3 skipped — 0 failed",
+      "pass": true,
+      "allNamesAndHashesMatch": true,
+      "input": {
+        "checkboxInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 440,
+          "y": 416,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "decisionInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 452,
+          "y": 512,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "apply": true,
+        "choice": "Skip"
+      },
+      "scopeReset": {
+        "input": {
+          "checkboxInput": null,
+          "decisionInput": {
+            "used": "SendInput",
+            "fallback": true,
+            "ok": true,
+            "inputAccepted": true,
+            "action": "Click",
+            "x": 892,
+            "y": 512,
+            "modifier": "",
+            "dryRun": {
+              "IsPresent": false
+            }
+          },
+          "apply": false,
+          "choice": "Cancel"
+        },
+        "allNamesAndHashesUnchanged": true,
+        "terminal": "FastFiles — cancelled — 0 of 2 — 0 failed",
+        "freshUncheckedPrompt": true
+      }
+    },
+    {
+      "expectedInventory": {
+        "Target\\alpha.txt": "F1CCA0D44809A427ECB6CEF2620E1BA9B116BECD69BD7A5BAA7A098131943644",
+        "Target\\fresh.txt": "033626C7D7B8BBEF8E73934FE7BB085AF5B59D81C2BE563942DD43A7388157D6",
+        "Target\\beta (2).txt": "D28E0C8E9CF2EBA90D8F2A74000D2817A6AFBC7792ECB702D0F5A665CA00821E",
+        "Target\\unrelated-sentinel.txt": "9658ED30421AB6776985FEA4F83C210319104C39628F389AAD0F14870ED92839",
+        "Target\\beta.txt": "227CE393939E25CB771FF8CAB88FF15A9BA08E8CA2AA3AEC24B3A68DC8CAD198",
+        "Target\\alpha (2).txt": "1C1CD9DFEEF3E486E0F88D711C668DCC9C02B8A1E2F510E47B434BEAE4814EC6",
+        "Target\\alpha (3).txt": "ACCFBFE8CBBB64EE386CAE4EF59F298EB04CB0EA13F7BFC5E994A29B1F110B19",
+        "Target\\gamma (2).txt": "7100F4E088709C1E37D5C0109E422C247B815E48C5E2FDF5DCD7D8D9185E26A3",
+        "Target\\gamma.txt": "BABF26B880C35B694A3EA546794782512054F792388DB55140D129260ECB1563"
+      },
+      "id": "move-keep-both",
+      "terminal": "FastFiles — complete — 4 of 4 — 0 failed",
+      "pass": true,
+      "allNamesAndHashesMatch": true,
+      "input": {
+        "checkboxInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 440,
+          "y": 416,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "decisionInput": {
+          "used": "SendInput",
+          "fallback": true,
+          "ok": true,
+          "inputAccepted": true,
+          "action": "Click",
+          "x": 617,
+          "y": 512,
+          "modifier": "",
+          "dryRun": {
+            "IsPresent": false
+          }
+        },
+        "apply": true,
+        "choice": "Keep both"
+      },
+      "scopeReset": {
+        "input": {
+          "checkboxInput": null,
+          "decisionInput": {
+            "used": "SendInput",
+            "fallback": true,
+            "ok": true,
+            "inputAccepted": true,
+            "action": "Click",
+            "x": 892,
+            "y": 512,
+            "modifier": "",
+            "dryRun": {
+              "IsPresent": false
+            }
+          },
+          "apply": false,
+          "choice": "Cancel"
+        },
+        "allNamesAndHashesUnchanged": true,
+        "terminal": "FastFiles — cancelled — 0 of 2 — 0 failed",
+        "freshUncheckedPrompt": true
+      }
+    },
+    {
+      "firstPromptBody": [
+        "‘one.txt’ already exists in the destination folder.",
+        "Incoming",
+        "one.txt",
+        "16 B",
+        "Already there",
+        "one.txt",
+        "16 B",
+        "Replacing overwrites the existing file. Skip writes nothing; Keep both renames the incoming copy."
+      ],
+      "terminal": "FastFiles — cancelled — 0 of 3 — 0 failed",
+      "secondPrompt": true,
+      "defaultInput": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "keys": "{ENTER}",
+        "dryRun": {
+          "IsPresent": false
+        },
+        "sequence": [
+          {
+            "vk": 13,
+            "down": true
+          },
+          {
+            "vk": 13,
+            "down": false
+          }
+        ]
+      },
+      "id": "unchecked-skip-then-cancel",
+      "pass": true,
+      "allNamesAndHashesUnchanged": true,
+      "secondPromptBody": [
+        "‘two.txt’ already exists in the destination folder.",
+        "Incoming",
+        "two.txt",
+        "16 B",
+        "Already there",
+        "two.txt",
+        "16 B",
+        "Replacing overwrites the existing file. Skip writes nothing; Keep both renames the incoming copy."
+      ]
+    }
+  ],
+  "pixelReviewRequired": true,
+  "cleanup": [
+    {
+      "Pass": true,
+      "OwnedPids": [
+        135448,
+        129516
+      ],
+      "Residue": [],
+      "PipePresentBefore": false,
+      "PipePresentAfter": false,
+      "PipeCleanup": {
+        "Pass": true,
+        "State": "absent"
+      },
+      "DiagnosticsPreserved": true,
+      "DiagnosticsCopyError": null,
+      "SessionRootRetained": false
+    }
+  ],
+  "passed": 7,
+  "captures": [
+    {
+      "bounds": {
+        "Hwnd": {
+          "value": 12261460
+        },
+        "X": 171,
+        "Y": 196,
+        "Width": 809,
+        "Height": 367,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "image": "apply-all-checked.png",
+      "sha256": "59765731ecb3e4c927121712bc134779e0aeebb709908f5234a98c54eeb871ff",
+      "id": "apply-all-checked"
+    }
+  ],
+  "brightness": {},
+  "shiftTabInputPreflight": [
+    {
+      "vk": 16,
+      "down": true
+    },
+    {
+      "vk": 9,
+      "down": true
+    },
+    {
+      "vk": 9,
+      "down": false
+    },
+    {
+      "vk": 16,
+      "down": false
+    }
+  ],
+  "filter": "apply-all"
+}
