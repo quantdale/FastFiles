@@ -1,5 +1,7 @@
 ## Why
 
+The bounded4.11 follow-up makes the existing Restore conflict checkbox honor its displayed request-wide promise and counts intentional Restore skips separately from errors. Native multi-collision checkbox qualification extends the existing conflict driver; source/planner success does not certify real app Undo or checkbox input.
+
 The original Find/Navigate/Understand/Act vision is undermined by composition defects: Storage commands discard their selected target, category summaries masquerade as files, and search reveal from Home bypasses typed navigation. Recover these signature journeys before adding visual complexity.
 
 ## What Changes

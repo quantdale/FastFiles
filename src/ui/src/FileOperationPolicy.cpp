@@ -131,6 +131,48 @@ std::vector<TransferPlanItem> BuildLinkPlan(const std::vector<std::wstring>& sou
     return result;
 }
 
+std::optional<std::vector<RestorePlanItem>> BuildRestorePlan(
+    const std::vector<ReversiblePath>& paths, const PathExists& exists,
+    const ConflictPrompt& prompt) {
+    std::vector<RestorePlanItem> result;
+    std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> plannedDestinations;
+    const auto isOccupied = [&](const std::wstring& path) {
+        return plannedDestinations.contains(DestinationKey(path)) || exists(path);
+    };
+    std::optional<ConflictChoice> remainingChoice;
+    for (size_t index = 0; index < paths.size(); ++index) {
+        const auto& originalPath = paths[index].originalPath;
+        const auto original = std::filesystem::path(originalPath);
+        const std::wstring folder = original.parent_path().wstring();
+        const bool plannedCollision = plannedDestinations.contains(DestinationKey(originalPath));
+        if (!plannedCollision && !exists(originalPath)) {
+            result.push_back({index, {}, false});
+            plannedDestinations.insert(DestinationKey(originalPath));
+            continue;
+        }
+        ConflictChoice choice;
+        if (remainingChoice) {
+            choice = *remainingChoice;
+        } else {
+            const ConflictDecision decision = prompt(originalPath, originalPath);
+            choice = decision.choice;
+            if (decision.applyToAllRemaining && choice != ConflictChoice::Cancel) remainingChoice = choice;
+        }
+        if (choice == ConflictChoice::Cancel) return std::nullopt;
+        if (choice == ConflictChoice::Skip) continue;
+        if (choice == ConflictChoice::Replace && !plannedCollision) {
+            result.push_back({index, {}, true});
+            plannedDestinations.insert(DestinationKey(originalPath));
+            continue;
+        }
+        const std::wstring name = GenerateKeepBothName(folder, original.filename().wstring(), isOccupied);
+        if (name.empty()) return std::nullopt;
+        result.push_back({index, name, false});
+        plannedDestinations.insert(DestinationKey(Join(folder, name)));
+    }
+    return result;
+}
+
 void OperationHistory::PushRename(std::wstring originalPath, std::wstring resultingPath) {
     entries_.push_back({ReversibleOperationKind::Rename, {{std::move(originalPath), std::move(resultingPath)}}});
 }

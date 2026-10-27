@@ -382,6 +382,7 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     }
     FileOperationRequest request = input;
     std::vector<FileOperationFailure> rejectedSources;
+    std::vector<RestorePlanItem> restorePlan;
     unsigned int skipped = 0;
     if (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move) {
         // Self-target rejection covers every caller (drop, paste, undo):
@@ -427,6 +428,32 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
         if (request.sources.empty()) {
             FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {}, 0,
                                           static_cast<unsigned int>(plannedSourceCount), 100, {}};
+            completion.skipped = skipped;
+            PostEvent(std::move(completion));
+            return;
+        }
+    }
+    if (request.kind == FileOperationKind::Restore) {
+        // original-vision-journey-recovery 4.11: the checkbox applies to this
+        // entire restore request, including distinct original folders. Finish
+        // preflight before submitting any Shell item; later Cancel mutates none.
+        const auto plan = BuildRestorePlan(request.restorePaths,
+            [](const std::wstring& path) { return PathExistsWin32(path); },
+            [this](const std::wstring& source, const std::wstring& destination) {
+                return RequestConflictDecision(source, destination);
+            });
+        if (!plan) {
+            PostEvent({FileOperationEventKind::Cancelled, request.kind, {}, 0,
+                       static_cast<unsigned int>((std::max)(size_t{1}, request.restorePaths.size())), 0, {}});
+            return;
+        }
+        restorePlan = *plan;
+        skipped = static_cast<unsigned int>(request.restorePaths.size() - restorePlan.size());
+        request.sources.clear();
+        for (const auto& item : restorePlan) request.sources.push_back(request.restorePaths[item.restoreIndex].originalPath);
+        if (restorePlan.empty()) {
+            FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {}, 0,
+                static_cast<unsigned int>(request.restorePaths.size()), 100, {}};
             completion.skipped = skipped;
             PostEvent(std::move(completion));
             return;
@@ -486,11 +513,14 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
             (request.kind == FileOperationKind::Delete && request.recycle ? FOF_ALLOWUNDO : 0));
     }
     if (FAILED(setupResult)) {
-        const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size()));
+        const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size() + skipped));
         std::vector<FileOperationFailure> failures;
         if (request.sources.empty()) failures.push_back({request.destination, setupResult});
         else for (const auto& source : request.sources) failures.push_back({source, setupResult});
-        PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0, total, 0, std::move(failures), request.sources});
+        FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {}, 0, total, 0,
+                                      std::move(failures), request.sources};
+        completion.skipped = skipped;
+        PostEvent(std::move(completion));
         return;
     }
     auto* sink = new ProgressSink(*this, request.kind, cancelRequested_);
@@ -538,8 +568,8 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::CreateFile) {
         submitResult = operation->NewItem(destination.Get(), FILE_ATTRIBUTE_NORMAL, request.newName.c_str(), nullptr, nullptr);
     } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::Restore) {
-        bool restoreCancelled = false;
-        for (const auto& restore : request.restorePaths) {
+        for (const auto& planned : restorePlan) {
+            const auto& restore = request.restorePaths[planned.restoreIndex];
             auto recycled = MakeItem(restore.shellItemId);
             const std::wstring originalName = std::filesystem::path(restore.originalPath).filename().wstring();
             auto restoreFolder = MakeItem(std::filesystem::path(restore.originalPath).parent_path().wstring());
@@ -547,31 +577,10 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
                 submissionFailures.push_back({restore.originalPath, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)});
                 continue;
             }
-            // Restores go through the same conflict policy as ordinary
-            // moves: FOF_NOCONFIRMATION must never silently overwrite a
-            // file that appeared in the original location.
-            std::wstring name = originalName;
-            if (PathExistsWin32((std::filesystem::path(restore.originalPath).parent_path() / originalName).wstring())) {
-                const ConflictDecision decision = RequestConflictDecision(restore.originalPath, restore.originalPath);
-                if (decision.choice == ConflictChoice::Cancel) { restoreCancelled = true; break; }
-                if (decision.choice == ConflictChoice::Skip) {
-                    submissionFailures.push_back({restore.originalPath, HRESULT_FROM_WIN32(ERROR_CANCELLED)});
-                    continue;
-                }
-                if (decision.choice == ConflictChoice::KeepBoth) {
-                    name = GenerateKeepBothName(std::filesystem::path(restore.originalPath).parent_path().wstring(),
-                                                originalName,
-                                                [](const std::wstring& path) { return PathExistsWin32(path); });
-                    if (name.empty()) {
-                        submissionFailures.push_back({restore.originalPath, HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)});
-                        continue;
-                    }
-                }
-            }
+            const std::wstring& name = planned.destinationName.empty() ? originalName : planned.destinationName;
             const HRESULT itemResult = operation->MoveItem(recycled.Get(), restoreFolder.Get(), name.c_str(), nullptr);
             if (FAILED(itemResult)) submissionFailures.push_back({restore.originalPath, itemResult});
         }
-        if (restoreCancelled) submitResult = HRESULT_FROM_WIN32(ERROR_CANCELLED);
     }
     if (SUCCEEDED(submitResult)) submitResult = operation->PerformOperations();
     if (cookie != 0) operation->Unadvise(cookie);

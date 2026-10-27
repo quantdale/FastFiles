@@ -1,0 +1,14 @@
+{
+  "productionBaseline": "95c1589a7b3ca6511aea93961509b819a1c64270",
+  "pure": "PASS 1/1; 0.05s; total0.26s",
+  "controlledShellWorker": "PASS 1/1;15.49s;total15.56s",
+  "actualAppUndo": "NOT_EXECUTED",
+  "nativeApplyAll": "NOT_EXECUTED",
+  "independentReview": "UNAVAILABLE_PROVIDER_QUOTA; alternate doctor fails closed",
+  "sourceSha256": {
+    "src/ui/src/FileOperationPolicy.cpp": "ab439ae2f075eae7416a6293f0e941046fb3eaad85b0568580ba9159cff26984",
+    "src/ui/src/FileOperations.cpp": "113a7e2bce14e4d4720d1b0d07d00c365edb53957b7e97b782c081bf567a78e4",
+    "tests/fileoperations/test_restore_plan.cpp": "bfaab5f727e87e14b91e34cfdd64a46524e395acb51af17472011539ab0f5878",
+    "tests/fileoperations/test_file_operations_e2e.cpp": "572f2bd1ca286105d1b26fbcca9f9661ba3919433d5013a6182ac01795e608bc"
+  }
+}

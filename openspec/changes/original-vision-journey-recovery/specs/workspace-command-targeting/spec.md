@@ -4,6 +4,23 @@ Keep filesystem commands bound to the user's visible selection across browsing, 
 
 ## ADDED Requirements
 
+### Requirement: Restore decisions preserve request scope and data
+
+Restore conflict decisions SHALL honor apply-to-all for subsequent collisions in the same request and SHALL reset for every new request. Skip SHALL be counted separately from failures. The entire restore plan SHALL finish before filesystem mutations are submitted; Cancel SHALL discard all planned moves. Keep-both destinations SHALL be reserved across the plan so later entries cannot overwrite earlier restores.
+
+#### Scenario: Several restore collisions across original folders
+- **WHEN** a user checks apply-to-all and chooses Replace, Skip or Keep both on the first restore collision
+- **THEN** subsequent collisions use that decision, noncollisions retain their own original targets, and the terminal total/completed/skipped/failure counts match the whole request
+- **AND** a new request asks again with its fresh unchecked choice
+
+#### Scenario: Cancel after an unchecked restore decision
+- **WHEN** a user skips one conflict without apply-to-all and cancels a later conflict
+- **THEN** neither earlier planned restores nor noncolliding entries have been moved
+
+#### Scenario: A destination is reserved by an earlier restore
+- **WHEN** Replace would overwrite an item already planned for this same batch
+- **THEN** the later restore receives a distinct reserved Keep-both name instead of replacing the earlier source
+
 ### Requirement: File-operation failures provide truthful recovery feedback
 
 Retained failures SHALL show the original filesystem target and HRESULT with readable recovery guidance when the cause is known. Source and destination sharing violations SHALL remain distinct. Unknown failures SHALL retain their diagnostic code without claiming a successful action or automatic retry. An operation stopped with failures SHALL visibly identify errors rather than presenting only a cancellation notice; the existing manual retry and per-item failure contracts SHALL remain unchanged.

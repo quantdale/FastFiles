@@ -1,5 +1,16 @@
 # Fast Files — Agent Workstate
 
+## Restore request conflict policy — 2026-10-27
+
+- Sole isolated writer/root takeover: restore-conflicts-20261027, verified PR25 baseline95c1589. Worker quota ended; root preserved and reviewed files. Source-confirmed ignored apply-all and Skip-as-failure repaired by whole-request preflight. No unrelated totals defect claimed.
+- Pure red3 guards retained; current root pure1/1 PASS0.05s and actual controlled Shell worker1/1 PASS15.49s. Source hashes/logs in evidence/restore-conflict-policy-20261027. Holding-folder identities do not certify real Recycle Bin Undo. Native apply-all driver parsed/reviewed, NOT EXECUTED.
+- Independent review unavailable (quota; alternate exact-route doctor blocked), no bypass. Task4.11 remains open. PR22 registered-window cleanup MUST precede native execution; this standalone base lacks it. No app/native execution here.
+- NEXT EXACT ACTION: commit this bounded verified planner/worker milestone; root integrate into safe combined worktree, rebuild and execute seven real checkbox/apply-all cases, then relevant broad certification. Real multi-item app Undo needs separately bounded recovery qualification.
+
+## Inherited history
+
+# Fast Files — Agent Workstate
+
 ## Current milestone — discoverable operation cancellation locally qualified — 2026-10-27
 
 - Primary integrator owns cancel-command-20261026 / feat/discoverable-operation-cancel-20261026. Immutable executed source650744faf72e91bc6250d49e0b19fd4432276994; compiled FileOperations changes last62e6422. Published parent PR23fef documentary evidence locally merged; successor targets PR23. Derive live refs/PR/CI after fetch. Original dirty checkout/every shared PR/main preserved; no shared merge/release.

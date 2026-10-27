@@ -18,6 +18,11 @@ target_link_libraries(fffileoperations_e2e_tests PRIVATE shell32 ole32 advapi32)
 add_test(NAME fffileoperations_e2e_tests COMMAND fffileoperations_e2e_tests)
 
 add_executable(ffselection_tests test_selection.cpp)
+
+add_executable(ffrestore_plan_tests test_restore_plan.cpp ../../src/ui/src/FileOperationPolicy.cpp)
+target_include_directories(ffrestore_plan_tests PRIVATE ../../src/ui/src ../../src/protocol/include)
+add_test(NAME ffrestore_plan_tests COMMAND ffrestore_plan_tests)
+set_tests_properties(ffrestore_plan_tests PROPERTIES TIMEOUT 30)
 target_include_directories(ffselection_tests PRIVATE ../../src/ui/src)
 add_test(NAME ffselection_tests COMMAND ffselection_tests)
 set_tests_properties(fffileoperations_tests fffileoperations_e2e_tests ffselection_tests PROPERTIES TIMEOUT 120)

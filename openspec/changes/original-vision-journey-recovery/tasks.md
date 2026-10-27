@@ -25,6 +25,8 @@
 
 ## 4. Qualification and handoff
 
+- [ ] 4.11 Honor request-scoped apply-to-all and truthful skipped counts for Restore/Undo conflicts, reserve Keep-both names and finish the complete plan before mutation. Qualify controlled multi-collision Restore worker outcomes and actual Copy/Move checkbox interaction, default unchecked Skip/Cancel and next-request reset with exact file inventories. Pure planner passes; worker tests compile only and native `Test-FileConflictActions.ps1 -Filter apply-all` remains unexecuted. Real multi-item Recycle Bin Undo remains separately unqualified; task closure belongs to the integrator.
+
 - [x] 4.7 Expose actual-worker-state Cancel File Operations through the native palette and registry-driven Browse/Search File menus, preserve palette intent/Escape, suppress duplicate Shell progress focus capture, and explain idle refusal. Clean650744f focusedPalette2/2, allowned8/8, conflict8/8, ordinarynative8/8 and selectedDebug/release126/126 each. Source/receipt review approves; evidence/discoverable-cancellation-20261027.md. Storage hardcoded menu and4096navigation remain outside qualification.
 
 - [x] 4.6 Explain real file-operation failures with actionable source/destination-aware guidance and retain original path/HRESULT; exercise exact native multi-selection, calibrated recycle/Undo/permanent-delete, locked-source manual recovery and an actually in-flight cancellation on marker-owned files. Clean9195788 seven-case PASS, focused cancellation PASS, selected Debug/release126/126 each; evidence/file-operation-feedback-20261026.md. Ordinary Home-close remains a separate7/8 qualification failure.

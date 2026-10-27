@@ -46,6 +46,19 @@ struct ReversiblePath {
     std::vector<std::byte> shellItemId;
 };
 
+struct RestorePlanItem {
+    size_t restoreIndex = 0;
+    std::wstring destinationName;
+    bool replacesExisting = false;
+};
+
+// Plans the entire restore before any Shell mutation is submitted. Indices
+// retain the original opaque Shell identity; destination reservations span
+// folders and conflict choices are scoped to this request only.
+std::optional<std::vector<RestorePlanItem>> BuildRestorePlan(
+    const std::vector<ReversiblePath>& paths, const PathExists& exists,
+    const ConflictPrompt& prompt);
+
 struct ReversibleOperation {
     ReversibleOperationKind kind;
     std::vector<ReversiblePath> paths;

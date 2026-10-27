@@ -12,6 +12,8 @@
 #include <objbase.h>
 #include <aclapi.h>
 #include <sherrors.h>
+#include <shlobj.h>
+#include <deque>
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -21,6 +23,7 @@ namespace {
 std::unique_ptr<ffui::FileOperationEvent> lastEvent;
 ffui::ConflictDecision conflictDecision{ffui::ConflictChoice::KeepBoth, true};
 int conflictQuestionCount = 0;
+std::deque<ffui::ConflictDecision> conflictDecisions;
 int terminalEventCount = 0;
 ffui::FileOperations* cancelOnProgress = nullptr;
 // Simulates the real UI's conflict dialog: when set, the posted question is
@@ -41,7 +44,8 @@ LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
         }
         {
             std::lock_guard lock(question->mutex);
-            question->decision = conflictDecision;
+            question->decision = conflictDecisions.empty() ? conflictDecision : conflictDecisions.front();
+            if (!conflictDecisions.empty()) conflictDecisions.pop_front();
             question->answered = true;
             ++conflictQuestionCount;
         }
@@ -102,6 +106,116 @@ void CreateSparseFile(const std::filesystem::path& path, uint64_t bytes) {
 std::string ReadText(const std::filesystem::path& path) {
     std::ifstream stream(path, std::ios::binary);
     return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+}
+
+ffui::ReversiblePath FixtureRestorePath(const std::filesystem::path& holding, const std::filesystem::path& original) {
+    PIDLIST_ABSOLUTE identity = nullptr;
+    const HRESULT result = SHParseDisplayName(holding.c_str(), nullptr, &identity, 0, nullptr);
+    Check(SUCCEEDED(result) && identity != nullptr, "owned Shell restore identity unavailable");
+    ffui::ReversiblePath path{original.wstring(), {}, {}};
+    if (identity != nullptr) {
+        const auto* first = reinterpret_cast<const std::byte*>(identity);
+        path.shellItemId.assign(first, first + ILGetSize(identity));
+        CoTaskMemFree(identity);
+    }
+    return path;
+}
+
+void CheckRestoreConflictBatches(ffui::FileOperations& operations, const std::filesystem::path& root) {
+    // Real worker/Shell MoveItem callbacks with fixture-bound identities, not
+    // the user's Recycle Bin. Native app Undo qualification remains separate.
+    for (const auto choice : {ffui::ConflictChoice::Replace, ffui::ConflictChoice::Skip, ffui::ConflictChoice::KeepBoth}) {
+        const auto scope = root / (L"restore-policy-" + std::to_wstring(static_cast<int>(choice)));
+        const auto holding = scope / L"holding";
+        const auto restored = scope / L"restored";
+        std::filesystem::create_directories(holding);
+        std::filesystem::create_directories(restored);
+        ffui::FileOperationRequest request{};
+        request.kind = ffui::FileOperationKind::Restore;
+        request.recordHistory = false;
+        for (int index = 0; index < 4; ++index) {
+            const auto name = L"restore-" + std::to_wstring(index) + L".txt";
+            WriteText(holding / name, ("incoming-" + std::to_string(index)).c_str());
+            if (index < 3) WriteText(restored / name, ("existing-" + std::to_string(index)).c_str());
+            request.sources.push_back((restored / name).wstring());
+            request.restorePaths.push_back(FixtureRestorePath(holding / name, restored / name));
+        }
+        WriteText(restored / L"restore-0 (2).txt", "suffix sentinel");
+        WriteText(restored / L"sentinel.txt", "unrelated sentinel");
+        conflictDecision = {choice, true};
+        conflictQuestionCount = 0;
+        auto event = Run(operations, request);
+        Check(event && event->kind == ffui::FileOperationEventKind::Completed && event->failures.empty() &&
+              event->total == 4 && event->completed == (choice == ffui::ConflictChoice::Skip ? 1u : 4u) &&
+              event->skipped == (choice == ffui::ConflictChoice::Skip ? 3u : 0u) && conflictQuestionCount == 1,
+              "restore apply-all must prompt once and preserve total/completed/skipped counts without failures");
+        for (int index = 0; index < 4; ++index) {
+            const auto name = L"restore-" + std::to_wstring(index) + L".txt";
+            const bool collision = index < 3;
+            const bool skipped = collision && choice == ffui::ConflictChoice::Skip;
+            Check(std::filesystem::exists(holding / name) == skipped, "restore retained/lost the wrong holding item");
+            const auto expected = collision && choice != ffui::ConflictChoice::Replace
+                ? "existing-" + std::to_string(index) : "incoming-" + std::to_string(index);
+            Check(ReadText(restored / name) == expected, "restore collision outcome changed wrong bytes");
+            if (collision && choice == ffui::ConflictChoice::KeepBoth) {
+                const auto duplicate = L"restore-" + std::to_wstring(index) + (index == 0 ? L" (3).txt" : L" (2).txt");
+                Check(ReadText(restored / duplicate) == "incoming-" + std::to_string(index), "restore keep-both suffix or bytes wrong");
+            }
+        }
+        Check(ReadText(restored / L"restore-0 (2).txt") == "suffix sentinel" &&
+              ReadText(restored / L"sentinel.txt") == "unrelated sentinel", "restore changed unrelated/suffix sentinel");
+        if (choice == ffui::ConflictChoice::Skip) {
+            request.restorePaths.resize(3);
+            request.sources.clear();
+            conflictQuestionCount = 0;
+            event = Run(operations, request);
+            Check(event && event->kind == ffui::FileOperationEventKind::Completed && event->total == 3 &&
+                  event->completed == 0 && event->skipped == 3 && event->failures.empty() && conflictQuestionCount == 1,
+                  "all-skipped restore must report all original items without errors or Shell execution");
+        }
+        // The same worker must ask again on the next request; preflight Cancel
+        // leaves both its colliding and noncolliding entries unmoved.
+        const auto resetHolding = scope / L"reset-holding";
+        std::filesystem::create_directories(resetHolding);
+        WriteText(resetHolding / L"reset.txt", "reset incoming");
+        WriteText(resetHolding / L"fresh.txt", "fresh incoming");
+        WriteText(restored / L"reset.txt", "reset existing");
+        ffui::FileOperationRequest reset{};
+        reset.kind = ffui::FileOperationKind::Restore;
+        reset.recordHistory = false;
+        reset.restorePaths = {FixtureRestorePath(resetHolding / L"fresh.txt", restored / L"fresh.txt"),
+            FixtureRestorePath(resetHolding / L"reset.txt", restored / L"reset.txt")};
+        conflictDecision = {ffui::ConflictChoice::Cancel, false};
+        conflictQuestionCount = 0;
+        event = Run(operations, std::move(reset));
+        Check(event && event->kind == ffui::FileOperationEventKind::Cancelled && event->total == 2 &&
+              conflictQuestionCount == 1 && ReadText(resetHolding / L"fresh.txt") == "fresh incoming" &&
+              ReadText(resetHolding / L"reset.txt") == "reset incoming" && ReadText(restored / L"reset.txt") == "reset existing" &&
+              !std::filesystem::exists(restored / L"fresh.txt"), "restore decision leaked or Cancel mutated preflight items");
+    }
+    const auto holding = root / L"restore-unchecked-holding";
+    const auto restored = root / L"restore-unchecked-target";
+    std::filesystem::create_directories(holding);
+    std::filesystem::create_directories(restored);
+    ffui::FileOperationRequest unchecked{};
+    unchecked.kind = ffui::FileOperationKind::Restore;
+    unchecked.recordHistory = false;
+    for (const auto* name : {L"first.txt", L"fresh.txt", L"second.txt"}) {
+        WriteText(holding / name, "incoming preserved");
+        if (std::wstring_view(name) != L"fresh.txt") WriteText(restored / name, "existing preserved");
+        unchecked.restorePaths.push_back(FixtureRestorePath(holding / name, restored / name));
+    }
+    conflictQuestionCount = 0;
+    conflictDecisions = {{ffui::ConflictChoice::Skip, false}, {ffui::ConflictChoice::Cancel, false}};
+    auto event = Run(operations, std::move(unchecked));
+    Check(event && event->kind == ffui::FileOperationEventKind::Cancelled && event->total == 3 &&
+          conflictQuestionCount == 2 && conflictDecisions.empty(), "unchecked restore Skip must prompt again before later Cancel");
+    for (const auto* name : {L"first.txt", L"fresh.txt", L"second.txt"}) {
+        Check(ReadText(holding / name) == "incoming preserved", "cancelled restore preflight moved a source");
+    }
+    Check(ReadText(restored / L"first.txt") == "existing preserved" && ReadText(restored / L"second.txt") == "existing preserved" &&
+          !std::filesystem::exists(restored / L"fresh.txt"), "later restore Cancel mutated an earlier planned target");
+    conflictDecision = {ffui::ConflictChoice::KeepBoth, true};
 }
 
 } // namespace
@@ -245,6 +359,7 @@ int main() {
     event = Run(operations, std::move(restore));
     Check(event->failures.empty() && std::filesystem::exists(source / L"recyclable.txt") && !event->reversibleOperation,
           "Recycle Bin restore failed");
+    CheckRestoreConflictBatches(operations, root);
 
     WriteText(source / L"permanent.txt", "gone");
     event = Run(operations, {ffui::FileOperationKind::Delete, {(source / L"permanent.txt").wstring()}, {}, {}, false});
