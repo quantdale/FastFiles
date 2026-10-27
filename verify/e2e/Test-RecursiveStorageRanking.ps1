@@ -3,6 +3,7 @@ param(
     [string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path,
     [Parameter(Mandatory)][string]$ArtifactsDir,
     [switch]$PartialDescendant,
+    [switch]$ExerciseRadioKeyboard,
     [ValidateSet('System','Light','Dark')][string]$Theme='System',
     [ValidateSet(0,620,1008,1600)][int]$WindowWidth=0
 )
@@ -106,6 +107,38 @@ function Mode([string]$Name) {
     Check ([bool]$button) ('Storage mode missing: '+$Name)
     $invoked=& $e2e {param($c,$b) Invoke-E2EButton -Context $c -Element $b} $ctx $button
     Check ([bool]$invoked) ('Storage mode not activatable: '+$Name)
+    if($ExerciseRadioKeyboard -and $Name -eq 'Largest Files') {
+        $null=Set-UiaForeground -Driver $ctx.Driver -Element $ctx.Main
+        $bounds=Get-UiaElementProperty -Driver $ctx.Driver -Element $button -Name BoundingRectangle
+        Check ($bounds -and $bounds.width -gt 0 -and $bounds.height -gt 0) 'Wide mode radio bounds missing.'
+        $focusInput=Send-UiaMouseInput -Driver $ctx.Driver -X ([int]($bounds.x+$bounds.width/2)) -Y ([int]($bounds.y+$bounds.height/2)) -Button Left -Action Click
+        Check $focusInput.ok 'Wide mode radio focus input rejected.'
+        $handle=[IntPtr]$button.Current.NativeWindowHandle
+        [uint32]$ownerPid=0
+        $thread=[FfNativeInput]::GetWindowThreadProcessId($handle,[ref]$ownerPid)
+        Check ($handle -ne [IntPtr]::Zero -and $ownerPid -eq $ctx.Launched.Id) 'Wide radio native handle is not bound to owned process.'
+        $focused=Wait-E2ECondition -TimeoutMs 2500 -Description 'wide mode radio receives actual keyboard focus' -Condition {
+            $probe=[FfNativeInput+GUITHREADINFO]::new(); $probe.cbSize=[Runtime.InteropServices.Marshal]::SizeOf([type][FfNativeInput+GUITHREADINFO])
+            if([FfNativeInput]::GetGUIThreadInfo($thread,[ref]$probe) -and $probe.hwndFocus -eq $handle) {return $true}; return $false
+        }
+        Check $focused.Pass 'Wide mode radio did not receive actual native keyboard focus.'
+        $previous=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -Name 'Largest Folders' -ProcessId $ctx.Launched.Id -TimeoutMs 2000
+        Check ([bool]$previous) 'Adjacent native radio missing.'
+        $left=Send-UiaInput -Driver $ctx.Driver -Keys '{LEFT}'
+        Check $left.ok 'Native radio Left rejected.'
+        $moved=Wait-E2ECondition -TimeoutMs 2500 -Description 'Left selects actual adjacent mode' -Condition {
+            [bool](Invoke-UiaPattern -Driver $ctx.Driver -Element $previous -PatternName SelectionItem -Method GetSelection)
+        }
+        Check $moved.Pass 'Radio Left did not select Largest Folders.'
+        $right=Send-UiaInput -Driver $ctx.Driver -Keys '{RIGHT}'
+        Check $right.ok 'Native radio Right rejected.'
+        $returned=Wait-E2ECondition -TimeoutMs 2500 -Description 'Right restores actual Largest Files mode' -Condition {
+            [bool](Invoke-UiaPattern -Driver $ctx.Driver -Element $button -PatternName SelectionItem -Method GetSelection)
+        }
+        Check $returned.Pass 'Radio Right did not restore Largest Files.'
+        [void]$observations.Add(@{id='radio-keyboard';nativeHandle=$handle.ToInt64();focusInput=$focusInput;focusPass=$focused.Pass;left=$left;leftPass=$moved.Pass;right=$right;rightPass=$returned.Pass})
+    }
+
 }
 function Rows {
     $list=Find-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -AutomationId '7201' -ClassName SysListView32 -ProcessId $ctx.Launched.Id
@@ -338,7 +371,7 @@ public static class FfStorageQualificationWindow {
             if(-not $cleanup.Pass -and -not $failure) { $failure='cleanup: '+($cleanup.Residue -join ',') }
         } catch { if(-not $failure) { $failure='cleanup: '+$_.Exception.Message } }
     }
-    @{status=$(if($failure){'FAIL'}else{'PASS'});phase=$script:phase;failure=$failure;requestedTheme=$Theme;requestedWindowWidth=$WindowWidth;partialDescendantRequested=[bool]$PartialDescendant;scope='Seeded degraded known-file recursive ranking; exact public UIA/actions and file hashes; screenshots require separate visual review';observations=@($observations.ToArray());captures=@($captures.ToArray());cleanup=$cleanup;binaryProvenance=$gate.evidence} |
+    @{status=$(if($failure){'FAIL'}else{'PASS'});phase=$script:phase;failure=$failure;requestedTheme=$Theme;requestedWindowWidth=$WindowWidth;partialDescendantRequested=[bool]$PartialDescendant;radioKeyboardRequested=[bool]$ExerciseRadioKeyboard;scope='Seeded degraded known-file recursive ranking; exact public UIA/actions and file hashes; screenshots require separate visual review';observations=@($observations.ToArray());captures=@($captures.ToArray());cleanup=$cleanup;binaryProvenance=$gate.evidence} |
         ConvertTo-Json -Depth 22 | Set-Content (Join-Path $artifacts 'result.json') -Encoding utf8NoBOM
 }
 if($failure) { throw $failure }
