@@ -1664,6 +1664,18 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "preserve-execution-conflict-consent",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-execution-conflict-consent/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

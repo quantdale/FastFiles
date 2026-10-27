@@ -1,3 +1,23 @@
+# Confirmed execution-collision safety repair — 2026-10-27
+
+- Root solewriter verified PR27ec5 base; originalcontrolledCopy proves newlycreatedtargetoverwrittenwithoutconsent. CREATE_NEW+exactlaterprompt deterministic, reports1completed0fail1skip, source/sentinels/cleanupverified. Actualflags554 for absentandoccupied =>flagsonlycannotdistinguish. Temporaryloggingremoved, no metadata/contentoutputfromproductbuild.
+- Newchange preserve-execution-conflict-consent: ordinaryCopy/Move/RestoreShellpolicyRENAMEONCOLLISION, explicitapprovedReplace separateoperation/samesink/oneterminal, allpreflight/setupbeforemutation; cancel/abort preventssecondphase. ActualresultingpathMovehistory retained; resetETA samplesperStartOperations. No predelete/service/trust/IPCchanges.
+- Actualsixfilelate/absentCopyMoveRestorematrixPASS includingexactinventory/source/sentinel/Moveundopath; defaultcontrolledworker+consentCTest2/2PASS11.18s. Addedlate-directoryCopyMove test source, notyetcompiled/run. CombinedquitDebug/releasefullcertcurrentlyserialized; no actualShellworker/UI test whilethoseCTestsrun.
+- Safetyselfreview: twoShellgroups preserveallpreflight/setup-beforemutation andone terminal; cancel/abortguardsecondphase, defaultworker2/2 coversmixedRestoreReplace+ordinary. UIwarningclean67/67PASS. Newdirectoryandmixedcanceltestcompiled butnotrunwhilecombinedquitreleaseCTestactive. Rename/Link/NewItem late-collision policies remainseparate source-auditquestions; do notinferprotectionfromthisCopyMoveRestorepatch.
+- ExtendednativeworkerPASS: latefolderCopy/Move keepsbothnestedtrees; mixedpreflightCancel preventsbothphases. FoundCopydirectorycompleted2+skip1vs2roots; fixedsuccess/historycountingwithcanonicalsubmittedroots andvirtualComparefallback, retainallchildfailures, avoidchildRecyclePIDL overwritingroot. Updatedworker+extendedCTest2/2PASS11.53s; finaldirectoryMovehistoryassertaddedpendingrebuild. QuitcertnowDebug/release136each+Analyze/native8PASS, publisheddraftPR29 733a45b onPR26.
+- FinalextendedCTest2/2PASS0fail/skip11.57s; latefolderrootcounts1complete/1skip/2total, actualdirectoryMovehistoryrootonly. Controlledmixedinflightcancelstops3/512ordinary, exactpartialinventory/sourcebytes/replacementsentinel/cleanup. Finaltestheaderiteratorincludeawaitsrebuild; productFileOperations unchanged sincepassingroot-count source. No freshindependentreviewavailable, rootreviewrecorded. Evidence/qualification.md preservesred/flags/counterfinding/green.
+- NEXT EXACT ACTION: aftercombinedquitcertfinishes, compile/run directory+mixed/cancel qualifications andcorrect anycount/progressfindings. FocusedUIcompile/strict/drift/lifecycle, commitlogicalverifiedmilestone; rootintegration/native/fullcertbeforepublication. Originaluserdirtyfiles/sharedPRs preserved; no product-complete/securitywaiver claim.
+
+## Prior checkpoint
+
+# Post-preflight consent diagnostic prepared — 2026-10-27
+
+- Root solewriter execution-consent worktree; originalcleanbe safelytracksPR27andfast-forwardpulledtoec5bd9579e9456088ffbda988a900c2ebe8bb934, verifiedcurrentremote. No productcodechange. A priornewagentattemptfailedquota; rootownsimplementation, no overlappingwriter.
+- Existingcontrolledworker test has explicit --post-preflight-consent route. FirstsourceplannedabsenttargetA, secondsourcecollisionB realpostedquestion; exactBcallback CREATE_NEWwrites/closes targetAsentinelbeforeanswerSkip. Exactlyoneprompt/terminal, source/destination/sentinelbytes/counts/drainedstate asserted; ownsuniqueTempfixture, neverBin/Explorer/userdata/processkill. No productionseamadded. Targetcompiles4/4; cleanupcanonicalparentcheckfollowupawaitsrebuild.
+- NEXT EXACT ACTION: waitcombinedordinaryE2E UIAslotfinish; compilecleanupfollowup andrunexplicitdiagnostic once withoriginalFileOperations. Preserveactualoutcome, normalcleanup, no P0/overwrite claimbeforeproof. Ifconfirmed, designatomic consent-preservingexecution andtruthfulfailure/undo; no secondexistscheckclaimedatomic. Ifrefuted, recordandretainboundedregression withoutproductchurn. Rootprimaryquitfixqualificationremainsactive inotherworktree.
+
+## Inherited restore checkpoint
+
 # Restore successor publication checkpoint — 2026-10-27
 
 - Immutable implementationbe2036d has full Debug build441 steps and confirmation exit0; selected Debug127/1270fail0skip272.03s. Exact restricted reaper excluded/unexecuted. Controlled holding-folder Restore worker1/1 and pure planner1/1 pass; independent source reviewer approves bounded implementation. Compressed logs and component blob receipt in evidence/restore-conflict-policy-20261027.

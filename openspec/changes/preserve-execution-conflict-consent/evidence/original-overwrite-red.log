@@ -1,0 +1,23 @@
+FAIL: post-preflight destination must never be overwritten without consent
+ok: COM initialization failed
+ok: window class registration failed
+ok: event window creation failed
+ok: temp path unavailable
+ok: new worker must be idle
+ok: queued work must be outstanding before worker Start
+ok: idle operation queue must be unavailable for cancellation
+ok: worker did not start
+ok: first target initially absent
+ok: only the expected second collision prompts
+ok: CREATE_NEW proves target appeared after absence preflight
+ok: close owned target sentinel
+ok: write exact owned sentinel before answering conflict
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: deterministic preflight boundary and exactly one terminal event
+ok: both incoming sources preserved
+ok: skipped destination and unrelated sentinel preserved
+ok: original total and intentional skip remain truthful
+consent diagnostic: completed=1 failed=0 skipped=1 terminal=3
+ok: cleanup stays within own temporary parent
+ok: owned consent fixture cleaned normally

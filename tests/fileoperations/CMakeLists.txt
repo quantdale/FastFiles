@@ -26,3 +26,6 @@ set_tests_properties(ffrestore_plan_tests PROPERTIES TIMEOUT 30)
 target_include_directories(ffselection_tests PRIVATE ../../src/ui/src)
 add_test(NAME ffselection_tests COMMAND ffselection_tests)
 set_tests_properties(fffileoperations_tests fffileoperations_e2e_tests ffselection_tests PROPERTIES TIMEOUT 120)
+
+add_test(NAME fffileoperations_execution_consent_tests COMMAND fffileoperations_e2e_tests --post-preflight-consent)
+set_tests_properties(fffileoperations_execution_consent_tests PROPERTIES TIMEOUT 60)

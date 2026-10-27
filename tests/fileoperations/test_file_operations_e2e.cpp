@@ -5,8 +5,10 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <windows.h>
 #include <winioctl.h>
 #include <objbase.h>
@@ -23,9 +25,11 @@ namespace {
 std::unique_ptr<ffui::FileOperationEvent> lastEvent;
 ffui::ConflictDecision conflictDecision{ffui::ConflictChoice::KeepBoth, true};
 int conflictQuestionCount = 0;
+std::function<ffui::ConflictDecision(const ffui::FileOperationConflictQuestion&)> conflictObserver;
 std::deque<ffui::ConflictDecision> conflictDecisions;
 int terminalEventCount = 0;
 ffui::FileOperations* cancelOnProgress = nullptr;
+unsigned int minimumCancelCompleted = 0;
 // Simulates the real UI's conflict dialog: when set, the posted question is
 // held (unanswered) so the test can run Stop() while the prompt is in flight.
 bool holdConflictQuestion = false;
@@ -42,9 +46,10 @@ LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
             heldQuestion = question;
             return 0;
         }
+        const auto observedDecision = conflictObserver ? std::optional{conflictObserver(*question)} : std::nullopt;
         {
             std::lock_guard lock(question->mutex);
-            question->decision = conflictDecisions.empty() ? conflictDecision : conflictDecisions.front();
+            question->decision = observedDecision ? *observedDecision : (conflictDecisions.empty() ? conflictDecision : conflictDecisions.front());
             if (!conflictDecisions.empty()) conflictDecisions.pop_front();
             question->answered = true;
             ++conflictQuestionCount;
@@ -54,7 +59,7 @@ LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
     }
     if (message == ffui::WM_APP_FILE_OPERATION_EVENT) {
         std::unique_ptr<ffui::FileOperationEvent> event(reinterpret_cast<ffui::FileOperationEvent*>(lParam));
-        if (event->kind == ffui::FileOperationEventKind::Progress && event->total > 0 && cancelOnProgress != nullptr) {
+        if (event->kind == ffui::FileOperationEventKind::Progress && event->total > 0 && cancelOnProgress != nullptr && event->completed >= minimumCancelCompleted) {
             Check(cancelOnProgress->HasOutstandingWork(), "real cancellable progress lost outstanding work");
             cancelOnProgress->CancelCurrent();
             cancelOnProgress = nullptr;
@@ -119,6 +124,202 @@ ffui::ReversiblePath FixtureRestorePath(const std::filesystem::path& holding, co
         CoTaskMemFree(identity);
     }
     return path;
+}
+
+void CheckPostPreflightCollision(ffui::FileOperations& operations, const std::filesystem::path& root, bool appeared = true, ffui::FileOperationKind kind = ffui::FileOperationKind::Copy) {
+    const auto scope = root / (std::to_wstring(static_cast<int>(kind)) + (appeared ? L"-appeared" : L"-absent"));
+    const auto source = scope / L"source";
+    const auto target = scope / L"target";
+    std::filesystem::create_directories(source);
+    std::filesystem::create_directories(target);
+    WriteText(source / L"first.txt", "incoming first");
+    WriteText(source / L"second.txt", "incoming second");
+    WriteText(target / L"second.txt", "existing second");
+    WriteText(target / L"sentinel.txt", "unrelated sentinel");
+    Check(!std::filesystem::exists(target / L"first.txt"), "first target initially absent");
+    bool created = false;
+    conflictQuestionCount = 0;
+    const int beforeTerminal = terminalEventCount;
+    conflictObserver = [&](const ffui::FileOperationConflictQuestion& question) {
+        const auto expectedSource = kind == ffui::FileOperationKind::Restore ? target : source;
+        const bool exact = question.source == (expectedSource / L"second.txt").wstring() &&
+            question.destination == (target / L"second.txt").wstring();
+        Check(exact, "only the expected second collision prompts");
+        if (!exact) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+        if (!appeared) return ffui::ConflictDecision{ffui::ConflictChoice::Skip, false};
+        HANDLE file = CreateFileW((target / L"first.txt").c_str(), GENERIC_WRITE, 0, nullptr,
+                                  CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        Check(file != INVALID_HANDLE_VALUE, "CREATE_NEW proves target appeared after absence preflight");
+        if (file == INVALID_HANDLE_VALUE) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+        constexpr char bytes[] = "new destination sentinel";
+        DWORD written = 0;
+        created = WriteFile(file, bytes, sizeof(bytes) - 1, &written, nullptr) != FALSE && written == sizeof(bytes) - 1;
+        Check(CloseHandle(file) != FALSE, "close owned target sentinel");
+        Check(created, "write exact owned sentinel before answering conflict");
+        return ffui::ConflictDecision{created ? ffui::ConflictChoice::Skip : ffui::ConflictChoice::Cancel, false};
+    };
+    ffui::FileOperationRequest request{kind,
+        {(source / L"first.txt").wstring(), (source / L"second.txt").wstring()}, target.wstring(), {}, true};
+    if (kind == ffui::FileOperationKind::Restore) {
+        request.restorePaths = {FixtureRestorePath(source / L"first.txt", target / L"first.txt"),
+                                FixtureRestorePath(source / L"second.txt", target / L"second.txt")};
+    }
+    auto event = Run(operations, std::move(request));
+    conflictObserver = {};
+    Check((created || !appeared) && conflictQuestionCount == 1 && terminalEventCount == beforeTerminal + 1,
+          "deterministic preflight boundary and exactly one terminal event");
+    Check((kind == ffui::FileOperationKind::Copy ? ReadText(source / L"first.txt") == "incoming first"
+                                               : !std::filesystem::exists(source / L"first.txt")) &&
+          ReadText(source / L"second.txt") == "incoming second", "source outcomes match actual transfer and intentional skip");
+    Check(ReadText(target / L"first.txt") == (appeared ? "new destination sentinel" : "incoming first"),
+          "post-preflight destination must never be overwritten without consent");
+    Check(ReadText(target / L"second.txt") == "existing second" && ReadText(target / L"sentinel.txt") == "unrelated sentinel",
+          "skipped destination and unrelated sentinel preserved");
+    std::filesystem::path transferred;
+    size_t destinationFiles = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(target)) {
+        ++destinationFiles;
+        if (ReadText(entry.path()) == "incoming first") transferred = entry.path();
+    }
+    Check(!transferred.empty() && destinationFiles == (appeared ? 4u : 3u),
+          "exact target inventory retains incoming copy and all existing files");
+    Check(event && event->total == 2 && event->skipped == 1 && event->completed == 1 && event->failures.empty() &&
+          event->kind == ffui::FileOperationEventKind::Completed, "original total, completion and intentional skip remain truthful");
+    if (kind == ffui::FileOperationKind::Move) {
+        Check(event && event->reversibleOperation && event->reversibleOperation->paths.size() == 1 &&
+              event->reversibleOperation->paths[0].originalPath == (source / L"first.txt").wstring() &&
+              event->reversibleOperation->paths[0].resultingPath == transferred.wstring(),
+              "move undo names actual collision-safe destination");
+    }
+    if (event) std::cout << "consent diagnostic: completed=" << event->completed << " failed=" << event->failures.size()
+                        << " skipped=" << event->skipped << " terminal=" << static_cast<int>(event->kind) << '\n';
+}
+
+void CheckDirectoryPostPreflightCollision(ffui::FileOperations& operations, const std::filesystem::path& root,
+                                        ffui::FileOperationKind kind) {
+    const auto scope = root / (L"directory-consent-" + std::to_wstring(static_cast<int>(kind)));
+    const auto source = scope / L"source";
+    const auto target = scope / L"target";
+    std::filesystem::create_directories(source / L"Folder");
+    std::filesystem::create_directories(target);
+    WriteText(source / L"Folder" / L"incoming.txt", "incoming nested bytes");
+    WriteText(source / L"second.txt", "incoming second");
+    WriteText(target / L"second.txt", "existing second");
+    conflictQuestionCount = 0;
+    bool created = false;
+    conflictObserver = [&](const ffui::FileOperationConflictQuestion& question) {
+        const bool exact = question.source == (source / L"second.txt").wstring() &&
+            question.destination == (target / L"second.txt").wstring();
+        Check(exact, "directory test reaches only expected later conflict");
+        if (!exact) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+        created = CreateDirectoryW((target / L"Folder").c_str(), nullptr) != FALSE;
+        Check(created, "new target directory appears after parent preflight");
+        if (!created) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+        WriteText(target / L"Folder" / L"incoming.txt", "existing nested sentinel");
+        Check(ReadText(target / L"Folder" / L"incoming.txt") == "existing nested sentinel", "new directory sentinel written");
+        return ffui::ConflictDecision{ffui::ConflictChoice::Skip, false};
+    };
+    auto event = Run(operations, {kind, {(source / L"Folder").wstring(), (source / L"second.txt").wstring()}, target.wstring(), {}, true});
+    conflictObserver = {};
+    Check(created && conflictQuestionCount == 1 && event && event->failures.empty(), "directory transfer finishes without repeated prompt or failure");
+    Check(event && event->completed == 1 && event->total == 2 && event->skipped == 1,
+          "directory child callbacks cannot inflate submitted-root completion counts");
+    Check(ReadText(target / L"Folder" / L"incoming.txt") == "existing nested sentinel",
+          "late directory must not merge over existing nested data");
+    size_t retainedCopies = 0;
+    size_t targetEntries = 0;
+    std::filesystem::path transferredFolder;
+    for (const auto& entry : std::filesystem::directory_iterator(target)) {
+        ++targetEntries;
+        if (entry.is_directory() && ReadText(entry.path() / L"incoming.txt") == "incoming nested bytes") {
+            ++retainedCopies;
+            transferredFolder = entry.path();
+        }
+    }
+    Check(retainedCopies == 1 && targetEntries == 3, "exact directory inventory keeps both roots with original nested bytes");
+    if (kind == ffui::FileOperationKind::Move) {
+        Check(event && event->reversibleOperation && event->reversibleOperation->paths.size() == 1 &&
+              event->reversibleOperation->paths[0].originalPath == (source / L"Folder").wstring() &&
+              event->reversibleOperation->paths[0].resultingPath == transferredFolder.wstring(),
+              "directory Move history contains only actual submitted root");
+    }
+    Check(ReadText(source / L"second.txt") == "incoming second" && ReadText(target / L"second.txt") == "existing second",
+          "directory operation preserves skipped source and destination");
+    Check(kind == ffui::FileOperationKind::Copy ? ReadText(source / L"Folder" / L"incoming.txt") == "incoming nested bytes"
+                                              : !std::filesystem::exists(source / L"Folder"), "directory source follows copy or move semantics");
+    if (event) std::cout << "directory consent: completed=" << event->completed << " total=" << event->total
+                        << " skipped=" << event->skipped << " failures=" << event->failures.size() << '\n';
+}
+
+void CheckMixedConsentCancellation(ffui::FileOperations& operations, const std::filesystem::path& root) {
+    const auto scope = root / L"mixed-cancel";
+    const auto source = scope / L"source";
+    const auto target = scope / L"target";
+    std::filesystem::create_directories(source);
+    std::filesystem::create_directories(target);
+    WriteText(source / L"ordinary.txt", "ordinary incoming");
+    WriteText(source / L"replace.txt", "replace incoming");
+    WriteText(target / L"replace.txt", "replace original");
+    conflictQuestionCount = 0;
+    conflictObserver = [&](const ffui::FileOperationConflictQuestion& question) {
+        const bool exact = question.source == (source / L"replace.txt").wstring() &&
+            question.destination == (target / L"replace.txt").wstring();
+        Check(exact, "mixed cancel binds actual replacement prompt");
+        operations.CancelCurrent();
+        return ffui::ConflictDecision{exact ? ffui::ConflictChoice::Replace : ffui::ConflictChoice::Cancel, false};
+    };
+    auto event = Run(operations, {ffui::FileOperationKind::Move,
+        {(source / L"ordinary.txt").wstring(), (source / L"replace.txt").wstring()}, target.wstring(), {}, true});
+    conflictObserver = {};
+    Check(event && event->kind == ffui::FileOperationEventKind::Cancelled && event->completed == 0 &&
+          !event->reversibleOperation && conflictQuestionCount == 1, "cancelled mixed request cannot publish completed work or undo");
+    Check(ReadText(source / L"ordinary.txt") == "ordinary incoming" && ReadText(source / L"replace.txt") == "replace incoming" &&
+          ReadText(target / L"replace.txt") == "replace original" && !std::filesystem::exists(target / L"ordinary.txt"),
+          "cancellation prevents ordinary and approved replacement mutation");
+}
+
+void CheckInFlightMixedCancellation(ffui::FileOperations& operations, const std::filesystem::path& root) {
+    const auto source = root / L"mixed-in-flight-source";
+    const auto target = root / L"mixed-in-flight-target";
+    std::filesystem::create_directories(source);
+    std::filesystem::create_directories(target);
+    ffui::FileOperationRequest request{ffui::FileOperationKind::Copy, {}, target.wstring(), {}, true};
+    const std::string payload(4096, 'x');
+    constexpr unsigned int count = 512;
+    for (unsigned int index = 0; index < count; ++index) {
+        const auto path = source / (L"item-" + std::to_wstring(index) + L".bin");
+        WriteText(path, payload.c_str());
+        request.sources.push_back(path.wstring());
+    }
+    WriteText(source / L"replace.txt", "approved incoming");
+    WriteText(target / L"replace.txt", "approved existing sentinel");
+    request.sources.push_back((source / L"replace.txt").wstring());
+    conflictDecision = {ffui::ConflictChoice::Replace, true};
+    conflictQuestionCount = 0;
+    minimumCancelCompleted = 1;
+    cancelOnProgress = &operations;
+    auto event = Run(operations, std::move(request));
+    const bool observed = cancelOnProgress == nullptr;
+    cancelOnProgress = nullptr;
+    minimumCancelCompleted = 0;
+    Check(observed && conflictQuestionCount == 1 && event && event->kind == ffui::FileOperationEventKind::Cancelled &&
+          event->completed > 0 && event->completed < count, "mixed cancellation happens after actual ordinary transfer and before it finishes");
+    Check(ReadText(target / L"replace.txt") == "approved existing sentinel" && ReadText(source / L"replace.txt") == "approved incoming",
+          "accepted in-flight cancellation prevents later approved replacement phase");
+    size_t copied = 0;
+    for (unsigned int index = 0; index < count; ++index) {
+        const auto name = L"item-" + std::to_wstring(index) + L".bin";
+        Check(ReadText(source / name) == payload, "mixed cancellation retains every source payload");
+        if (std::filesystem::exists(target / name)) {
+            ++copied;
+            Check(ReadText(target / name) == payload, "mixed cancellation retains exact completed payload bytes");
+        }
+    }
+    Check(copied > 0 && copied < count && event && copied == event->completed,
+          "mixed cancellation terminal count matches exact partial destination inventory");
+    const auto targetEntries = std::distance(std::filesystem::directory_iterator(target), std::filesystem::directory_iterator{});
+    Check(targetEntries == static_cast<decltype(targetEntries)>(copied + 1), "mixed cancellation has no unexpected destination names");
+    std::cout << "mixed cancellation copied=" << copied << " of " << count << '\n';
 }
 
 void CheckRestoreConflictBatches(ffui::FileOperations& operations, const std::filesystem::path& root) {
@@ -220,7 +421,7 @@ void CheckRestoreConflictBatches(ffui::FileOperations& operations, const std::fi
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     Check(SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)), "COM initialization failed");
     WNDCLASSW windowClass{};
     windowClass.lpfnWndProc = EventProc;
@@ -249,6 +450,27 @@ int main() {
     ffui::FileOperations operations;
     Check(!operations.HasOutstandingWork(), "idle operation queue must be unavailable for cancellation");
     Check(operations.Start(window), "worker did not start");
+    if (argc == 2 && std::string_view(argv[1]) == "--post-preflight-consent") {
+        for (const auto kind : {ffui::FileOperationKind::Copy, ffui::FileOperationKind::Move, ffui::FileOperationKind::Restore}) {
+            CheckPostPreflightCollision(operations, root, true, kind);
+            CheckPostPreflightCollision(operations, root, false, kind);
+        }
+        CheckDirectoryPostPreflightCollision(operations, root, ffui::FileOperationKind::Copy);
+        CheckDirectoryPostPreflightCollision(operations, root, ffui::FileOperationKind::Move);
+        CheckMixedConsentCancellation(operations, root);
+        CheckInFlightMixedCancellation(operations, root);
+        operations.Stop();
+        DestroyWindow(window);
+        CoUninitialize();
+        std::error_code cleanupError;
+        // root is the unique directory constructed above beneath GetTempPath;
+        // this explicit diagnostic never uses the user's Recycle Bin.
+        Check(std::filesystem::equivalent(root.parent_path(), std::filesystem::path(temporary)), "cleanup stays within own temporary parent");
+        if (std::filesystem::equivalent(root.parent_path(), std::filesystem::path(temporary))) std::filesystem::remove_all(root, cleanupError);
+        Check(!cleanupError && !std::filesystem::exists(root), "owned consent fixture cleaned normally");
+        return fftest::FailureCount();
+    }
+
 
     // original-vision-journey-recovery 4.6: a stalled consumer must not
     // accumulate one UI message per file callback or lose terminal outcomes

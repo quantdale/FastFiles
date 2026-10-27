@@ -7,6 +7,8 @@
 #include <deque>
 #include <filesystem>
 #include <memory>
+#include <set>
+#include "ffprotocol/WindowsPath.h"
 #include <iterator>
 #include <shobjidl.h>
 #include <shlobj_core.h>
@@ -43,7 +45,7 @@ public:
         return references;
     }
 
-    IFACEMETHODIMP StartOperations() override { return S_OK; }
+    IFACEMETHODIMP StartOperations() override { samples_.clear(); return S_OK; }
     IFACEMETHODIMP FinishOperations(HRESULT) override { return S_OK; }
     IFACEMETHODIMP PreRenameItem(DWORD, IShellItem* item, LPCWSTR) override { return PreItem(item); }
     IFACEMETHODIMP PostRenameItem(DWORD, IShellItem* item, LPCWSTR, HRESULT result, IShellItem* created) override { return PostItem(item, result, created); }
@@ -53,8 +55,9 @@ public:
     IFACEMETHODIMP PostCopyItem(DWORD, IShellItem* item, IShellItem*, LPCWSTR, HRESULT result, IShellItem* created) override { return PostItem(item, result, created); }
     IFACEMETHODIMP PreDeleteItem(DWORD, IShellItem* item) override { return PreItem(item); }
     IFACEMETHODIMP PostDeleteItem(DWORD, IShellItem* item, HRESULT result, IShellItem* recycled) override {
+        const size_t priorPaths = completedPaths_.size();
         const HRESULT callbackResult = PostItem(item, result, nullptr);
-        if (SUCCEEDED(result) && recycled != nullptr && !completedPaths_.empty()) {
+        if (SUCCEEDED(result) && recycled != nullptr && completedPaths_.size() > priorPaths) {
             PIDLIST_ABSOLUTE identifier = nullptr;
             if (SUCCEEDED(SHGetIDListFromObject(recycled, &identifier)) && identifier != nullptr) {
                 const size_t byteCount = ILGetSize(identifier);
@@ -96,6 +99,12 @@ public:
     IFACEMETHODIMP PauseTimer() override { return S_OK; }
     IFACEMETHODIMP ResumeTimer() override { return S_OK; }
 
+    void RegisterRoot(IShellItem* item) {
+        const auto path = ItemPath(item);
+        if (!path.empty()) rootPaths_.insert(path);
+        else if (item != nullptr) rootItems_.emplace_back(item);
+    }
+
     std::vector<FileOperationFailure> Failures() const { return failures_; }
     unsigned int Completed() const { return completed_; }
     std::vector<ReversiblePath> CompletedPaths() const { return completedPaths_; }
@@ -120,12 +129,23 @@ private:
     HRESULT PostItem(IShellItem* item, HRESULT result, IShellItem* created) {
         if (FAILED(result)) {
             failures_.push_back({ItemPath(item), result});
-        } else {
+        } else if (IsRoot(item)) {
             ++completed_;
             completedPaths_.push_back({ItemPath(item), ItemPath(created), {}});
         }
         return PostResult(result);
     }
+    bool IsRoot(IShellItem* item) const {
+        const auto path = ItemPath(item);
+        if (!path.empty() && rootPaths_.contains(path)) return true;
+        for (const auto& root : rootItems_) {
+            int order = 1;
+            if (item != nullptr && SUCCEEDED(root->Compare(item, SICHINT_CANONICAL, &order)) && order == 0) return true;
+        }
+        return false;
+    }
+    std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> rootPaths_;
+    std::vector<Microsoft::WRL::ComPtr<IShellItem>> rootItems_;
     HRESULT PostResult(HRESULT) { return CancelledResult(); }
     HRESULT CancelledResult() const { return cancelled_ ? HRESULT_FROM_WIN32(ERROR_CANCELLED) : S_OK; }
 
@@ -502,6 +522,16 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
                    std::move(failures), std::move(affected)});
         return;
     }
+    // preserve-execution-conflict-consent: Shell owns collision resolution at
+    // the actual write boundary. An unapproved transfer must keep both if a
+    // destination appears after preflight; an existence recheck is not atomic.
+    const bool transfer = request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move ||
+                          request.kind == FileOperationKind::Restore;
+    const bool hasReplacement = std::any_of(request.transferPlan.begin(), request.transferPlan.end(),
+        [](const TransferPlanItem& item) { return item.replacesExisting; }) ||
+        std::any_of(restorePlan.begin(), restorePlan.end(), [](const RestorePlanItem& item) { return item.replacesExisting; });
+    constexpr DWORD baseFlags = FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI;
+    Microsoft::WRL::ComPtr<IFileOperation> replacementOperation;
     Microsoft::WRL::ComPtr<IFileOperation> operation;
     HRESULT setupResult = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&operation));
     if (SUCCEEDED(setupResult)) {
@@ -509,8 +539,12 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
         // window can steal focus from our live cancellation palette. Progress
         // and cancellation remain on ProgressSink and the native shell UI.
         // FOF_SILENT suppresses only the duplicate Shell progress dialog.
-        setupResult = operation->SetOperationFlags(FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI |
+        setupResult = operation->SetOperationFlags(baseFlags | (transfer ? FOF_RENAMEONCOLLISION : 0) |
             (request.kind == FileOperationKind::Delete && request.recycle ? FOF_ALLOWUNDO : 0));
+    }
+    if (SUCCEEDED(setupResult) && transfer && hasReplacement) {
+        setupResult = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&replacementOperation));
+        if (SUCCEEDED(setupResult)) setupResult = replacementOperation->SetOperationFlags(baseFlags);
     }
     if (FAILED(setupResult)) {
         const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size() + skipped));
@@ -526,7 +560,11 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     auto* sink = new ProgressSink(*this, request.kind, cancelRequested_);
     DWORD cookie = 0;
     const HRESULT adviseResult = operation->Advise(sink, &cookie);
+    DWORD replacementCookie = 0;
     HRESULT submitResult = adviseResult;
+    if (SUCCEEDED(submitResult) && replacementOperation) submitResult = replacementOperation->Advise(sink, &replacementCookie);
+    bool ordinarySubmitted = false;
+    bool replacementSubmitted = false;
     std::vector<FileOperationFailure> submissionFailures;
     Microsoft::WRL::ComPtr<IShellItem> destination = MakeItem(request.destination);
     if (SUCCEEDED(submitResult) && !destination &&
@@ -546,20 +584,28 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
                 submissionFailures.push_back({sourcePath, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)});
                 continue;
             }
+            sink->RegisterRoot(source.Get());
             HRESULT itemResult = S_OK;
             const wchar_t* destinationName = nullptr;
             if (sourceIndex < request.transferPlan.size() && !request.transferPlan[sourceIndex].destinationName.empty()) {
                 destinationName = request.transferPlan[sourceIndex].destinationName.c_str();
             }
-            if (request.kind == FileOperationKind::Copy) itemResult = operation->CopyItem(source.Get(), destination.Get(), destinationName, nullptr);
-            else if (request.kind == FileOperationKind::Move) itemResult = operation->MoveItem(source.Get(), destination.Get(), destinationName, nullptr);
+            const bool replace = transfer && sourceIndex < request.transferPlan.size() && request.transferPlan[sourceIndex].replacesExisting;
+            IFileOperation* targetOperation = replace ? replacementOperation.Get() : operation.Get();
+            if (request.kind == FileOperationKind::Copy) itemResult = targetOperation->CopyItem(source.Get(), destination.Get(), destinationName, nullptr);
+            else if (request.kind == FileOperationKind::Move) itemResult = targetOperation->MoveItem(source.Get(), destination.Get(), destinationName, nullptr);
             else itemResult = operation->DeleteItem(source.Get(), nullptr);
+            if (SUCCEEDED(itemResult)) {
+                if (replace) replacementSubmitted = true;
+                else ordinarySubmitted = true;
+            }
             if (FAILED(itemResult)) submissionFailures.push_back({sourcePath, itemResult});
         }
     } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::Rename) {
         for (const auto& sourcePath : request.sources) {
             auto source = MakeItem(sourcePath);
             if (!source) { submitResult = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND); continue; }
+            sink->RegisterRoot(source.Get());
             submitResult = operation->RenameItem(source.Get(), request.newName.c_str(), nullptr);
             if (FAILED(submitResult)) break;
         }
@@ -578,14 +624,25 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
                 continue;
             }
             const std::wstring& name = planned.destinationName.empty() ? originalName : planned.destinationName;
-            const HRESULT itemResult = operation->MoveItem(recycled.Get(), restoreFolder.Get(), name.c_str(), nullptr);
+            sink->RegisterRoot(recycled.Get());
+            IFileOperation* targetOperation = planned.replacesExisting ? replacementOperation.Get() : operation.Get();
+            const HRESULT itemResult = targetOperation->MoveItem(recycled.Get(), restoreFolder.Get(), name.c_str(), nullptr);
             if (FAILED(itemResult)) submissionFailures.push_back({restore.originalPath, itemResult});
+            else if (planned.replacesExisting) replacementSubmitted = true;
+            else ordinarySubmitted = true;
         }
     }
-    if (SUCCEEDED(submitResult)) submitResult = operation->PerformOperations();
-    if (cookie != 0) operation->Unadvise(cookie);
     BOOL operationsAborted = FALSE;
-    operation->GetAnyOperationsAborted(&operationsAborted);
+    if (SUCCEEDED(submitResult) && (!transfer || ordinarySubmitted)) {
+        submitResult = operation->PerformOperations();
+        operation->GetAnyOperationsAborted(&operationsAborted);
+    }
+    if (SUCCEEDED(submitResult) && !operationsAborted && !cancelRequested_ && replacementSubmitted) {
+        submitResult = replacementOperation->PerformOperations();
+        replacementOperation->GetAnyOperationsAborted(&operationsAborted);
+    }
+    if (cookie != 0) operation->Unadvise(cookie);
+    if (replacementCookie != 0) replacementOperation->Unadvise(replacementCookie);
     const bool cancelled = cancelRequested_ || operationsAborted || submitResult == HRESULT_FROM_WIN32(ERROR_CANCELLED);
     auto failures = sink->Failures();
     failures.insert(failures.end(), submissionFailures.begin(), submissionFailures.end());
