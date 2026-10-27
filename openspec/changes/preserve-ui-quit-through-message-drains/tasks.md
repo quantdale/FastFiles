@@ -6,5 +6,5 @@
 
 ## 2. Integrated qualification
 
-- [ ] 2.1 Integrator: exercise actual Home/search/Storage close on safe combined source and inspect shutdown phases; retain original failure.
-- [ ] 2.2 Run relevant wider portable and native certification, reconcile evidence and publish unmerged successor normally.
+- [x] 2.1 Integrator: exercise actual Home/search/Storage close on safe combined source and inspect shutdown phases; retain original failure. Combinedd639 focusedrestore1/1 and fullordinary8/8PASS0skips, all3naturalcloses/cleanup; shutdown phases retained. Originalquitconsumption notdirectlycaptured.
+- [x] 2.2 Run relevant wider portable and native certification, reconcile evidence and publish unmerged successor normally. Combinedd639 currentDebug/release136/136each, AnalyzeUI7/strict98PASS; exactlogs retained, reaperonlyexcluded. Root publication querieslive refs/hosted state; no sharedmerge/release.

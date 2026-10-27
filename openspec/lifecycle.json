@@ -1667,7 +1667,7 @@
     },
     {
       "name": "preserve-ui-quit-through-message-drains",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
