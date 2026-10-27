@@ -1679,7 +1679,7 @@
     },
     {
       "name": "prevent-shortcut-creation-overwrite",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
