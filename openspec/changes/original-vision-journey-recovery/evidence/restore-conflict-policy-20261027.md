@@ -17,3 +17,11 @@ Real multi-item Recycle Bin Undo remains unqualified. The existing positive-coun
 Task4.11 stays open pending controlled worker execution, actual checkbox/apply-all journeys, independent review and relevant broader certification. No source-presence or pure-test result is promoted to native readiness.
 
 Root source review found no new material defect within this bounded planner/worker scope. Independent re-review remains unavailable: native worker quota exhausted and Hy3 doctor rejects the missing exact route/artifact; neither was retried or reconfigured. Native apply-all and real app Undo remain pending. The standalone branch lacks PR22 cleanup ownership; no native execution is authorized here until integrated with that fix.
+
+## Integrator publication qualification
+
+Immutable standalone implementation `be2036d7136d75309eee6d68e2ceb6f9be8b0c66` completes all441 Debug build steps; a clean confirmation exits0. Selected Debug CTest **127/127 PASS, zero failures/skips,272.03s**. Only restricted `ffverify_process_reaper_ps_tests` excluded and NOT_EXECUTED. Original compressed logs and exact component identity receipt retained. Independent read-only review of this implementation finds no actionable P1/P2. Earlier reviewer unavailability above is historical and superseded for this bounded source.
+
+Combined safe-cleanup source e47 executes native Copy/Move apply-all7/7, with exact inventories, fresh unchecked reset requests, normal close and cleanup; this is separately combined evidence, not standalone Restore Undo. The three production planner/worker components exactly match combined1794, whose selected Debug/release135/135 each and AnalyzeUI67/67 pass. No whole-tree or whole-executable equivalence claimed. Native standard-control observation previously required exact owned Win32 checkbox state because the client exposed Pane/noToggle; separate process-local UIA client repair remains in progress.
+
+The standalone branch lacks PR22-safe native teardown: no standalone app launched. Real multi-item Recycle Bin Undo, history recovery and physical display/accessibility matrix remain unqualified. Task4.11 stays open in this isolated branch until integrator reconciles required native evidence; no test or security requirement waived. This draft remains stacked on PR25, without shared merge or release.

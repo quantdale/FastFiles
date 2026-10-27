@@ -1,3 +1,11 @@
+# Restore successor publication checkpoint — 2026-10-27
+
+- Immutable implementationbe2036d has full Debug build441 steps and confirmation exit0; selected Debug127/1270fail0skip272.03s. Exact restricted reaper excluded/unexecuted. Controlled holding-folder Restore worker1/1 and pure planner1/1 pass; independent source reviewer approves bounded implementation. Compressed logs and component blob receipt in evidence/restore-conflict-policy-20261027.
+- Source stacks on PR25 current95c1589, no duplicated unrelated PRs. Exact planner/worker components match combined1794 full selectedDebug/release135 each/Analyze67; these remain combined results. Actual Copy/Move apply-all7/7 combined e47 is separate from actual app Bin Undo. Standalone lacks PR22-safe native teardown and no app launched here. Task4.11 stays open pending integrator reconciliation; real multiBinUndo/history recovery unqualified.
+- NEXT EXACT ACTION: focused strict/drift/whitespace, commit evidence, fresh fetch/reconcile, publish draft on PR25 normally and inspect hosted once. Root continues client bootstrap and affected native reruns in safe integration. Original dirty checkout/shared PRs/main preserved; no production release or account/trust changes.
+
+## Prior checkpoint
+
 # Fast Files — Agent Workstate
 
 ## Restore request conflict policy — 2026-10-27
