@@ -1,0 +1,33 @@
+{
+  "failure": "multi-copy: Navigate: {\"Pass\":false,\"Detail\":\"tab labels did not reflect 'Source' within 12s (used ValuePattern); foreground='FastFiles'; state={\\\"foregroundHwnd\\\":16192332,\\\"foregroundEvidenceAvailable\\\":true,\\\"foregroundTitle\\\":\\\"FastFiles\\\",\\\"focusedAutomationId\\\":\\\"Pane.0.Column.8\\\",\\\"focusedControlType\\\":\\\"List\\\",\\\"focusedProcessId\\\":132740,\\\"popupClasses\\\":[]}\"}",
+  "cleanup": {
+    "Pass": true,
+    "OwnedPids": [
+      132740,
+      132324
+    ],
+    "Residue": [],
+    "PipePresentBefore": false,
+    "PipePresentAfter": false,
+    "PipeCleanup": {
+      "Pass": true,
+      "State": "absent"
+    },
+    "DiagnosticsPreserved": true,
+    "DiagnosticsCopyError": null,
+    "SessionRootRetained": false
+  },
+  "copySamples": [],
+  "filter": "all",
+  "captures": [],
+  "scope": "Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks",
+  "idleCancelInput": null,
+  "copyObservation": {
+    "polls": 0,
+    "last": null
+  },
+  "terminalObservations": [],
+  "cases": [],
+  "cancelInput": null,
+  "cancellationRoute": "Palette"
+}
