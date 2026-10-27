@@ -1,0 +1,46 @@
+$ErrorActionPreference='Stop'
+$repo=(Get-Location).Path
+$artifacts=Join-Path $repo 'build/integration-20261028/literal-3acfa12-native'
+if(Test-Path -LiteralPath $artifacts) {throw 'Fresh evidence directory required'}
+$null=New-Item -ItemType Directory -Path $artifacts
+Import-Module (Join-Path $repo 'verify/core/Provenance.psm1') -Force -DisableNameChecking
+$gate=Invoke-ProvenanceGate -RepoRoot $repo -Binaries @(Get-DefaultCertificationBinaries -RepoRoot $repo -BuildDirectory (Join-Path $repo 'build/debug-diagnostic')) -Mode exact-tree -Stage literal-navigation -PassThru
+$gate | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $artifacts 'provenance.json')
+if(-not $gate.ok) {throw $gate.message}
+Import-Module (Join-Path $repo 'verify/e2e/FastFilesE2E.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $repo 'verify/visual/VisualCapture.psm1') -Force -DisableNameChecking
+$validation=Get-Module UiAutomationValidation
+$ctx=$null;$failure=$null;$cleanup=$null;$negative=$null;$positive=$null;$shot=$null
+function Check($value,[string]$message) {if(-not $value) {throw $message};Write-Host ('PASS: '+$message)}
+function TerminalPath {
+    return & $validation {param($context)
+        $columns=@(Get-UiaColumnListElements -Driver $context.Driver -Main $context.Main -PaneId 'Pane.0' -ProcessId $context.Launched.Id)
+        if($columns.Count -eq 0) {throw 'No real terminal column'}
+        return (Get-UiaElementIdentity -Driver $context.Driver -Element $columns[-1]).Name
+    } $ctx
+}
+try {
+    $ctx=New-UiaScenarioContext -Exe (Join-Path $repo 'build/debug-diagnostic/src/ui/FastFiles.exe') -RepoRoot $repo -ScenarioId literal-navigation -LogFn {param($message) Write-Host $message}
+    $fixture=New-E2EFixture -SessionFixtureRoot $ctx.FixtureRoot
+    $wrong=Assert-E2EPathWithinRoot -Root $fixture.Root -Path (Join-Path $fixture.Root 'S')
+    $literal=Assert-E2EPathWithinRoot -Root $fixture.Root -Path (Join-Path $fixture.Root '[Source]')
+    $null=[IO.Directory]::CreateDirectory((Join-Path $wrong 'ShouldNotOpen'))
+    $null=[IO.Directory]::CreateDirectory($literal)
+    [IO.File]::WriteAllText((Join-Path $literal 'owned-marker.txt'),'Owned literal navigation fixture')
+    $negative=Invoke-UiaAddressBarNavigate -Driver $ctx.Driver -Main $ctx.Main -ProcessId $ctx.Launched.Id -Path $wrong -ExpectedLeaf '[Source]'
+    Check (-not $negative.Pass) 'Tab S does not certify literal folder [Source]'
+    $negativePath=TerminalPath
+    Check ([string]::Equals($negativePath,$wrong,[StringComparison]::OrdinalIgnoreCase)) 'Failed label check stays in the requested S folder'
+    $positive=Invoke-UiaAddressBarNavigate -Driver $ctx.Driver -Main $ctx.Main -ProcessId $ctx.Launched.Id -Path $literal -ExpectedLeaf '[Source]'
+    Check $positive.Pass 'Actual literal bracketed folder is discoverable'
+    $positivePath=TerminalPath
+    Check ([string]::Equals($positivePath,$literal,[StringComparison]::OrdinalIgnoreCase)) 'Actual terminal column is the exact bracketed path'
+    $run=New-VisualCaptureRun -Root (Join-Path $artifacts 'images') -ApplicationSha (Get-FileHash (Join-Path $repo 'build/debug-diagnostic/src/ui/FastFiles.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -RepoRoot $repo
+    $shot=Capture-VisualWindow -Run $run -Element $ctx.Main -ScenarioId literal-folder -AssertionPass $true
+    Check ($shot.Bounds.Dpi -gt 0) 'Native screenshot has measured DPI'
+} catch {$failure=$_.Exception.Message;Write-Host ('FAIL: '+$failure)}
+finally {
+    if($ctx) {$cleanup=Remove-UiaScenarioContext -Context $ctx -ArtifactsDir $artifacts -LogFn {param($message) Write-Host $message}}
+    @{failure=$failure;negative=$negative;positive=$positive;negativePath=$negativePath;positivePath=$positivePath;screenshot=$shot;cleanup=$cleanup} | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $artifacts 'result.json')
+}
+if($failure -or -not $cleanup.Pass) {exit 1}
