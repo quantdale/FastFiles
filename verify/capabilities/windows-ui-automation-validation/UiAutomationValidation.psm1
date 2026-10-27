@@ -530,7 +530,7 @@ function Invoke-UiaAddressBarNavigate {
             }
         } catch { }
         foreach ($label in $labels) {
-            if ($label -and $label -like "*$ExpectedLeaf*") { return $true }
+            if ($label -and $label.IndexOf($ExpectedLeaf, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
         }
         return $false
     }

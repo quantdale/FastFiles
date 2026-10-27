@@ -22,3 +22,11 @@ The verifier SHALL resend Enter only when the original address edit still report
 #### Scenario: Original address edit still has focus
 - **WHEN** the edit remains focused and navigation is unverified
 - **THEN** at most one bounded recommit is permitted
+
+### Requirement: Folder names are literal text
+The verifier SHALL compare requested leaf names as case-insensitive literal text rather than interpreting wildcard syntax.
+
+#### Scenario: Brackets in folder names
+- **WHEN** the expected leaf is [Source] and the only tab is S
+- **THEN** navigation remains unverified
+- **AND** the actual [Source] tab can satisfy the literal label check

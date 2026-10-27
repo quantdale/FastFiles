@@ -42,9 +42,9 @@ function Get-UiaChildren {param($Driver,$Element)
     if($Element.Name -eq 'chrome') {return $script:buttons}
     $script:rowReads++;throw 'Navigation must not walk file rows'
 }
-function Run-Case {
+function Run-Case([string]$Leaf = 'Source') {
     $script:enters=0;$script:recursiveCalls=0;$script:rowReads=0
-    return Invoke-UiaAddressBarNavigate -Driver @{} -Main $main -ProcessId 4242 -Path 'C:\owned\Source' -ExpectedLeaf Source
+    return Invoke-UiaAddressBarNavigate -Driver @{} -Main $main -ProcessId 4242 -Path ('C:\owned\'+$Leaf) -ExpectedLeaf $Leaf
 }
 $script:buttons=@(@{Name='1: Source';AutomationId='8300';ClassName='Button';ProcessId=4242})
 $result=Run-Case
@@ -80,4 +80,11 @@ Check $result.Pass 'valid tab indices beyond the first ten are discovered'
 $chrome.ProcessId=9999
 $result=Run-Case
 Check (-not $result.Pass -and $script:enters -eq 1) 'foreign chrome cannot authorize a matching tab'
+$chrome.ProcessId=4242
+$script:buttons=@(@{Name='1: S';AutomationId='8300';ClassName='Button';ProcessId=4242})
+$result=Run-Case '[Source]'
+Check (-not $result.Pass) 'literal bracketed folder cannot match a wildcard character class'
+$script:buttons=@(@{Name='1: [Source]';AutomationId='8300';ClassName='Button';ProcessId=4242})
+$result=Run-Case '[Source]'
+Check $result.Pass 'literal bracketed folder remains discoverable'
 exit $(if($script:failures) {1} else {0})

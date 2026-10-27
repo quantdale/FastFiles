@@ -1,3 +1,9 @@
+# Native qualification and literal-name correction
+
+- Safe combined88ac6d73bce4b30272440f3b4e49bc979e90562e with navigation2d29f1e: focused2/2PASS8.48s and ordinary actual E2E8/8PASS0skips/all lifecycle cleanup. Actual owned flow passes six cases (copy/move/recycle Undo/permanent cancel+confirm/real error recovery), then Palette cancellation is UNQUALIFIED: all1024 copies finish before Enter/accepted dispatch. Cleanup PASS. Observed input preparation to Enter about8sec; no product latency/OS/root-cause claim. Preserve result and all three120DPI captures viewed by root; global warm tint limits palette fidelity.
+- Related source review proves literal Windows folder[Source] falsely matches tab S under wildcard label predicate. Added actual-function regression red1; replace only label predicate with ordinal literal IndexOf, preserving other success semantics. No product CPP or process/security change.
+- NEXT EXACT ACTION: run13 headless cases and strict/drift, commit literal correction, integrate after native slot is clear (it is now clear). Rebuild exact diagnostic identities; native negative/positive bracket path plus no unintended second-Enter navigation, then separately Escape cancellation. Do not waive failed Palette route or rerun unchanged source to chase a pass. Qualify remaining cases and publish bounded successors with exact evidence.
+
 # Navigation verification repair — focused milestone complete
 
 - Direct native chrome/tab discovery and exact live-edit boolean focus guard implemented; no product/IPC/security changes or relaxed navigation predicate. Original real-function mock has six red assertions. Final eleven checks PASS, full UIA driver PASS, strict93/93 and drift PASS. Evidence preserves original b868 native failure and unchanged-helper public Source observations; causality is still unproven and no failure is waived.
