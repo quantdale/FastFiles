@@ -134,3 +134,7 @@ Narrow Storage surfaces SHALL offer all existing view modes through a labeled na
 #### Scenario: Resize preserves active interaction
 - **WHEN** a focused mode radio is replaced by the compact selector or the focused selector is replaced by radios
 - **THEN** focus moves to the corresponding visible control without changing the view or stealing focus from another surface
+
+#### Scenario: Storage keyboard controls remain traversable
+- **WHEN** Tab or Shift+Tab is pressed in a native Storage control
+- **THEN** focus moves through visible enabled controls in spatial order and escapes to the shell owner at a boundary, with compact selector/category and Up/selector traversal verified through actual input

@@ -76,6 +76,30 @@ function Mode([string]$Name) {
         $selected=[FfButtonDefault]::SendMessage($handle,0x0147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64()
         [void]$observations.Add(@{id='storage-view';name=$Name;route='real pointer focus then native keyboard';focusInput=$focusInput;nativeFocus=$focusSettled.Value.nativeFocus;focusSettled=$focusSettled;input=$input;selectedIndex=$selected;expectedIndex=$index;settled=$settled;identity=$identity})
         Check $settled.Pass ('Actual native view selector retained item '+$selected+' instead of '+$index)
+        # Exercise actual Tab movement; standard controls in a custom shell do
+        # not gain dialog-manager traversal merely by declaring WS_TABSTOP.
+        $targetId=if($Name -eq 'Treemap') {'7204'} else {'7212'}
+        $target=Find-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -AutomationId $targetId -ProcessId $ctx.Launched.Id
+        Check ([bool]$target) 'Native selector Tab target missing.'
+        $targetHandle=[IntPtr]$target.Current.NativeWindowHandle
+        $outKeys=if($Name -eq 'Treemap') {'{SHIFT}{TAB}'} else {'{TAB}'}
+        $backKeys=if($Name -eq 'Treemap') {'{TAB}'} else {'{SHIFT}{TAB}'}
+        $tabInput=Send-UiaInput -Driver $ctx.Driver -Keys $outKeys
+        Check $tabInput.ok 'Native selector Tab input rejected.'
+        $tabbed=Wait-E2ECondition -TimeoutMs 2500 -Description 'selector Tab reaches adjacent real control' -Condition {
+            $probe=[FfNativeInput+GUITHREADINFO]::new(); $probe.cbSize=[Runtime.InteropServices.Marshal]::SizeOf([type][FfNativeInput+GUITHREADINFO])
+            if([FfNativeInput]::GetGUIThreadInfo($thread,[ref]$probe) -and $probe.hwndFocus -eq $targetHandle) {return $true}; return $false
+        }
+        Check $tabbed.Pass 'Selector Tab did not reach its visible spatial neighbor.'
+        $backInput=Send-UiaInput -Driver $ctx.Driver -Keys $backKeys
+        Check $backInput.ok 'Native selector return Tab input rejected.'
+        $returned=Wait-E2ECondition -TimeoutMs 2500 -Description 'selector receives reverse Tab focus' -Condition {
+            $probe=[FfNativeInput+GUITHREADINFO]::new(); $probe.cbSize=[Runtime.InteropServices.Marshal]::SizeOf([type][FfNativeInput+GUITHREADINFO])
+            if([FfNativeInput]::GetGUIThreadInfo($thread,[ref]$probe) -and $probe.hwndFocus -eq $handle) {return $true}; return $false
+        }
+        Check $returned.Pass 'Selector reverse Tab did not return focus.'
+        [void]$observations.Add(@{id='selector-tab';mode=$Name;neighborId=$targetId;input=$tabInput;returnInput=$backInput;outPass=$tabbed.Pass;returnPass=$returned.Pass})
+
         return
     }
     $button=Wait-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -Name $Name -ProcessId $ctx.Launched.Id -TimeoutMs 4000
@@ -304,7 +328,9 @@ public static class FfStorageQualificationWindow {
 } catch {
     $failure=$script:phase+': '+$_.Exception.Message
     Write-Host ('FAIL: '+$failure)
-    try { if($ctx -and $ctx.Main -and (Test-UiaForegroundWindow -Driver $ctx.Driver -Element $ctx.Main)) { Capture ('failure-'+$script:phase) $false } } catch { }
+    try { if($ctx) {
+        $null=& $e2e {param($c,$a,$stage,$err) Write-E2EFailureEvidence -Context $c -ArtifactDir $a -ScenarioId recursive-storage -Stage $stage -Expected 'Public Storage journey completes' -ErrorMessage $err} $ctx (Join-Path $artifacts 'failure') $script:phase $failure
+    } } catch { }
 } finally {
     if($ctx) {
         try {

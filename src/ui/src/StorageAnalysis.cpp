@@ -7,6 +7,7 @@
 #include "Util.h"
 #include "ffui/NativeOverlayLayout.h"
 #include "ffui/StorageLayout.h"
+#include "ffui/ChromeTabTraversal.h"
 #include "ffui/StorageRadioState.h"
 #include "ffui/DisplayPath.h"
 #include "ffui/SnapshotAggregate.h"
@@ -40,6 +41,7 @@ constexpr UINT_PTR kRadioSubclassBase = 0x5346;
 constexpr UINT_PTR kStatusSubclassId = 0x5350;
 constexpr size_t kStorageRadioCount = kStorageModeCount;
 constexpr UINT_PTR kInactiveSelectionSubclass = 0x5352;
+constexpr UINT_PTR kStorageTabSubclass = 0x5353;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
@@ -699,6 +701,10 @@ StorageAnalysis::~StorageAnalysis() {
     for (HWND control : {list_, overview_}) {
         if (control != nullptr) RemoveWindowSubclass(control, InactiveSelectionSubclassProc, kInactiveSelectionSubclass);
     }
+    for (HWND control : {back_, up_, modeSelector_, categoryFilter_, list_, overview_, overviewButton_,
+                         drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) {
+        if (control != nullptr) RemoveWindowSubclass(control, TabSubclassProc, kStorageTabSubclass);
+    }
     const HWND pushButtons[] = {back_, up_};
     for (size_t i = 0; i < std::size(pushButtons); ++i) {
         if (pushButtons[i] != nullptr) {
@@ -721,6 +727,46 @@ StorageAnalysis::~StorageAnalysis() {
     uiaState_.reset();
     treemapView_.SetUiaEventHandler(nullptr);
     Hide();
+}
+
+// Native workspaces are children of a custom shell, not a dialog. Give their
+// real controls a spatial Tab route and their radio group native arrow behavior.
+LRESULT CALLBACK StorageAnalysis::TabSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                  UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<StorageAnalysis*>(refData);
+    if (self != nullptr && self->visible_ && IsWindowVisible(hwnd) && IsWindowEnabled(hwnd)) {
+        if (message == WM_GETDLGCODE) return DefSubclassProc(hwnd, message, wParam, lParam) | DLGC_WANTTAB;
+        if (message == WM_KEYDOWN && (GetKeyState(VK_CONTROL) & 0x8000) == 0 && (GetKeyState(VK_MENU) & 0x8000) == 0) {
+            if (wParam == VK_TAB) {
+                std::vector<HWND> focusable;
+                focusable.reserve(5);
+                AppendChromeTabStop(focusable, self->back_);
+                AppendChromeTabStop(focusable, self->up_);
+                const HWND radios[] = {self->overviewButton_, self->drillDown_, self->largestFolders_,
+                                       self->largestFiles_, self->byCategory_, self->treemap_};
+                AppendChromeTabStop(focusable, self->compactModes_ ? self->modeSelector_ : radios[static_cast<size_t>(self->viewMode_)]);
+                AppendChromeTabStop(focusable, self->categoryFilter_);
+                AppendChromeTabStop(focusable, self->viewMode_ == ViewMode::Overview ? self->overview_ : self->list_);
+                const auto decision = NextChromeTabTarget(focusable, hwnd, self->owner_, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+                if (decision.consume) {
+                    if (hwnd == self->modeSelector_ || hwnd == self->categoryFilter_) ComboBox_ShowDropdown(hwnd, FALSE);
+                    SetFocus(decision.target);
+                    if (GetFocus() == decision.target) return 0;
+                }
+            }
+            const int index = GetDlgCtrlID(hwnd) - kOverviewId;
+            if (!self->compactModes_ && index >= 0 && index < static_cast<int>(kStorageModeCount) &&
+                (wParam == VK_LEFT || wParam == VK_UP || wParam == VK_RIGHT || wParam == VK_DOWN)) {
+                const int direction = wParam == VK_LEFT || wParam == VK_UP ? -1 : 1;
+                const int next = (index + direction + static_cast<int>(kStorageModeCount)) % static_cast<int>(kStorageModeCount);
+                self->SetViewMode(static_cast<ViewMode>(next));
+                SetFocus(GetDlgItem(self->owner_, kOverviewId + next));
+                return 0;
+            }
+        }
+    }
+    if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, TabSubclassProc, subclassId);
+    return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
 LRESULT CALLBACK StorageAnalysis::InactiveSelectionSubclassProc(HWND hwnd, UINT message, WPARAM wParam,
@@ -1007,6 +1053,10 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     for (size_t i = 0; i < kStorageRadioCount; ++i) {
         SetWindowSubclass(radios[i], RadioSubclassProc, kRadioSubclassBase + static_cast<UINT_PTR>(i),
                           reinterpret_cast<DWORD_PTR>(this));
+    }
+    for (HWND control : {back_, up_, modeSelector_, categoryFilter_, list_, overview_, overviewButton_,
+                         drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) {
+        SetWindowSubclass(control, TabSubclassProc, kStorageTabSubclass, reinterpret_cast<DWORD_PTR>(this));
     }
     SetWindowSubclass(status_, StatusSubclassProc, kStatusSubclassId, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(modeLabel_, StatusSubclassProc, kStatusSubclassId, reinterpret_cast<DWORD_PTR>(this));
@@ -2220,7 +2270,10 @@ bool StorageAnalysis::HandleDrawItem(LPARAM lParam) {
 }
 
 void StorageAnalysis::SetViewMode(ViewMode mode) {
-    if (modeSelector_ != nullptr) ComboBox_SetCurSel(modeSelector_, static_cast<int>(mode));
+    if (modeSelector_ != nullptr) {
+        if (ComboBox_GetCurSel(modeSelector_) != static_cast<int>(mode)) ComboBox_SetCurSel(modeSelector_, static_cast<int>(mode));
+        RedrawWindow(modeSelector_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    }
     if (viewMode_ == mode) {
         ApplyModeVisibility();
         Reposition(lastSurfaceRect_);

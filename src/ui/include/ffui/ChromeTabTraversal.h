@@ -18,7 +18,7 @@
 //
 // The HWND decisions live here so they can be unit tested with real windows
 // without compiling the chrome (see tests/ui/test_chrome_tab_traversal.cpp);
-// NavigationChrome owns the single call site.
+// NavigationChrome and Storage native controls share this adjacency/escape policy.
 
 namespace ffui {
 

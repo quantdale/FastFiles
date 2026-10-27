@@ -149,6 +149,8 @@ private:
     UiaEventRouter listEvents_;
     bool listNotificationPending_ = false;
 
+    static LRESULT CALLBACK TabSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                            UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK StorageButtonSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                                       UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK InactiveSelectionSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
