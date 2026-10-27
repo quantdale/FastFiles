@@ -1,3 +1,17 @@
+# Shortcut safety repair — focused qualification passed
+
+- Root sole writer isolated shortcut-safety branch, verified clean base430b equals freshly fetched PR30. Initial four actual worker failures retained: late sentinel overwritten/false success/retry damage; accepted Cancel still256/256. No shortcut executed; own fixtures cleaned.
+- New NewFileWriter uses CREATE_NEW, 4KiB stream copy, checked count/progress, exact-handle disposition rollback; original+cleanup HRESULT retained. Link uses real IPersistStream and native Load/GetPath round-trip; checks Cancel per item and bounded progress/terminal. Actual worker1/1 PASS0.31s, writer1/1 PASS0.09s incl read-after-partial failure/malformed/locked/>MAX_PATH. UI warning-clean68/68. No forced cleanup/close failure, no Explorer/Alt-drag GUI claim, no fresh independent review provider available.
+- NEXT EXACT ACTION: finish source review and focused/default worker, freeze implementation commit; full portable Debug build/test excluding only restricted reaper, Analyze and strict/drift. Then integrate into safe combined composition, release-test/relevant native qualification and normal draft successor onPR30. No source-changing shared merge/main/release. Original dirty user files preserved.
+
+# Shortcut late-collision diagnosis — 2026-10-27
+
+- Rootsolewriter shortcut-safety worktree/testbranch freshlycreatedcleanfromverifiedoriginPR30 430b7111cb3acf91aadc28472d6fdf3146ee4f4d. AGENTS/workstate/source read; rootintegrationbdfb77a checkpoint clean, allpriorportable/native sessionscomplete. Originaluserdirtycheckout andsharedPRs preserved.
+- ActualWindowShell BuildLinkPlan precedes Enqueue; workerLink callsIPersistFile.Save onplannedoutput. SecondBOOL is remember-state, not asserted as overwrite policy. Newexplicit --shortcut-safety controlledfixture: realplanseesabsent, CREATE_NEW late sentinel beforeRunLink, assert preservedbytes/truthfulfailure, ordinarypositivecontrolandrealnativeLoad/GetPath (noexecution), manualretrykeepboth. NoBin/Explorer/globalsettings/privileges/input.
+- NEXT EXACT ACTION: configure/buildfocusedworker andrunthisexplicitrouteonce; recordactualoverwriteorrefutation beforeanyproductionchange. Ifconfirmed, investigatepublicnative non-overwriting creation (not another existencecheck), preservevalidshortcutcontent andownedpartialcleanup, addmeaningfulregressions/spec. No productdefect or PASS inferredfromsourcepresence.
+
+## Inherited certified data-safety checkpoint
+
 # Execution collision safety — locally certified, draft publication
 
 - Solewriterroot fix/execution-conflict-consent-20261027, source40b6b2d onverifiedPR27ec5. FullisolatedDebug382build/128selectedtestsPASS0fail0skip285.08s. Combinedportablebbe Debug/release137eachPASS282.27/263.59s, AnalyzeUI9/strict99. Onlyrestrictedreaperexcluded/unexecuted. Native7dc owned8/conflicts7/ordinary8 PASS; cancel426/1024zero falseerrors, realShellsharing0x80270027retained/recovered, allhashes/sentinel/closes/cleanup. Exactfile/methodequivalencemanifest; notwholeexe equality. SourceCpp/tests/verify frozen since40b/7dc; finaltrackedchanges evidence/spec/state only.

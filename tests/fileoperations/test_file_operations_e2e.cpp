@@ -1,6 +1,7 @@
 #include "FileOperations.h"
 
 #include <chrono>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -17,6 +18,8 @@
 #include <shlobj.h>
 #include <deque>
 #include "../TestSupport.h"
+#include "ffprotocol/WindowsPath.h"
+#include <wrl/client.h>
 
 using namespace fftest;
 
@@ -29,6 +32,7 @@ std::function<ffui::ConflictDecision(const ffui::FileOperationConflictQuestion&)
 std::deque<ffui::ConflictDecision> conflictDecisions;
 int terminalEventCount = 0;
 ffui::FileOperations* cancelOnProgress = nullptr;
+ffui::FileOperations* cancelOnStarted = nullptr;
 unsigned int minimumCancelCompleted = 0;
 // Simulates the real UI's conflict dialog: when set, the posted question is
 // held (unanswered) so the test can run Stop() while the prompt is in flight.
@@ -59,6 +63,11 @@ LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
     }
     if (message == ffui::WM_APP_FILE_OPERATION_EVENT) {
         std::unique_ptr<ffui::FileOperationEvent> event(reinterpret_cast<ffui::FileOperationEvent*>(lParam));
+        if (event->kind == ffui::FileOperationEventKind::Started && cancelOnStarted != nullptr) {
+            Check(cancelOnStarted->HasOutstandingWork(), "shortcut cancellation has actual outstanding work");
+            cancelOnStarted->CancelCurrent();
+            cancelOnStarted = nullptr;
+        }
         if (event->kind == ffui::FileOperationEventKind::Progress && event->total > 0 && cancelOnProgress != nullptr && event->completed >= minimumCancelCompleted) {
             Check(cancelOnProgress->HasOutstandingWork(), "real cancellable progress lost outstanding work");
             cancelOnProgress->CancelCurrent();
@@ -328,6 +337,99 @@ void CheckInFlightMixedCancellation(ffui::FileOperations& operations, const std:
     std::cout << "mixed cancellation copied=" << copied << " of " << count << '\n';
 }
 
+void CheckShortcutTarget(const std::filesystem::path& shortcut, const std::filesystem::path& source) {
+    Microsoft::WRL::ComPtr<IShellLinkW> link;
+    HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link));
+    Microsoft::WRL::ComPtr<IPersistFile> persistence;
+    if (SUCCEEDED(result)) result = link.As(&persistence);
+    if (SUCCEEDED(result)) result = persistence->Load(shortcut.c_str(), STGM_READ);
+    Check(SUCCEEDED(result), "generated shortcut loads through real native persistence");
+    if (FAILED(result)) return;
+    std::wstring target(32768, L'\0');
+    result = link->GetPath(target.data(), static_cast<int>(target.size()), nullptr, SLGP_RAWPATH);
+    target.resize(std::wcslen(target.c_str()));
+    Check(SUCCEEDED(result) && ffprotocol::WindowsPathEqual(target, source.wstring()),
+          "generated shortcut names the exact source without executing it");
+}
+
+void CheckShortcutCreationSafety(ffui::FileOperations& operations, const std::filesystem::path& root) {
+    const auto scope = root / L"shortcut-safety";
+    const auto source = scope / L"source.txt";
+    const auto fresh = scope / L"fresh";
+    const auto late = scope / L"late";
+    std::filesystem::create_directories(fresh);
+    std::filesystem::create_directories(late);
+    WriteText(source, "source file remains unchanged");
+    const auto exists = [](const std::wstring& path) { return std::filesystem::exists(path); };
+    ffui::FileOperationRequest request{ffui::FileOperationKind::Link, {source.wstring()}, fresh.wstring(), {}, true};
+    request.transferPlan = ffui::BuildLinkPlan(request.sources, request.destination, exists);
+    auto event = Run(operations, request);
+    Check(event && event->completed == 1 && event->failures.empty(), "ordinary shortcut creation succeeds");
+    CheckShortcutTarget(fresh / L"source.txt.lnk", source);
+
+    request.destination = late.wstring();
+    request.transferPlan = ffui::BuildLinkPlan(request.sources, request.destination, exists);
+    Check(request.transferPlan.size() == 1 && request.transferPlan[0].destinationName == L"source.txt.lnk",
+          "shortcut plan observes an absent original destination");
+    const auto output = late / L"source.txt.lnk";
+    HANDLE file = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    Check(file != INVALID_HANDLE_VALUE, "late shortcut destination created uniquely after the real plan");
+    if (file == INVALID_HANDLE_VALUE) return;
+    constexpr char bytes[] = "existing user shortcut sentinel";
+    DWORD written = 0;
+    const bool complete = WriteFile(file, bytes, sizeof(bytes) - 1, &written, nullptr) != FALSE && written == sizeof(bytes) - 1;
+    Check(CloseHandle(file) != FALSE && complete, "close exact late shortcut sentinel");
+    event = Run(operations, request);
+    Check(ReadText(output) == bytes, "late shortcut destination must never be overwritten");
+    Check(event && event->completed == 0 && event->failures.size() == 1,
+          "shortcut late collision reports failure rather than false success");
+    if (event) std::cout << "late shortcut: completed=" << event->completed << " failures=" << event->failures.size() << '\n';
+    Check(ReadText(source) == "source file remains unchanged", "shortcut creation never modifies its source");
+    Check(std::distance(std::filesystem::directory_iterator(late), std::filesystem::directory_iterator{}) == 1,
+          "late shortcut collision leaves no staging or unrelated files");
+
+    request.transferPlan = ffui::BuildLinkPlan(request.sources, request.destination, exists);
+    Check(request.transferPlan.size() == 1 && request.transferPlan[0].destinationName != L"source.txt.lnk",
+          "manual retry plans a distinct keep-both shortcut name");
+    const auto retryName = request.transferPlan.empty() ? std::wstring{} : request.transferPlan[0].destinationName;
+    event = Run(operations, request);
+    Check(event && event->completed == 1 && event->failures.empty() && !retryName.empty(), "manual shortcut retry succeeds");
+    Check(ReadText(output) == bytes, "manual retry preserves the late destination bytes");
+    if (!retryName.empty()) CheckShortcutTarget(late / retryName, source);
+}
+
+void CheckShortcutCancellation(ffui::FileOperations& operations, const std::filesystem::path& root) {
+    const auto scope = root / L"shortcut-cancel";
+    const auto source = scope / L"source";
+    const auto target = scope / L"target";
+    std::filesystem::create_directories(source);
+    std::filesystem::create_directories(target);
+    ffui::FileOperationRequest request{ffui::FileOperationKind::Link, {}, target.wstring(), {}, true};
+    constexpr unsigned int count = 256;
+    for (unsigned int index = 0; index < count; ++index) {
+        const auto path = source / (L"shortcut-" + std::to_wstring(index) + L".txt");
+        WriteText(path, "unchanged shortcut source");
+        request.sources.push_back(path.wstring());
+    }
+    request.transferPlan = ffui::BuildLinkPlan(request.sources, request.destination,
+        [](const std::wstring& path) { return std::filesystem::exists(path); });
+    cancelOnStarted = &operations;
+    auto event = Run(operations, request);
+    const bool dispatched = cancelOnStarted == nullptr;
+    cancelOnStarted = nullptr;
+    Check(dispatched && event && event->kind == ffui::FileOperationEventKind::Cancelled && event->completed < count,
+          "accepted shortcut cancellation stops the actual batch");
+    const auto created = std::distance(std::filesystem::directory_iterator(target), std::filesystem::directory_iterator{});
+    Check(event && created == static_cast<decltype(created)>(event->completed), "cancelled shortcut count matches exact files");
+    for (const auto& entry : std::filesystem::directory_iterator(target)) {
+        const auto original = source / entry.path().stem();
+        Check(ReadText(original) == "unchanged shortcut source", "cancelled shortcut references only an unchanged owned source");
+        CheckShortcutTarget(entry.path(), original);
+    }
+    for (const auto& path : request.sources) Check(ReadText(path) == "unchanged shortcut source", "shortcut cancellation preserves every source");
+    if (event) std::cout << "shortcut cancellation completed=" << event->completed << " of " << count << '\n';
+}
+
 void CheckRestoreConflictBatches(ffui::FileOperations& operations, const std::filesystem::path& root) {
     // Real worker/Shell MoveItem callbacks with fixture-bound identities, not
     // the user's Recycle Bin. Native app Undo qualification remains separate.
@@ -456,15 +558,21 @@ int main(int argc, char** argv) {
     ffui::FileOperations operations;
     Check(!operations.HasOutstandingWork(), "idle operation queue must be unavailable for cancellation");
     Check(operations.Start(window), "worker did not start");
-    if (argc == 2 && std::string_view(argv[1]) == "--post-preflight-consent") {
-        for (const auto kind : {ffui::FileOperationKind::Copy, ffui::FileOperationKind::Move, ffui::FileOperationKind::Restore}) {
-            CheckPostPreflightCollision(operations, root, true, kind);
-            CheckPostPreflightCollision(operations, root, false, kind);
+    const std::string_view filter = argc == 2 ? std::string_view(argv[1]) : std::string_view{};
+    if (filter == "--post-preflight-consent" || filter == "--shortcut-safety") {
+        if (filter == "--shortcut-safety") {
+            CheckShortcutCreationSafety(operations, root);
+            CheckShortcutCancellation(operations, root);
+        } else {
+            for (const auto kind : {ffui::FileOperationKind::Copy, ffui::FileOperationKind::Move, ffui::FileOperationKind::Restore}) {
+                CheckPostPreflightCollision(operations, root, true, kind);
+                CheckPostPreflightCollision(operations, root, false, kind);
+            }
+            CheckDirectoryPostPreflightCollision(operations, root, ffui::FileOperationKind::Copy);
+            CheckDirectoryPostPreflightCollision(operations, root, ffui::FileOperationKind::Move);
+            CheckMixedConsentCancellation(operations, root);
+            CheckInFlightMixedCancellation(operations, root);
         }
-        CheckDirectoryPostPreflightCollision(operations, root, ffui::FileOperationKind::Copy);
-        CheckDirectoryPostPreflightCollision(operations, root, ffui::FileOperationKind::Move);
-        CheckMixedConsentCancellation(operations, root);
-        CheckInFlightMixedCancellation(operations, root);
         operations.Stop();
         DestroyWindow(window);
         CoUninitialize();

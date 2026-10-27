@@ -46,6 +46,7 @@ enum class FileOperationEventKind { Queued, Started, Progress, Completed, Cancel
 struct FileOperationFailure {
     std::wstring path;
     HRESULT error = S_OK;
+    HRESULT cleanupError = S_OK;
 };
 
 struct FileOperationEvent {

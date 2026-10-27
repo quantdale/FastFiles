@@ -11,6 +11,7 @@ add_test(NAME fffileoperations_tests COMMAND fffileoperations_tests)
 add_executable(fffileoperations_e2e_tests
   test_file_operations_e2e.cpp
   ../../src/ui/src/FileOperations.cpp
+  ../../src/ui/src/NewFileWriter.cpp
   ../../src/ui/src/FileOperationPolicy.cpp
 )
 target_include_directories(fffileoperations_e2e_tests PRIVATE ../../src/ui/src ../../src/protocol/include)
@@ -29,3 +30,12 @@ set_tests_properties(fffileoperations_tests fffileoperations_e2e_tests ffselecti
 
 add_test(NAME fffileoperations_execution_consent_tests COMMAND fffileoperations_e2e_tests --post-preflight-consent)
 set_tests_properties(fffileoperations_execution_consent_tests PROPERTIES TIMEOUT 60)
+
+add_test(NAME ffshortcut_creation_tests COMMAND fffileoperations_e2e_tests --shortcut-safety)
+set_tests_properties(ffshortcut_creation_tests PROPERTIES TIMEOUT 60)
+
+add_executable(ffnew_file_write_tests test_new_file_writer.cpp ../../src/ui/src/NewFileWriter.cpp)
+target_include_directories(ffnew_file_write_tests PRIVATE ../../src/ui/src)
+target_link_libraries(ffnew_file_write_tests PRIVATE ole32)
+add_test(NAME ffnew_file_write_tests COMMAND ffnew_file_write_tests)
+set_tests_properties(ffnew_file_write_tests PROPERTIES TIMEOUT 30)

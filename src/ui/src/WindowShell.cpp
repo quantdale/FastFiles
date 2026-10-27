@@ -3108,6 +3108,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                         details += (failure.path.empty() ? std::wstring(L"(operation)")
                                                          : ffui::NormalizeDisplayPath(failure.path)) +
                                     L"\n" + ffui::DescribeFileOperationFailure(failure.error);
+                        if (FAILED(failure.cleanupError)) {
+                            details += L"\nThe incomplete new file could not be removed: " +
+                                       ffui::DescribeFileOperationFailure(failure.cleanupError);
+                        }
                     }
                     if (!details.empty()) {
                         MessageBoxW(hwnd_, details.c_str(), L"Last operation errors", MB_OK | MB_ICONERROR);

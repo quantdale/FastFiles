@@ -1,4 +1,5 @@
 #include "FileOperations.h"
+#include "NewFileWriter.h"
 
 #include <algorithm>
 #include <chrono>
@@ -504,6 +505,7 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
         unsigned int completed = 0;
         std::vector<std::wstring> affected;
         for (size_t index = 0; index < request.sources.size(); ++index) {
+            if (cancelRequested_.load()) break;
             Microsoft::WRL::ComPtr<IShellLinkW> link;
             HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link));
             std::wstring name = std::filesystem::path(request.sources[index]).filename().wstring() + L".lnk";
@@ -512,17 +514,26 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
             }
             const auto output = std::filesystem::path(request.destination) / name;
             if (SUCCEEDED(result)) result = link->SetPath(request.sources[index].c_str());
-            Microsoft::WRL::ComPtr<IPersistFile> persistence;
+            Microsoft::WRL::ComPtr<IPersistStream> persistence;
+            Microsoft::WRL::ComPtr<IStream> stream;
             if (SUCCEEDED(result)) result = link.As(&persistence);
-            if (SUCCEEDED(result)) result = persistence->Save(output.c_str(), TRUE);
-            if (FAILED(result)) failures.push_back({request.sources[index], result});
+            if (SUCCEEDED(result)) result = CreateStreamOnHGlobal(nullptr, TRUE, &stream);
+            if (SUCCEEDED(result)) result = persistence->Save(stream.Get(), TRUE);
+            NewFileWriteResult writeResult{result};
+            if (SUCCEEDED(result)) writeResult = WriteNewFile(output.wstring(), stream.Get());
+            result = writeResult.error;
+            if (FAILED(result)) failures.push_back({output.wstring(), result, writeResult.cleanupError});
             else {
                 ++completed;
                 affected.push_back(output.wstring());
             }
+            const auto total = static_cast<unsigned int>(request.sources.size());
+            PostEvent({FileOperationEventKind::Progress, request.kind, request.sources[index], completed, total,
+                       total == 0 ? 0u : static_cast<unsigned int>((100ull * (index + 1)) / total), {}});
         }
         const unsigned int total = static_cast<unsigned int>(request.sources.size());
-        PostEvent({FileOperationEventKind::Completed, request.kind, {}, completed, total,
+        PostEvent({cancelRequested_.load() ? FileOperationEventKind::Cancelled : FileOperationEventKind::Completed,
+                   request.kind, {}, completed, total,
                    total == 0 ? 0u : static_cast<unsigned int>((100ull * completed) / total),
                    std::move(failures), std::move(affected)});
         return;
