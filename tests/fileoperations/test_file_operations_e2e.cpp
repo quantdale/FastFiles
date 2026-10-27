@@ -354,7 +354,7 @@ void CheckShortcutTarget(const std::filesystem::path& shortcut, const std::files
 
 void CheckShortcutCreationSafety(ffui::FileOperations& operations, const std::filesystem::path& root) {
     const auto scope = root / L"shortcut-safety";
-    const auto source = scope / L"source.txt";
+    const auto source = scope / L"source-\u6587\u4ef6.txt";
     const auto fresh = scope / L"fresh";
     const auto late = scope / L"late";
     std::filesystem::create_directories(fresh);
@@ -365,13 +365,13 @@ void CheckShortcutCreationSafety(ffui::FileOperations& operations, const std::fi
     request.transferPlan = ffui::BuildLinkPlan(request.sources, request.destination, exists);
     auto event = Run(operations, request);
     Check(event && event->completed == 1 && event->failures.empty(), "ordinary shortcut creation succeeds");
-    CheckShortcutTarget(fresh / L"source.txt.lnk", source);
+    CheckShortcutTarget(fresh / L"source-\u6587\u4ef6.txt.lnk", source);
 
     request.destination = late.wstring();
     request.transferPlan = ffui::BuildLinkPlan(request.sources, request.destination, exists);
-    Check(request.transferPlan.size() == 1 && request.transferPlan[0].destinationName == L"source.txt.lnk",
+    Check(request.transferPlan.size() == 1 && request.transferPlan[0].destinationName == L"source-\u6587\u4ef6.txt.lnk",
           "shortcut plan observes an absent original destination");
-    const auto output = late / L"source.txt.lnk";
+    const auto output = late / L"source-\u6587\u4ef6.txt.lnk";
     HANDLE file = CreateFileW(output.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     Check(file != INVALID_HANDLE_VALUE, "late shortcut destination created uniquely after the real plan");
     if (file == INVALID_HANDLE_VALUE) return;
@@ -389,7 +389,7 @@ void CheckShortcutCreationSafety(ffui::FileOperations& operations, const std::fi
           "late shortcut collision leaves no staging or unrelated files");
 
     request.transferPlan = ffui::BuildLinkPlan(request.sources, request.destination, exists);
-    Check(request.transferPlan.size() == 1 && request.transferPlan[0].destinationName != L"source.txt.lnk",
+    Check(request.transferPlan.size() == 1 && request.transferPlan[0].destinationName != L"source-\u6587\u4ef6.txt.lnk",
           "manual retry plans a distinct keep-both shortcut name");
     const auto retryName = request.transferPlan.empty() ? std::wstring{} : request.transferPlan[0].destinationName;
     event = Run(operations, request);

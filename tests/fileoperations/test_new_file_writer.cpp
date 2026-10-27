@@ -62,12 +62,16 @@ int main() {
     using fftest::Check;
     namespace fs = std::filesystem;
     GUID identity{};
-    Check(SUCCEEDED(CoCreateGuid(&identity)), "owned fixture identity generated");
+    const HRESULT identityResult = CoCreateGuid(&identity);
+    Check(SUCCEEDED(identityResult), "owned fixture identity generated");
+    if (FAILED(identityResult)) return fftest::FailureCount();
     wchar_t identityText[40]{};
     Check(StringFromGUID2(identity, identityText, 40) != 0, "fixture identity formatted");
     const auto parent = fs::temp_directory_path();
     const auto root = parent / (std::wstring(L"FastFiles-new-file-") + identityText);
-    Check(fs::create_directory(root), "unique owned fixture created");
+    const bool created = fs::create_directory(root);
+    Check(created, "unique owned fixture created");
+    if (!created) return fftest::FailureCount();
     Microsoft::WRL::ComPtr<IStream> stream;
     stream.Attach(new TestStream(TestStream::Mode::Normal));
     const auto destination = root / L"destination.lnk";

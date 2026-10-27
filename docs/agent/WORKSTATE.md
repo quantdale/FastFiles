@@ -1,3 +1,9 @@
+# Shortcut certification — provenance rebuild required
+
+- Core implementation27daa17 and safe composition328c7b4 compile warning-clean; combined Analyze8 and strict100/100 PASS. Standalone full build occurred before implementation commit, so its five embedded binary IDs still430b. First full CTest run correctly fails ffbuild_identity/package fixture expected27daa17; preserve that run and do not certify it. No product-code change from this finding.
+- Root review strengthens test-only fixture ownership (return before writing if unique root creation fails) and real shortcut Unicode source names. No new production behavior. Full exact-source tests must follow a fresh post-commit full build. Do not overlap UI/worker suites; first stale-identity CTest still finishing. New independent reviewer unavailable.
+- NEXT EXACT ACTION: commit these tests/checkpoint; once original CTest exits, full Debug rebuild and selected suite excluding only restricted reaper. Integrate test-only follow-up into combined branch, rebuild all certification binaries/configs, sequential Debug/release and actual native ordinary journeys. Retain all stale-identity failures and no whole-executable equivalence claims.
+
 # Shortcut safety repair — focused qualification passed
 
 - Root sole writer isolated shortcut-safety branch, verified clean base430b equals freshly fetched PR30. Initial four actual worker failures retained: late sentinel overwritten/false success/retry damage; accepted Cancel still256/256. No shortcut executed; own fixtures cleaned.
