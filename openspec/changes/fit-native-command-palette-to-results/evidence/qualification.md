@@ -1,0 +1,16 @@
+# Compact native command palette — verified implementation checkpoint
+
+## Baseline/design
+Fresh origin PR25 95c1589; CommandPalette.cpp blob73c6bb9eaa74a5fda51fe28634f6ba87f1f08d81 matches actual combined3ac. Actual one-result [before screenshot](https://github.com/quantdale/FastFiles/blob/30a2bc60bc802648259ca2dad819b54c9c420211/openspec/changes/repair-address-navigation-discovery/evidence/native-20261028/idle-cancel-palette.png) at measured120DPI shows the oversized overlay. Refero Raycast flow10105 and three actual command states plus Linear7be full images were inspected; design.md records tools/IDs and adaptations. No third-party asset/color/motion implementation copied.
+
+## Actual native regression and repair
+The fixture instantiates the production CommandPalette in an owned invisible Win32 parent with real EDIT/LISTBOX controls and a valid24-command registry. No external input, visible desktop frame, file operation, app engine or UIA client is used. Initial fixture draft omitted mandatory handlers and failed84 assertions; that invalid attempt is retained but is not product evidence. Adding required no-op handlers before the valid baseline yields36 intended geometry failures across8viewport/density cases. At1008x632/measured120DPI, Compact singleton list401px versus47px row.
+
+Content sizing uses actual native row height, complete rows inside a tokenized maximum envelope and client bounds. Query anchor remains based on that maximum, independent of query result count. RefreshResults resizes every population path, including no matches/recovery. Existing native controls, show flags, command execution/availability and live context update semantics are preserved; no new color/animation.
+
+Final16viewport/density/light-dark native cases pass. Singleton Compact47px/Comfortable55px; tiny unsupported160x120 has zero result height with bounded controls. Full rows, stable query rect, inert no-match Enter, native keyboard last item, live query/selection/scroll/caret/thread-focus retention, Escape and hidden-after-layout/never-visible-parent all pass. This is genuine native geometry/controller coverage, not visible focus/painting/UIA certification or a physical DPI matrix. Initial8case green and final16case receipts are distinguished.
+
+UI warning-clean target67steps PASS; focused command/focus/style/show/routing/native geometry6/6PASS2.05s; strict change and drift PASS. Read-only independent fresh-context agent /root/compact_palette_review reports no introduced P1/P2 in production diff, fixture and registration. It performed no builds/tests/UI/writes and explicitly leaves actual visible focus/caret/painting/accessibility/stacking, other physical DPI and pre-existing per-monitor behavior unqualified. Source hashes bind this milestone.
+
+## Next required acceptance
+Actual safe combined app keyboard/UIA/screenshots and narrow/normal/wide, no/one/many result, light/dark/density/live availability coverage remain tasks2.2–2.3. No app launch on this standalone base (missing safe combined cleanup). Warm tint still prevents intended-palette fidelity certification. This checkpoint is preserved while root prioritizes a separate reviewer-reported possible generated-name/replacement data-loss case; that case is unproven until controlled native qualification. No UX PR/publication or product completion is claimed yet.
