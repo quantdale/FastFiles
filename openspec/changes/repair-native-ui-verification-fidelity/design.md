@@ -30,6 +30,10 @@ Use a pure identity-selection helper for portable tests; mock operations never c
 
 GetWindowThreadProcessId returns the thread ID and writes a process ID through its out parameter. Check the return for zero, then pass it to GetGUIThreadInfo. Preserve the existing any-nonzero-source-thread-capture result. Why: a child window on the same source thread may hold capture during a normal drag. No thread attachment, input, or foreign capture mutation is required.
 
+### D5: Preserve all required binaries at E2E preflight
+
+For `<build>/src/ui/FastFiles.exe`, the build directory is three parents above the executable. Pass the explicit UI binary plus every default certification sibling to Invoke-ProvenanceGate, deduplicated without filtering missing paths. Why: resolving only two parents produces `<build>/src`, and filtering for existence silently reduces the gate to the UI alone. The existing gate must see missing engine/service/setup/probe paths and reject them. Preserve the explicit operator SkipProvenanceGate behavior. Test the actual runner with an owned fake RepoRoot whose scoped provenance module records the real default-binary helper's arguments/results and always returns a preflight failure, so no app or UI module can execute. Cover complete and missing-engine sets and development/exact-tree modes.
+
 ## Risks / Trade-offs
 
 - Installed runtimes may lack usable proxy metadata: fail clearly and cache the reason; do not treat generic Pane observations as certification.

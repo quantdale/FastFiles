@@ -45,3 +45,18 @@ The explicit native diagnostic SHALL create only its own raw standard checkbox a
 - **WHEN** the explicit diagnostic runs in an interactive Windows session
 - **THEN** actual public UIA exposes CheckBox/Toggle and ComboBox/Selection/ExpandCollapse plus a genuine title Name event
 - **AND** normal WM_CLOSE and bounded thread join leave no fixture window
+
+### Requirement: E2E preflight gates every required binary
+
+When provenance checking is enabled, the real E2E runner SHALL derive the preset build directory three parents above its standard src/ui executable and pass the explicit UI executable and all default certification binaries to the existing provenance gate. It SHALL deduplicate paths without removing missing binaries, so a missing engine cannot silently disappear from validation. The headless runner contract SHALL stop at provenance preflight before any application execution.
+
+#### Scenario: Complete preset binary set
+
+- **WHEN** the executable is under a preset build directory's src/ui and all five certification files exist
+- **THEN** preflight receives the correct preset directory and all five distinct binary paths
+
+#### Scenario: Engine binary is missing
+
+- **WHEN** the UI exists but its required engine sibling is missing
+- **THEN** the missing engine path is still passed to the provenance gate
+- **AND** preflight failure prevents application execution

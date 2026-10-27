@@ -8,6 +8,7 @@ The managed verification client silently exposes standard Win32 controls as gene
 - Cache process-local initialization success or failure, preserve mock-only execution, and fail clearly when the installed provider metadata or registration is unavailable.
 - Query capture using the window owner's returned thread ID, preserving any capture on that source thread and fail-closed invalid handles.
 - Add portable metadata tests and an explicit, own-window native diagnostic for actual standard patterns, genuine title events, and own-thread capture.
+- Repair E2E source-provenance preflight: resolve the preset build directory above src/ui and pass all five required binaries, including missing siblings, to the existing fail-closed gate. Execute the actual runner in an owned headless preflight contract test.
 
 ## Capabilities
 

@@ -31,10 +31,13 @@ New-Item -ItemType Directory -Path $resolvedArtifacts -Force | Out-Null
 $provenance = $null
 if (-not $SkipProvenanceGate) {
     Import-Module (Join-Path $resolvedRepo 'verify\core\Provenance.psm1') -Force -DisableNameChecking
-    $buildRoot = Split-Path -Parent (Split-Path -Parent $resolvedExe)
+    # repair-native-ui-verification-fidelity 4.2: <preset>/src/ui/app.exe
+    # is three parents below the preset root. Missing siblings must reach the
+    # existing provenance gate so it can fail closed rather than omit them.
+    $buildRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $resolvedExe))
     $relatedBinaries = @($resolvedExe)
     foreach ($sibling in (Get-DefaultCertificationBinaries -RepoRoot $resolvedRepo -BuildDirectory $buildRoot)) {
-        if ((Test-Path -LiteralPath $sibling -PathType Leaf) -and ($relatedBinaries -notcontains $sibling)) {
+        if ($relatedBinaries -notcontains $sibling) {
             $relatedBinaries += $sibling
         }
     }

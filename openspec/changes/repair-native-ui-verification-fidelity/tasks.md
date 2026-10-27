@@ -13,3 +13,8 @@
 - [x] 3.1 Run focused portable UIA tests, strict OpenSpec and documentation/lifecycle checks; preserve compact evidence and request independent review. Focused PASS5.42s; strict92/92,drift/lifecyclePASS; independent source approval/noP1/P2 including cold-start delta and cache boundary.
 - [ ] 3.2 Integrator: qualify actual owned FastFiles checkbox/combo and genuine operation title events on combined safe-cleanup source.
 - [ ] 3.3 Integrator: rerun affected owned-operation/native acceptance, retaining original failures and honest Explorer capture limitations.
+
+## 4. Repair E2E preflight fidelity
+
+- [x] 4.1 Add a headless actual-runner contract with owned fake provenance module proving correct build root, all five binaries, missing-engine retention and preflight stop; preserve the old runner's red result. Test-E2EProvenance.ps1: old red captures both UI-only sets; corrected20checksPASS/no app execution.
+- [x] 4.2 Correct only the E2E runner's build-root parent count and missing-sibling filtering; rerun focused harness/provenance contracts, strict/drift and independent review, then commit a separate milestone. Existing harness plus newcontractPASS; provenancePASS; strict92/92/driftPASS; independent review no actionableP1/P2.
