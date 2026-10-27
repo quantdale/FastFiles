@@ -20,4 +20,8 @@ if(FF_PWSH_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/verify/uia-driver/tests/run-intake-gate-tests.ps1"
   )
   set_tests_properties(ffintake_gate_ps_tests PROPERTIES TIMEOUT 120)
+  add_test(NAME ffaddress_navigation_discovery_ps_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/verify/uia-driver/tests/Test-AddressNavigationDiscovery.ps1")
+  set_tests_properties(ffaddress_navigation_discovery_ps_tests PROPERTIES TIMEOUT 30)
 endif()

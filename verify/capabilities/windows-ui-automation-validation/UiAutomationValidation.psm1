@@ -514,9 +514,20 @@ function Invoke-UiaAddressBarNavigate {
     $labelBlock = {
         $labels = @()
         try {
-            $tabs = @(Find-UiaElement -Driver $Driver -ClassName 'Button' -FromElement $Main -TimeoutMs 1500 -All |
-                Where-Object { $_.Current.AutomationId -match '^830' })
-            $labels = @($tabs | ForEach-Object { (Get-UiaElementIdentity -Driver $Driver -Element $_).Name })
+            # repair-address-navigation-discovery 1.2: native chrome is a
+            # direct sibling of the virtualized browser; never walk file rows.
+            foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $Main)) {
+                $chrome = Get-UiaElementIdentity -Driver $Driver -Element $child
+                if ($chrome.ClassName -ne 'FastFilesNavigationChrome' -or
+                    ($ProcessId -gt 0 -and $chrome.ProcessId -ne $ProcessId)) { continue }
+                foreach ($button in @(Get-UiaChildren -Driver $Driver -Element $child)) {
+                    $identity = Get-UiaElementIdentity -Driver $Driver -Element $button
+                    if ($identity.ClassName -eq 'Button' -and $identity.AutomationId -match '^83[0-9]{2}$' -and
+                        ($ProcessId -le 0 -or $identity.ProcessId -eq $ProcessId)) {
+                        $labels += $identity.Name
+                    }
+                }
+            }
         } catch { }
         foreach ($label in $labels) {
             if ($label -and $label -like "*$ExpectedLeaf*") { return $true }
@@ -525,13 +536,14 @@ function Invoke-UiaAddressBarNavigate {
     }
     $labelOk = Wait-UiaCondition -Driver $Driver -TimeoutMs 6000 -PollIntervalMs 400 -Description "tab label reflects '$ExpectedLeaf'" -ScriptBlock $labelBlock
     if (-not $labelOk) {
-        # stabilize-live-uia-e2e: the value was verified in the edit, but the
-        # commit key can be swallowed by a transient foreground shift. ONE
-        # bounded commit retry (foreground re-verified, Enter re-sent); the
-        # edit still holds the verified value, so re-committing is safe.
+        # repair-address-navigation-discovery 1.2: a label lookup failure does
+        # not mean Enter was lost. Once focus returns to browsing, another
+        # Enter could open the selected item. Recommit only in the same edit.
         $null = Set-UiaForeground -Driver $Driver -Element $Main
         Start-Sleep -Milliseconds 400
-        if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) {
+        $editFocus = $null
+        try { $editFocus = Get-UiaElementProperty -Driver $Driver -Element $addr -Name HasKeyboardFocus } catch { }
+        if ($editFocus -is [bool] -and $editFocus -and (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
             $null = Send-UiaInput -Driver $Driver -Keys '{ENTER}'
         }
         $labelOk = Wait-UiaCondition -Driver $Driver -TimeoutMs 6000 -PollIntervalMs 400 -Description "tab label reflects '$ExpectedLeaf' (retry)" -ScriptBlock $labelBlock

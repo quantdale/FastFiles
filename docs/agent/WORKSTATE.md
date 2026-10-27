@@ -1,3 +1,16 @@
+# Navigation verification repair — focused milestone complete
+
+- Direct native chrome/tab discovery and exact live-edit boolean focus guard implemented; no product/IPC/security changes or relaxed navigation predicate. Original real-function mock has six red assertions. Final eleven checks PASS, full UIA driver PASS, strict93/93 and drift PASS. Evidence preserves original b868 native failure and unchanged-helper public Source observations; causality is still unproven and no failure is waived.
+- Standalone base PR28 lacks safe combined cleanup, so no app launch here. Root sole writer/self-review; fresh independent review unavailable. Product source and all other worktrees preserved.
+- NEXT EXACT ACTION: commit clean milestone; primary integrator applies it to safe combined composition, rebuilds all five diagnostic certification binaries from committed source, runs focused guards and actual owned/ordinary native operations in one serialized slot. Preserve any new failure and diagnose rather than looping. Only then reconcile this bounded acceptance and shortcut PR30 successor publication. No shared merge/release or original user-file changes.
+
+# Primary frontier — bounded address-navigation verification
+
+- Root sole writer in isolated address-discovery worktree, clean verified origin PR28 baseline9f12c3a9c959f1682ad6ee44ed644034c5d1add0 after fetch. Existing source instructions/workstate read. Original user files and all other branches preserved. No standalone application launch here: this base lacks safe combined window cleanup.
+- Shortcut source eda is certified standalone130/130, safe combined b868 Debug/release139/139 each, Analyze8 and strict100. Feature evidence checkpoint d14308c is clean in shortcut worktree. Native owned flow fails before first copy, Source request/refresh present, normal cleanup passes. Two unchanged-code single-navigation probes pass; corrected observer captures exact Source tab/column. Original runtime cause remains unknown, not an OS limitation.
+- Actual address helper performs bounded broad DFS and retries Enter without ensuring edit focus. New real-function closed test fails six assertions on original source; no GUI/input/process in that test. Next repair uses existing direct native chrome pattern and real edit focus before retry, without changing navigation success or hiding failures.
+- NEXT EXACT ACTION: implement task1.2 and run headless regressions/driver/strict/drift. Commit clean milestone, integrate only through primary integrator, rebuild exact-source safe combined binaries and run owned/ordinary native journeys once. Then close bounded evidence and publish separate successors on PR28 and PR30. No independent provider available; do not imply independent review, product completion, merge or release.
+
 # Native verification publication and Debug certification — 2026-10-27
 
 - Root owns this main-based branch, immutable implementation34ae727 atop3fae3cb. Common/runner/contract exact blobs match combined5a; no product C++ delta. Standard rawWin32 fixture coldPASS4.44s, portable18checks/full driver and actual runner20checks PASS; independent source reviewers approve.
