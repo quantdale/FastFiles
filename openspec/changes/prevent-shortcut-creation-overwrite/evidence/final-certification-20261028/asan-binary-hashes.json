@@ -1,0 +1,14 @@
+{
+  "sourceBaseline": "d14308c9802f23d2ff3b83d019b2d62c4ac5784d",
+  "instrumentation": "Existing asan preset; PE imports clang_rt.asan_dynamic-x86_64.dll",
+  "files": [
+    {
+      "path": "build/asan/tests/fileoperations/fffileoperations_e2e_tests.exe",
+      "sha256": "2f2932ed0b4e5f2d711210f5975f81272ac8fcd69d5c8f6edb99e85e95460c6b"
+    },
+    {
+      "path": "build/asan/tests/fileoperations/ffnew_file_write_tests.exe",
+      "sha256": "c83a7a31da11b5f0e9095c203f370ee8972db0d62949c97979de86184a214a77"
+    }
+  ]
+}
