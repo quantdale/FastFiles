@@ -4,6 +4,22 @@
   "kind": "fastfiles-openspec-lifecycle",
   "changes": [
     {
+      "name": "repair-native-ui-verification-fidelity",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repair-native-ui-verification-fidelity/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repair-native-ui-verification-fidelity/evidence/qualification.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
       "name": "autonomous-runtime-verification",
       "state": "external-evidence-only",
       "evidence": [

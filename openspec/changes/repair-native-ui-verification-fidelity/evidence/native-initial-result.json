@@ -1,0 +1,36 @@
+{
+  "StartedUtc": "2026-10-27T11:52:15.2344781Z",
+  "ClientPid": 146968,
+  "PowerShell": "7.6.9",
+  "Status": "FAIL",
+  "Before": [
+    {
+      "Label": "checkbox",
+      "Hwnd": 3740094,
+      "Pid": 146968,
+      "ThreadId": 139348,
+      "Class": "Button",
+      "ControlType": "ControlType.Pane",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": false,
+      "Patterns": []
+    },
+    {
+      "Label": "combo",
+      "Hwnd": 7149006,
+      "Pid": 146968,
+      "ThreadId": 139348,
+      "Class": "ComboBox",
+      "ControlType": "ControlType.Pane",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": false,
+      "Patterns": []
+    }
+  ],
+  "NameBefore": "count=0;latest=;current=Owned fixture title before bootstrap",
+  "Error": "UiaDriverUnavailableException: Installed standard UIA proxy initialization failed: Method invocation failed because [System.Windows.Automation.ClientSettings] does not contain a method named 'GetClientSideProviderDescription'.",
+  "ClosedNormally": true,
+  "WindowStillExists": false,
+  "DestroyedHandleCapture": false,
+  "EndedUtc": "2026-10-27T11:52:16.5483365Z"
+}

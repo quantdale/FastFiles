@@ -66,8 +66,10 @@ public static class FfNativeInput
     public static bool ThreadHasCapture(IntPtr hWnd)
     {
         if (hWnd == IntPtr.Zero) return false;
-        uint tid;
-        GetWindowThreadProcessId(hWnd, out tid);
+        // repair-native-ui-verification-fidelity 2.1: the return value is
+        // the owner thread ID; the out parameter receives its process ID.
+        uint processId;
+        uint tid = GetWindowThreadProcessId(hWnd, out processId);
         if (tid == 0) return false;
         var info = new GUITHREADINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(GUITHREADINFO)) };
         if (!GetGUIThreadInfo(tid, ref info)) return false;
