@@ -4,11 +4,13 @@ param(
     [Parameter(Mandatory)][string]$ArtifactsDir,
     [switch]$PartialDescendant,
     [switch]$ExerciseRadioKeyboard,
+    [switch]$ExerciseFocusedResize,
     [ValidateSet('System','Light','Dark')][string]$Theme='System',
     [ValidateSet(0,620,1008,1600)][int]$WindowWidth=0
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+if($ExerciseFocusedResize -and (-not $ExerciseRadioKeyboard -or $WindowWidth -lt 1008)) { throw 'Focused resize requires radio keyboard qualification and an initially wide window.' }
 $repo=(Resolve-Path -LiteralPath $RepoRoot).Path
 if(Test-Path -LiteralPath $ArtifactsDir) { throw 'Fresh evidence directory required.' }
 $null=New-Item -ItemType Directory -Path $ArtifactsDir
@@ -137,6 +139,66 @@ function Mode([string]$Name) {
         }
         Check $returned.Pass 'Radio Right did not restore Largest Files.'
         [void]$observations.Add(@{id='radio-keyboard';nativeHandle=$handle.ToInt64();focusInput=$focusInput;focusPass=$focused.Pass;left=$left;leftPass=$moved.Pass;right=$right;rightPass=$returned.Pass})
+        if($ExerciseFocusedResize) {
+            # original-vision-journey-recovery 4.12: resize the owned window
+            # while focus is on the changing mode control, then on a stable
+            # neighbor. Observe real focus and mode; never repair it by input.
+            $mainHandle=[IntPtr]$ctx.Main.Current.NativeWindowHandle
+            Check ([FfStorageQualificationWindow]::SetWindowPos($mainHandle,[IntPtr]::Zero,40,32,620,780,0x44)) 'Focused narrow resize failed.'
+            $compact=Wait-E2ECondition -TimeoutMs 3000 -Description 'focused radio transfers to compact selector without mode loss' -Condition {
+                $combo=Find-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -AutomationId '7213' -ClassName ComboBox -ProcessId $ctx.Launched.Id
+                if(-not $combo -or (Get-UiaElementProperty -Driver $ctx.Driver -Element $combo -Name IsOffscreen)) { return $false }
+                $comboHandle=[IntPtr]$combo.Current.NativeWindowHandle
+                $probe=[FfNativeInput+GUITHREADINFO]::new(); $probe.cbSize=[Runtime.InteropServices.Marshal]::SizeOf([type][FfNativeInput+GUITHREADINFO])
+                if([FfNativeInput]::GetGUIThreadInfo($thread,[ref]$probe) -and $probe.hwndFocus -eq $comboHandle -and
+                    [FfButtonDefault]::SendMessage($comboHandle,0x0147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -eq 3) { return $combo }
+                return $false
+            }
+            Check $compact.Pass 'Narrow resize lost the focused mode or selected Largest Files.'
+            $combo=$compact.Value
+            Check (Test-UiaPatternAvailable -Driver $ctx.Driver -Element $combo -PatternName Selection) 'Actual compact combo lacks SelectionPattern.'
+            Check (Test-UiaPatternAvailable -Driver $ctx.Driver -Element $combo -PatternName ExpandCollapse) 'Actual compact combo lacks ExpandCollapsePattern.'
+            $comboControlType=(Get-UiaElementIdentity -Driver $ctx.Driver -Element $combo).ControlType
+            Capture focused-compact-mode
+            Check ([FfStorageQualificationWindow]::SetWindowPos($mainHandle,[IntPtr]::Zero,40,32,$WindowWidth,780,0x44)) 'Focused wide resize failed.'
+            $wide=Wait-E2ECondition -TimeoutMs 3000 -Description 'focused selector transfers back to selected wide radio' -Condition {
+                $probe=[FfNativeInput+GUITHREADINFO]::new(); $probe.cbSize=[Runtime.InteropServices.Marshal]::SizeOf([type][FfNativeInput+GUITHREADINFO])
+                return [FfNativeInput]::GetGUIThreadInfo($thread,[ref]$probe) -and $probe.hwndFocus -eq $handle -and
+                    [bool](Invoke-UiaPattern -Driver $ctx.Driver -Element $button -PatternName SelectionItem -Method GetSelection)
+            }
+            Check $wide.Pass 'Wide resize lost the focused mode or selected Largest Files.'
+            Capture focused-wide-mode
+            $category=Find-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -AutomationId '7212' -ProcessId $ctx.Launched.Id
+            Check ([bool]$category) 'Stable category neighbor missing.'
+            $categoryHandle=[IntPtr]$category.Current.NativeWindowHandle
+            $tab=Send-UiaInput -Driver $ctx.Driver -Keys '{TAB}'
+            Check $tab.ok 'Category focus input rejected.'
+            $categoryFocused=Wait-E2ECondition -TimeoutMs 2500 -Description 'category receives real Tab focus' -Condition {
+                $probe=[FfNativeInput+GUITHREADINFO]::new(); $probe.cbSize=[Runtime.InteropServices.Marshal]::SizeOf([type][FfNativeInput+GUITHREADINFO])
+                return [FfNativeInput]::GetGUIThreadInfo($thread,[ref]$probe) -and $probe.hwndFocus -eq $categoryHandle
+            }
+            Check $categoryFocused.Pass 'Category did not receive actual focus.'
+            $stableObservations=[Collections.Generic.List[object]]::new()
+            foreach($width in @(620,$WindowWidth)) {
+                Check ([FfStorageQualificationWindow]::SetWindowPos($mainHandle,[IntPtr]::Zero,40,32,$width,780,0x44)) 'Stable-focus resize failed.'
+                $stable=Wait-E2ECondition -TimeoutMs 2500 -Description 'resize preserves category focus' -Condition {
+                    $probe=[FfNativeInput+GUITHREADINFO]::new(); $probe.cbSize=[Runtime.InteropServices.Marshal]::SizeOf([type][FfNativeInput+GUITHREADINFO])
+                    $compactNow=Find-UiaDirectChild -Driver $ctx.Driver -Parent $ctx.Main -AutomationId '7213' -ClassName ComboBox -ProcessId $ctx.Launched.Id
+                    $selectorVisible=$compactNow -and -not (Get-UiaElementProperty -Driver $ctx.Driver -Element $compactNow -Name IsOffscreen)
+                    $modeRetained=if($width -eq 620) {
+                        $selectorVisible -and [FfButtonDefault]::SendMessage([IntPtr]$compactNow.Current.NativeWindowHandle,0x0147,[IntPtr]::Zero,[IntPtr]::Zero).ToInt64() -eq 3
+                    } else { [bool](Invoke-UiaPattern -Driver $ctx.Driver -Element $button -PatternName SelectionItem -Method GetSelection) }
+                    if([FfNativeInput]::GetGUIThreadInfo($thread,[ref]$probe) -and $probe.hwndFocus -eq $categoryHandle -and
+                        ([bool]$selectorVisible -eq ($width -eq 620)) -and $modeRetained) {
+                        return @{width=$width;categoryFocusHandle=$probe.hwndFocus.ToInt64();selectorVisible=[bool]$selectorVisible;modeRetained=[bool]$modeRetained}
+                    }
+                    return $false
+                }
+                Check $stable.Pass 'Mode presentation change lost the selected mode or stole category focus.'
+                [void]$stableObservations.Add($stable.Value)
+            }
+            [void]$observations.Add(@{id='focused-mode-resize';compactFocusPass=$compact.Pass;wideFocusPass=$wide.Pass;stableCategoryPass=$stable.Pass;stableWidths=@($stableObservations.ToArray());selectedMode='Largest Files';comboControlType=$comboControlType;comboSelectionPattern=$true;comboExpandCollapsePattern=$true})
+        }
     }
 
 }
@@ -371,7 +433,7 @@ public static class FfStorageQualificationWindow {
             if(-not $cleanup.Pass -and -not $failure) { $failure='cleanup: '+($cleanup.Residue -join ',') }
         } catch { if(-not $failure) { $failure='cleanup: '+$_.Exception.Message } }
     }
-    @{status=$(if($failure){'FAIL'}else{'PASS'});phase=$script:phase;failure=$failure;requestedTheme=$Theme;requestedWindowWidth=$WindowWidth;partialDescendantRequested=[bool]$PartialDescendant;radioKeyboardRequested=[bool]$ExerciseRadioKeyboard;scope='Seeded degraded known-file recursive ranking; exact public UIA/actions and file hashes; screenshots require separate visual review';observations=@($observations.ToArray());captures=@($captures.ToArray());cleanup=$cleanup;binaryProvenance=$gate.evidence} |
+    @{status=$(if($failure){'FAIL'}else{'PASS'});phase=$script:phase;failure=$failure;requestedTheme=$Theme;requestedWindowWidth=$WindowWidth;partialDescendantRequested=[bool]$PartialDescendant;radioKeyboardRequested=[bool]$ExerciseRadioKeyboard;focusedResizeRequested=[bool]$ExerciseFocusedResize;scope='Seeded degraded known-file recursive ranking; exact public UIA/actions and file hashes; screenshots require separate visual review';observations=@($observations.ToArray());captures=@($captures.ToArray());cleanup=$cleanup;binaryProvenance=$gate.evidence} |
         ConvertTo-Json -Depth 22 | Set-Content (Join-Path $artifacts 'result.json') -Encoding utf8NoBOM
 }
 if($failure) { throw $failure }
