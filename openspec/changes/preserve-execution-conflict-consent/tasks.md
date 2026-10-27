@@ -5,6 +5,8 @@
 - [x] 1.3 Qualify six actual Copy/Move/Restore late/absent file cases, exact inventory, source semantics and actual Move undo path. Initial matrixPASS; existing worker plus consent CTest2/2PASS11.18s.
 - [x] 1.4 Qualify late directory Copy/Move, mixed replacements, cancellation across phases and terminal/progress truth; correct findings. Late directories preserve both trees; mixed preflight Cancel prevents both phases. Actual directoryCopy child double-count found and corrected by root identity registration; worker/extended2/2PASS11.53s. Actual mixed in-flight controlled cancellation stops ordinary3/512 and preserves the approved replacement sentinel, exact payload bytes and cleanup. Native palette route remains in2.2; no latency bound claimed.
 
+- [ ] 1.5 Diagnose actual accepted native cancellation with stopped-with-errors741/1024; preserve original failure and obtain public HRESULT before changing classification. Focused e077 cancellation passes on unchanged product code, so no root-cause fix or blanket cancellation pass inferred.
+
 ## 2. Certification
 
 - [ ] 2.1 Compile affected UI warning-clean, focused/pure/full portable checks and strict/lifecycle/drift; preserve exact source evidence and independent review where available.

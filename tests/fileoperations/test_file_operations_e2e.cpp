@@ -300,6 +300,12 @@ void CheckInFlightMixedCancellation(ffui::FileOperations& operations, const std:
     cancelOnProgress = &operations;
     auto event = Run(operations, std::move(request));
     const bool observed = cancelOnProgress == nullptr;
+    if (event) {
+        for (const auto& failure : event->failures) {
+            std::cout << "mixed cancelled HRESULT=" << std::hex << static_cast<unsigned long>(failure.error) << std::dec << '\n';
+        }
+        Check(event->failures.empty(), "user-requested mixed cancellation does not invent an IO failure");
+    }
     cancelOnProgress = nullptr;
     minimumCancelCompleted = 0;
     Check(observed && conflictQuestionCount == 1 && event && event->kind == ffui::FileOperationEventKind::Cancelled &&

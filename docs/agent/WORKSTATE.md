@@ -1,3 +1,12 @@
+# Primary frontier — native cancellation failure classification, source repair otherwise qualified
+
+- Source4b51907 core safelyprotectsCopyMoveRestore andcorrectsrootcounts; nativecombinedc40 fullowned6PASS then acceptedPalette stops741/1024 withstopped-with-errors1failure. CleanupPASS. ActualHRESULT notcapturedbeforeteardown; cannotassumeusercancelcodeorwaiveIOerror. SourceWindowShellmapsCancelled+nonemptyfailures tothiscaption.
+- Newrootdiagnosticdriver e077be2 preservesactualLastOperationErrors publicdialog codesifcancelassertfails; assertionsunchanged. Focused1024twoPASS onunchangedproductCPP (notrootcausefix), cleanupPASS. Fullcontextall1024rerun active integration/build/integration-20261027/consent-e077be2/owned-all-1024-detail, session78552; do notlaunchotherUI/worker/fakeenginebesideit.
+- Source/testclosure: currenttestaddsassert controlledmixedcancelhasnofailures; direct6+directory+mixedfixturepassesagain, noHRESULT becausebetweenfilecanceldidnotreproduce. Rootselfreview andevidenceexplicit; nofreshindependentreviewresources. Otheroriginalzero-event/512finished/c40failures retained. No product-level8/8claimforcurrentdatafixyet.
+- NEXT EXACT ACTION: inspectfullcontextdiagnosticresult/publicHRESULT; correctonlyprovenclassification (neverdropgenuineIOerrors), addmeaningfulregression, thenexactsourcecompile/native/portablequalifications. Complete7applyall/checkboxpixelreview andordinary8, fullcurrentselectedDebug/release/Analyze. IsolatedstandalonefullDebugcertbeforePRon27, publicationbranchrenamepending. Link/Rename/NewItem races andUIAradiofocus remainbacklog afterdatasafetyfrontier.
+
+## Prior checkpoints
+
 # Confirmed execution-collision safety repair — 2026-10-27
 
 - Root solewriter verified PR27ec5 base; originalcontrolledCopy proves newlycreatedtargetoverwrittenwithoutconsent. CREATE_NEW+exactlaterprompt deterministic, reports1completed0fail1skip, source/sentinels/cleanupverified. Actualflags554 for absentandoccupied =>flagsonlycannotdistinguish. Temporaryloggingremoved, no metadata/contentoutputfromproductbuild.
