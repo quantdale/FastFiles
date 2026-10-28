@@ -15,6 +15,7 @@ $chrome=@{Name='chrome';ClassName='FastFilesNavigationChrome';ProcessId=4242}
 $pane=@{Name='pane';ClassName='';ProcessId=4242;Children=@(0..4095)}
 $edit=@{Name='address';ClassName='Edit';AutomationId='';ProcessId=4242}
 $script:buttons=@()
+$script:ownedForeground=$true
 $script:editFocus=$false;$script:throwFocus=$false;$script:throwChildren=$false
 $script:enters=0;$script:recursiveCalls=0;$script:rowReads=0
 function Start-Sleep {param($Milliseconds)}
@@ -28,7 +29,7 @@ function Set-UiaElementValue {param($Driver,$Element,$Value) return @{ok=$true} 
 function Find-UiaElement {param($Driver,$ClassName,$FromElement,$TimeoutMs,[switch]$All) $script:recursiveCalls++;return @() }
 function Wait-UiaCondition {param($Driver,$TimeoutMs,$PollIntervalMs,$Description,$ScriptBlock) return (& $ScriptBlock) }
 function Set-UiaForeground {param($Driver,$Element) return $true }
-function Test-UiaForegroundWindow {param($Driver,$Element) return $true }
+function Test-UiaForegroundWindow {param($Driver,$Element) return $script:ownedForeground }
 function Get-UiaMainWindowElement {param($Driver,$ProcessId) return $main }
 function Get-UiaSafeInteractiveState {param($Driver,$ProcessId) return @{foregroundTitle='FastFiles';focusedControlType='List'} }
 function Get-UiaElementProperty {param($Driver,$Element,$Name)
@@ -56,7 +57,14 @@ Check (-not $result.Pass -and $script:enters -eq 1) 'unmatched tab remains failu
 $script:editFocus=$true
 $result=Run-Case
 Check (-not $result.Pass -and $script:enters -eq 2) 'one bounded recommit remains available while the exact address edit has focus'
-$script:editFocus=$false
+$script:ownedForeground=$false
+try {
+    $result=Run-Case
+    Check (-not $result.Pass -and $script:enters -eq 1) 'focused address edit cannot authorize a recommit after owned foreground is lost'
+} finally {
+    $script:ownedForeground=$true
+    $script:editFocus=$false
+}
 $script:buttons=@(@{Name='1: Source';AutomationId='8300';ClassName='Button';ProcessId=9999})
 $result=Run-Case
 Check (-not $result.Pass -and $script:enters -eq 1) 'foreign process tab cannot satisfy navigation'

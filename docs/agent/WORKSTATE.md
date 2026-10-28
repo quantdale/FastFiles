@@ -1,3 +1,10 @@
+# Navigation regression follow-up complete
+
+- Fresh PR31 base30a verified equal after fetch. Root recovered worker's single dirty test file, inspected its diff, and completed closed-mock validation after the worker exhausted credits. Provider not retried; unrelated state preserved.
+- True exact-edit focus plus false owned foreground now asserts only one Enter. Actual production helper AST14/14PASS; isolated ignored module copy with only foreground conjunction removed fails exactly that new assertion, exit1. Production helper unchanged; no app/input/termination activity or retrospective runtime-causality claim.
+- Evidence openspec/changes/repair-address-navigation-discovery/evidence/foreground-20261028. Independent navigation review noP1/P2; this closes optional negative regression coverage.
+- NEXT EXACT ACTION: commit root-reviewed test/evidence/state, integrate into PR31 branch normally after fetch, push without merge/force, inspect hosted result once. Primary safety campaign continues in phase-consent worktree; do not compete with its native CTest.
+
 # Navigation verification slice COMPLETE — draft PR31 published on PR28
 
 - Draft https://github.com/quantdale/FastFiles/pull/31 contains implementation2d29f1e/d33e319 and exact evidence on safe combined3ac: Debug/release140/140each, strict101, literal negative/positive native checks, Escape20/1024 and accepted Palette425/4096+idle refusal, all hashes/cleanup. Earlier failures and source limitations retained. Ordinary88ac8/8 and owned88ac six cases separately recorded. Global tint/physical/Explorer/privileged boundaries remain; no whole-product, single owned8/8, whole-executable or independent-review claim.
