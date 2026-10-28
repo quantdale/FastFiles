@@ -7,6 +7,21 @@ $script:ValidationModule = Join-Path $script:E2ERoot 'capabilities\windows-ui-au
 Import-Module (Resolve-Path -LiteralPath $script:DriverModule).Path -Force -Global -DisableNameChecking
 Import-Module (Resolve-Path -LiteralPath $script:ValidationModule).Path -Force -Global -DisableNameChecking
 
+# preserve-e2e-failure-evidence follow-up: the single scenario-filter
+# vocabulary shared by the CLI boundary and this module, so selector
+# validation cannot drift and every selector error fails closed before
+# evidence-directory creation or any UIA work.
+function Resolve-E2EFilterSelection {
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Filter)
+    $tokens = @($Filter -split '[,;\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() })
+    $valid = @('all', 'launch', 'navigation', 'restore', 'search', 'storage', 'preview', 'fileops', 'lifecycle')
+    if ($tokens.Count -eq 0) { throw 'E2E filter must select at least one scenario.' }
+    foreach ($token in $tokens) {
+        if ($valid -notcontains $token) { throw "Unknown E2E filter '$token'. Valid filters: $($valid -join ', ')" }
+    }
+    return ,$tokens
+}
+
 function New-E2EResult {
     param(
         [Parameter(Mandatory)] [string] $Id,
@@ -1245,12 +1260,7 @@ function Invoke-FastFilesE2E {
         [string] $Filter = 'all',
         [ValidateRange(1, 2147483647)] [int] $LifecycleIterations = 2
     )
-    $tokens = @($Filter -split '[,;\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() })
-    $valid = @('all', 'launch', 'navigation', 'restore', 'search', 'storage', 'preview', 'fileops', 'lifecycle')
-    if ($tokens.Count -eq 0) { throw 'E2E filter must select at least one scenario.' }
-    foreach ($token in $tokens) {
-        if ($valid -notcontains $token) { throw "Unknown E2E filter '$token'. Valid filters: $($valid -join ', ')" }
-    }
+    $tokens = Resolve-E2EFilterSelection -Filter $Filter
     if (Test-Path -LiteralPath $ArtifactsDir) {
         if (-not (Test-Path -LiteralPath $ArtifactsDir -PathType Container) -or
             @(Get-ChildItem -LiteralPath $ArtifactsDir -Force).Count -gt 0) {
@@ -1336,4 +1346,4 @@ function Invoke-FastFilesE2E {
     return $summary
 }
 
-Export-ModuleMember -Function Assert-E2EPathWithinRoot, Test-E2EPathWithinRoot, New-E2EFixture, New-E2EResult, Wait-E2ECondition, Write-E2EFailureEvidence, Invoke-FastFilesE2E
+Export-ModuleMember -Function Assert-E2EPathWithinRoot, Test-E2EPathWithinRoot, New-E2EFixture, New-E2EResult, Wait-E2ECondition, Write-E2EFailureEvidence, Resolve-E2EFilterSelection, Invoke-FastFilesE2E

@@ -96,6 +96,18 @@ Export-ModuleMember -Function Get-DefaultCertificationBinaries, Invoke-Provenanc
         Assert ($filterExit -ne 0 -and $filterOutput.Contains('E2E filter must select') -and
                 -not [IO.Directory]::Exists($filterArtifacts)) 'actual CLI rejects an empty selector before artifact creation'
     }
+    # preserve-e2e-failure-evidence follow-up: an unknown nonempty token is
+    # also a selector error and must fail closed before any evidence
+    # directory is created and before the provenance gate runs.
+    foreach ($selector in @('launch,nosuchscenario', 'bogus')) {
+        $unknownArtifacts = Join-Path $ownedRoot ('unknown-filter-' + [guid]::NewGuid().ToString('N'))
+        $priorGate = [IO.File]::ReadAllText((Join-Path $ownedRoot 'gate-call.json'))
+        $unknownOutput = & $shell -NoProfile -File $runner -RepoRoot $ownedRoot -Exe $exe -ArtifactsDir $unknownArtifacts -Filter $selector 2>&1 | Out-String
+        $unknownExit = $LASTEXITCODE
+        Assert ($unknownExit -ne 0 -and $unknownOutput.Contains('Unknown E2E filter') -and
+                -not [IO.Directory]::Exists($unknownArtifacts)) "actual CLI rejects unknown selector '$selector' before artifact creation"
+        Assert ([IO.File]::ReadAllText((Join-Path $ownedRoot 'gate-call.json')) -eq $priorGate) "unknown selector '$selector' is rejected before the provenance gate"
+    }
     # Execute an exact copy of the runner with an owned fake gate and a stub
     # module. The stub never launches an app; it records the post-gate root.
     $ownedE2e = Join-Path $ownedRoot 'verify/e2e'
@@ -103,13 +115,24 @@ Export-ModuleMember -Function Get-DefaultCertificationBinaries, Invoke-Provenanc
     $copiedRunner = Join-Path $ownedE2e 'Run-FastFilesE2E.ps1'
     Copy-Item -LiteralPath $runner -Destination $copiedRunner
     $stub = @'
+function Resolve-E2EFilterSelection {
+    param([string]$Filter)
+    $tokens = @($Filter -split '[,;\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() })
+    if ($tokens.Count -eq 0) { throw 'E2E filter must select at least one scenario.' }
+    foreach ($token in $tokens) {
+        if (@('all', 'launch', 'navigation', 'restore', 'search', 'storage', 'preview', 'fileops', 'lifecycle') -notcontains $token) {
+            throw "Unknown E2E filter '$token'. Valid filters: all, launch, navigation, restore, search, storage, preview, fileops, lifecycle"
+        }
+    }
+    return ,$tokens
+}
 function Invoke-FastFilesE2E {
     param($Exe, $RepoRoot, $ArtifactsDir, $Filter, $LifecycleIterations)
     $rootEmpty = [IO.Directory]::Exists($ArtifactsDir) -and @(Get-ChildItem -LiteralPath $ArtifactsDir -Force).Count -eq 0
     @{ rootEmpty = $rootEmpty; exe = $Exe; lifecycleIterations = $LifecycleIterations } | ConvertTo-Json | Set-Content (Join-Path $RepoRoot 'success-handoff.json') -Encoding utf8
     [pscustomobject]@{ status = $(if ($rootEmpty) { 'SKIPPED' } else { 'FAIL' }); results = @() }
 }
-Export-ModuleMember -Function Invoke-FastFilesE2E
+Export-ModuleMember -Function Resolve-E2EFilterSelection, Invoke-FastFilesE2E
 '@
     [IO.File]::WriteAllText((Join-Path $ownedE2e 'FastFilesE2E.psm1'), $stub)
     [IO.File]::WriteAllText($engine, 'Owned non-executable engine placeholder')

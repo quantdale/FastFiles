@@ -10,8 +10,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$requestedFilters = @($Filter -split '[,;\s]+' | Where-Object { $_ })
-if ($requestedFilters.Count -eq 0) { throw 'E2E filter must select at least one scenario.' }
+# preserve-e2e-failure-evidence follow-up: every selector error (empty or
+# unknown token) fails closed here, before any evidence directory is created
+# and before the provenance gate runs.
+Import-Module (Join-Path $PSScriptRoot 'FastFilesE2E.psm1') -Force -DisableNameChecking
+[void](Resolve-E2EFilterSelection -Filter $Filter)
 $resolvedRepo = (Resolve-Path -LiteralPath $RepoRoot).Path
 if ([string]::IsNullOrWhiteSpace($Exe)) {
     $Exe = Join-Path $resolvedRepo 'build\debug-diagnostic\src\ui\FastFiles.exe'
@@ -69,7 +72,6 @@ if (-not $SkipProvenanceGate) {
     Write-Warning 'Provenance gate skipped by operator (-SkipProvenanceGate); results are unbound to source identity.'
 }
 
-Import-Module (Join-Path $PSScriptRoot 'FastFilesE2E.psm1') -Force
 $result = Invoke-FastFilesE2E -Exe $resolvedExe -RepoRoot $resolvedRepo -ArtifactsDir $resolvedArtifacts `
     -Filter $Filter -LifecycleIterations $LifecycleIterations
 if ($provenance) {
