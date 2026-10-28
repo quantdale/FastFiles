@@ -581,6 +581,7 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     if (SUCCEEDED(submitResult) && replacementOperation) submitResult = replacementOperation->Advise(sink, &replacementCookie);
     bool ordinarySubmitted = false;
     bool replacementSubmitted = false;
+    std::vector<std::pair<std::wstring, std::wstring>> replacementTargets;
     std::vector<FileOperationFailure> submissionFailures;
     Microsoft::WRL::ComPtr<IShellItem> destination = MakeItem(request.destination);
     if (SUCCEEDED(submitResult) && !destination &&
@@ -612,8 +613,12 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
             else if (request.kind == FileOperationKind::Move) itemResult = targetOperation->MoveItem(source.Get(), destination.Get(), destinationName, nullptr);
             else itemResult = operation->DeleteItem(source.Get(), nullptr);
             if (SUCCEEDED(itemResult)) {
-                if (replace) replacementSubmitted = true;
-                else ordinarySubmitted = true;
+                if (replace) {
+                    replacementSubmitted = true;
+                    const std::wstring name = destinationName ? destinationName : std::filesystem::path(sourcePath).filename().wstring();
+                    replacementTargets.emplace_back(sourcePath,
+                        (std::filesystem::path(request.destination) / name).wstring());
+                } else ordinarySubmitted = true;
             }
             if (FAILED(itemResult)) submissionFailures.push_back({sourcePath, itemResult});
         }
@@ -644,8 +649,11 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
             IFileOperation* targetOperation = planned.replacesExisting ? replacementOperation.Get() : operation.Get();
             const HRESULT itemResult = targetOperation->MoveItem(recycled.Get(), restoreFolder.Get(), name.c_str(), nullptr);
             if (FAILED(itemResult)) submissionFailures.push_back({restore.originalPath, itemResult});
-            else if (planned.replacesExisting) replacementSubmitted = true;
-            else ordinarySubmitted = true;
+            else if (planned.replacesExisting) {
+                replacementSubmitted = true;
+                replacementTargets.emplace_back(restore.originalPath,
+                    (std::filesystem::path(restore.originalPath).parent_path() / name).wstring());
+            } else ordinarySubmitted = true;
         }
     }
     BOOL operationsAborted = FALSE;
@@ -654,8 +662,26 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
         operation->GetAnyOperationsAborted(&operationsAborted);
     }
     if (SUCCEEDED(submitResult) && !operationsAborted && !cancelRequested_ && replacementSubmitted) {
-        submitResult = replacementOperation->PerformOperations();
-        replacementOperation->GetAnyOperationsAborted(&operationsAborted);
+        // protect-generated-transfer-results 1.2: Shell may assign an ordinary
+        // result a name reserved for an approved replacement. Consent to replace
+        // the old target never permits destroying an incoming result. The queued
+        // replacement group cannot be selectively removed; fail the whole group
+        // before it mutates anything, retaining each incoming replacement source.
+        const auto ordinaryResults = sink->CompletedPaths();
+        const bool overlaps = std::any_of(replacementTargets.begin(), replacementTargets.end(),
+            [&](const auto& target) {
+                return std::any_of(ordinaryResults.begin(), ordinaryResults.end(), [&](const ReversiblePath& result) {
+                    return TransferPathsOverlap(target.second, result.resultingPath);
+                });
+            });
+        if (overlaps) {
+            for (const auto& target : replacementTargets) {
+                submissionFailures.push_back({target.first, HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)});
+            }
+        } else {
+            submitResult = replacementOperation->PerformOperations();
+            replacementOperation->GetAnyOperationsAborted(&operationsAborted);
+        }
     }
     if (cookie != 0) operation->Unadvise(cookie);
     if (replacementCookie != 0) replacementOperation->Unadvise(replacementCookie);

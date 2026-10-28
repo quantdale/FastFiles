@@ -13,6 +13,10 @@ namespace ffui {
 // failure. Other errors remain failures even when cancellation was requested.
 bool IsRequestedCancellationFailure(std::int32_t error, bool requested) noexcept;
 
+// protect-generated-transfer-results: lexical Windows namespace overlap,
+// including either ancestor direction. This does not resolve filesystem aliases.
+bool TransferPathsOverlap(const std::wstring& left, const std::wstring& right);
+
 enum class ConflictChoice { Replace, Skip, KeepBoth, Cancel };
 
 struct ConflictDecision {

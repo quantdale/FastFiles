@@ -17,6 +17,24 @@ using namespace fftest;
 
 int main() {
     using namespace ffui;
+    for (const auto& pair : std::vector<std::pair<std::wstring, std::wstring>>{
+             {L"C:\\Target\\first.txt", L"c:\\target\\FIRST.txt"},
+             {L"C:\\Target\\Folder", L"C:\\Target\\Folder\\child.txt"},
+             {L"C:\\Target\\Folder\\child.txt", L"C:\\Target\\Folder"},
+             {L"\\\\?\\C:\\Target\\first.txt", L"C:\\Target\\first.txt"},
+             {L"\\\\?\\UNC\\server\\share\\Folder", L"\\\\server\\share\\Folder\\child"},
+             {L"C:/Target/Folder/../first.txt", L"C:\\Target\\first.txt"},
+             {L"C:\\Target\\Folder\\", L"C:\\Target\\Folder"},
+             {L"", L"C:\\Target\\first.txt"}}) {
+        Check(TransferPathsOverlap(pair.first, pair.second), "replacement intersects actual ordinary result namespace");
+    }
+    for (const auto& pair : std::vector<std::pair<std::wstring, std::wstring>>{
+             {L"C:\\Target\\Folder", L"C:\\Target\\Folder2\\child"},
+             {L"C:\\Target\\first.txt", L"C:\\Target\\first.txt.bak"},
+             {L"C:\\Target\\first.txt", L"D:\\Target\\first.txt"},
+             {L"C:\\Target\\one.txt", L"C:\\Target\\two.txt"}}) {
+        Check(!TransferPathsOverlap(pair.first, pair.second), "unrelated replacement namespace remains allowed");
+    }
     Check(IsRequestedCancellationFailure(static_cast<std::int32_t>(HRESULT_FROM_WIN32(ERROR_CANCELLED)), true),
           "requested Win32 cancellation is not an IO failure");
     Check(IsRequestedCancellationFailure(static_cast<std::int32_t>(COPYENGINE_E_USER_CANCELLED), true),

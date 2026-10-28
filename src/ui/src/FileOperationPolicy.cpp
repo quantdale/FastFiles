@@ -32,6 +32,26 @@ std::wstring DestinationKey(const std::wstring& path) {
 
 } // namespace
 
+bool TransferPathsOverlap(const std::wstring& left, const std::wstring& right) {
+    const auto normalize = [](const std::wstring& path) {
+        std::wstring value = DestinationKey(path);
+        if (value.starts_with(L"\\\\?\\UNC\\")) value = L"\\\\" + value.substr(8);
+        else if (value.starts_with(L"\\\\?\\")) value.erase(0, 4);
+        while (!value.empty() && (value.back() == L'\\' || value.back() == L'/')) value.pop_back();
+        return value;
+    };
+    const auto a = normalize(left);
+    const auto b = normalize(right);
+    // An unavailable actual result name cannot establish that replacement is safe.
+    if (a.empty() || b.empty()) return true;
+    const auto contains = [](const std::wstring& parent, const std::wstring& child) {
+        if (child.size() < parent.size()) return false;
+        if (!ffprotocol::WindowsPathEqual(parent, child.substr(0, parent.size()))) return false;
+        return child.size() == parent.size() || child[parent.size()] == L'\\' || child[parent.size()] == L'/';
+    };
+    return contains(a, b) || contains(b, a);
+}
+
 bool IsValidFileName(const std::wstring& name, std::wstring* reason) {
     auto reject = [&](const wchar_t* message) {
         if (reason != nullptr) *reason = message;

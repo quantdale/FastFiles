@@ -337,6 +337,163 @@ void CheckInFlightMixedCancellation(ffui::FileOperations& operations, const std:
     std::cout << "mixed cancellation copied=" << copied << " of " << count << '\n';
 }
 
+bool CreateLateOwnedFile(const std::filesystem::path& path, const char* text) {
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    Check(file != INVALID_HANDLE_VALUE, "late owned destination created exclusively");
+    if (file == INVALID_HANDLE_VALUE) return false;
+    const DWORD length = static_cast<DWORD>(std::char_traits<char>::length(text));
+    DWORD written = 0;
+    const bool complete = WriteFile(file, text, length, &written, nullptr) != FALSE && written == length;
+    const bool closed = CloseHandle(file) != FALSE;
+    Check(complete && closed, "late owned destination bytes closed exactly");
+    return complete && closed;
+}
+
+std::wstring DiscoverGeneratedMoveName(ffui::FileOperations& operations, const std::filesystem::path& root,
+                                       ffui::FileOperationKind kind = ffui::FileOperationKind::Move) {
+    const auto scope = root / (L"native-generated-name-" + std::to_wstring(static_cast<int>(kind)));
+    const auto source = scope / L"source";
+    const auto target = scope / L"target";
+    std::filesystem::create_directories(source);
+    std::filesystem::create_directories(target);
+    WriteText(source / L"first.txt", "discovery incoming first");
+    WriteText(source / L"trigger.txt", "discovery incoming trigger");
+    WriteText(target / L"trigger.txt", "discovery existing trigger");
+    bool appeared = false;
+    conflictQuestionCount = 0;
+    conflictObserver = [&](const ffui::FileOperationConflictQuestion& question) {
+        const auto expectedSource = kind == ffui::FileOperationKind::Restore ? target : source;
+        const bool exact = question.source == (expectedSource / L"trigger.txt").wstring() &&
+                           question.destination == (target / L"trigger.txt").wstring();
+        Check(exact, "name discovery reaches exact later prompt");
+        if (!exact) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+        appeared = CreateLateOwnedFile(target / L"first.txt", "discovery late sentinel");
+        return ffui::ConflictDecision{appeared ? ffui::ConflictChoice::Skip : ffui::ConflictChoice::Cancel, false};
+    };
+    ffui::FileOperationRequest request{kind,
+        {(source / L"first.txt").wstring(), (source / L"trigger.txt").wstring()}, target.wstring(), {}, true};
+    if (kind == ffui::FileOperationKind::Restore) {
+        request.restorePaths = {FixtureRestorePath(source / L"first.txt", target / L"first.txt"),
+                                FixtureRestorePath(source / L"trigger.txt", target / L"trigger.txt")};
+    }
+    auto event = Run(operations, std::move(request));
+    conflictObserver = {};
+    Check(appeared && conflictQuestionCount == 1 && event && event->completed == 1 &&
+          event->skipped == 1 && event->failures.empty(), "native generated-name control completes actual ordinary move");
+    Check((kind == ffui::FileOperationKind::Copy ? ReadText(source / L"first.txt") == "discovery incoming first"
+                                               : !std::filesystem::exists(source / L"first.txt")) &&
+          ReadText(source / L"trigger.txt") == "discovery incoming trigger" &&
+          ReadText(target / L"first.txt") == "discovery late sentinel", "name discovery preserves expected source and sentinel outcomes");
+    std::wstring name;
+    for (const auto& entry : std::filesystem::directory_iterator(target)) {
+        if (entry.is_regular_file() && ReadText(entry.path()) == "discovery incoming first") name = entry.path().filename().wstring();
+    }
+    Check(!name.empty() && name != L"first.txt" && name != L"trigger.txt", "actual Shell-generated incoming name observed");
+    if (!name.empty()) std::wcout << L"Observed native generated Move name: " << name << L'\n';
+    return name;
+}
+
+void CheckReplacementOverlap(ffui::FileOperations& operations, const std::filesystem::path& root,
+                             const std::wstring& generatedName, bool vacated,
+                             ffui::FileOperationKind kind = ffui::FileOperationKind::Move, bool grouped = false) {
+    const auto scope = root / (std::to_wstring(static_cast<int>(kind)) +
+                              (vacated ? L"-replacement-vacated" : L"-replacement-occupied-control") + (grouped ? L"-group" : L""));
+    const auto source = scope / L"source";
+    const auto target = scope / L"target";
+    std::filesystem::create_directories(source);
+    std::filesystem::create_directories(target);
+    const auto replacementSource = source / generatedName;
+    const auto replacementTarget = target / generatedName;
+    WriteText(source / L"first.txt", "phase incoming first");
+    WriteText(replacementSource, "phase incoming replacement");
+    WriteText(replacementTarget, "phase approved existing target");
+    WriteText(target / L"sentinel.txt", "unrelated phase sentinel");
+    if (grouped) {
+        WriteText(source / L"other.txt", "other incoming replacement");
+        WriteText(target / L"other.txt", "other approved existing target");
+    }
+    bool appeared = false;
+    bool removed = false;
+    conflictQuestionCount = 0;
+    const int beforeTerminal = terminalEventCount;
+    conflictObserver = [&](const ffui::FileOperationConflictQuestion& question) {
+        if (grouped && question.destination == (target / L"other.txt").wstring()) {
+            const auto expectedOther = kind == ffui::FileOperationKind::Restore ? target : source;
+            Check(question.source == (expectedOther / L"other.txt").wstring(), "exact second approved replacement source");
+            return ffui::ConflictDecision{ffui::ConflictChoice::Replace, false};
+        }
+        const auto expectedSource = kind == ffui::FileOperationKind::Restore ? replacementTarget : replacementSource;
+        const bool exact = question.source == expectedSource.wstring() && question.destination == replacementTarget.wstring();
+        Check(exact, "mixed overlap reaches exact approved replacement prompt");
+        if (!exact) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+        appeared = CreateLateOwnedFile(target / L"first.txt", "late first sentinel");
+        if (!appeared) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+        if (vacated) {
+            const bool owned = ReadText(replacementTarget) == "phase approved existing target" &&
+                std::filesystem::equivalent(replacementTarget.parent_path(), target);
+            Check(owned, "only exact generated fixture target may be removed");
+            if (!owned) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+            removed = DeleteFileW(replacementTarget.c_str()) != FALSE;
+            Check(removed, "owned approved target vacated before native execution");
+            if (!removed) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+        }
+        return ffui::ConflictDecision{ffui::ConflictChoice::Replace, false};
+    };
+    ffui::FileOperationRequest request{kind,
+        {(source / L"first.txt").wstring(), replacementSource.wstring()}, target.wstring(), {}, true};
+    if (kind == ffui::FileOperationKind::Restore) {
+        request.restorePaths = {FixtureRestorePath(source / L"first.txt", target / L"first.txt"),
+                                FixtureRestorePath(replacementSource, replacementTarget)};
+    }
+    if (grouped) {
+        request.sources.push_back((source / L"other.txt").wstring());
+        if (kind == ffui::FileOperationKind::Restore) {
+            request.restorePaths.push_back(FixtureRestorePath(source / L"other.txt", target / L"other.txt"));
+        }
+    }
+    auto event = Run(operations, std::move(request));
+    conflictObserver = {};
+    Check(appeared && (!vacated || removed) && conflictQuestionCount == (grouped ? 2 : 1) && terminalEventCount == beforeTerminal + 1,
+          "exact overlap preflight boundary and one terminal observed");
+    size_t firstCopies = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(target)) {
+        if (entry.is_regular_file() && ReadText(entry.path()) == "phase incoming first") ++firstCopies;
+    }
+    Check(firstCopies == 1, "later replacement must preserve earlier incoming moved bytes");
+    Check(kind == ffui::FileOperationKind::Copy ? ReadText(source / L"first.txt") == "phase incoming first"
+                                              : !std::filesystem::exists(source / L"first.txt"),
+          "ordinary incoming source matches actual transfer kind");
+    Check(ReadText(target / L"first.txt") == "late first sentinel" &&
+          ReadText(target / L"sentinel.txt") == "unrelated phase sentinel", "late and unrelated destination sentinels remain exact");
+    if (!vacated) {
+        Check(event && event->completed == (grouped ? 3u : 2u) && event->failures.empty() &&
+              ReadText(replacementTarget) == "phase incoming replacement" &&
+              (kind == ffui::FileOperationKind::Copy ? ReadText(replacementSource) == "phase incoming replacement"
+                                                    : !std::filesystem::exists(replacementSource)),
+              "occupied approved replacement control keeps both incoming transfers");
+    } else {
+        Check(event && event->completed == 1 && event->failures.size() == (grouped ? 2u : 1u) &&
+              ReadText(replacementSource) == "phase incoming replacement" &&
+              ReadText(replacementTarget) == "phase incoming first",
+              "self-overlapping replacement fails truthfully and preserves its incoming source");
+        if (event) {
+            Check(event->kind == ffui::FileOperationEventKind::Completed && event->percent < 100 &&
+                  event->total == (grouped ? 3u : 2u) && event->skipped == 0,
+                  "blocked replacements are failures, never success, skip or cancellation");
+            for (const auto& failure : event->failures) {
+                Check(failure.error == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS), "blocked replacement retains explicit collision HRESULT");
+            }
+        }
+        if (grouped) {
+            Check(ReadText(source / L"other.txt") == "other incoming replacement" &&
+                  ReadText(target / L"other.txt") == "other approved existing target",
+                  "whole queued group refusal preserves unrelated approved replacement source and target");
+        }
+    }
+    if (event) std::cout << "replacement overlap vacated=" << vacated << " completed=" << event->completed
+                         << " failed=" << event->failures.size() << " firstIncomingCopies=" << firstCopies << '\n';
+}
+
 void CheckShortcutTarget(const std::filesystem::path& shortcut, const std::filesystem::path& source) {
     Microsoft::WRL::ComPtr<IShellLinkW> link;
     HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link));
@@ -559,8 +716,17 @@ int main(int argc, char** argv) {
     Check(!operations.HasOutstandingWork(), "idle operation queue must be unavailable for cancellation");
     Check(operations.Start(window), "worker did not start");
     const std::string_view filter = argc == 2 ? std::string_view(argv[1]) : std::string_view{};
-    if (filter == "--post-preflight-consent" || filter == "--shortcut-safety") {
-        if (filter == "--shortcut-safety") {
+    if (filter == "--post-preflight-consent" || filter == "--shortcut-safety" || filter == "--replacement-overlap") {
+        if (filter == "--replacement-overlap") {
+            for (const auto kind : {ffui::FileOperationKind::Copy, ffui::FileOperationKind::Move, ffui::FileOperationKind::Restore}) {
+                const auto generatedName = DiscoverGeneratedMoveName(operations, root, kind);
+                if (!generatedName.empty()) {
+                    CheckReplacementOverlap(operations, root, generatedName, false, kind);
+                    CheckReplacementOverlap(operations, root, generatedName, true, kind);
+                    CheckReplacementOverlap(operations, root, generatedName, true, kind, true);
+                }
+            }
+        } else if (filter == "--shortcut-safety") {
             CheckShortcutCreationSafety(operations, root);
             CheckShortcutCancellation(operations, root);
         } else {

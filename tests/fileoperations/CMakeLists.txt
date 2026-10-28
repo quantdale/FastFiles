@@ -31,6 +31,9 @@ set_tests_properties(fffileoperations_tests fffileoperations_e2e_tests ffselecti
 add_test(NAME fffileoperations_execution_consent_tests COMMAND fffileoperations_e2e_tests --post-preflight-consent)
 set_tests_properties(fffileoperations_execution_consent_tests PROPERTIES TIMEOUT 60)
 
+add_test(NAME fftransfer_result_protection_tests COMMAND fffileoperations_e2e_tests --replacement-overlap)
+set_tests_properties(fftransfer_result_protection_tests PROPERTIES TIMEOUT 60)
+
 add_test(NAME ffshortcut_creation_tests COMMAND fffileoperations_e2e_tests --shortcut-safety)
 set_tests_properties(ffshortcut_creation_tests PROPERTIES TIMEOUT 60)
 

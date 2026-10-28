@@ -4,6 +4,12 @@ The July 30, 2026 product thesis is **find, navigate and understand your entire 
 
 Initial audit source: fresh main `a26fe609`. PR14/15 performance evidence is a separate unmerged track, not evidence that main already contains those optimizations. Independent source audit and live Refero research completed 2026-10-25. Runtime results are recorded below as they become available; source inspection alone never establishes a verified user journey.
 
+## 2026-10-28 safety frontier
+
+A fresh independent review identified a possible collision between ordinary transfer results and later approved replacements. The owned native Move fixture confirms incoming data loss on PR32 source12b: two successes, zero errors, earlier incoming bytes gone after a vacated approved name is reused by Shell. This data-safety defect takes priority over compact-palette visual work.
+
+The successor `protect-generated-transfer-results` now refuses overlapping replacement groups before mutation and retains all incoming replacement sources. Focused native Copy/Move/holding-folder Restore controls, adverse vacated names and grouped refusals pass with exact bytes/counts/cleanup; pure namespace and previous cancellation tests pass. Fresh independent source review found no additional P1/P2. Broader committed-source/combined qualification remains pending. Pillar D remains IMPLEMENTED_BUT_UNPOLISHED; this is not Explorer drag, Recycle Bin Undo, alias/reparse or missing-callback certification. Evidence: `openspec/changes/protect-generated-transfer-results/evidence/native-20261028/`.
+
 ## Five-pillar scorecard
 
 | Pillar / original intent | Initial classification | Implementation and real journey | Limitations / missing functionality | Engineering action |
