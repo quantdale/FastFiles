@@ -1,0 +1,28 @@
+{
+  "src/ui/src/FileOperationPolicy.cpp": {
+    "implementationSha256": "798a163673f4157e13ce269c232d5b2902e778676e04ebcad696dbd28e5cd45c",
+    "combinedSha256": "798a163673f4157e13ce269c232d5b2902e778676e04ebcad696dbd28e5cd45c",
+    "byteEqual": true
+  },
+  "src/ui/src/FileOperationPolicy.h": {
+    "implementationSha256": "c1142b9b115528d03f610bc9d83a34778c9e029ba7a92722ebe02ad7b5f184ec",
+    "combinedSha256": "c1142b9b115528d03f610bc9d83a34778c9e029ba7a92722ebe02ad7b5f184ec",
+    "byteEqual": true
+  },
+  "src/ui/src/FileOperations.h": {
+    "implementationSha256": "5f28863a468cbcda3187df15a1c27daf2e0a1c50baa14eded575dedd4b4c8cb8",
+    "combinedSha256": "5f28863a468cbcda3187df15a1c27daf2e0a1c50baa14eded575dedd4b4c8cb8",
+    "byteEqual": true
+  },
+  "tests/fileoperations/test_file_operation_policy.cpp": {
+    "implementationSha256": "34e35696d08d8ac6c63f3366f7d9b60472f960951d1269c8a4f2c6e42d357c75",
+    "combinedSha256": "34e35696d08d8ac6c63f3366f7d9b60472f960951d1269c8a4f2c6e42d357c75",
+    "byteEqual": true
+  },
+  "tests/fileoperations/test_file_operations_e2e.cpp": {
+    "implementationSha256": "6689d174244980bebb3db4d949a5fff6b40094338bea6c18c84ec72829dbc99f",
+    "combinedSha256": "6689d174244980bebb3db4d949a5fff6b40094338bea6c18c84ec72829dbc99f",
+    "byteEqual": true
+  },
+  "FileOperations.cpp note": "Whole file differs for the already-qualified OwnedMessageDrain shutdown change; guard and failure helper bodies are identical, not whole-binary equality."
+}
