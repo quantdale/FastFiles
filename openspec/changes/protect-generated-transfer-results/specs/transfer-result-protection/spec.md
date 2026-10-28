@@ -20,3 +20,11 @@ If a queued replacement group cannot execute safely, FastFiles SHALL report each
 #### Scenario: An unrelated replacement shares the refused group
 - **WHEN** one approved target overlaps an observed ordinary result and another target does not
 - **THEN** the group SHALL preserve both incoming replacement sources and report both refusals explicitly
+
+#### Scenario: Ordinary work stops before replacement
+- **WHEN** an ordinary phase fails and Shell leaves an approved replacement unexecuted without a user cancellation request
+- **THEN** the original error SHALL remain visible and the unexecuted replacement source SHALL be identified as stopped
+
+#### Scenario: Some ordinary work has already completed
+- **WHEN** a phase-level failure lacks an item failure callback after an observed successful ordinary result
+- **THEN** that observed successful source SHALL NOT also be reported as failed; an unidentifiable completion SHALL be reported at group level

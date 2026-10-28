@@ -110,6 +110,7 @@ public:
     }
 
     std::vector<FileOperationFailure> Failures() const { return failures_; }
+    bool HasFailures() const { return !failures_.empty(); }
     unsigned int Completed() const { return completed_; }
     std::vector<ReversiblePath> CompletedPaths() const { return completedPaths_; }
 
@@ -227,6 +228,38 @@ bool PathExistsWin32(const std::wstring& path) {
 }
 
 } // namespace
+
+void CompleteOperationFailures(std::vector<FileOperationFailure>& failures, HRESULT result, bool cancellationRequested,
+    const std::vector<std::wstring>& sources, const std::wstring& destination,
+    const std::vector<ReversiblePath>& completedPaths, const std::vector<ReplacementTarget>& unexecutedReplacements) {
+    const bool phaseErrorMissing = FAILED(result) &&
+        !IsRequestedCancellationFailure(static_cast<std::int32_t>(result), cancellationRequested) &&
+        std::none_of(failures.begin(), failures.end(), [&](const auto& failure) { return failure.error == result; });
+    if (phaseErrorMissing && !failures.empty()) {
+        // An earlier item error does not account for a different phase HRESULT.
+        // Attribute the unobserved phase error to the operation, not to a
+        // potentially successful source.
+        failures.push_back({destination, result});
+    } else if (phaseErrorMissing) {
+        const std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> sourcePaths(sources.begin(), sources.end());
+        std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> completedSources;
+        std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> unexecutedSources;
+        for (const auto& path : completedPaths) completedSources.insert(path.originalPath);
+        for (const auto& target : unexecutedReplacements) unexecutedSources.insert(target.source);
+        const bool unidentifiableCompletion = std::any_of(completedPaths.begin(), completedPaths.end(), [&](const auto& completed) {
+            return completed.originalPath.empty() || !sourcePaths.contains(completed.originalPath);
+        });
+        if (!unidentifiableCompletion) {
+            for (const auto& source : sources) {
+                if (!unexecutedSources.contains(source) && !completedSources.contains(source)) failures.push_back({source, result});
+            }
+        }
+        if (failures.empty()) failures.push_back({destination, result});
+    }
+    for (const auto& target : unexecutedReplacements) {
+        failures.push_back({target.source, HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED)});
+    }
+}
 
 FileOperations::~FileOperations() { Stop(); }
 
@@ -580,8 +613,9 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     HRESULT submitResult = adviseResult;
     if (SUCCEEDED(submitResult) && replacementOperation) submitResult = replacementOperation->Advise(sink, &replacementCookie);
     bool ordinarySubmitted = false;
+    size_t ordinarySubmittedCount = 0;
     bool replacementSubmitted = false;
-    std::vector<std::pair<std::wstring, std::wstring>> replacementTargets;
+    std::vector<ReplacementTarget> replacementTargets;
     std::vector<FileOperationFailure> submissionFailures;
     Microsoft::WRL::ComPtr<IShellItem> destination = MakeItem(request.destination);
     if (SUCCEEDED(submitResult) && !destination &&
@@ -616,9 +650,11 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
                 if (replace) {
                     replacementSubmitted = true;
                     const std::wstring name = destinationName ? destinationName : std::filesystem::path(sourcePath).filename().wstring();
-                    replacementTargets.emplace_back(sourcePath,
-                        (std::filesystem::path(request.destination) / name).wstring());
-                } else ordinarySubmitted = true;
+                    replacementTargets.push_back({sourcePath, (std::filesystem::path(request.destination) / name).wstring()});
+                } else {
+                    ordinarySubmitted = true;
+                    ++ordinarySubmittedCount;
+                }
             }
             if (FAILED(itemResult)) submissionFailures.push_back({sourcePath, itemResult});
         }
@@ -651,9 +687,12 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
             if (FAILED(itemResult)) submissionFailures.push_back({restore.originalPath, itemResult});
             else if (planned.replacesExisting) {
                 replacementSubmitted = true;
-                replacementTargets.emplace_back(restore.originalPath,
-                    (std::filesystem::path(restore.originalPath).parent_path() / name).wstring());
-            } else ordinarySubmitted = true;
+                replacementTargets.push_back({restore.originalPath,
+                    (std::filesystem::path(restore.originalPath).parent_path() / name).wstring()});
+            } else {
+                ordinarySubmitted = true;
+                ++ordinarySubmittedCount;
+            }
         }
     }
     BOOL operationsAborted = FALSE;
@@ -661,6 +700,8 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
         submitResult = operation->PerformOperations();
         operation->GetAnyOperationsAborted(&operationsAborted);
     }
+    bool replacementRefused = false;
+    bool replacementPerformed = false;
     if (SUCCEEDED(submitResult) && !operationsAborted && !cancelRequested_ && replacementSubmitted) {
         // protect-generated-transfer-results 1.2: Shell may assign an ordinary
         // result a name reserved for an approved replacement. Consent to replace
@@ -668,33 +709,34 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
         // replacement group cannot be selectively removed; fail the whole group
         // before it mutates anything, retaining each incoming replacement source.
         const auto ordinaryResults = sink->CompletedPaths();
-        const bool overlaps = std::any_of(replacementTargets.begin(), replacementTargets.end(),
-            [&](const auto& target) {
-                return std::any_of(ordinaryResults.begin(), ordinaryResults.end(), [&](const ReversiblePath& result) {
-                    return TransferPathsOverlap(target.second, result.resultingPath);
-                });
-            });
-        if (overlaps) {
+        // A failed or missing root callback can leave partial output whose
+        // identity is unknown. Do not infer safety from an incomplete list.
+        const auto safety = EvaluateReplacementSafety(ordinarySubmittedCount, sink->HasFailures(), ordinaryResults, replacementTargets);
+        if (!cancelRequested_ && safety != ReplacementSafety::Safe) {
+            replacementRefused = true;
             for (const auto& target : replacementTargets) {
-                submissionFailures.push_back({target.first, HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)});
+                submissionFailures.push_back({target.source, HRESULT_FROM_WIN32(
+                    safety == ReplacementSafety::Incomplete ? ERROR_OPERATION_ABORTED : ERROR_ALREADY_EXISTS)});
             }
-        } else {
+        } else if (!cancelRequested_) {
+            replacementPerformed = true;
             submitResult = replacementOperation->PerformOperations();
             replacementOperation->GetAnyOperationsAborted(&operationsAborted);
         }
     }
+    // When Shell aborts the ordinary phase due to an error, its callbacks do
+    // not describe the queued replacements that were never executed. Retain
+    // those per-source outcomes unless the user requested cancellation.
+    const bool reportUnexecuted = replacementSubmitted && !replacementPerformed && !replacementRefused && !cancelRequested_;
     if (cookie != 0) operation->Unadvise(cookie);
     if (replacementCookie != 0) replacementOperation->Unadvise(replacementCookie);
     const bool cancelled = cancelRequested_ || operationsAborted || submitResult == HRESULT_FROM_WIN32(ERROR_CANCELLED);
     auto failures = sink->Failures();
     failures.insert(failures.end(), submissionFailures.begin(), submissionFailures.end());
-    if (FAILED(submitResult) && !cancelled && failures.empty()) {
-        if (request.sources.empty()) {
-            failures.push_back({request.destination, submitResult});
-        } else {
-            for (const auto& source : request.sources) failures.push_back({source, submitResult});
-        }
-    }
+    const auto allCompletedPaths = sink->CompletedPaths();
+    const std::vector<ReplacementTarget> noUnexecutedReplacements;
+    CompleteOperationFailures(failures, submitResult, cancelRequested_.load(), request.sources, request.destination, allCompletedPaths,
+                              reportUnexecuted ? replacementTargets : noUnexecutedReplacements);
     failures.insert(failures.end(), rejectedSources.begin(), rejectedSources.end());
     const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size() + rejectedSources.size() + skipped));
     const unsigned int completed = sink->Completed();
@@ -709,7 +751,6 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     FileOperationEvent completion{cancelled ? FileOperationEventKind::Cancelled : FileOperationEventKind::Completed,
                                   request.kind, {}, completed, total, percent, std::move(failures), std::move(affected)};
     completion.skipped = skipped;
-    const auto allCompletedPaths = sink->CompletedPaths();
     if (request.kind == FileOperationKind::CreateFolder || request.kind == FileOperationKind::CreateFile) {
         for (const auto& path : allCompletedPaths) {
             if (!path.resultingPath.empty()) completion.createdPaths.push_back(path.resultingPath);

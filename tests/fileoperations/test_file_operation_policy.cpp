@@ -3,6 +3,7 @@
 #include "OleDragDrop.h"
 
 #include <cstdlib>
+#include <chrono>
 #include <iostream>
 #include <shlobj.h>
 #include <sherrors.h>
@@ -17,12 +18,56 @@ using namespace fftest;
 
 int main() {
     using namespace ffui;
+    const std::vector<ReplacementTarget> replacement{{L"D:\\incoming.txt", L"C:\\target\\replace.txt"}};
+    const std::vector<ReversiblePath> disjoint{{L"D:\\first.txt", L"C:\\target\\first.txt", {}}};
+    const std::vector<ReversiblePath> overlapping{{L"D:\\first.txt", L"C:\\target\\replace.txt", {}}};
+    const std::vector<ReversiblePath> unnamed{{L"D:\\first.txt", L"", {}}};
+    Check(EvaluateReplacementSafety(0, false, {}, replacement) == ReplacementSafety::Safe,
+          "replacement-only request can execute");
+    Check(EvaluateReplacementSafety(1, false, disjoint, replacement) == ReplacementSafety::Safe,
+          "verified disjoint ordinary result permits replacement");
+    Check(EvaluateReplacementSafety(1, false, overlapping, replacement) == ReplacementSafety::Overlap,
+          "verified overlapping ordinary result blocks replacement");
+    Check(EvaluateReplacementSafety(2, false, disjoint, replacement) == ReplacementSafety::Incomplete,
+          "missing root result cannot establish replacement safety");
+    Check(EvaluateReplacementSafety(1, true, disjoint, replacement) == ReplacementSafety::Incomplete,
+          "failed ordinary item cannot establish replacement safety");
+    Check(EvaluateReplacementSafety(1, false, unnamed, replacement) == ReplacementSafety::Incomplete,
+          "unnamed ordinary result cannot establish replacement safety");
+    Check(EvaluateReplacementSafety(0, false, {}, {{L"D:\\incoming.txt", L""}}) == ReplacementSafety::Incomplete,
+          "unnamed replacement cannot establish safety");
+    std::vector<ReversiblePath> manyOrdinary;
+    std::vector<ReplacementTarget> manyReplacements;
+    for (int index = 0; index < 1000; ++index) {
+        manyOrdinary.push_back({L"", L"C:\\target\\ordinary-" + std::to_wstring(index), {}});
+        manyReplacements.push_back({L"", L"C:\\target\\replacement-" + std::to_wstring(index)});
+    }
+    const auto safetyStart = std::chrono::steady_clock::now();
+    Check(EvaluateReplacementSafety(manyOrdinary.size(), false, manyOrdinary, manyReplacements) == ReplacementSafety::Safe,
+          "large disjoint mixed request retains all approved replacements");
+    std::cout << "mixed path safety 1000x1000 ms=" <<
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - safetyStart).count() << '\n';
+    manyReplacements.back().destination = manyOrdinary[500].resultingPath + L"\\child";
+    Check(EvaluateReplacementSafety(manyOrdinary.size(), false, manyOrdinary, manyReplacements) == ReplacementSafety::Overlap,
+          "large mixed request catches an overlapping ancestor near its end");
+    for (int index = 1000; index < 4096; ++index) {
+        manyOrdinary.push_back({L"", L"C:\\target\\ordinary-" + std::to_wstring(index), {}});
+        manyReplacements.push_back({L"", L"C:\\target\\replacement-" + std::to_wstring(index)});
+    }
+    manyReplacements[999].destination = L"C:\\target\\replacement-999";
+    const auto largerSafetyStart = std::chrono::steady_clock::now();
+    Check(EvaluateReplacementSafety(manyOrdinary.size(), false, manyOrdinary, manyReplacements) == ReplacementSafety::Safe,
+          "4096 by 4096 disjoint mixed request stays correct");
+    std::cout << "mixed path safety 4096x4096 ms=" <<
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - largerSafetyStart).count() << '\n';
     for (const auto& pair : std::vector<std::pair<std::wstring, std::wstring>>{
              {L"C:\\Target\\first.txt", L"c:\\target\\FIRST.txt"},
              {L"C:\\Target\\Folder", L"C:\\Target\\Folder\\child.txt"},
              {L"C:\\Target\\Folder\\child.txt", L"C:\\Target\\Folder"},
              {L"\\\\?\\C:\\Target\\first.txt", L"C:\\Target\\first.txt"},
              {L"\\\\?\\UNC\\server\\share\\Folder", L"\\\\server\\share\\Folder\\child"},
+             {L"\\\\?\\unc\\server\\share\\Folder", L"\\\\server\\share\\Folder\\child"},
+             {L"\\\\?\\UnC\\server\\share\\Folder", L"\\\\server\\share\\Folder"},
              {L"C:/Target/Folder/../first.txt", L"C:\\Target\\first.txt"},
              {L"C:\\Target\\Folder\\", L"C:\\Target\\Folder"},
              {L"", L"C:\\Target\\first.txt"}}) {
@@ -35,6 +80,21 @@ int main() {
              {L"C:\\Target\\one.txt", L"C:\\Target\\two.txt"}}) {
         Check(!TransferPathsOverlap(pair.first, pair.second), "unrelated replacement namespace remains allowed");
     }
+    const std::vector<std::wstring> namespaceCases{
+        L"C:\\root", L"c:\\ROOT\\child", L"C:\\root-zzz", L"C:\\root\\child.txt",
+        L"C:\\root\\child.txt.bak", L"C:/root/leaf/../child", L"D:\\root",
+        L"\\\\?\\unc\\server\\share\\folder", L"\\\\server\\share\\folder\\nested",
+        L"C:\\root\\\u4e2d\u6587", L"C:\\root\\\u4e2d\u6587\\child"};
+    for (const auto& ordinary : namespaceCases) {
+        for (const auto& destination : namespaceCases) {
+            const auto actual = EvaluateReplacementSafety(1, false, {{L"", ordinary, {}}}, {{L"", destination}});
+            const auto expected = TransferPathsOverlap(ordinary, destination) ? ReplacementSafety::Overlap : ReplacementSafety::Safe;
+            Check(actual == expected, "indexed safety matches direct namespace relationship");
+        }
+    }
+    Check(EvaluateReplacementSafety(2, false, {{L"", L"C:\\x-zzz", {}}, {L"", L"C:\\x\\child", {}}},
+          {{L"", L"C:\\x"}}) == ReplacementSafety::Overlap,
+          "sibling prefix does not hide an ordinary descendant in sorted order");
     Check(IsRequestedCancellationFailure(static_cast<std::int32_t>(HRESULT_FROM_WIN32(ERROR_CANCELLED)), true),
           "requested Win32 cancellation is not an IO failure");
     Check(IsRequestedCancellationFailure(static_cast<std::int32_t>(COPYENGINE_E_USER_CANCELLED), true),

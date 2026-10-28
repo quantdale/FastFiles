@@ -49,6 +49,12 @@ struct FileOperationFailure {
     HRESULT cleanupError = S_OK;
 };
 
+// Preserve an unreported phase error before recording later unexecuted work.
+// Exposed to the headless worker test; it performs no I/O or shell mutation.
+void CompleteOperationFailures(std::vector<FileOperationFailure>& failures, HRESULT result, bool cancellationRequested,
+    const std::vector<std::wstring>& sources, const std::wstring& destination,
+    const std::vector<ReversiblePath>& completedPaths, const std::vector<ReplacementTarget>& unexecutedReplacements);
+
 struct FileOperationEvent {
     FileOperationEventKind kind;
     FileOperationKind operation;

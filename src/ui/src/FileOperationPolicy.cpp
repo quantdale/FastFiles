@@ -1,5 +1,6 @@
 #include "FileOperationPolicy.h"
 
+#include <algorithm>
 #include <cwctype>
 #include <filesystem>
 #include <set>
@@ -30,26 +31,67 @@ std::wstring DestinationKey(const std::wstring& path) {
     return std::filesystem::path(path).lexically_normal().wstring();
 }
 
+std::wstring NormalizeTransferPath(const std::wstring& path) {
+    std::wstring value = DestinationKey(path);
+    if (value.size() >= 8 && ffprotocol::WindowsPathEqual(value.substr(0, 8), L"\\\\?\\UNC\\")) value = L"\\\\" + value.substr(8);
+    else if (value.starts_with(L"\\\\?\\")) value.erase(0, 4);
+    std::replace(value.begin(), value.end(), L'/', L'\\');
+    while (!value.empty() && value.back() == L'\\') value.pop_back();
+    return value;
+}
+
+bool PathContains(const std::wstring& parent, const std::wstring& child) {
+    if (child.size() < parent.size()) return false;
+    if (!ffprotocol::WindowsPathEqual(parent, std::wstring_view(child).substr(0, parent.size()))) return false;
+    return child.size() == parent.size() || child[parent.size()] == L'\\';
+}
+
 } // namespace
 
 bool TransferPathsOverlap(const std::wstring& left, const std::wstring& right) {
-    const auto normalize = [](const std::wstring& path) {
-        std::wstring value = DestinationKey(path);
-        if (value.starts_with(L"\\\\?\\UNC\\")) value = L"\\\\" + value.substr(8);
-        else if (value.starts_with(L"\\\\?\\")) value.erase(0, 4);
-        while (!value.empty() && (value.back() == L'\\' || value.back() == L'/')) value.pop_back();
-        return value;
-    };
-    const auto a = normalize(left);
-    const auto b = normalize(right);
+    const auto a = NormalizeTransferPath(left);
+    const auto b = NormalizeTransferPath(right);
     // An unavailable actual result name cannot establish that replacement is safe.
     if (a.empty() || b.empty()) return true;
-    const auto contains = [](const std::wstring& parent, const std::wstring& child) {
-        if (child.size() < parent.size()) return false;
-        if (!ffprotocol::WindowsPathEqual(parent, child.substr(0, parent.size()))) return false;
-        return child.size() == parent.size() || child[parent.size()] == L'\\' || child[parent.size()] == L'/';
-    };
-    return contains(a, b) || contains(b, a);
+    return PathContains(a, b) || PathContains(b, a);
+}
+
+ReplacementSafety EvaluateReplacementSafety(size_t submittedOrdinary, bool ordinaryFailed,
+    const std::vector<ReversiblePath>& ordinaryResults, const std::vector<ReplacementTarget>& replacements) {
+    if (ordinaryFailed || ordinaryResults.size() != submittedOrdinary ||
+        std::any_of(ordinaryResults.begin(), ordinaryResults.end(), [](const auto& item) { return item.resultingPath.empty(); }) ||
+        std::any_of(replacements.begin(), replacements.end(), [](const auto& item) { return item.destination.empty(); })) {
+        return ReplacementSafety::Incomplete;
+    }
+    std::vector<std::wstring> ordinaryPaths;
+    ordinaryPaths.reserve(ordinaryResults.size());
+    for (const auto& result : ordinaryResults) {
+        auto path = NormalizeTransferPath(result.resultingPath);
+        if (path.empty()) return ReplacementSafety::Incomplete;
+        ordinaryPaths.push_back(std::move(path));
+    }
+    std::vector<std::wstring> replacementPaths;
+    replacementPaths.reserve(replacements.size());
+    for (const auto& replacement : replacements) {
+        auto path = NormalizeTransferPath(replacement.destination);
+        if (path.empty()) return ReplacementSafety::Incomplete;
+        replacementPaths.push_back(std::move(path));
+    }
+    const ffprotocol::CaseInsensitivePathLess less;
+    std::sort(ordinaryPaths.begin(), ordinaryPaths.end(), less);
+    for (const auto& target : replacementPaths) {
+        if (std::binary_search(ordinaryPaths.begin(), ordinaryPaths.end(), target, less)) return ReplacementSafety::Overlap;
+        const auto descendantPrefix = target + L"\\";
+        const auto child = std::lower_bound(ordinaryPaths.begin(), ordinaryPaths.end(), descendantPrefix, less);
+        if (child != ordinaryPaths.end() && PathContains(target, *child)) return ReplacementSafety::Overlap;
+        for (auto separator = target.find_last_of(L'\\'); separator != std::wstring::npos && separator > 0;
+             separator = target.find_last_of(L'\\', separator - 1)) {
+            if (std::binary_search(ordinaryPaths.begin(), ordinaryPaths.end(), target.substr(0, separator), less)) {
+                return ReplacementSafety::Overlap;
+            }
+        }
+    }
+    return ReplacementSafety::Safe;
 }
 
 bool IsValidFileName(const std::wstring& name, std::wstring* reason) {

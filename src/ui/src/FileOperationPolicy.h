@@ -55,6 +55,18 @@ struct ReversiblePath {
     std::vector<std::byte> shellItemId;
 };
 
+struct ReplacementTarget {
+    std::wstring source;
+    std::wstring destination;
+};
+
+enum class ReplacementSafety { Safe, Overlap, Incomplete };
+
+// Missing root callbacks or failed/unnamed ordinary results cannot establish
+// that an approved replacement is disjoint from all incoming output.
+ReplacementSafety EvaluateReplacementSafety(size_t submittedOrdinary, bool ordinaryFailed,
+    const std::vector<ReversiblePath>& ordinaryResults, const std::vector<ReplacementTarget>& replacements);
+
 struct RestorePlanItem {
     size_t restoreIndex = 0;
     std::wstring destinationName;

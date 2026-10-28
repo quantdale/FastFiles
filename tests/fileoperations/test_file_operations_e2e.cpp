@@ -494,6 +494,86 @@ void CheckReplacementOverlap(ffui::FileOperations& operations, const std::filesy
                          << " failed=" << event->failures.size() << " firstIncomingCopies=" << firstCopies << '\n';
 }
 
+void CheckReplacementAfterOrdinaryFailure(ffui::FileOperations& operations, const std::filesystem::path& root) {
+    const auto scope = root / L"ordinary-failure-before-replacement";
+    const auto source = scope / L"source";
+    const auto target = scope / L"target";
+    std::filesystem::create_directories(source);
+    std::filesystem::create_directories(target);
+    WriteText(source / L"first.txt", "locked incoming first");
+    WriteText(source / L"replace.txt", "incoming replacement");
+    WriteText(target / L"replace.txt", "approved old destination");
+    HANDLE lock = INVALID_HANDLE_VALUE;
+    conflictQuestionCount = 0;
+    conflictObserver = [&](const ffui::FileOperationConflictQuestion& question) {
+        const bool exact = question.source == (source / L"replace.txt").wstring() &&
+                           question.destination == (target / L"replace.txt").wstring();
+        Check(exact, "ordinary failure reaches exact replacement prompt");
+        if (!exact) return ffui::ConflictDecision{ffui::ConflictChoice::Cancel, false};
+        lock = CreateFileW((source / L"first.txt").c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+        Check(lock != INVALID_HANDLE_VALUE, "owned ordinary source exclusively locked after planning");
+        return ffui::ConflictDecision{lock == INVALID_HANDLE_VALUE ? ffui::ConflictChoice::Cancel : ffui::ConflictChoice::Replace, false};
+    };
+    const int beforeTerminal = terminalEventCount;
+    auto event = Run(operations, {ffui::FileOperationKind::Move,
+        {(source / L"first.txt").wstring(), (source / L"replace.txt").wstring()}, target.wstring(), {}, true});
+    conflictObserver = {};
+    if (lock != INVALID_HANDLE_VALUE) Check(CloseHandle(lock) != FALSE, "close exact owned source lock");
+    Check(conflictQuestionCount == 1 && terminalEventCount == beforeTerminal + 1, "ordinary failure emits one terminal event");
+    Check(ReadText(source / L"first.txt") == "locked incoming first", "failed ordinary incoming bytes remain available");
+    Check(ReadText(source / L"replace.txt") == "incoming replacement" &&
+          ReadText(target / L"replace.txt") == "approved old destination",
+          "unverified ordinary phase preserves replacement source and target");
+    Check(event && event->kind == ffui::FileOperationEventKind::Cancelled && event->completed == 0 &&
+          event->failures.size() >= 2 && event->percent < 100,
+          "Shell-stopped ordinary failure and unexecuted replacement are separately reported");
+    if (event) {
+        Check(std::any_of(event->failures.begin(), event->failures.end(), [&](const auto& failure) {
+            return failure.path == (source / L"replace.txt").wstring() && failure.error == HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED);
+        }), "unexecuted replacement identifies its source and stopped HRESULT");
+        std::cout << "ordinary failure kind=" << static_cast<int>(event->kind) << " completed=" << event->completed
+                  << " failed=" << event->failures.size() << '\n';
+        for (const auto& failure : event->failures) std::cout << "failure HRESULT=0x" << std::hex << failure.error << std::dec << '\n';
+    }
+}
+
+void CheckUnreportedPhaseFailure() {
+    const std::vector<std::wstring> sources{L"C:\\incoming\\ordinary.txt", L"C:\\incoming\\replace.txt"};
+    const std::vector<ffui::ReplacementTarget> unexecuted{{sources[1], L"C:\\target\\replace.txt"}};
+    std::vector<ffui::FileOperationFailure> failures;
+    ffui::CompleteOperationFailures(failures, E_ACCESSDENIED, false, sources, L"C:\\target", {}, unexecuted);
+    Check(failures.size() == 2 && failures[0].path == sources[0] && failures[0].error == E_ACCESSDENIED &&
+          failures[1].path == sources[1] && failures[1].error == HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED),
+          "unreported phase HRESULT survives separate unexecuted replacement failure");
+    failures = {{sources[0], HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION)}};
+    ffui::CompleteOperationFailures(failures, HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION), false, sources, L"C:\\target", {}, unexecuted);
+    Check(failures.size() == 2 && failures[0].error == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) &&
+          failures[1].path == sources[1], "real callback failure remains primary without fabricated duplicate");
+    failures = {{L"C:\\incoming\\missing.txt", HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)}};
+    ffui::CompleteOperationFailures(failures, E_ACCESSDENIED, false, sources, L"C:\\target", {}, unexecuted);
+    Check(failures.size() == 3 && failures[0].error == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) &&
+          failures[1].path == L"C:\\target" && failures[1].error == E_ACCESSDENIED &&
+          failures[2].path == sources[1], "earlier item error cannot hide a distinct unreported phase HRESULT");
+    failures.clear();
+    ffui::CompleteOperationFailures(failures, HRESULT_FROM_WIN32(ERROR_CANCELLED), true, sources, L"C:\\target", {}, {});
+    Check(failures.empty(), "requested cancellation retains no invented failure");
+    ffui::CompleteOperationFailures(failures, E_ACCESSDENIED, true, sources, L"C:\\target", {}, {});
+    Check(failures.size() == 2 && failures[0].error == E_ACCESSDENIED,
+          "real failure remains visible even if a cancellation was also requested");
+    const std::vector<std::wstring> partialSources{sources[0], L"C:\\incoming\\second.txt", sources[1]};
+    failures.clear();
+    ffui::CompleteOperationFailures(failures, E_ACCESSDENIED, false, partialSources, L"C:\\target",
+        {{sources[0], L"C:\\target\\ordinary.txt", {}}}, unexecuted);
+    Check(failures.size() == 2 && failures[0].path == partialSources[1] && failures[0].error == E_ACCESSDENIED &&
+          failures[1].path == sources[1], "observed success is not also attributed the phase failure");
+    failures.clear();
+    ffui::CompleteOperationFailures(failures, E_ACCESSDENIED, false, partialSources, L"C:\\target",
+        {{L"", L"C:\\target\\ordinary.txt", {}}}, unexecuted);
+    Check(failures.size() == 2 && failures[0].path == L"C:\\target" && failures[0].error == E_ACCESSDENIED &&
+          failures[1].path == sources[1], "unidentifiable success yields a group failure without blaming an arbitrary source");
+}
+
 void CheckShortcutTarget(const std::filesystem::path& shortcut, const std::filesystem::path& source) {
     Microsoft::WRL::ComPtr<IShellLinkW> link;
     HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link));
@@ -726,6 +806,8 @@ int main(int argc, char** argv) {
                     CheckReplacementOverlap(operations, root, generatedName, true, kind, true);
                 }
             }
+            CheckReplacementAfterOrdinaryFailure(operations, root);
+            CheckUnreportedPhaseFailure();
         } else if (filter == "--shortcut-safety") {
             CheckShortcutCreationSafety(operations, root);
             CheckShortcutCancellation(operations, root);
