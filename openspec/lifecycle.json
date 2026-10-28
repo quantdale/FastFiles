@@ -1703,7 +1703,7 @@
     },
     {
       "name": "preserve-rename-and-creation-destinations",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
