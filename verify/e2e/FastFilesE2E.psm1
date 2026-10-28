@@ -1177,7 +1177,7 @@ function Invoke-E2ERestoreScenario {
 }
 
 function Invoke-E2ELifecycleScenario {
-    param([Parameter(Mandatory)] [string] $Exe, [Parameter(Mandatory)] [string] $RepoRoot, [Parameter(Mandatory)] [string] $ArtifactRoot, [int] $Iterations = 2)
+    param([Parameter(Mandatory)] [string] $Exe, [Parameter(Mandatory)] [string] $RepoRoot, [Parameter(Mandatory)] [string] $ArtifactRoot, [ValidateRange(1, 2147483647)] [int] $Iterations = 2)
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $observations = [System.Collections.Generic.List[object]]::new()
     for ($iteration = 1; $iteration -le $Iterations; $iteration++) {
@@ -1243,8 +1243,14 @@ function Invoke-FastFilesE2E {
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $ArtifactsDir,
         [string] $Filter = 'all',
-        [int] $LifecycleIterations = 2
+        [ValidateRange(1, 2147483647)] [int] $LifecycleIterations = 2
     )
+    $tokens = @($Filter -split '[,;\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() })
+    $valid = @('all', 'launch', 'navigation', 'restore', 'search', 'storage', 'preview', 'fileops', 'lifecycle')
+    if ($tokens.Count -eq 0) { throw 'E2E filter must select at least one scenario.' }
+    foreach ($token in $tokens) {
+        if ($valid -notcontains $token) { throw "Unknown E2E filter '$token'. Valid filters: $($valid -join ', ')" }
+    }
     if (Test-Path -LiteralPath $ArtifactsDir) {
         if (-not (Test-Path -LiteralPath $ArtifactsDir -PathType Container) -or
             @(Get-ChildItem -LiteralPath $ArtifactsDir -Force).Count -gt 0) {
@@ -1252,11 +1258,6 @@ function Invoke-FastFilesE2E {
         }
     } else {
         New-Item -ItemType Directory -Path $ArtifactsDir -ErrorAction Stop | Out-Null
-    }
-    $tokens = @($Filter -split '[,; ]+' | Where-Object { $_ }) | ForEach-Object { $_.ToLowerInvariant() }
-    $valid = @('all', 'launch', 'navigation', 'restore', 'search', 'storage', 'preview', 'fileops', 'lifecycle')
-    foreach ($token in $tokens) {
-        if ($valid -notcontains $token) { throw "Unknown E2E filter '$token'. Valid filters: $($valid -join ', ')" }
     }
     $runAll = $tokens -contains 'all'
     $shouldRun = { param($name) $runAll -or $tokens -contains $name }

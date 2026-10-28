@@ -15,7 +15,10 @@ If the body wrote `failure.json` during this invocation, retain it and its adjac
 ### D3 — Require an explicit scenario result
 All current scenario implementations return `New-E2EResult`; none intentionally use a raw/null value to indicate success. Validate that the body emits exactly one result with the expected id, required fields, a non-empty stage and a known PASS/FAIL/SKIPPED status. Invalid output becomes an `invalid-result` failure with evidence, preserving any inner envelope. Explicit PASS and SKIPPED stay unchanged. Why: the old fallback manufactured PASS for null or unsupported output, and an unknown status could evade all aggregate counters.
 
-### D4 — Exercise the actual runner and wrapper without GUI
+### D4 — Reject zero-work selection before UIA
+Require at least one recognized scenario token and a positive lifecycle iteration count at both public CLI and direct module entry points; also protect the internal lifecycle scenario. Why: old empty filters returned PASS with no scenario results, and zero/negative lifecycle counts returned PASS without launching any lifecycle. Reject before creating an artifact root or consulting UIA. Valid filters and positive counts keep the existing prerequisite SKIPPED behavior.
+
+### D5 — Exercise the actual runner and wrapper without GUI
 Headless tests execute the real wrapper and real direct-runner function, use owned marked fixture roots, and execute a copy of the actual CLI runner against a fake gate and no-launch stub to prove existing-empty-root handoff. Sentinel files are not screenshots and do not establish visual behavior. A failed scenario remains `FAIL`; a rejected stale path does not cause the body to run or present stale artifacts as current.
 
 ## Risks / Trade-offs

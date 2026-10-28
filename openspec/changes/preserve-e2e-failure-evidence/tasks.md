@@ -5,6 +5,8 @@
 - [x] 1.3 Require a single valid explicit scenario result; preserve five red checks and verify FAIL evidence for null, malformed, unknown, mismatched and multiple outputs while preserving PASS/SKIPPED.
 - [x] 1.4 Exercise actual CLI provenance gate and existing empty-root handoff with non-executable fixtures and no-launch stubs; run the registered headless E2E harness contract.
 
+- [x] 1.5 Reject empty/whitespace/delimiter-only filters and nonpositive lifecycle iterations before UIA; preserve actual old false-green receipts and test valid filters, positive counts and prerequisite SKIPPED.
+
 ## 2. Integration qualification
 
 - [ ] 2.1 Integrator review, merge simulation and appropriate combined native E2E qualification; retain the unresolved original cold-restore UIA failure separately.

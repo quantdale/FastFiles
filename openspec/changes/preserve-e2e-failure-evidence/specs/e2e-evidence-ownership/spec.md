@@ -47,3 +47,18 @@ A scenario wrapper SHALL accept exactly one result with the expected scenario id
 #### Scenario: Explicit skip
 - **WHEN** a scenario returns a well-formed `SKIPPED` result
 - **THEN** the wrapper SHALL retain its skipped status and reason
+
+### Requirement: Scenario selection performs a nonempty test
+The E2E runner SHALL reject an empty or delimiter-only scenario filter and SHALL reject a nonpositive lifecycle iteration count before creating artifacts or starting UI Automation. Valid selections with unavailable prerequisites SHALL retain their truthful skipped status.
+
+#### Scenario: Empty scenario filter
+- **WHEN** a filter contains no scenario name
+- **THEN** the runner SHALL reject it before UI Automation instead of reporting an empty PASS
+
+#### Scenario: Nonpositive lifecycle count
+- **WHEN** the requested lifecycle iteration count is zero or negative
+- **THEN** the CLI and direct runner SHALL reject it before creating artifacts or starting UI Automation
+
+#### Scenario: Valid selection with an unavailable prerequisite
+- **WHEN** the selected scenario and positive iteration count are valid but UI Automation is unavailable
+- **THEN** the runner SHALL report SKIPPED rather than a failure or pass

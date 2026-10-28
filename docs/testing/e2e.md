@@ -45,6 +45,10 @@ context is written separately as `failure-outer.json` (or a unique variant).
 The headless E2E harness contract tests cover these ownership and fallback
 cases without launching the application.
 
+Filters must select at least one named scenario, and `LifecycleIterations`
+must be positive (the default is two). Empty selectors and nonpositive counts
+are rejected before UI Automation starts; they cannot produce an empty pass.
+
 `debug-diagnostic` is the intended local artifact because it accepts the
 unsigned sibling engine through the existing debug-only discovery seam. The
 normal `debug` and optimized `release-test` builds remain fail-closed for

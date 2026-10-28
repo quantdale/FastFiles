@@ -134,6 +134,109 @@ try {
     Check ($emptyResult.status -eq 'SKIPPED' -and $emptyResult.results[0].detail -match 'owned-headless-mock') `
           'actual direct runner accepts an existing empty root and reaches headless availability'
 
+    $filterIndex = 0
+    foreach ($filter in @('', ' ', ',;', " `t ; ,`n")) {
+        $filterIndex++
+        $filterRoot = Join-Path $root ('empty-filter-' + $filterIndex)
+        $filterProbe = & {
+            param($modulePath, $artifactRoot, $repoRoot, $selector)
+            $probe = [pscustomobject]@{ availabilityCalls = 0; launchCalls = 0; refused = $false; status = $null }
+            function Get-UiaDriverAvailability {
+                $probe.availabilityCalls++
+                return [pscustomobject]@{ Available = $true; Reason = 'owned-headless-mock' }
+            }
+            function New-UiaScenarioContext { $probe.launchCalls++; throw 'No application should be launched by this headless test.' }
+            $ast = [Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$null, [ref]$null)
+            $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-FastFilesE2E' }, $true)
+            . ([scriptblock]::Create($definition.Extent.Text))
+            try {
+                $run = Invoke-FastFilesE2E -Exe 'unused-executable' -RepoRoot $repoRoot -ArtifactsDir $artifactRoot -Filter $selector
+                $probe.status = $run.status
+            } catch { $probe.refused = $_.Exception.Message -match 'E2E filter must select' }
+            return $probe
+        } (Join-Path $repo 'verify/e2e/FastFilesE2E.psm1') $filterRoot $repo $filter
+        Check ($filterProbe.refused -and $filterProbe.availabilityCalls -eq 0 -and $filterProbe.launchCalls -eq 0 -and
+               -not (Test-Path -LiteralPath $filterRoot)) "empty selector $filterIndex is rejected before artifacts or UIA"
+    }
+    $validFilterIndex = 0
+    foreach ($filter in @('all', 'restore', 'navigation,storage', "navigation`tstorage", ' navigation ; storage ')) {
+        $validFilterIndex++
+        $filterRoot = Join-Path $root ('valid-filter-' + $validFilterIndex)
+        $validResult = & {
+            param($modulePath, $artifactRoot, $repoRoot, $selector)
+            function Get-UiaDriverAvailability { return [pscustomobject]@{ Available = $false; Reason = 'valid-selector-headless-mock' } }
+            function New-UiaScenarioContext { throw 'The availability mock must prevent application launch.' }
+            $ast = [Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$null, [ref]$null)
+            $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-FastFilesE2E' }, $true)
+            . ([scriptblock]::Create($definition.Extent.Text))
+            Invoke-FastFilesE2E -Exe 'unused-executable' -RepoRoot $repoRoot -ArtifactsDir $artifactRoot -Filter $selector
+        } (Join-Path $repo 'verify/e2e/FastFilesE2E.psm1') $filterRoot $repo $filter
+        Check ($validResult.status -eq 'SKIPPED' -and $validResult.skipped -eq 1 -and
+               $validResult.results[0].detail -match 'valid-selector-headless-mock') "valid selector $filter remains SKIPPED when UIA is unavailable"
+    }
+    $unknownRoot = Join-Path $root 'unknown-filter'
+    $unknownProbe = & {
+        param($modulePath, $artifactRoot, $repoRoot)
+        $probe = [pscustomobject]@{ availabilityCalls = 0; refused = $false }
+        function Get-UiaDriverAvailability { $probe.availabilityCalls++; return [pscustomobject]@{ Available = $true } }
+        $ast = [Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$null, [ref]$null)
+        $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-FastFilesE2E' }, $true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        try { Invoke-FastFilesE2E -Exe 'unused-executable' -RepoRoot $repoRoot -ArtifactsDir $artifactRoot -Filter 'navigation,unknown' | Out-Null }
+        catch { $probe.refused = $_.Exception.Message -match 'Unknown E2E filter' }
+        return $probe
+    } (Join-Path $repo 'verify/e2e/FastFilesE2E.psm1') $unknownRoot $repo
+    Check ($unknownProbe.refused -and $unknownProbe.availabilityCalls -eq 0 -and -not (Test-Path -LiteralPath $unknownRoot)) `
+          'unknown selector is rejected before artifacts or UIA'
+    foreach ($iterations in @(0, -1)) {
+        $iterationRoot = Join-Path $root ('invalid-iterations-' + $iterations)
+        $iterationProbe = & {
+            param($modulePath, $artifactRoot, $repoRoot, $count)
+            $probe = [pscustomobject]@{ availabilityCalls = 0; launchCalls = 0; refused = $false; status = $null }
+            function Get-UiaDriverAvailability {
+                $probe.availabilityCalls++
+                return [pscustomobject]@{ Available = $true; Reason = 'owned-headless-mock' }
+            }
+            function New-UiaScenarioContext { $probe.launchCalls++; throw 'No application should be launched by this headless test.' }
+            function Get-Process { param($Name, $ErrorAction) return @() }
+            $ast = [Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$null, [ref]$null)
+            foreach ($name in @('Invoke-E2EScenarioSafely', 'Invoke-E2ELifecycleScenario', 'Invoke-FastFilesE2E')) {
+                $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+                . ([scriptblock]::Create($definition.Extent.Text))
+            }
+            try {
+                $run = Invoke-FastFilesE2E -Exe 'unused-executable' -RepoRoot $repoRoot -ArtifactsDir $artifactRoot -Filter lifecycle -LifecycleIterations $count
+                $probe.status = $run.status
+            } catch { $probe.refused = $_.Exception.Message -match 'LifecycleIterations|less than the minimum allowed range' }
+            return $probe
+        } (Join-Path $repo 'verify/e2e/FastFilesE2E.psm1') $iterationRoot $repo $iterations
+        Check ($iterationProbe.refused -and $iterationProbe.availabilityCalls -eq 0 -and $iterationProbe.launchCalls -eq 0 -and
+               -not (Test-Path -LiteralPath $iterationRoot)) "nonpositive lifecycle count $iterations is rejected before artifacts or UIA"
+    }
+    foreach ($iterations in @(1, 2, 5, 2147483647)) {
+        $iterationRoot = Join-Path $root ('valid-iterations-' + $iterations)
+        $validIterationResult = & {
+            param($modulePath, $artifactRoot, $repoRoot, $count)
+            function Get-UiaDriverAvailability { return [pscustomobject]@{ Available = $false; Reason = 'valid-iterations-headless-mock' } }
+            function New-UiaScenarioContext { throw 'The availability mock must prevent application launch.' }
+            $ast = [Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$null, [ref]$null)
+            $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-FastFilesE2E' }, $true)
+            . ([scriptblock]::Create($definition.Extent.Text))
+            Invoke-FastFilesE2E -Exe 'unused-executable' -RepoRoot $repoRoot -ArtifactsDir $artifactRoot -Filter lifecycle -LifecycleIterations $count
+        } (Join-Path $repo 'verify/e2e/FastFilesE2E.psm1') $iterationRoot $repo $iterations
+        Check ($validIterationResult.status -eq 'SKIPPED' -and $validIterationResult.skipped -eq 1 -and
+               $validIterationResult.results[0].detail -match 'valid-iterations-headless-mock') "positive lifecycle count $iterations retains genuine prerequisite SKIPPED"
+    }
+    $internalRefused = & {
+        param($modulePath, $artifactRoot, $repoRoot)
+        $ast = [Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$null, [ref]$null)
+        $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-E2ELifecycleScenario' }, $true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        try { Invoke-E2ELifecycleScenario -Exe 'unused-executable' -RepoRoot $repoRoot -ArtifactRoot $artifactRoot -Iterations 0 | Out-Null; return $false }
+        catch { return $_.Exception.Message -match 'Iterations|less than the minimum allowed range' }
+    } (Join-Path $repo 'verify/e2e/FastFilesE2E.psm1') (Join-Path $root 'internal-invalid') $repo
+    Check $internalRefused 'internal lifecycle scenario independently rejects a nonpositive iteration count'
+
     $noInnerThrow = & $module {
         param($ownedRoot)
         Invoke-E2EScenarioSafely -Id 'plain-throw' -ArtifactRoot $ownedRoot -Body { throw 'plain owned exception' }

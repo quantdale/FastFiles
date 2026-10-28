@@ -4,12 +4,14 @@ param(
     [string] $Exe = '',
     [string] $Filter = 'all',
     [string] $ArtifactsDir = '',
-    [int] $LifecycleIterations = 2,
+    [ValidateRange(1, 2147483647)] [int] $LifecycleIterations = 2,
     [switch] $RequireExactTree,
     [switch] $SkipProvenanceGate
 )
 
 $ErrorActionPreference = 'Stop'
+$requestedFilters = @($Filter -split '[,;\s]+' | Where-Object { $_ })
+if ($requestedFilters.Count -eq 0) { throw 'E2E filter must select at least one scenario.' }
 $resolvedRepo = (Resolve-Path -LiteralPath $RepoRoot).Path
 if ([string]::IsNullOrWhiteSpace($Exe)) {
     $Exe = Join-Path $resolvedRepo 'build\debug-diagnostic\src\ui\FastFiles.exe'

@@ -1,3 +1,9 @@
+# E2E zero-work false-green follow-up
+
+- Independent integrator review found empty/whitespace/delimiter-only filters and zero/negative lifecycle counts could report PASS without running the intended scenario. An owned headless old-source probe confirms empty filter PASS0/0/0; lifecycle0 and -1 each PASS with a claim of zero/negative completed iterations. No app was launched; real failure preserved in ignored build and compressed change evidence.
+- CLI/direct module now reject no-token filters before artifact creation/UIA; both boundaries and the internal lifecycle helper reject counts below1. Valid selectors with separators, default2, explicit1/2/5/max positive counts, and real prerequisite SKIPPED retain behavior. Unknown filters reject before UIA/artifact creation. Owned actual CLI fake-gate and actual module AST coverage remains headless.
+- Final complete headless harness PASS (30 provenance checks plus selector/count and earlier evidence/result checks), strict OpenSpec94/94, documentation drift and diff checks PASS. NEXT EXACT ACTION: commit follow-up on 007af1c and hand exact SHA/results to primary integrator. Preserve user files, no GUI/privileged/reaper work; no push or merge.
+
 # E2E evidence ownership — isolated worker checkpoint
 
 - Fresh PR31 base0fbaee3574d4f34a6a7e8eeec3f46ad197ce96ef; root alone integrates/publishes. Original checkout and unrelated worktrees untouched. Actual b0cf4bb E2E cold-restore failure captured PNG/tree in inner finally, then outer no-context wrapper overwrote failure.json with an incorrect no-capture note. UIA cause remains unresolved; original failed run retained.

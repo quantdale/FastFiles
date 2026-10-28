@@ -82,6 +82,20 @@ Export-ModuleMember -Function Get-DefaultCertificationBinaries, Invoke-Provenanc
     $emptyExit = $LASTEXITCODE
     Assert ($emptyExit -ne 0 -and $emptyOutput.Contains('OWNED_HEADLESS_PREFLIGHT_STOP') -and
             [IO.File]::Exists((Join-Path $emptyArtifacts 'provenance-gate-failure.json'))) 'an existing empty artifact root reaches the real preflight gate'
+    foreach ($count in @(0, -1)) {
+        $iterationArtifacts = Join-Path $ownedRoot ('invalid-iterations-' + $count)
+        $iterationOutput = & $shell -NoProfile -File $runner -RepoRoot $ownedRoot -Exe $exe -ArtifactsDir $iterationArtifacts -LifecycleIterations $count 2>&1 | Out-String
+        $iterationExit = $LASTEXITCODE
+        Assert ($iterationExit -ne 0 -and $iterationOutput -match 'LifecycleIterations' -and
+                -not [IO.Directory]::Exists($iterationArtifacts)) "actual CLI rejects lifecycle count $count before artifact creation"
+    }
+    foreach ($selector in @('', ',;', ' ,; ')) {
+        $filterArtifacts = Join-Path $ownedRoot ('invalid-filter-' + [guid]::NewGuid().ToString('N'))
+        $filterOutput = & $shell -NoProfile -File $runner -RepoRoot $ownedRoot -Exe $exe -ArtifactsDir $filterArtifacts -Filter $selector 2>&1 | Out-String
+        $filterExit = $LASTEXITCODE
+        Assert ($filterExit -ne 0 -and $filterOutput.Contains('E2E filter must select') -and
+                -not [IO.Directory]::Exists($filterArtifacts)) 'actual CLI rejects an empty selector before artifact creation'
+    }
     # Execute an exact copy of the runner with an owned fake gate and a stub
     # module. The stub never launches an app; it records the post-gate root.
     $ownedE2e = Join-Path $ownedRoot 'verify/e2e'
@@ -92,7 +106,7 @@ Export-ModuleMember -Function Get-DefaultCertificationBinaries, Invoke-Provenanc
 function Invoke-FastFilesE2E {
     param($Exe, $RepoRoot, $ArtifactsDir, $Filter, $LifecycleIterations)
     $rootEmpty = [IO.Directory]::Exists($ArtifactsDir) -and @(Get-ChildItem -LiteralPath $ArtifactsDir -Force).Count -eq 0
-    @{ rootEmpty = $rootEmpty; exe = $Exe } | ConvertTo-Json | Set-Content (Join-Path $RepoRoot 'success-handoff.json') -Encoding utf8
+    @{ rootEmpty = $rootEmpty; exe = $Exe; lifecycleIterations = $LifecycleIterations } | ConvertTo-Json | Set-Content (Join-Path $RepoRoot 'success-handoff.json') -Encoding utf8
     [pscustomobject]@{ status = $(if ($rootEmpty) { 'SKIPPED' } else { 'FAIL' }); results = @() }
 }
 Export-ModuleMember -Function Invoke-FastFilesE2E
@@ -105,7 +119,12 @@ Export-ModuleMember -Function Invoke-FastFilesE2E
     $successOutput = & $shell -NoProfile -File $copiedRunner -RepoRoot $ownedRoot -Exe $exe -ArtifactsDir $successArtifacts -RequireExactTree 2>&1 | Out-String
     $successExit = $LASTEXITCODE
     $handoff = Get-Content -LiteralPath (Join-Path $ownedRoot 'success-handoff.json') -Raw | ConvertFrom-Json
-    Assert ($successExit -eq 2 -and $handoff.rootEmpty -and $successOutput.Contains('SKIPPED')) 'successful fake preflight hands an existing empty root to the runner module without launching an app'
+    Assert ($successExit -eq 2 -and $handoff.rootEmpty -and $handoff.lifecycleIterations -eq 2 -and $successOutput.Contains('SKIPPED')) 'successful fake preflight hands an existing empty root and default iteration count to the runner module without launching an app'
+    $singleArtifacts = Join-Path $ownedRoot 'success-one-iteration'
+    $singleOutput = & $shell -NoProfile -File $copiedRunner -RepoRoot $ownedRoot -Exe $exe -ArtifactsDir $singleArtifacts -LifecycleIterations 1 2>&1 | Out-String
+    $singleExit = $LASTEXITCODE
+    $singleHandoff = Get-Content -LiteralPath (Join-Path $ownedRoot 'success-handoff.json') -Raw | ConvertFrom-Json
+    Assert ($singleExit -eq 2 -and $singleHandoff.rootEmpty -and $singleHandoff.lifecycleIterations -eq 1 -and $singleOutput.Contains('SKIPPED')) 'actual CLI preserves an explicit positive iteration count'
     # Assert only after both safe preflight executions so a red old-runner
     # receipt records both the complete and missing-engine failure modes.
     foreach ($case in $result.Cases) {

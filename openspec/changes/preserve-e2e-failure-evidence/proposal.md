@@ -5,6 +5,7 @@ An actual cold-restore failure captured a UIA tree and screenshot inside the sce
 - Reserve fresh scenario evidence directories and reject reused non-empty artifact roots before executing tests.
 - Preserve current inner failure evidence and write outer result or exception context separately.
 - Reject missing, malformed, mismatched or unknown-status scenario results instead of reporting accidental success.
+- Reject empty scenario filters and nonpositive lifecycle iteration counts before UIA or artifact creation.
 - Cover absent evidence, collisions, exceptions, existing empty roots and real runner provenance handoff with headless tests.
 
 ## Capabilities
