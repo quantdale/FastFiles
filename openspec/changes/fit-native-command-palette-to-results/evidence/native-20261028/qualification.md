@@ -1,0 +1,13 @@
+# Native compact palette qualification
+
+Actual safe combined implementation `b0cf4bbf98a053fadddcf785901f1b680356d560` integrates compact8a916999, transfer safety6c924879 and the foreground regression7e37f185 onto07fda936. Exact five diagnostic binary provenance gate PASS. Component equivalence is recorded separately; this is not whole standalone-executable equivalence.
+
+Initial visible run:12combinations(620/1008/1600 x Light/Dark x Compact/Comfortable),36observations, four normal profile cleanups PASS. Actual window DPI120, native physical row47px Compact/55px Comfortable. Query anchor stable on every filter; singleton/no-match lists are exactly one complete row, many-result lists complete rows. UIA edit/list rectangles are contained and non-overlapping, edit focus is retained, query clearing recovers commands, Down/Up retain query focus, no-match Enter inert, Escape closes controls. Explicit unavailable cue remains visible in actual idle cancel captures.
+
+Extended tracked harness adds actual resizing with query open and enabled Home keyboard dispatch. Final44observations/four normal cleanups PASS, same b0cf source. Live resize preserves query/selection/focus and restores anchor. Intentional resize captures may exactly equal earlier same-size/same-query frames; exact ExpectedDuplicateOf and reason are declared only for these states.
+
+Two extension fixture errors are preserved: capture registry first rejects an undeclared identical frame (normal cleanup PASS), then PowerShell rejects the reserved HOME variable (normal cleanup PASS). Corrected explicit duplicate declaration and homeCommandResult variable require no product change. No failure was relabeled PASS.
+
+Before screenshot/valid old native36failures are linked in ../qualification.md. Sparse native list401px→47px Compact (same actual120DPI); visible new no/one/many and both densities/themes match intended native geometry. Read-only independent visual review found no correction needed in clear inspected frames; microphone overlay partially obscures some unreviewed pixels. Warm-tint/intended palette fidelity, physical HC/otherDPI/reduced-motion matrix remain unverified. No global settings or unrelated window was altered.
+
+Full combined release142/142PASS262.73s, UI Analyze23stepsPASS and Debug build103stepsPASS; current combined Debug/E2E and final strict corrected-heading qualification remain pending publication task2.3. The initial combined strict102/103 failure concerns only the PR31 follow-up missing section heading; correction is published separately0fbaee3 and will be integrated after ongoing tests. No benchmark repeats, main/PR merge, signing/release or hosted CI pass claim.

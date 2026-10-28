@@ -7,5 +7,5 @@
 ## 2. Qualification
 
 - [x] 2.1 Pass native fixture, relevant command/focus/overlay tests and warning-clean UI build; strict/drift.
-- [ ] 2.2 Qualify actual safe combined palette keyboard/UIA behavior, narrow/normal/wide, density/light/dark, zero/one/many results, before/after measured screenshots and visual corrections.
+- [x] 2.2 Qualify actual safe combined palette keyboard/UIA behavior, narrow/normal/wide, density/light/dark, zero/one/many results, before/after measured screenshots and visual corrections.
 - [ ] 2.3 Complete appropriate current-source certification/review, source/evidence reconciliation and normal isolated draft publication without merges.
