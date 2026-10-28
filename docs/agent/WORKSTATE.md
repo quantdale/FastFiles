@@ -1,3 +1,10 @@
+# Safety committed-source validation — combined qualification in progress
+
+- Implementation6c924879fa544e1277e4a7b0ef3bfc40b0288667 full Debug452steps/131of131 selected tests PASS263.68s,0fail0skip; exactly restricted reaper excluded. Strict95/95PASS. Raw compressed receipts retained in the change evidence directory. Source remains frozen; current changes are evidence/state only.
+- Root's disposable combined b0cf4bb integrates this repair, PR31foreground test and compact8a UI. Exact diagnostic five-binary provenance PASS; actual visible palette12viewport/theme/density combinations36states/four normal cleanup PASS at120DPI, bounded fresh visual review no correction needed; unrelated microphone overlay partially obscures two viewed frames. Combined release suite currently active, Analyze23steps PASS, Debugbuild103steps PASS. No competing UI session.
+- Navigation optional negative regression14checksPASS, isolated foreground-conjunction mutant fails exactly the new assertion. PR31 advanced normally to0fbaee3 after strict caught/corrected missing task3 heading; original failure retained in integration evidence. Hosted40618937619 on0fba sixjobs0steps, actual payment/spending annotation verified once. No rerun/account action/merge.
+- NEXT EXACT ACTION: finish combined release suite; correct docs-only OpenSpec heading in integration, rerun strict, then actual extended palette live-resize/Home dispatch and ordinary E2E sequentially. Complete combined Debug current suite after native UI ends. Preserve exact receipts/component equality, then normal isolated safety/UX draft publication on PR32/PR25 respectively. Root sole writer; unrelated original dirty files and all shared history preserved.
+
 # Confirmed P1 repair — generated transfer results protected
 
 - Fresh fetch: isolated branch remains based on PR32 source12b40ee402582f27f1e21e9df44fffc8bebe51e3; origin/main a26fe60, all existing PRs unmerged, original three dirty files preserved. Root sole writer.
