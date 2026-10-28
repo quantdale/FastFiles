@@ -49,6 +49,11 @@ struct FileOperationFailure {
     HRESULT cleanupError = S_OK;
 };
 
+// preserve-rename-and-creation-destinations: native same-volume rename with
+// no replacement permission. Used by the worker and its late-target test;
+// caller validates the requested sibling leaf before supplying either path.
+HRESULT RenameWithoutReplacement(const std::wstring& source, const std::wstring& destination);
+
 // Preserve an unreported phase error before recording later unexecuted work.
 // Exposed to the headless worker test; it performs no I/O or shell mutation.
 void CompleteOperationFailures(std::vector<FileOperationFailure>& failures, HRESULT result, bool cancellationRequested,

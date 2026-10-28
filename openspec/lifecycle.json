@@ -1700,6 +1700,18 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "preserve-rename-and-creation-destinations",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-rename-and-creation-destinations/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

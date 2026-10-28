@@ -229,6 +229,13 @@ bool PathExistsWin32(const std::wstring& path) {
 
 } // namespace
 
+HRESULT RenameWithoutReplacement(const std::wstring& source, const std::wstring& destination) {
+    // No REPLACE_EXISTING or COPY_ALLOWED: an arriving sibling must never be
+    // overwritten and this operation must not become a copy/delete sequence.
+    if (MoveFileExW(ExtendedLengthPath(source).c_str(), ExtendedLengthPath(destination).c_str(), 0)) return S_OK;
+    return HRESULT_FROM_WIN32(GetLastError());
+}
+
 void CompleteOperationFailures(std::vector<FileOperationFailure>& failures, HRESULT result, bool cancellationRequested,
     const std::vector<std::wstring>& sources, const std::wstring& destination,
     const std::vector<ReversiblePath>& completedPaths, const std::vector<ReplacementTarget>& unexecutedReplacements) {
@@ -526,12 +533,60 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
             return;
         }
         const std::wstring sibling = ParentPath(request.sources.front()) + request.newName;
-        const DWORD attributes = GetFileAttributesW(ExtendedLengthPath(sibling).c_str());
-        if (attributes != INVALID_FILE_ATTRIBUTES && _wcsicmp(sibling.c_str(), request.sources.front().c_str()) != 0) {
-            PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0, 1, 0,
-                       {{sibling, HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)}}});
+        if (cancelRequested_.load()) {
+            PostEvent({FileOperationEventKind::Cancelled, request.kind, {}, 0, 1, 0, {}});
             return;
         }
+        // preserve-rename-and-creation-destinations 1.2: Shell RenameItem with
+        // NOCONFIRMATION can replace a target arriving after an existence
+        // check. Refuse replacement at the native mutation boundary instead.
+        const HRESULT result = RenameWithoutReplacement(request.sources.front(), sibling);
+        FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {},
+                                      SUCCEEDED(result) ? 1u : 0u, 1, SUCCEEDED(result) ? 100u : 0u, {}};
+        if (FAILED(result)) completion.failures.push_back({sibling, result});
+        else {
+            completion.affectedPaths = {request.sources.front(), sibling};
+            if (request.recordHistory) {
+                completion.reversibleOperation = ReversibleOperation{ReversibleOperationKind::Rename,
+                    {{request.sources.front(), sibling, {}}}};
+            }
+        }
+        PostEvent(std::move(completion));
+        return;
+    }
+    if (request.kind == FileOperationKind::CreateFile || request.kind == FileOperationKind::CreateFolder) {
+        if (request.destination.empty() || !IsValidFileName(request.newName)) {
+            PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0, 1, 0,
+                       {{request.newName, HRESULT_FROM_WIN32(ERROR_INVALID_NAME)}}});
+            return;
+        }
+        if (cancelRequested_.load()) {
+            PostEvent({FileOperationEventKind::Cancelled, request.kind, {}, 0, 1, 0, {}});
+            return;
+        }
+        const auto output = (std::filesystem::path(request.destination) / request.newName).wstring();
+        NewFileWriteResult result;
+        if (request.kind == FileOperationKind::CreateFolder) {
+            if (!CreateDirectoryW(ExtendedLengthPath(output).c_str(), nullptr)) {
+                result.error = HRESULT_FROM_WIN32(GetLastError());
+            }
+        } else {
+            // Reuse handle-bound CREATE_NEW and cleanup; an empty stream
+            // creates exactly an empty file, never a Shell keep-both sibling
+            // or an existing item falsely returned for inline rename.
+            Microsoft::WRL::ComPtr<IStream> empty;
+            result.error = CreateStreamOnHGlobal(nullptr, TRUE, &empty);
+            if (SUCCEEDED(result.error)) result = WriteNewFile(output, empty.Get());
+        }
+        FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {},
+            SUCCEEDED(result.error) ? 1u : 0u, 1, SUCCEEDED(result.error) ? 100u : 0u, {}};
+        if (FAILED(result.error)) completion.failures.push_back({output, result.error, result.cleanupError});
+        else {
+            completion.affectedPaths = {request.destination, output};
+            completion.createdPaths = {output};
+        }
+        PostEvent(std::move(completion));
+        return;
     }
     if (request.kind == FileOperationKind::Link) {
         std::vector<FileOperationFailure> failures;
@@ -619,8 +674,7 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     std::vector<FileOperationFailure> submissionFailures;
     Microsoft::WRL::ComPtr<IShellItem> destination = MakeItem(request.destination);
     if (SUCCEEDED(submitResult) && !destination &&
-        (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move ||
-         request.kind == FileOperationKind::CreateFolder || request.kind == FileOperationKind::CreateFile)) {
+        (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move)) {
         // An unparsable destination (e.g. an unsupported long path) must not
         // reach the shell with a null target item.
         submitResult = HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
@@ -658,18 +712,6 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
             }
             if (FAILED(itemResult)) submissionFailures.push_back({sourcePath, itemResult});
         }
-    } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::Rename) {
-        for (const auto& sourcePath : request.sources) {
-            auto source = MakeItem(sourcePath);
-            if (!source) { submitResult = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND); continue; }
-            sink->RegisterRoot(source.Get());
-            submitResult = operation->RenameItem(source.Get(), request.newName.c_str(), nullptr);
-            if (FAILED(submitResult)) break;
-        }
-    } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::CreateFolder) {
-        submitResult = operation->NewItem(destination.Get(), FILE_ATTRIBUTE_DIRECTORY, request.newName.c_str(), nullptr, nullptr);
-    } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::CreateFile) {
-        submitResult = operation->NewItem(destination.Get(), FILE_ATTRIBUTE_NORMAL, request.newName.c_str(), nullptr, nullptr);
     } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::Restore) {
         for (const auto& planned : restorePlan) {
             const auto& restore = request.restorePaths[planned.restoreIndex];
@@ -751,27 +793,9 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     FileOperationEvent completion{cancelled ? FileOperationEventKind::Cancelled : FileOperationEventKind::Completed,
                                   request.kind, {}, completed, total, percent, std::move(failures), std::move(affected)};
     completion.skipped = skipped;
-    if (request.kind == FileOperationKind::CreateFolder || request.kind == FileOperationKind::CreateFile) {
-        for (const auto& path : allCompletedPaths) {
-            if (!path.resultingPath.empty()) completion.createdPaths.push_back(path.resultingPath);
-        }
-        // file-operations 2.4: some shell providers report a successful
-        // NewItem without returning the created IShellItem. The filesystem
-        // path is still deterministic; publish it only after verifying that
-        // the requested item exists so inline rename never loses the new row.
-        if (completion.failures.empty()) {
-            const auto expectedPath = (std::filesystem::path(request.destination) / request.newName).wstring();
-            if (GetFileAttributesW(ExtendedLengthPath(expectedPath).c_str()) != INVALID_FILE_ATTRIBUTES) {
-                completion.createdPaths.clear();
-                completion.createdPaths.push_back(expectedPath);
-            }
-        }
-    }
     if (request.recordHistory) {
         auto completedPaths = allCompletedPaths;
-        if (request.kind == FileOperationKind::Rename && completedPaths.size() == 1) {
-            completion.reversibleOperation = ReversibleOperation{ReversibleOperationKind::Rename, std::move(completedPaths)};
-        } else if (request.kind == FileOperationKind::Move) {
+        if (request.kind == FileOperationKind::Move) {
             // file-operations 6.6: a Replace destroys the previous
             // destination contents, so the entire move batch is ineligible
             // for undo even if Shell returns a callback path with different

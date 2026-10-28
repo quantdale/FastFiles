@@ -1,3 +1,17 @@
+# Current frontier — Rename/NewItem safety repair implemented; committed-source certification next
+
+- Owned baseline: six assertions fail in0.57s. Actual worker creation at occupied names publishes existing requested paths for inline rename; legacy Shell queued rename overwrites late target (native primitive evidence, NOT injected worker race). Existing worker occupied-target rename preserves both. `evidence/qualification.md` states seams and limits precisely.
+- Implemented: `RenameWithoutReplacement` uses MoveFileExW(flags0); early worker branches preserve exact-name history and check cancellation before mutation. Creation uses CREATE_NEW empty stream / CreateDirectoryW and publishes paths only on actual success. No UI/IPC/security redesign.
+- Validation: focused MSVC Debug /W4 /WX clean, collision tests PASS0.29s incl actual case-sensitive leaf spelling for file/folder, nine related suites PASS22.07s. Fresh read-only reviewer ce2fb8da reports no introduced P1/P2; folder-positive note addressed. LSP linked-worktree fallback flags/includes initially wrong; compile database generated, refreshed LSP inconclusive, no clean-LSP claim.
+- NEXT EXACT ACTION: commit coherent implementation+baseline evidence, full exact-source Debug/release-test certification excluding only restricted reaper, affected Analyze/ASan, strict/drift; then normal purpose-specific draft successor on PR33 without merges. No interactive input/service/process experiments.
+
+# Historical audit planning — Rename/NewItem owned collision audit
+
+- Fresh fetch confirms isolated base `0207265` equals PR33 remote tip. Original main checkout's unrelated dirty files remain untouched. This worktree owns only the collision audit; no UI/input/service experiments here.
+- Question, NOT confirmed defect: Rename checks destination existence before Shell execution; NewItem uses silent/no-confirmation flags without a separate collision precheck. Link already has PR32 CREATE_NEW protection. Probe actual worker existing-target behavior first, then Shell's queue-to-perform boundary with owned sentinels. Do not infer overwrite merely from source or add production test hooks.
+- Previous foreground claims require narrowing: observing GameInputServiceWindow as foreground establishes an unmet input precondition, not system-wide irrecoverability or historical flake causality. Do not repeat recovery experiments, terminate processes, restart services, or declare earlier intermittent passes a root-cause fix. Current scope is headless collision safety.
+- NEXT EXACT ACTION: build/run new owned-file worker + Shell-boundary collision tests; preserve actual HRESULT/content/count evidence. If unsafe behavior reproduces, minimize and repair with regressions; otherwise retain a bounded negative result. Relevant acceptance: original-vision-journey-recovery 4.1 (owned file-operation reliability). No merge/main push/release.
+
 # Safety and palette drafts published — exact qualification continues
 
 - Draft PR33 https://github.com/quantdale/FastFiles/pull/33 on PR32 at implementation0e10726584e167b953f80ae0b9013c70b9f93707; final committed Debug build27steps and131/131 selected CTests PASS329.40s,0skip/fail, only restricted reaper excluded. Actual locked-source sharing failure and generated-name data-loss baselines remain preserved; fresh review corrections/pure/worker4/4PASS. Hosted40646348942: six jobs0steps, payment/spending annotation. No rerun/account action.
