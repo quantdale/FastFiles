@@ -1,3 +1,9 @@
+# E2E evidence ownership — integration qualification COMPLETE (2.1 closed)
+
+- Primary integrator merged c29f4cf into the disposable combined candidate as2eab37c: five additive session-owned conflict unions (lifecycle entries, harness fixture+ownership delegation, provenance superset, README/WORKSTATE lineages); `git diff 90e6cdf 2eab37c -- src cmake third_party` empty, no product binary changed.
+- Combined checks at2eab37c: strict OpenSpec104/104, drift PASS, merged headless harness PASS (34 provenance checks + ownership suite). Native E2E through the merged harness (fresh debug-diagnostic, exact-tree gate): run1 7/8 with preview-terminal-state intermittent FAIL — evidence preserved intact by the new ownership contract (inner failure.json/PNG/tree + separate outer record); focused -Filter preview PASS on the same binaries; full re-run PASS8/8. All three results retained; product C++ byte-identical across runs; no root-cause or environment claim. Historical cold-restore UIA failure retained separately (passed both current runs, still unexplained). Evidence: openspec/changes/preserve-e2e-failure-evidence/evidence/qualification.md (Integration qualification section).
+- NEXT EXACT ACTION: task 2.2 — fresh fetch/reconciliation, push the branch normally, publish the reviewable unmerged successor draft PR on its PR31 base (fix/address-navigation-discovery-20261028), inspect hosted result once (expected externally blocked; no rerun). No main merge, no auto-merge, no billing/account changes.
+
 # E2E zero-work false-green follow-up
 
 - Independent integrator review found empty/whitespace/delimiter-only filters and zero/negative lifecycle counts could report PASS without running the intended scenario. An owned headless old-source probe confirms empty filter PASS0/0/0; lifecycle0 and -1 each PASS with a claim of zero/negative completed iterations. No app was launched; real failure preserved in ignored build and compressed change evidence.

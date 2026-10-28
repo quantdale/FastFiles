@@ -46,3 +46,42 @@ committed `source-hashes.json` is regenerated over the final source; the
 (its content is unchanged since the prior commit; the earlier recorded hash
 pre-dated the file's final content). No app, UI, or privileged experiment
 was run for this follow-up.
+
+## Integration qualification (task 2.1) — 2026-10-28
+
+Primary integrator merged `c29f4cf` into the disposable combined candidate
+(`test/original-vision-integration-20261025`, merge commit `2eab37c`). The
+five session-owned conflicts were additive unions: `openspec/lifecycle.json`
+keeps both lineages' entries (valid JSON), `Test-E2EHarness.ps1` keeps the
+combined close/restore fixtures and delegates to
+`Test-E2EFailureEvidenceOwnership.ps1`, `Test-E2EProvenance.ps1` takes this
+branch's superset, and README/WORKSTATE union both checkpoint lineages.
+`git diff 90e6cdf 2eab37c -- src cmake third_party` is empty: no product
+binary changed, so no product behavior claim is made or needed from this merge.
+
+Combined-tree checks at `2eab37c`: strict OpenSpec 104/104 PASS,
+doc-drift/line-ending PASS, and the merged headless harness
+(`Test-E2EHarness.ps1` incl. provenance 34 checks + ownership suite) PASS.
+
+Combined native E2E through the merged harness (fresh debug-diagnostic build
+at `2eab37c`, exact-tree provenance gate): first run 7/8 —
+`preview-terminal-state` failed at `preview-ready` ("preview remained
+non-terminal; observed='Preview: No selection'"; `restore-proof.txt` visible
+with `isSelected=false` at capture). This is a live demonstration of the
+change's evidence-ownership contract: the inner `failure.json`/PNG/tree and
+diagnostic tails were preserved intact beside the separate outer record.
+Focused re-run of `-Filter preview` on the same binaries PASS
+(`Preview: Ready -> Preview: Unsupported`, stale preview rejected), and the
+full-suite re-run on the same binaries PASS 8/8. The first run's failure is
+retained as an observed intermittent UIA result — product C++ is byte-identical
+across all three runs and to the earlier passing 8/8, so no root cause is
+claimed and no result is overwritten. This is not a product defect claim and
+not an environment-limitation claim.
+
+The historical cold-restore UIA failure (b0cf 7/8, `failure.png` SHA-256
+`cbfd74f7...` under the integration tree's ignored evidence) remains a
+separate unexplained observation and is NOT erased by these passes;
+`cold-restore` passed in both current runs, which narrows but does not
+diagnose it. No admin, signing, privileged, billing, or restricted experiment
+was used. Hosted CI for this branch remains externally blocked (account
+payment/spending limit) and was not rerun.
