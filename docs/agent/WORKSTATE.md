@@ -1,4 +1,10 @@
-# Safety and palette drafts published — exact qualification continues
+# Current parent handoff — transfer protection lifecycle reconciled
+
+- Tasks 2.1/2.2 were closed by `0207265` but its lifecycle entry was accidentally left active. A successor's full Debug run correctly failed ffproject_status_ps_tests with `openspec-lifecycle-active-without-open-tasks:protect-generated-transfer-results`. Reconciled the parent entry to completed; no acceptance task, product source or test was weakened. Preserve that original failing successor run.
+- Production implementation remains `0e10726`; this correction is administrative only. Previously recorded intermittent UIA failures remain unexplained observations, not passes erased by retry. Hosted CI remains separate and externally blocked; no signing/privileged claim.
+- NEXT EXACT ACTION: validate focused project-status/strict/drift, commit and normal-push this correction to PR33; carry it to the isolated Rename/NewItem successor. No main merge or release.
+
+# Historical checkpoint — Safety and palette drafts published
 
 - Draft PR33 https://github.com/quantdale/FastFiles/pull/33 on PR32 at implementation0e10726584e167b953f80ae0b9013c70b9f93707; final committed Debug build27steps and131/131 selected CTests PASS329.40s,0skip/fail, only restricted reaper excluded. Actual locked-source sharing failure and generated-name data-loss baselines remain preserved; fresh review corrections/pure/worker4/4PASS. Hosted40646348942: six jobs0steps, payment/spending annotation. No rerun/account action.
 - Draft PR34 https://github.com/quantdale/FastFiles/pull/34 on PR25 at d51d5af1c7504434c363e9f8ed8fa8b68c312c52. Refero-derived compact palette actual44 observations/four cleanups and independent visual review; hosted40646383345 sixjobs0steps same payment/spending annotation. No merge/release.
