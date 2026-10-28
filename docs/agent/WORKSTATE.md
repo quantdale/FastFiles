@@ -1,3 +1,9 @@
+# Acceptance documentation reconciliation — 2026-10-28
+
+- Fresh PR17 branch was clean/equal to remote4a1457660420f8021295ebadd505f8baf63dfbac before this documentation-only correction. Independent read-only acceptance_consistency reviewed actual raw reports/oracle and confirmed local owner-authorized4.1 closure:200k/1M93/93 each,2M/5M cold23/23 and mixed/cold/reloaded/restart70/70 each under500MiB. Exact ordered fields/status/caps and independent full scan retained; no costly experiment repeated.
+- Acceptance decision, review record, canonical checkpoint and older dated reports had stale current/open wording despite later executed closure. Current disposition and forward links now make chronology explicit without altering raw evidence, measured results or historical limitations. Large-corpus cancellation remains immediate-only; no wholly-hot oversized corpus, further independent receipt review, live reaper, hosted, privileged or release claim.
+- NEXT EXACT ACTION: strict change, doc drift1/1 and diff checks passed. Commit only these documentation files; freshfetch/reconcile and normalpush PR17, then resume the separate Search/UX and safety qualification frontiers. Never merge or repeat the expensive corpus. Other worktrees and original dirty checkout remain preserved.
+
 # Fast Files — Agent Workstate
 
 ## Current acceptance frontier — current-source ladder and combined native qualification IN PROGRESS — 2026-10-26

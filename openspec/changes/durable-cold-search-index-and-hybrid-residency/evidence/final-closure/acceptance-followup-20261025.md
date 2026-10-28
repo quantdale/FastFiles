@@ -1,5 +1,7 @@
 # Acceptance follow-up — fixture identity, reachable contract and scoped review
 
+> Historical checkpoint: later actual default-budget 2M/5M mixed-route executions and local task 4.1 closure are recorded in `mixed-scale-closure-20261026.md`; selected current-source suites are in `final-selected-20261026.md`. Earlier pending statements below describe this checkpoint, not the later disposition.
+
 ## Source and scope
 
 Worktree `D:/Documents/tryPython/FastFiles-worktrees/acceptance-20261025`, branch

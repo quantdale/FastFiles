@@ -1,5 +1,7 @@
 # Independent canonical residency routes — 2026-10-26
 
+> Historical checkpoint: later actual default-budget 2M/5M mixed-route executions and local task 4.1 closure are recorded in `mixed-scale-closure-20261026.md`; selected current-source suites are in `final-selected-20261026.md`. Earlier pending statements below describe this checkpoint, not the later disposition.
+
 ## Scope and implementation
 
 Task 4.1 remains OPEN. Current production change fixes durable root-child folder materialization in IndexPipeline; Store/search/protocol production code is unchanged at this checkpoint. The existing fixture producer now has an opt-in --engine-roots mode; default Store fixture generation stays unchanged. This optional benchmark mode compares a tested pipeline with a separate all-cold full-canonical pipeline on the same freshly owned SQLite backup; the source input opens read-only. Every reference bypasses all candidate filtering and must enumerate the full corpus. Both projections retain the500MiB default; no budget override is called.

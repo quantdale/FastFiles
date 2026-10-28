@@ -1,10 +1,16 @@
-## Current review disposition — 2026-10-26
+## Current bounded disposition — 2026-10-28
+
+Task 5.10 and scoped final-delta review 5.14 are complete for their recorded source-only scopes. Task 4.1 was locally completed by the actual 2026-10-26 default-budget canonical and mixed-route executions in `mixed-scale-closure-20261026.md` and `current-canonical-20261026.md`; its prior open status below is historical. A further independent receipt re-review, live reaper qualification, hosted execution and privileged release gates remain separately unqualified. No source review is runtime, merge or release approval.
+
+Fresh read-only `/root/acceptance_consistency` reviewed the later route/scale receipts, canonical oracle and source-tree equivalence on 2026-10-28. It found the checked task supported within the recorded local scope and identified stale historical status labels corrected here. It did not execute tests or independently rerun the large datasets.
+
+## Historical review checkpoint — 2026-10-26
 
 Fresh independent production and evidence reviews completed; all confirmed source/acceptance P2 findings fixed and re-reviewed. Task5.10 source review COMPLETE; task4.1 actual larger-scale corrected sorting remains OPEN. See reviews/native-broad-review-20261026.md, residency-routes-20261026.md and cleanup-read-20261026.md. Below is historical review/provider evidence, not the current frontier. No runtime/merge/release approval follows from source review.
 
 # Independent review record and adjudication
 
-## Current scoped follow-up — 2026-10-25
+## Historical scoped follow-up — 2026-10-25
 
 A fresh-context native read-only reviewer completed the requested exact
 `4c1c450..db7887c1` subtree/scheduler follow-up at inspected tip `8bffb329`:

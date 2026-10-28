@@ -1,5 +1,7 @@
 # Canonical scale follow-up: 200k and 1M
 
+> Historical checkpoint: later actual default-budget 2M/5M mixed-route executions and local task 4.1 closure are recorded in `mixed-scale-closure-20261026.md`; selected current-source suites are in `final-selected-20261026.md`. Earlier pending statements below describe this checkpoint, not the later disposition.
+
 Both extended matrices pass **23/23** with all route premises valid. This closes the missing final-search-source 1M cold canonical cell and supersedes the earlier-source 200k cell. It does **not** close task4.1 or qualify hot/mixed routes by implication.
 
 ## Source and execution identity

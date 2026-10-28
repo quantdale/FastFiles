@@ -1,8 +1,10 @@
 # Applied acceptance clarification: exact equality under production residency
 
 **APPLIED under the owner's 2026-10-25 original-vision recovery directive,
-section 9B. Task 4.1 remains unchecked.** This supersedes the prior proposed-only
-decision status, not the provenance or limitations of historical executions.
+section 9B. Task 4.1 was subsequently completed locally through the actual
+2026-10-26 executions described in the final disposition below and
+`mixed-scale-closure-20261026.md`.** The earlier open-task inventory is a
+historical checkpoint; it does not supersede those results or their limits.
 
 ## Existing contract and observed production reachability
 
@@ -48,7 +50,7 @@ The governing delta, proposal and design now carry this contract. The default
 500 MiB/400 MiB policy and canonical matcher are unchanged. A changed sentence
 does not certify unexecuted routes or scales.
 
-## Evidence inventory and remaining task 4.1 cells
+## Historical evidence inventory and then-remaining task 4.1 cells
 
 | Acceptance dimension | Retained evidence | Current disposition |
 |---|---|---|

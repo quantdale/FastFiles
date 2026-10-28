@@ -4,7 +4,11 @@
 > `acceptance-followup-20261025.md` supersedes the proposed-only task 4.1 decision
 > and unavailable scoped task 5.14 review statuses below. It also records a
 > fixture-only identity capture repair with non-destructive qualification;
-> full reaper/runtime/hosted acceptance is not relabeled PASS.
+> full reaper/runtime/hosted acceptance is not relabeled PASS. The later
+> 2026-10-26 local task 4.1 completion and selected-suite evidence are in
+> `mixed-scale-closure-20261026.md` and `final-selected-20261026.md`.
+> Older owner-decision, review and open-task tables below are historical;
+> none authorizes an automatic merge or production release.
 
 ## Decision summary
 
