@@ -6,5 +6,5 @@
 
 ## 2. Qualification
 
-- [ ] 2.1 Run focused Debug/release-test and full portable suites with restricted process-reaper qualification excluded explicitly; run affected Analyze, ASan, strict/drift/whitespace checks.
+- [x] 2.1 Run focused Debug/release-test and full portable suites with restricted process-reaper qualification excluded explicitly; run affected Analyze, ASan, strict/drift/whitespace checks. Validated tree33a2cbe: Debug/release132/132 each, Analyze68steps clean, ASan3/3; strict96/drift PASS. First full Debug lifecycle failure preserved and root-caused to parent metadata, fixed without weakening tests.
 - [ ] 2.2 Independent bounded source review, durable evidence, normal successor publication and fresh reconciliation without merges. Preserve any unavailable qualification honestly.

@@ -1,9 +1,10 @@
-# Current frontier — Rename/NewItem safety repair implemented; committed-source certification next
+# Current frontier — Rename/NewItem safety repair certified locally; draft publication next
 
 - Owned baseline: six assertions fail in0.57s. Actual worker creation at occupied names publishes existing requested paths for inline rename; legacy Shell queued rename overwrites late target (native primitive evidence, NOT injected worker race). Existing worker occupied-target rename preserves both. `evidence/qualification.md` states seams and limits precisely.
 - Implemented: `RenameWithoutReplacement` uses MoveFileExW(flags0); early worker branches preserve exact-name history and check cancellation before mutation. Creation uses CREATE_NEW empty stream / CreateDirectoryW and publishes paths only on actual success. No UI/IPC/security redesign.
 - Validation: focused MSVC Debug /W4 /WX clean, collision tests PASS0.29s incl actual case-sensitive leaf spelling for file/folder, nine related suites PASS22.07s. Fresh read-only reviewer ce2fb8da reports no introduced P1/P2; folder-positive note addressed. LSP linked-worktree fallback flags/includes initially wrong; compile database generated, refreshed LSP inconclusive, no clean-LSP claim.
-- NEXT EXACT ACTION: commit coherent implementation+baseline evidence, full exact-source Debug/release-test certification excluding only restricted reaper, affected Analyze/ASan, strict/drift; then normal purpose-specific draft successor on PR33 without merges. No interactive input/service/process experiments.
+- Committed implementationf601998; validated tree33a2cbe Debug132/132PASS225.64s +release132/132PASS237.35s, affected UIAnalyze68steps clean, ASan3/3PASS49.95s. Strict96/drift/whitespace PASS. First full Debug131/132 failure was parent lifecycle leftactive after taskclosure; parentcb23f8e fixes metadata only, originalfailure retained. Dependency ancestry reconciled atafde7d6; `git diff 33a2cbe afde7d6 -- src tests cmake` empty. No interactive app journey, source-identity/reparse/alias/cross-volume claims.
+- NEXT EXACT ACTION: commit exact evidence and normal-push purpose-specific successor on PR33, publish draft with test exclusions/limits; close2.2/lifecycle only after actual publication. No main merge/release or UI/service/process experiments.
 
 # Historical audit planning — Rename/NewItem owned collision audit
 
