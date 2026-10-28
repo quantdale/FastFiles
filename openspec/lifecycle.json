@@ -1691,7 +1691,7 @@
     },
     {
       "name": "protect-generated-transfer-results",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
