@@ -85,3 +85,15 @@ separate unexplained observation and is NOT erased by these passes;
 diagnose it. No admin, signing, privileged, billing, or restricted experiment
 was used. Hosted CI for this branch remains externally blocked (account
 payment/spending limit) and was not rerun.
+
+## Publication (task 2.2) — 2026-10-28
+
+Fresh fetch/reconciliation: branch clean at `9884911`, four commits ahead of
+its PR31 base (`0fbaee3`, `origin/fix/address-navigation-discovery-20261028`).
+Pushed normally (no force, no history rewrite); draft successor
+**PR #35** published on the PR31 base with the validation table and stated
+limitations. Hosted run `40727077090` for `9884911` (branch push + PR mirror):
+six jobs, **zero executed steps**, and the account payment / spending-limit
+annotation — inspected once, not rerun, no billing/account change.
+`HOSTED_CI = BLOCKED_EXTERNAL` for this branch; local evidence stands separate
+and no hosted pass is claimed. Unmerged by design; owner controls merges.
