@@ -1,3 +1,9 @@
+# Palette draft published; combined final ladder running
+
+- Draft PR34 https://github.com/quantdale/FastFiles/pull/34 on PR25, implementation8a and native evidence/testd51. Actual44 visible observations across widths/theme/density at120DPI, four normal cleanups; independent visual/source review bounded, overlay/physical HC/other DPI remain unqualified. Hosted40646383345 six jobs0steps/payment-spending annotation; no rerun.
+- Changed safe combined90e exact diagnostic provenance/strict103PASS and actual ordinary E2E8/8PASS0skip with three observed normal cold-restore close/cleanup paths. Earlier b0cf7/8FAIL Control UIA fragment omission remains unexplained; same-HWND managed/fresh/native observation on90e saw provider/marker and normal cleanup but does not prove cause. Sanitized outcomes/observations retained; local profile paths/screenshots stay under ignored build. Palette implementation/token/test components match90e; no whole-executable equality.
+- NEXT EXACT ACTION: recover combined90e Debug currently running then build/test release, Analyze and publish exact receipts; update PR34 normally after freshfetch. Primary safety PR33 separately published; isolate evidence-wrapper repair worker, then return to product audit/next evidenced wave. No merge, release, privileged or account changes; original3dirty files preserved.
+
 # Compact palette actual native qualification complete; publication pending
 
 - Core8a916999 code/components match combinedb0cf4bb. Actual strict diagnostic provenance passes. Initial12combinations36states/four cleanupPASS; final tracked harness44states/four cleanupPASS adds live query resize and real Home dispatch. ActualDPI120; row47/55, no/one/many, fixed query anchor, native keyboard/focus and UIA bounds pass.

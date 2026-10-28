@@ -8,5 +8,10 @@
     "standaloneSha256": "568619f78ec312f0cae44adb32e6f1d4b07846e67aaba0a3d732eb24a465fb48",
     "combinedSha256": "568619f78ec312f0cae44adb32e6f1d4b07846e67aaba0a3d732eb24a465fb48",
     "byteEqual": true
+  },
+  "src/ui/src/UITheme.h": {
+    "standaloneSha256": "0199d289b0b55ad1f37d9abd99d628da68f7892caa530fd8724632ac870de0ab",
+    "combinedSha256": "0199d289b0b55ad1f37d9abd99d628da68f7892caa530fd8724632ac870de0ab",
+    "byteEqual": true
   }
 }
