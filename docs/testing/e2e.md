@@ -35,6 +35,16 @@ pwsh -NoProfile -File .\verify\e2e\Run-FastFilesE2E.ps1 `
   -ArtifactsDir .\build\e2e-artifacts\preview-manual
 ```
 
+The selected artifact root must be new or empty. Each scenario reserves a new
+subdirectory inside it.
+If that scenario directory already exists, the scenario reports a failure
+without running or overwriting prior evidence; choose a fresh artifact root
+for another run. If an inner lifecycle captures failure evidence, its
+`failure.json`, screenshot, and UIA tree remain primary. Any outer failure
+context is written separately as `failure-outer.json` (or a unique variant).
+The headless E2E harness contract tests cover these ownership and fallback
+cases without launching the application.
+
 `debug-diagnostic` is the intended local artifact because it accepts the
 unsigned sibling engine through the existing debug-only discovery seam. The
 normal `debug` and optimized `release-test` builds remain fail-closed for

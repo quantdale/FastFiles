@@ -24,7 +24,14 @@ if ([string]::IsNullOrWhiteSpace($ArtifactsDir)) {
     $ArtifactsDir = Join-Path $resolvedRepo "build\e2e-artifacts\$runId"
 }
 $resolvedArtifacts = [IO.Path]::GetFullPath($ArtifactsDir)
-New-Item -ItemType Directory -Path $resolvedArtifacts -Force | Out-Null
+if (Test-Path -LiteralPath $resolvedArtifacts) {
+    if (-not (Test-Path -LiteralPath $resolvedArtifacts -PathType Container) -or
+        @(Get-ChildItem -LiteralPath $resolvedArtifacts -Force).Count -gt 0) {
+        throw "Refusing non-empty or non-directory E2E artifact root: $resolvedArtifacts"
+    }
+} else {
+    New-Item -ItemType Directory -Path $resolvedArtifacts -ErrorAction Stop | Out-Null
+}
 
 # Certification provenance gate: refuse to run functional E2E against binaries
 # that do not embed the current source identity. A mismatch is terminal.

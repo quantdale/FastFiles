@@ -1,3 +1,11 @@
+# E2E evidence ownership — isolated worker checkpoint
+
+- Fresh PR31 base0fbaee3574d4f34a6a7e8eeec3f46ad197ce96ef; root alone integrates/publishes. Original checkout and unrelated worktrees untouched. Actual b0cf4bb E2E cold-restore failure captured PNG/tree in inner finally, then outer no-context wrapper overwrote failure.json with an incorrect no-capture note. UIA cause remains unresolved; original failed run retained.
+- Headless actual-wrapper ownership baseline has six failures; after fix, new/empty artifact roots and fresh per-scenario directories are required, rich inner evidence survives outer FAIL/exception and collision-safe outer context is separate. The stale root/path test preserves old files and never runs the body. Existing empty root passes CLI fake successful preflight/no-launch stub and direct runner AST headless availability test; other provenance checks remain intact.
+- All real scenarios use New-E2EResult; five red tests show null, missing/unknown status, wrong id and extra pipeline output were not truthfully rejected. Wrapper now accepts one matching explicit PASS/FAIL/SKIPPED with required fields and nonempty stage, returns invalid-result FAIL with envelope for malformed output and preserves any prior inner capture. Explicit PASS/SKIPPED unaffected.
+- Final tests/e2e/Test-E2EHarness.ps1 PASS including 24 provenance checks and ownership/result regressions; baseline/final logs committed under openspec/changes/preserve-e2e-failure-evidence/evidence. No app, UI or restricted process operation. Strict OpenSpec94/94, documentation drift and git diff --check PASS; parent review/combined native qualification pending.
+- NEXT EXACT ACTION: normalize source/test lines, strict OpenSpec and focused harness; commit only session-owned files; send parent exact SHA and validation/limits. No push, PR, merge, shared-history or user-data change.
+
 # Navigation regression follow-up complete
 
 - Follow-up strict validation found task3.1 lacked its group3 heading; added the heading without altering acceptance or source. Original combined strict102/103 warning is retained in integration build evidence. Validate the corrected change before normal push.

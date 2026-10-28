@@ -33,6 +33,9 @@ function Invoke-ProvenanceGate {
         Stage = $Stage
     }
     $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $RepoRoot 'gate-call.json') -Encoding utf8
+    if (Test-Path -LiteralPath (Join-Path $RepoRoot 'owned-allow-success-gate')) {
+        return [pscustomobject]@{ ok = $true; message = ''; evidence = $evidence }
+    }
     # ALWAYS stop the actual runner before it can import/execute FastFiles E2E.
     [pscustomobject]@{ ok = $false; message = 'OWNED_HEADLESS_PREFLIGHT_STOP'; evidence = $evidence }
 }
@@ -63,6 +66,46 @@ Export-ModuleMember -Function Get-DefaultCertificationBinaries, Invoke-Provenanc
             PreflightStopReported = $childOutput.Contains('OWNED_HEADLESS_PREFLIGHT_STOP')
         }
     }
+    $staleArtifacts = Join-Path $ownedRoot 'existing-artifacts'
+    [void][IO.Directory]::CreateDirectory($staleArtifacts)
+    $staleSummary = Join-Path $staleArtifacts 'summary.json'
+    [IO.File]::WriteAllText($staleSummary, 'owned prior summary')
+    $priorGate = [IO.File]::ReadAllText((Join-Path $ownedRoot 'gate-call.json'))
+    $staleOutput = & $shell -NoProfile -File $runner -RepoRoot $ownedRoot -Exe $exe -ArtifactsDir $staleArtifacts 2>&1 | Out-String
+    $staleExit = $LASTEXITCODE
+    Assert ($staleExit -ne 0 -and $staleOutput.Contains('Refusing non-empty')) 'existing artifact root is rejected by the actual runner'
+    Assert ([IO.File]::ReadAllText($staleSummary) -eq 'owned prior summary' -and
+            [IO.File]::ReadAllText((Join-Path $ownedRoot 'gate-call.json')) -eq $priorGate) 'stale summary is preserved and the provenance gate is not called'
+    $emptyArtifacts = Join-Path $ownedRoot 'empty-artifacts'
+    [void][IO.Directory]::CreateDirectory($emptyArtifacts)
+    $emptyOutput = & $shell -NoProfile -File $runner -RepoRoot $ownedRoot -Exe $exe -ArtifactsDir $emptyArtifacts 2>&1 | Out-String
+    $emptyExit = $LASTEXITCODE
+    Assert ($emptyExit -ne 0 -and $emptyOutput.Contains('OWNED_HEADLESS_PREFLIGHT_STOP') -and
+            [IO.File]::Exists((Join-Path $emptyArtifacts 'provenance-gate-failure.json'))) 'an existing empty artifact root reaches the real preflight gate'
+    # Execute an exact copy of the runner with an owned fake gate and a stub
+    # module. The stub never launches an app; it records the post-gate root.
+    $ownedE2e = Join-Path $ownedRoot 'verify/e2e'
+    [void][IO.Directory]::CreateDirectory($ownedE2e)
+    $copiedRunner = Join-Path $ownedE2e 'Run-FastFilesE2E.ps1'
+    Copy-Item -LiteralPath $runner -Destination $copiedRunner
+    $stub = @'
+function Invoke-FastFilesE2E {
+    param($Exe, $RepoRoot, $ArtifactsDir, $Filter, $LifecycleIterations)
+    $rootEmpty = [IO.Directory]::Exists($ArtifactsDir) -and @(Get-ChildItem -LiteralPath $ArtifactsDir -Force).Count -eq 0
+    @{ rootEmpty = $rootEmpty; exe = $Exe } | ConvertTo-Json | Set-Content (Join-Path $RepoRoot 'success-handoff.json') -Encoding utf8
+    [pscustomobject]@{ status = $(if ($rootEmpty) { 'SKIPPED' } else { 'FAIL' }); results = @() }
+}
+Export-ModuleMember -Function Invoke-FastFilesE2E
+'@
+    [IO.File]::WriteAllText((Join-Path $ownedE2e 'FastFilesE2E.psm1'), $stub)
+    [IO.File]::WriteAllText($engine, 'Owned non-executable engine placeholder')
+    [IO.File]::WriteAllText((Join-Path $ownedRoot 'owned-allow-success-gate'), 'owned fake gate only')
+    $successArtifacts = Join-Path $ownedRoot 'success-existing-empty'
+    [void][IO.Directory]::CreateDirectory($successArtifacts)
+    $successOutput = & $shell -NoProfile -File $copiedRunner -RepoRoot $ownedRoot -Exe $exe -ArtifactsDir $successArtifacts -RequireExactTree 2>&1 | Out-String
+    $successExit = $LASTEXITCODE
+    $handoff = Get-Content -LiteralPath (Join-Path $ownedRoot 'success-handoff.json') -Raw | ConvertFrom-Json
+    Assert ($successExit -eq 2 -and $handoff.rootEmpty -and $successOutput.Contains('SKIPPED')) 'successful fake preflight hands an existing empty root to the runner module without launching an app'
     # Assert only after both safe preflight executions so a red old-runner
     # receipt records both the complete and missing-engine failure modes.
     foreach ($case in $result.Cases) {

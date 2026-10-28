@@ -1,0 +1,7 @@
+{
+  "verify/e2e/FastFilesE2E.psm1": "6ab07ac71f4761897520131db0d67ef21a12936867e4e683d4e0d59541fe10a3",
+  "verify/e2e/Run-FastFilesE2E.ps1": "7b20c0f0b905d3088bc453aad778a6cdaa034aecd3ade434d217f97393b64afa",
+  "tests/e2e/Test-E2EFailureEvidenceOwnership.ps1": "7c52f1df0f14507207adbef38e762db7d8d3c421ec75a81a792a26da776025c9",
+  "tests/e2e/Test-E2EHarness.ps1": "156febacfd50b9bf06e78d3287f0a4da02d8f014a8d52f398a3169c23c2e1c10",
+  "tests/e2e/Test-E2EProvenance.ps1": "00e0818d00fee31d2ff21a06eb5b627093dfc773bb67030c0e52dc324eccd748"
+}

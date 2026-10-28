@@ -417,7 +417,8 @@ function Write-E2EFailureEnvelope {
         [Parameter(Mandatory)] [string] $Expected,
         [string] $Observed = '',
         [string] $ErrorMessage = '',
-        [double] $ElapsedMs = 0
+        [double] $ElapsedMs = 0,
+        [ValidatePattern('^failure(?:-outer(?:-[0-9a-f]{32})?)?$')] [string] $Name = 'failure'
     )
     New-Item -ItemType Directory -Path $ArtifactDir -Force | Out-Null
     $processes = @(Get-Process -Name FastFiles, FastFilesEngine -ErrorAction SilentlyContinue |
@@ -432,9 +433,16 @@ function Write-E2EFailureEnvelope {
         generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         observation = $null
         processes = $processes
-        note = 'UIA window was unavailable at the outer scenario boundary; no screenshot/tree could be captured.'
-    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $ArtifactDir 'failure.json') -Encoding utf8
+        note = 'The outer scenario boundary did not capture an additional screenshot or UIA tree.'
+    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $ArtifactDir ($Name + '.json')) -Encoding utf8
     return $ArtifactDir
+}
+
+function Get-E2EOuterFailureName {
+    param([string] $ArtifactDir, [bool] $HasInnerEvidence)
+    if (-not $HasInnerEvidence) { return 'failure' }
+    if (-not (Test-Path -LiteralPath (Join-Path $ArtifactDir 'failure-outer.json'))) { return 'failure-outer' }
+    return 'failure-outer-' + [guid]::NewGuid().ToString('N')
 }
 
 function Write-E2ESuccessEvidence {
@@ -456,10 +464,62 @@ function Invoke-E2EScenarioSafely {
     )
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $artifactDir = Join-Path $ArtifactRoot $Id
+    # Each invocation must own its scenario directory. A path left by an
+    # earlier run cannot be treated as current evidence or overwritten.
+    if (Test-Path -LiteralPath $artifactDir) {
+        return New-E2EResult -Id $Id -Status 'FAIL' -Stage 'artifact-directory-not-fresh' `
+            -Detail "Refusing existing scenario evidence directory: $artifactDir" -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    try {
+        $null = New-Item -ItemType Directory -Path $artifactDir -ErrorAction Stop
+    } catch {
+        $stage = if (Test-Path -LiteralPath $artifactDir) { 'artifact-directory-not-fresh' } else { 'artifact-directory-unavailable' }
+        return New-E2EResult -Id $Id -Status 'FAIL' -Stage $stage `
+            -Detail "Cannot create fresh scenario evidence directory: $($_.Exception.Message)" -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     try {
         $result = & $Body
-        if ($result -and $result.status) {
-            if ($result.status -eq 'FAIL' -and $Context) {
+        # Every scenario returns a single New-E2EResult. Treat absent,
+        # malformed, mismatched or unknown-status output as a failure rather
+        # than allowing it to contribute an accidental PASS to the summary.
+        $validResult = $null -ne $result -and $result -isnot [array]
+        if ($validResult) {
+            foreach ($property in @('id', 'status', 'stage', 'detail', 'durationMs', 'data', 'artifactDir')) {
+                if (-not $result.PSObject.Properties[$property]) { $validResult = $false; break }
+            }
+        }
+        if ($validResult) {
+            $numericDuration = $result.durationMs -is [double] -or $result.durationMs -is [single] -or
+                $result.durationMs -is [decimal] -or $result.durationMs -is [int] -or $result.durationMs -is [long]
+            $validResult = $result.id -is [string] -and $result.status -is [string] -and $result.stage -is [string] -and
+                $result.detail -is [string] -and $result.artifactDir -is [string] -and $numericDuration -and
+                [string]::Equals($result.id, $Id, [StringComparison]::Ordinal) -and
+                @('PASS', 'FAIL', 'SKIPPED') -contains $result.status -and
+                -not [string]::IsNullOrWhiteSpace($result.stage)
+            if ($validResult) {
+                $duration = [double]$result.durationMs
+                $validResult = -not [double]::IsNaN($duration) -and -not [double]::IsInfinity($duration) -and $duration -ge 0
+            }
+        }
+        if (-not $validResult) {
+            $detail = 'Scenario did not return exactly one E2E result with the expected id and an explicit PASS, FAIL, or SKIPPED status.'
+            $hasInnerEvidence = Test-Path -LiteralPath (Join-Path $artifactDir 'failure.json') -PathType Leaf
+            if ($Context -and -not $hasInnerEvidence) {
+                Write-E2EFailureEvidence -Context $Context -ArtifactDir $artifactDir -ScenarioId $Id `
+                    -Stage 'invalid-result' -Expected 'a valid explicit scenario result' -ErrorMessage $detail `
+                    -ElapsedMs $watch.Elapsed.TotalMilliseconds | Out-Null
+            } else {
+                $outerName = Get-E2EOuterFailureName -ArtifactDir $artifactDir -HasInnerEvidence $hasInnerEvidence
+                Write-E2EFailureEnvelope -ArtifactDir $artifactDir -ScenarioId $Id -Stage 'invalid-result' `
+                    -Expected 'a valid explicit scenario result' -ErrorMessage $detail `
+                    -ElapsedMs $watch.Elapsed.TotalMilliseconds -Name $outerName | Out-Null
+            }
+            return New-E2EResult -Id $Id -Status 'FAIL' -Stage 'invalid-result' -Detail $detail `
+                -DurationMs $watch.Elapsed.TotalMilliseconds -ArtifactDir $artifactDir
+        }
+        if ($result.status) {
+            $hasInnerEvidence = Test-Path -LiteralPath (Join-Path $artifactDir 'failure.json') -PathType Leaf
+            if ($result.status -eq 'FAIL' -and $Context -and -not $hasInnerEvidence) {
                 Write-E2EFailureEvidence -Context $Context -ArtifactDir $artifactDir -ScenarioId $Id `
                     -Stage ([string]$result.stage) -Expected ([string]$result.detail) -Observed '' `
                     -ElapsedMs ([double]$result.durationMs) | Out-Null
@@ -469,9 +529,10 @@ function Invoke-E2EScenarioSafely {
                 if ($null -ne $result.data) {
                     try { $observed = $result.data | ConvertTo-Json -Compress -Depth 10 } catch { $observed = [string]$result.data }
                 }
+                $outerName = Get-E2EOuterFailureName -ArtifactDir $artifactDir -HasInnerEvidence $hasInnerEvidence
                 Write-E2EFailureEnvelope -ArtifactDir $artifactDir -ScenarioId $Id `
                     -Stage ([string]$result.stage) -Expected ([string]$result.detail) -Observed $observed `
-                    -ElapsedMs ([double]$result.durationMs) | Out-Null
+                    -ElapsedMs ([double]$result.durationMs) -Name $outerName | Out-Null
                 $result.artifactDir = $artifactDir
             } elseif ($result.status -eq 'PASS' -and $Context) {
                 Write-E2ESuccessEvidence -Context $Context -ArtifactDir $artifactDir -Name $Id
@@ -479,17 +540,18 @@ function Invoke-E2EScenarioSafely {
             }
             return $result
         }
-        return New-E2EResult -Id $Id -Status 'PASS' -DurationMs $watch.Elapsed.TotalMilliseconds -Data $result -ArtifactDir $artifactDir
     } catch {
         $errorMessage = $_.Exception.Message
-        if ($Context) {
+        $hasInnerEvidence = Test-Path -LiteralPath (Join-Path $artifactDir 'failure.json') -PathType Leaf
+        if ($Context -and -not $hasInnerEvidence) {
             Write-E2EFailureEvidence -Context $Context -ArtifactDir $artifactDir -ScenarioId $Id `
                 -Stage 'exception' -Expected 'scenario completes without exception' -Observed '' `
                 -ErrorMessage $errorMessage -ElapsedMs $watch.Elapsed.TotalMilliseconds | Out-Null
         } else {
-            New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
-            @{ scenario = $Id; stage = 'exception'; error = $errorMessage } |
-                ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $artifactDir 'failure.json') -Encoding utf8
+            $outerName = Get-E2EOuterFailureName -ArtifactDir $artifactDir -HasInnerEvidence $hasInnerEvidence
+            Write-E2EFailureEnvelope -ArtifactDir $artifactDir -ScenarioId $Id -Stage 'exception' `
+                -Expected 'scenario completes without exception' -ErrorMessage $errorMessage `
+                -ElapsedMs $watch.Elapsed.TotalMilliseconds -Name $outerName | Out-Null
         }
         return New-E2EResult -Id $Id -Status 'FAIL' -Stage 'exception' -Detail $errorMessage `
             -DurationMs $watch.Elapsed.TotalMilliseconds -ArtifactDir $artifactDir
@@ -1183,7 +1245,14 @@ function Invoke-FastFilesE2E {
         [string] $Filter = 'all',
         [int] $LifecycleIterations = 2
     )
-    New-Item -ItemType Directory -Path $ArtifactsDir -Force | Out-Null
+    if (Test-Path -LiteralPath $ArtifactsDir) {
+        if (-not (Test-Path -LiteralPath $ArtifactsDir -PathType Container) -or
+            @(Get-ChildItem -LiteralPath $ArtifactsDir -Force).Count -gt 0) {
+            throw "Refusing non-empty or non-directory E2E artifact root: $ArtifactsDir"
+        }
+    } else {
+        New-Item -ItemType Directory -Path $ArtifactsDir -ErrorAction Stop | Out-Null
+    }
     $tokens = @($Filter -split '[,; ]+' | Where-Object { $_ }) | ForEach-Object { $_.ToLowerInvariant() }
     $valid = @('all', 'launch', 'navigation', 'restore', 'search', 'storage', 'preview', 'fileops', 'lifecycle')
     foreach ($token in $tokens) {
