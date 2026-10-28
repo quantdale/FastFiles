@@ -1,5 +1,7 @@
 # Navigation regression follow-up complete
 
+- Follow-up strict validation found task3.1 lacked its group3 heading; added the heading without altering acceptance or source. Original combined strict102/103 warning is retained in integration build evidence. Validate the corrected change before normal push.
+
 - Fresh PR31 base30a verified equal after fetch. Root recovered worker's single dirty test file, inspected its diff, and completed closed-mock validation after the worker exhausted credits. Provider not retried; unrelated state preserved.
 - True exact-edit focus plus false owned foreground now asserts only one Enter. Actual production helper AST14/14PASS; isolated ignored module copy with only foreground conjunction removed fails exactly that new assertion, exit1. Production helper unchanged; no app/input/termination activity or retrospective runtime-causality claim.
 - Evidence openspec/changes/repair-address-navigation-discovery/evidence/foreground-20261028. Independent navigation review noP1/P2; this closes optional negative regression coverage.
