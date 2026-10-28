@@ -9,5 +9,5 @@
 
 ## 2. Qualification and publication
 
-- [ ] 2.1 Build exact committed source and run full portable Debug/release, affected UI/Analyze, strict OpenSpec and drift; preserve failures and external exclusions.
-- [ ] 2.2 Integrate in disposable combined source, validate relevant native behavior, fresh-fetch and normally publish a reviewable unmerged successor with provenance.
+- [x] 2.1 Build exact committed source and run full portable Debug/release, affected UI/Analyze, strict OpenSpec and drift; preserve failures and external exclusions. (2026-10-28: combined 90e Debug 142/142 + release 142/142, Analyze clean, strict 103/103, ASan 3/3 via developer wrapper; only restricted reaper excluded; run-1 E2E 7/8 preview intermittent retained, rerun 8/8.)
+- [x] 2.2 Integrate in disposable combined source, validate relevant native behavior, fresh-fetch and normally publish a reviewable unmerged successor with provenance. (2026-10-28: integrated at 90e6cdf with component equivalence to 0e10726; native owned runs + ordinary E2E validated; draft PR33 on PR32 published, 9e3cd30 pushed; hosted BLOCKED_EXTERNAL inspected once.)

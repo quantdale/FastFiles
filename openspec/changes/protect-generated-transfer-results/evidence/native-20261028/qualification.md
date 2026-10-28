@@ -34,3 +34,33 @@ The combined source `90e6cdf4ecc0927672b96bedfb14edefbf966a08` includes this imp
 Original b0cf ordinary E2E remains7/8FAIL with no skips. Cold restore's screenshot (SHA-256 `cbfd74f7f96c41ecae62648bbed1bdd67a558fa2b957c82dfb3482db877f4059`) visibly contains the restored Nested marker but its correct-PID Control tree lacks the ColumnView fragment. Its capture contains a local profile path and remains only under ignored build evidence; sanitized outcomes and the tree are retained here. Outer wrapper overwrote the rich failure.json with a generic no-window note after capturing the screenshot; a separate isolated test-infrastructure repair is in progress.
 
 A changed observation-only run on90e compares original managed, fresh managed and independent native `IUIAutomation` clients on each exact owned HWND. Both first and restored second windows exposed ColumnView in all three clients, the second original client saw the exact marker, native provider description included `FastFiles Column View provider`, and both normal closes/cleanups passed. The original failure did not reproduce; this does not prove its cause or waive it. Sanitized observation summary is retained; raw trees/logs containing real parent-directory names remain under ignored build evidence. Subsequent full E2E and source90e portable certification are pending.
+
+## Final certification and closure (tasks 2.1/2.2) — 2026-10-28
+
+The interrupted certification completed on the exact combined source
+`90e6cdf4ecc0927672b96bedfb14edefbf966a08` (includes this implementation at
+component equivalence to `0e10726`): Debug CTest **142/142 PASS** (289.18s),
+release-test CTest **142/142 PASS** (289.18s log / release details preserved),
+affected-UI MSVC Analyze build clean (8/8 steps), strict OpenSpec 103/103 and
+drift PASS. The ASan slice through the supported developer wrapper passed
+**3/3** (`fffileoperations_tests`, `fffileoperations_execution_consent_tests`,
+`fftransfer_result_protection_tests`, 30.36s) — recorded here because the
+session ended mid-run.
+
+Ordinary native E2E on the same source: run 1 **7/8** with
+`preview-terminal-state` intermittent FAIL (evidence preserved intact — the
+live demonstration of the preserve-e2e-failure-evidence contract); focused
+preview re-run PASS; full re-run **8/8 PASS** on identical binaries. The b0cf
+cold-restore failure remains a separate unexplained observation (passed in
+both current runs, not erased); the 90e three-client cold-restore observation
+and sanitized tree are retained above. Only `ffverify_process_reaper_ps_tests`
+was excluded (restricted live termination unavailable; not suppressed).
+
+Publication: draft **PR33** (`fix/protect-generated-transfer-results-20261028`
+on PR32) published with provenance; docs-only original-vision scorecard commit
+`9e3cd30` follows on the same branch. Hosted runs remain externally blocked
+(six jobs, zero steps, payment/spending annotation) — inspected once each, no
+rerun, no billing change. Unmerged by design. Both tasks are now closed on the
+recorded local evidence; residual unqualified boundaries (aliases/reparse
+identities, missing root callbacks, Recycle-Bin Undo, privileged/drag-in) stay
+explicitly open in the qualification narrative and are not claimed.
