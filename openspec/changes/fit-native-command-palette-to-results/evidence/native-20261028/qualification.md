@@ -17,3 +17,26 @@ Full combined release142/142PASS262.73s, UI Analyze23stepsPASS and Debug build10
 On changed combined `90e6cdf4ecc0927672b96bedfb14edefbf966a08`, exact diagnostic provenance and ordinary native E2E8/8PASS0skip, including Search, Storage, file operations and three observed normal cold-restore close/cleanup lifecycles. Same palette source, theme-token and fixture bytes match the isolated implementation; no whole-executable equality is claimed. Previous b0cf ordinary E2E7/8FAIL remains a separate unresolved result: its screenshot showed the restored marker while its Control UIA tree omitted ColumnView. On90e, a targeted same-HWND observation through original/fresh managed and independent native clients saw the ColumnView provider in both first and restored windows and normal cleanup; this does not establish the earlier cause. Sanitized per-scenario outcomes, three close/cleanup observations and client summary are retained. Full portable/Analyze checks on90e remain pending task2.3.
 
 Published draft PR34 on PR25 at d51d5af. Hosted run40646383345 on that head failed before all six jobs executed any steps; the actual annotation reports payment/spending limitation. No rerun or account changes.
+
+## Closure (tasks 2.2/2.3) — 2026-10-28
+
+The previously pending portable/Analyze checks on `90e6cdf` completed:
+combined Debug CTest 142/142 PASS (289.18s), release-test CTest 142/142
+PASS, affected-UI MSVC Analyze clean, strict OpenSpec 103/103 (corrected
+heading lineage) and drift PASS. Ordinary native E2E on the same source:
+run 1 7/8 (`preview-terminal-state` intermittent, preserved), focused
+preview re-run PASS, full re-run 8/8 PASS on identical binaries — retained
+as three separate results. Same palette/theme/fixture source bytes as the
+isolated implementation (component equivalence, not whole-executable
+identity). Publication: draft PR34 on PR25 at `7583388` (head updated with
+the journey record); hosted runs externally blocked (six jobs, zero steps,
+payment/spending annotation), inspected once, not rerun.
+
+Task 2.2 is closed on the 36+44 actual native observations (narrow/normal/
+wide x Light/Dark x Compact/Comfortable; zero/one/many results; live query
+resize; enabled Home dispatch; measured 120 DPI; before/after 401px->47px
+frames) plus the bounded independent visual review. Task 2.3 is closed on
+the certification above and the unmerged draft publication. Explicitly NOT
+claimed: warm-tint palette fidelity, physical High Contrast / other-DPI /
+reduced-motion matrix, whole-executable identity, hosted CI pass, or any
+merge.
