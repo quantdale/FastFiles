@@ -2,6 +2,7 @@
 #include "ShutdownDiagnostics.h"
 #include "ffui/AsyncWorkAdmission.h"
 #include "IconCache.h"
+#include "ThemeToggle.h"
 #include "UITheme.h"
 #include "UiComponents.h" // ui-v3: shared state-panel presentation for details
 
@@ -3073,7 +3074,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_KEYDOWN: {
             if (wParam == VK_F9) {
-                settings_.theme = settings_.theme == ffprotocol::ThemePreference::Light ? ffprotocol::ThemePreference::Dark : ffprotocol::ThemePreference::Light;
+                // theme-toggle-follow-system: resolve Follow-System at press
+                // time and flip the RENDERED theme (the historical inline map
+                // made the first press a visible no-op on light systems).
+                settings_.theme = ffui::NextThemeTogglePreference(settings_.theme, IsSystemDark());
                 SaveAndNotifySettings();
                 ApplyTheme();
                 return 0;
