@@ -1,0 +1,53 @@
+{
+  "standaloneImplementation": "40b6b2da456fc2e8a92d1c0321c7e6f761ee5d53",
+  "combinedNative": "7dc367cc7f2330637813448526cfa00a46e7bcad",
+  "combinedPortable": "bbe37446518bd4ffddebf71b7d96592896f7d738",
+  "scope": "Listed files and exact method bodies only; not whole executable equivalence",
+  "files": [
+    {
+      "path": "src/ui/src/FileOperationPolicy.h",
+      "standaloneBlob": "61391448b83d3e2f5ec3e4689206c33cf4f90b0d",
+      "combinedBlob": "61391448b83d3e2f5ec3e4689206c33cf4f90b0d"
+    },
+    {
+      "path": "src/ui/src/FileOperationPolicy.cpp",
+      "standaloneBlob": "4764862deace5ea4fc09923e2a3e9481c9691270",
+      "combinedBlob": "4764862deace5ea4fc09923e2a3e9481c9691270"
+    },
+    {
+      "path": "src/ui/src/FileOperations.h",
+      "standaloneBlob": "d78954de3b407967d026eadcb949eef041eb4b14",
+      "combinedBlob": "d78954de3b407967d026eadcb949eef041eb4b14"
+    },
+    {
+      "path": "tests/fileoperations/test_file_operation_policy.cpp",
+      "standaloneBlob": "c53bfd332230bb3b8a4372cab6e28eee2e1c20e9",
+      "combinedBlob": "c53bfd332230bb3b8a4372cab6e28eee2e1c20e9"
+    },
+    {
+      "path": "tests/fileoperations/test_file_operations_e2e.cpp",
+      "standaloneBlob": "4c113bd4d25d296f91928bf5a66ef820611d977b",
+      "combinedBlob": "4c113bd4d25d296f91928bf5a66ef820611d977b"
+    },
+    {
+      "path": "tests/fileoperations/CMakeLists.txt",
+      "standaloneBlob": "dd7e4a9ff1155d56c22cde51ce2a7a32691c6767",
+      "combinedBlob": "dd7e4a9ff1155d56c22cde51ce2a7a32691c6767"
+    }
+  ],
+  "methodBodies": [
+    {
+      "start": "class ProgressSink final",
+      "endBefore": "Microsoft::WRL::ComPtr<IShellItem> MakeItem",
+      "sha256": "77557fb31e20b0e540f15191a3ce19d8c8a1375e4adb60f2fb0bc03f0c639709",
+      "equal": true
+    },
+    {
+      "start": "void FileOperations::Execute(",
+      "endBefore": "std::wstring DescribeFileOperationFailure(",
+      "sha256": "dc5009ffae299935c7196e96a494551f8b6dcb8da6442614f66642493cbf4fac",
+      "equal": true
+    }
+  ],
+  "differences": "Combined FileOperations Stop uses separately qualified quit-preserving drain; app also contains PR17/19/22/24/28/29 and other product changes. No standalone app launch or whole-application certification inferred."
+}

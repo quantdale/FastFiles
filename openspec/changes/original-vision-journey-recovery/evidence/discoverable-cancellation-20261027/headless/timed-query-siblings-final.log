@@ -1,0 +1,12 @@
+  ok: palette sibling remains discoverable after4096 earlier file rows
+  ok: palette observation enumerates only direct siblings once
+  ok: successful enumeration establishes discovery authority
+  ok: timed observation retains real selection without optional desktop diagnostics
+  ok: same-ID foreign process control is rejected
+  ok: swallowed identity read error cannot establish closure
+  ok: unreadable native state retains known list presence
+  ok: one explicit closure predicate in verify/capabilities/windows-ui-automation-validation/UiAutomationValidation.psm1
+  ok: visible list with failed native query is not closed: verify/capabilities/windows-ui-automation-validation/UiAutomationValidation.psm1
+  ok: one explicit closure predicate in verify/e2e/Test-OwnedFileOperations.ps1
+  ok: visible list with failed native query is not closed: verify/e2e/Test-OwnedFileOperations.ps1
+  ok: provider failure is unresolved rather than certified palette absence

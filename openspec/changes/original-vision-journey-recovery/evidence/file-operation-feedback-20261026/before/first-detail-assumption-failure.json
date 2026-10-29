@@ -1,0 +1,22 @@
+{
+  "cases": [],
+  "scope": "Owned native multi-copy/move and permanent confirmation; no recycle-bin exclusion claim",
+  "cleanup": {
+    "Pass": true,
+    "OwnedPids": [
+      121908,
+      124896
+    ],
+    "Residue": [],
+    "PipePresentBefore": false,
+    "PipePresentAfter": false,
+    "PipeCleanup": {
+      "Pass": true,
+      "State": "absent"
+    },
+    "DiagnosticsPreserved": null,
+    "DiagnosticsCopyError": null,
+    "SessionRootRetained": false
+  },
+  "failure": "The property 'Detail' cannot be found on this object. Verify that the property exists."
+}

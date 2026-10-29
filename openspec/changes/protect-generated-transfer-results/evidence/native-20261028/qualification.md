@@ -1,0 +1,66 @@
+# Generated transfer result protection — provisional qualification
+
+Base: freshly fetched PR32 source `12b40ee402582f27f1e21e9df44fffc8bebe51e3`. Original main checkout and its three dirty files preserved. Existing PRs stay unmerged.
+
+## Confirmed defect
+Old actual worker Move returns two completions/zero failures after overwriting the earlier incoming result. Shell generated `first - Copy.txt`; the fixture discovers this name through a separate native operation instead of assuming localization. Occupied-target control retains both transfers. Vacated-target adverse case loses firstIncomingCopies (0), fails two assertions, and cleans its unique temporary tree normally. See observed-native-overlap.log.gz. Only generated owned fixture files were touched.
+
+## Repair and focused evidence
+Before approved replacements execute, compare queued targets with callback-observed completed ordinary result paths. Refuse the whole queued replacement group on an overlapping namespace, report ERROR_ALREADY_EXISTS per queued replacement, and preserve replacement sources. No fresh existence check is presented as atomic protection.
+
+Focused3/3PASS (3.19s): pure policy; previous native consent/cancellation suite; native new observed-name protection suite. New suite exercises Copy, Move and holding-folder Restore, each occupied control, vacated overlap and two-replacement refusal. Exact incoming bytes, source/target sentinels, one terminal event, completed/failure/skip counts and normal cleanup are asserted. Holding-folder Restore is not Recycle Bin Undo certification. Path tests include ordinal case, equality, either ancestor direction, sibling prefix, lexical dot segments, trailing separators, extended drive/UNC and empty observed names.
+
+No changed visual surface; screenshots cannot certify this invisible worker boundary. No new privileged/Explorer drag/physical display qualification. Cross-product overlap cost on extreme mixed batches, filesystem aliases and missing callbacks remain unmeasured/unqualified. Fresh independent source review is in review.md. Full exact committed-source and combined qualification are pending task2.1/2.2.
+
+## Committed standalone qualification
+Implementation `6c924879fa544e1277e4a7b0ef3bfc40b0288667`: full Debug build452 steps warning-clean; selected full portable suite131/131PASS, zero failures/skips,263.68s. Exactly ffverify_process_reaper_ps_tests excluded because restricted live termination qualification remains unavailable. The test is not suppressed or relabeled. Full strict OpenSpec95/95PASS. Combined b0cf4bb native keyboard/geometry36 observations and four normal cleanup sessions passed; combined release/Analyze and subsequent integration qualification are tracked separately before task closure. No expensive scale benchmark was rerun.
+
+## Follow-up after independent review (current working source; committed-source qualification pending)
+
+An actual locked ordinary Move returns `0x80270027` and stops with zero completions. Old source preserved the replacement bytes but reported only the ordinary failure for two uncompleted items. The new implementation retains that HRESULT and adds `0x800703E3` against the unexecuted replacement; real fixture now reports two errors, preserves both sources/target, closes the exclusive handle, and cleans the owned fixture. Original failing receipt and corrected four-suite PASS20.11s are retained. Pure tests exercise unreported phase errors, a known requested cancel, partial successes, unidentifiable identities, missing count and unnamed output. No native missing-callback scenario was induced; equal callback counts do not certify one callback per unique root for nested/duplicate inputs.
+
+Fresh review found that mixed-case extended UNC prefixes could evade prefix normalization, and that synthetic failures could mask the original phase HRESULT; both have regression coverage. The first quadratic 1000x1000 path check took11,308ms Debug. Sorted normalized paths and equality/ancestor/descendant lookup took25ms on the same 1000x1000 local fixture and92ms at4096x4096; 121 direct-comparator cases and a sibling-prefix shadow case pass. No fixed performance SLA or general cancellation-latency claim is made. Reparse/short-name/hard-link alias identities remain unqualified.
+
+Combined b0cf4bb Debug142/142PASS248.08s, release142/142PASS262.73s, Analyze23stepsPASS, strict after PR31 heading fix103/103PASS. These results predate this follow-up source. Ordinary E2E on b0cf4bb was7/8FAIL: cold restore screenshot visibly shows restored Nested and marker but the captured UIA Control tree omits ColumnView; no cause established. Fresh read-only review suggests comparing same live HWND across managed and independent UIA clients and preserving timing; this is deferred until the safety follow-up is rebuilt. Original run and failure screenshot remain under ignored integration build evidence, not represented as a pass. No privileged or restricted process experiment.
+
+Final focused review correction: an earlier item failure no longer hides a distinct phase HRESULT; a different unreported phase error is recorded at group destination, identical HRESULTs deduplicate, observed successes remain excluded and unexecuted replacements are separately named. Focused4/4PASS16.56s; independent final source re-review found no introduced P1/P2 in the correction. This remains pre-commit evidence.
+
+## Committed follow-up and cold-restore observation
+
+Implementation `0e10726584e167b953f80ae0b9013c70b9f93707` full Debug build27 steps and selected suite131/131PASS329.40s, zero failed/skipped; exactly restricted reaper excluded. This supersedes the earlier pre-commit focused result for the standalone implementation. The isolated successor is draft PR33 targeting PR32, with no merge.
+
+The combined source `90e6cdf4ecc0927672b96bedfb14edefbf966a08` includes this implementation and the compact palette. Exact diagnostic five-binary gate passed; all listed safety component bytes match0e except FileOperations.cpp, whose sole difference is the separately qualified OwnedMessageDrain shutdown integration; guard and outcome helper bodies match. This is component equivalence, not whole-executable identity. Strict103/103PASS. The prior b0cf Debug/release142/142 and Analyze apply to b0cf, not to the later executable.
+
+Original b0cf ordinary E2E remains7/8FAIL with no skips. Cold restore's screenshot (SHA-256 `cbfd74f7f96c41ecae62648bbed1bdd67a558fa2b957c82dfb3482db877f4059`) visibly contains the restored Nested marker but its correct-PID Control tree lacks the ColumnView fragment. Its capture contains a local profile path and remains only under ignored build evidence; sanitized outcomes and the tree are retained here. Outer wrapper overwrote the rich failure.json with a generic no-window note after capturing the screenshot; a separate isolated test-infrastructure repair is in progress.
+
+A changed observation-only run on90e compares original managed, fresh managed and independent native `IUIAutomation` clients on each exact owned HWND. Both first and restored second windows exposed ColumnView in all three clients, the second original client saw the exact marker, native provider description included `FastFiles Column View provider`, and both normal closes/cleanups passed. The original failure did not reproduce; this does not prove its cause or waive it. Sanitized observation summary is retained; raw trees/logs containing real parent-directory names remain under ignored build evidence. Subsequent full E2E and source90e portable certification are pending.
+
+## Final certification and closure (tasks 2.1/2.2) — 2026-10-28
+
+The interrupted certification completed on the exact combined source
+`90e6cdf4ecc0927672b96bedfb14edefbf966a08` (includes this implementation at
+component equivalence to `0e10726`): Debug CTest **142/142 PASS** (289.18s),
+release-test CTest **142/142 PASS** (289.18s log / release details preserved),
+affected-UI MSVC Analyze build clean (8/8 steps), strict OpenSpec 103/103 and
+drift PASS. The ASan slice through the supported developer wrapper passed
+**3/3** (`fffileoperations_tests`, `fffileoperations_execution_consent_tests`,
+`fftransfer_result_protection_tests`, 30.36s) — recorded here because the
+session ended mid-run.
+
+Ordinary native E2E on the same source: run 1 **7/8** with
+`preview-terminal-state` intermittent FAIL (evidence preserved intact — the
+live demonstration of the preserve-e2e-failure-evidence contract); focused
+preview re-run PASS; full re-run **8/8 PASS** on identical binaries. The b0cf
+cold-restore failure remains a separate unexplained observation (passed in
+both current runs, not erased); the 90e three-client cold-restore observation
+and sanitized tree are retained above. Only `ffverify_process_reaper_ps_tests`
+was excluded (restricted live termination unavailable; not suppressed).
+
+Publication: draft **PR33** (`fix/protect-generated-transfer-results-20261028`
+on PR32) published with provenance; docs-only original-vision scorecard commit
+`9e3cd30` follows on the same branch. Hosted runs remain externally blocked
+(six jobs, zero steps, payment/spending annotation) — inspected once each, no
+rerun, no billing change. Unmerged by design. Both tasks are now closed on the
+recorded local evidence; residual unqualified boundaries (aliases/reparse
+identities, missing root callbacks, Recycle-Bin Undo, privileged/drag-in) stay
+explicitly open in the qualification narrative and are not claimed.

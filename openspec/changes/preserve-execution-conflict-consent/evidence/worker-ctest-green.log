@@ -1,0 +1,9 @@
+Test project D:/Documents/tryPython/FastFiles-worktrees/execution-consent-20261027/build/debug
+    Start 47: fffileoperations_e2e_tests
+1/2 Test #47: fffileoperations_e2e_tests .................   Passed   10.59 sec
+    Start 50: fffileoperations_execution_consent_tests
+2/2 Test #50: fffileoperations_execution_consent_tests ...   Passed    0.35 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =  11.18 sec

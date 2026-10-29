@@ -1,0 +1,676 @@
+{
+  "terminalObservations": [
+    {
+      "afterVersion": 0,
+      "title": "FastFiles — complete — 3 of 3 — 0 failed",
+      "terminalVersion": 5
+    },
+    {
+      "afterVersion": 5,
+      "title": "FastFiles — complete — 3 of 3 — 0 failed",
+      "terminalVersion": 10
+    },
+    {
+      "afterVersion": 10,
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "terminalVersion": 15
+    },
+    {
+      "afterVersion": 15,
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "terminalVersion": 20
+    },
+    {
+      "afterVersion": 20,
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "terminalVersion": 25
+    },
+    {
+      "afterVersion": 25,
+      "title": "FastFiles — stopped with errors — 1 of 2 — 1 failed (first: C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\Fixtures\\FastFilesE2E\\Source\\locked-source.txt)",
+      "terminalVersion": 30
+    },
+    {
+      "afterVersion": 30,
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "terminalVersion": 35
+    },
+    {
+      "afterVersion": 35,
+      "title": "FastFiles — stopped with errors — 741 of 1024 — 1 failed (first: C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\Fixtures\\FastFilesE2E\\BulkSource\\item-00741.bin)",
+      "terminalVersion": 78
+    }
+  ],
+  "copyObservation": {
+    "polls": 69,
+    "last": {
+      "copied": 2,
+      "title": "FastFiles — 0% — speed/ETA estimating…",
+      "elapsedMs": 2177
+    }
+  },
+  "cancelInput": {
+    "result": {
+      "Pass": true,
+      "CommandState": {
+        "discoverySucceeded": true,
+        "editPresent": true,
+        "editHasKeyboardFocus": true,
+        "editTextPresent": true,
+        "listPresent": true,
+        "listEnabled": true,
+        "listNativeHandle": 7477056,
+        "listVisible": true,
+        "listItems": [
+          "Cancel File Operations"
+        ],
+        "selectedIndex": 0,
+        "selectedName": "Cancel File Operations",
+        "expectedMatches": [
+          "Cancel File Operations"
+        ],
+        "expectedNameLikeMatches": [],
+        "interactive": null
+      },
+      "DispatchEvidence": {
+        "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+        "message": "command=file.cancel-operations;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false",
+        "state": "command=file.cancel-operations;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false",
+        "outcome": "accepted",
+        "pid": 145164,
+        "epochMs": 1793110663972,
+        "logOffset": 1605651
+      },
+      "open": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "keys": "{CTRL}{SHIFT}p",
+        "dryRun": {
+          "IsPresent": false
+        },
+        "sequence": [
+          {
+            "vk": 17,
+            "down": true
+          },
+          {
+            "vk": 16,
+            "down": true
+          },
+          {
+            "vk": 80,
+            "down": true
+          },
+          {
+            "vk": 80,
+            "down": false
+          },
+          {
+            "vk": 16,
+            "down": false
+          },
+          {
+            "vk": 17,
+            "down": false
+          }
+        ]
+      },
+      "typed": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "kind": "unicode-text",
+        "chars": 6,
+        "dryRun": {
+          "IsPresent": false
+        }
+      },
+      "enter": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "keys": "{ENTER}",
+        "dryRun": {
+          "IsPresent": false
+        },
+        "sequence": [
+          {
+            "vk": 13,
+            "down": true
+          },
+          {
+            "vk": 13,
+            "down": false
+          }
+        ]
+      },
+      "PaletteClosed": true
+    },
+    "beforeTitle": "FastFiles — 0% — speed/ETA estimating…",
+    "afterEnterTitle": "FastFiles — C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\Fixtures\\FastFilesE2E\\BulkSource\\item-00694.bin — 67% — 840 units/s — ETA 1 s",
+    "activationReturned": true,
+    "afterInputMs": 6892,
+    "route": "Palette",
+    "beforeEnterCopied": 467,
+    "afterHelperCopied": 741,
+    "afterEnterCopied": 741,
+    "logPath": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\LocalAppData\\FastFiles\\logs\\diagnostics.log",
+    "focusedElement": {
+      "Name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\Fixtures\\FastFilesE2E\\BulkTarget",
+      "AutomationId": "Pane.0.Column.9",
+      "ControlType": "List",
+      "ClassName": "",
+      "ProcessId": 145164
+    },
+    "logOffset": 1605651,
+    "terminalMs": 6899,
+    "dispatchObservation": {
+      "Pass": true,
+      "Value": {
+        "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+        "message": "command=file.cancel-operations;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false",
+        "state": "command=file.cancel-operations;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false",
+        "outcome": "accepted",
+        "pid": 145164,
+        "epochMs": 1793110663972,
+        "logOffset": 1605651
+      },
+      "ElapsedMs": 1222,
+      "Description": "actual cancellation dispatch",
+      "LastError": ""
+    },
+    "foreground": true,
+    "afterHelperTitle": "FastFiles — C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\Fixtures\\FastFilesE2E\\BulkSource\\item-00694.bin — 67% — 840 units/s — ETA 1 s",
+    "beforeUtc": "2026-10-27T14:17:40.6222275Z",
+    "beforeEnterEpochMs": 1793110662771,
+    "beforeEnterTitle": "FastFiles — C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\Fixtures\\FastFilesE2E\\BulkSource\\item-00406.bin — 39% — 797 units/s — ETA 3 s"
+  },
+  "idleCancelInput": null,
+  "cancellationRoute": "Palette",
+  "copySamples": [
+    {
+      "copied": 0,
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "elapsedMs": 20
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — complete — 1 of 1 — 0 failed",
+      "elapsedMs": 55
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 86
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 117
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 150
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 193
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 225
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 257
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 288
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 319
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 350
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 382
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 413
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 446
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 490
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 521
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 554
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 585
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 616
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 647
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 680
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 711
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 742
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 773
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 804
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 835
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 866
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 897
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 929
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 959
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 991
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1022
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1053
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1085
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1116
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1147
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1179
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1210
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1242
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1274
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1305
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1336
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1367
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1398
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1430
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1461
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1492
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1522
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1552
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1584
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1615
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1646
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1677
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1709
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1740
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1771
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1802
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1834
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1865
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1896
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1928
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1960
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1991
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 2023
+    }
+  ],
+  "cases": [
+    {
+      "id": "multi-copy",
+      "selectedNames": [
+        "alpha.txt",
+        "beta.txt",
+        "unicode-λ.txt"
+      ],
+      "pass": true,
+      "names": [
+        "alpha.txt",
+        "beta.txt",
+        "unicode-λ.txt"
+      ],
+      "terminal": "FastFiles — complete — 3 of 3 — 0 failed",
+      "hashes": {
+        "alpha.txt": "439CA6F88DC5F159C57EC6EBFA42EA495C8CCDFFCAFC9EEE9BCA386EF2653027",
+        "beta.txt": "DF714C17205DC4A623BCB6026DCFF1BEC79B53CE012213FEF98D10E4E6484BE6",
+        "unicode-λ.txt": "754B8383B4FFA4DE565910EF9062DEBCCAF5629ABB2FC65FCDE721486F9C7D44"
+      },
+      "sentinelPreserved": true
+    },
+    {
+      "id": "multi-move",
+      "selectedNames": [
+        "alpha.txt",
+        "beta.txt",
+        "unicode-λ.txt"
+      ],
+      "pass": true,
+      "names": [
+        "alpha.txt",
+        "beta.txt",
+        "unicode-λ.txt"
+      ],
+      "terminal": "FastFiles — complete — 3 of 3 — 0 failed",
+      "hashes": {
+        "alpha.txt": "439CA6F88DC5F159C57EC6EBFA42EA495C8CCDFFCAFC9EEE9BCA386EF2653027",
+        "beta.txt": "DF714C17205DC4A623BCB6026DCFF1BEC79B53CE012213FEF98D10E4E6484BE6",
+        "unicode-λ.txt": "754B8383B4FFA4DE565910EF9062DEBCCAF5629ABB2FC65FCDE721486F9C7D44"
+      },
+      "sentinelPreserved": true
+    },
+    {
+      "id": "recycle-delete-undo",
+      "namespacePositiveControl": true,
+      "pass": true,
+      "terminal": "FastFiles — complete — 1 of 1 — 0 failed",
+      "undo": "FastFiles — complete — 1 of 1 — 0 failed",
+      "hash": "E643A7DA6FE7E33B7DB36DA6205E5E0E2336881A3909D5277234600030B049D5"
+    },
+    {
+      "pass": true,
+      "id": "permanent-default-cancel",
+      "hash": "5F598C233496EE1D050D14B5442502E21568D5F95BDEFDEB6F99F798610DF2ED"
+    },
+    {
+      "pass": true,
+      "calibratedShellExclusion": [
+        {
+          "utc": "2026-10-27T14:17:09.1644328Z",
+          "matches": 0
+        },
+        {
+          "utc": "2026-10-27T14:17:09.5280293Z",
+          "matches": 0
+        },
+        {
+          "utc": "2026-10-27T14:17:09.8776249Z",
+          "matches": 0
+        }
+      ],
+      "id": "permanent-confirm",
+      "terminal": "FastFiles — complete — 1 of 1 — 0 failed"
+    },
+    {
+      "id": "error-manual-recovery",
+      "pass": true,
+      "terminal": "FastFiles — stopped with errors — 1 of 2 — 1 failed (first: C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\Fixtures\\FastFilesE2E\\Source\\locked-source.txt)",
+      "hashes": {
+        "alpha.txt": "439CA6F88DC5F159C57EC6EBFA42EA495C8CCDFFCAFC9EEE9BCA386EF2653027",
+        "healthy-sibling.txt": "B8FC2A855D09398E5AE70060ADA23B388C508A35DAC21C6EC0B059F3427ED4FE",
+        "beta.txt": "DF714C17205DC4A623BCB6026DCFF1BEC79B53CE012213FEF98D10E4E6484BE6",
+        "locked-source.txt": "07ECD21080034364ED2A406F869F66C5E807683AC58536DA8D7600EB967353A6",
+        "unicode-λ.txt": "754B8383B4FFA4DE565910EF9062DEBCCAF5629ABB2FC65FCDE721486F9C7D44"
+      },
+      "recovery": "FastFiles — complete — 1 of 1 — 0 failed",
+      "errorText": "OK\r\n\r\nC:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\Fixtures\\FastFilesE2E\\Source\\locked-source.txt\nThe source file is in use. Close the app using it, then try the operation again. (0x80270027)\r\nLast operation errors"
+    }
+  ],
+  "filter": "all",
+  "captures": [
+    {
+      "bounds": {
+        "Hwnd": {
+          "value": 4789708
+        },
+        "X": 694,
+        "Y": 463,
+        "Width": 552,
+        "Height": 281,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "sha256": "47367fdb22c6a65af5f7174e5faf1df142095ec1db511fe5789914da07834117",
+      "id": "permanent-confirmation",
+      "image": "permanent-confirmation.png"
+    },
+    {
+      "bounds": {
+        "Hwnd": {
+          "value": 4920184
+        },
+        "X": 72,
+        "Y": 64,
+        "Width": 1008,
+        "Height": 632,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "sha256": "4502de22001ce9b2c9bcf6cf6ba8b93db64398b25757ab805d1bf29c7b7c42e8",
+      "id": "operation-error-status",
+      "image": "operation-error-status.png"
+    },
+    {
+      "bounds": {
+        "Hwnd": {
+          "value": 4986316
+        },
+        "X": 694,
+        "Y": 473,
+        "Width": 552,
+        "Height": 262,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "sha256": "7e5c40ac760a923099b84bcbf73e7886131d77edda6e31f85b834b8ef959a073",
+      "id": "operation-error",
+      "image": "operation-error.png"
+    }
+  ],
+  "scope": "Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks",
+  "failure": "in-flight-copy-cancel-input: In-flight Palette did not cancel: FastFiles — stopped with errors — 741 of 1024 — 1 failed (first: C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-ff72525891674bf8b103d0bd4b314c92\\Fixtures\\FastFilesE2E\\BulkSource\\item-00741.bin)",
+  "cleanup": {
+    "Pass": true,
+    "OwnedPids": [
+      145164,
+      133116
+    ],
+    "Residue": [],
+    "PipePresentBefore": false,
+    "PipePresentAfter": false,
+    "PipeCleanup": {
+      "Pass": true,
+      "State": "absent"
+    },
+    "DiagnosticsPreserved": true,
+    "DiagnosticsCopyError": null,
+    "SessionRootRetained": false
+  }
+}

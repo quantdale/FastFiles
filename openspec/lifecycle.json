@@ -1813,6 +1813,54 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "preserve-execution-conflict-consent",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-execution-conflict-consent/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "prevent-shortcut-creation-overwrite",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/prevent-shortcut-creation-overwrite/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "protect-generated-transfer-results",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/protect-generated-transfer-results/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "preserve-rename-and-creation-destinations",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-rename-and-creation-destinations/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

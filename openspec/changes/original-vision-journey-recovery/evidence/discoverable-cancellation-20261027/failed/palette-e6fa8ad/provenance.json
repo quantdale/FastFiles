@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "kind": "fastfiles-binary-provenance",
+  "mode": "exact-tree",
+  "stage": "owned-operations",
+  "source": {
+    "headSha": "e6fa8adb3c7d4dbd3194070c92c404a8bd8a3970",
+    "treeSha": "7d67dcf7ca767c97d35aa7aa88a9b792e7b42456",
+    "treeSemantic": "HEAD^{tree}",
+    "sourceClean": true,
+    "stateDigest": "aa2d72130ce1ed3dd0082c91f7aa055bdd05cfd1a77156f9eeb6f9fdbb63e3f0",
+    "reasonCodes": []
+  },
+  "binaries": [
+    {
+      "filename": "FastFiles.exe",
+      "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\cancel-command-20261026\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+      "exists": true,
+      "sha256": "0a17c002b5b4467f44a606bb91ba7a14c6972ced4eeccb03d0d40a272f3b4ea9",
+      "buildIdentity": "e6fa8adb3c7d4dbd3194070c92c404a8bd8a3970",
+      "buildIdentityFormatValid": true,
+      "peArchitecture": "x64",
+      "productVersion": "0.1.0",
+      "fileVersion": "0.1.0.0",
+      "worktreeState": "clean",
+      "configuration": "Debug",
+      "issues": []
+    },
+    {
+      "filename": "FastFilesEngine.exe",
+      "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\cancel-command-20261026\\build\\debug-diagnostic\\src\\engine\\FastFilesEngine.exe",
+      "exists": true,
+      "sha256": "22a021eb32fd365ee9110cf412e0144401d804944e267a1747246a6bc3bf6b5b",
+      "buildIdentity": "e6fa8adb3c7d4dbd3194070c92c404a8bd8a3970",
+      "buildIdentityFormatValid": true,
+      "peArchitecture": "x64",
+      "productVersion": "0.1.0",
+      "fileVersion": "0.1.0.0",
+      "worktreeState": "clean",
+      "configuration": "Debug",
+      "issues": []
+    },
+    {
+      "filename": "FastFilesIndexSvc.exe",
+      "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\cancel-command-20261026\\build\\debug-diagnostic\\src\\indexsvc\\FastFilesIndexSvc.exe",
+      "exists": true,
+      "sha256": "c612c3d34166d52e309ac14682c2d46ced16d23150037b1763d5bc07db33b4b4",
+      "buildIdentity": "e6fa8adb3c7d4dbd3194070c92c404a8bd8a3970",
+      "buildIdentityFormatValid": true,
+      "peArchitecture": "x64",
+      "productVersion": "0.1.0",
+      "fileVersion": "0.1.0.0",
+      "worktreeState": "clean",
+      "configuration": "Debug",
+      "issues": []
+    },
+    {
+      "filename": "FastFilesSetup.exe",
+      "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\cancel-command-20261026\\build\\debug-diagnostic\\src\\installer\\FastFilesSetup.exe",
+      "exists": true,
+      "sha256": "3590bccc887b320b757d96d0ad6c0d67910927c0e49a89babea1bdb5c84ee6f0",
+      "buildIdentity": "e6fa8adb3c7d4dbd3194070c92c404a8bd8a3970",
+      "buildIdentityFormatValid": true,
+      "peArchitecture": "x64",
+      "productVersion": "0.1.0",
+      "fileVersion": "0.1.0.0",
+      "worktreeState": "clean",
+      "configuration": "Debug",
+      "issues": []
+    },
+    {
+      "filename": "fftest.exe",
+      "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\cancel-command-20261026\\build\\debug-diagnostic\\src\\fftest\\fftest.exe",
+      "exists": true,
+      "sha256": "2bbc5bba1780dcc15eda7618d38a8b2e759de57fe99032a9659872fb91228e85",
+      "buildIdentity": "e6fa8adb3c7d4dbd3194070c92c404a8bd8a3970",
+      "buildIdentityFormatValid": true,
+      "peArchitecture": "x64",
+      "productVersion": "0.1.0",
+      "fileVersion": "0.1.0.0",
+      "worktreeState": "clean",
+      "configuration": "Debug",
+      "issues": []
+    }
+  ],
+  "setIdentity": "e6fa8adb3c7d4dbd3194070c92c404a8bd8a3970",
+  "setConsistent": true,
+  "boundToHead": true,
+  "boundToTree": false,
+  "treeBindingStatus": "NOT_EMBEDDED",
+  "checkResult": {
+    "status": "PASS",
+    "issueCodes": [],
+    "reason": null
+  },
+  "checkedAtUtc": "2026-10-26T17:08:44.8521507Z"
+}

@@ -404,7 +404,8 @@ ffui::MainShellLayout WindowShell::CurrentShellLayout() const {
 CommandContext WindowShell::CurrentCommandContext() const {
     return {ClassifySelection(CurrentCommandSelection()),
             !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_),
-            !storageAnalysis_.Visible() && !searchPanel_.Visible()};
+            !storageAnalysis_.Visible() && !searchPanel_.Visible(),
+            fileOperations_.HasOutstandingWork()};
 }
 
 std::vector<SelectionItem> WindowShell::CurrentCommandSelection() const {
@@ -416,6 +417,10 @@ std::vector<SelectionItem> WindowShell::CurrentCommandSelection() const {
 bool WindowShell::InitializeCommands() {
     const BaselineHandlers handlers{[this](const std::wstring& commandId) -> CommandHandler {
         return [this, commandId](const std::vector<std::wstring>& paths) {
+            if (commandId == L"file.cancel-operations") {
+                CancelFileOperations();
+                return;
+            }
             const std::wstring activePath = columnView_.ActivePanePath();
             if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
                 navigationWorkspace_.Navigate(activePath);
@@ -871,6 +876,15 @@ void WindowShell::FinishInlineRename(bool commit) {
     fileOperations_.Enqueue({FileOperationKind::Rename, {path}, {}, value, true});
 }
 
+void WindowShell::CancelFileOperations() {
+    if (!fileOperations_.HasOutstandingWork()) return;
+    fileOperations_.CancelCurrent();
+    // original-vision-journey-recovery 4.7: a terminal event can reach the UI
+    // before the worker clears executing_. Request cancellation from live worker
+    // state, but never overwrite an already presented terminal caption.
+    if (fileOpOutstanding_) SetWindowTextW(hwnd_, L"FastFiles \u2014 cancelling operation\u2026");
+}
+
 bool WindowShell::InvokeCommand(const std::wstring& commandId) {
     const size_t workspacePaneCountBefore = navigationWorkspace_.ActivePaneCount();
     const size_t activePaneBefore = navigationWorkspace_.ActivePaneIndex();
@@ -889,7 +903,8 @@ bool WindowShell::InvokeCommand(const std::wstring& commandId) {
         return false;
     }
     const CommandContext context{ClassifySelection(*liveSelection),
-        !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_), browseWorkspace};
+        !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_), browseWorkspace,
+        fileOperations_.HasOutstandingWork()};
     const bool accepted = commandRegistry_.Invoke(commandId, context, paths);
     AppendUiCommandDiagnostic(commandId, accepted, workspacePaneCountBefore,
                               navigationWorkspace_.ActivePaneCount(), activePaneBefore,
@@ -1346,6 +1361,16 @@ int WindowShell::RunMessageLoop() {
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && searchPanel_.Visible()) {
             HideToolWorkspaces();
             RequestRepaint();
+            continue;
+        }
+        // original-vision-journey-recovery 4.6: native child controls do not
+        // bubble WM_KEYDOWN to the shell. Preserve modal/search/edit Escape
+        // ownership, then route a running operation's cancellation through the
+        // same shell handler even when a navigation/preview child has focus.
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE &&
+            fileOperations_.HasOutstandingWork() && !nativeEditFocused &&
+            msg.hwnd != hwnd_ && IsChild(hwnd_, msg.hwnd)) {
+            SendMessageW(hwnd_, WM_KEYDOWN, msg.wParam, msg.lParam);
             continue;
         }
         if (!commandPalette_.Visible() && DispatchShortcut(msg, ShortcutScope::ActiveView, nativeEditFocused)) continue;
@@ -2700,9 +2725,18 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_APP_FILE_OPERATION_AVAILABILITY:
+            if (commandPalette_.Visible()) commandPalette_.UpdateContext(CurrentCommandContext());
+            return 0;
+
         case WM_APP_FILE_OPERATION_EVENT: {
             std::unique_ptr<FileOperationEvent> event(reinterpret_cast<FileOperationEvent*>(lParam));
             if (!event) return 0;
+            // Progress cannot change availability; avoid rebuilding a potentially
+            // large selection and clipboard context for every presentation tick.
+            if (event->kind != FileOperationEventKind::Progress && commandPalette_.Visible()) {
+                commandPalette_.UpdateContext(CurrentCommandContext());
+            }
             if (event->kind == FileOperationEventKind::Queued || event->kind == FileOperationEventKind::Started) {
                 SetWindowTextW(hwnd_, event->kind == FileOperationEventKind::Queued ? L"FastFiles — operation queued" : L"FastFiles — operation in progress");
                 fileOpInProgress_ = true;
@@ -2731,6 +2765,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 fileOpOutstanding_ = false;
                 RetainLastOperationFailures(lastOperationFailures_, *event);
                 std::wstring title = event->kind == FileOperationEventKind::Cancelled ? L"FastFiles — cancelled" : L"FastFiles — complete";
+                if (!event->failures.empty()) {
+                    title = event->kind == FileOperationEventKind::Cancelled
+                        ? L"FastFiles — stopped with errors" : L"FastFiles — complete with errors";
+                }
                 title += L" — " + std::to_wstring(event->completed) + L" of " + std::to_wstring(event->total);
                 if (event->skipped > 0) title += L" — " + std::to_wstring(event->skipped) + L" skipped";
                 title += L" — " + std::to_wstring(event->failures.size()) + L" failed";
@@ -2742,13 +2780,15 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 // also ride the non-modal status line, so an outcome is never
                 // visible only in the window title. Failures stay actionable
                 // through the existing last-operation-errors surface.
-                if (event->kind == FileOperationEventKind::Cancelled) {
-                    ShowStatusNotice(L"Cancelled after " + std::to_wstring(event->completed) + L" of " +
-                                     std::to_wstring(event->total) + L" item(s).");
-                } else if (!event->failures.empty()) {
+                if (!event->failures.empty()) {
                     ShowStatusNotice(std::to_wstring(event->failures.size()) + L" of " +
                                      std::to_wstring(event->total) +
-                                     L" item(s) failed. Right-click for last operation errors.");
+                                     L" item(s) failed. " +
+                                     (event->kind == FileOperationEventKind::Cancelled ? L"Operation stopped. " : L"") +
+                                     L"Right-click for last operation errors.");
+                } else if (event->kind == FileOperationEventKind::Cancelled) {
+                    ShowStatusNotice(L"Cancelled after " + std::to_wstring(event->completed) + L" of " +
+                                     std::to_wstring(event->total) + L" item(s).");
                 } else if (event->skipped > 0) {
                     // Skipped items are a user decision, not a failure: an
                     // all-skip batch must not read as "0 item(s) completed".
@@ -3045,10 +3085,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 }
                 // Only cancel when an operation is actually outstanding; an
                 // idle Escape must not claim "cancelling operation…".
-                if (fileOpOutstanding_) {
-                    fileOperations_.CancelCurrent();
-                    SetWindowTextW(hwnd_, L"FastFiles — cancelling operation…");
-                }
+                CancelFileOperations();
                 return 0;
             }
             if (searchPanel_.Visible() || storageAnalysis_.Visible()) return 0;
@@ -3086,12 +3123,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 case kMenuOperationDetails: {
                     std::wstring details;
                     for (const auto& failure : lastOperationFailures_) {
-                        if (!details.empty()) details += L"\n";
-                        wchar_t error[16]{};
-                        swprintf_s(error, L"0x%08X", static_cast<unsigned int>(failure.error));
+                        if (!details.empty()) details += L"\n\n";
                         details += (failure.path.empty() ? std::wstring(L"(operation)")
                                                          : ffui::NormalizeDisplayPath(failure.path)) +
-                                    std::wstring(L" — ") + error;
+                                    L"\n" + ffui::DescribeFileOperationFailure(failure.error);
+                        if (FAILED(failure.cleanupError)) {
+                            details += L"\nThe incomplete new file could not be removed: " +
+                                       ffui::DescribeFileOperationFailure(failure.cleanupError);
+                        }
                     }
                     if (!details.empty()) {
                         MessageBoxW(hwnd_, details.c_str(), L"Last operation errors", MB_OK | MB_ICONERROR);

@@ -316,6 +316,45 @@ void TestAlternateWorkspaceTargets() {
     std::filesystem::remove(root);
 }
 
+void TestCancelOperationsDiscovery() {
+    int invocations = 0;
+    std::wstring lastCommand;
+    ffui::CommandRegistry registry;
+    Check(ffui::RegisterBaselineCommands(registry, CountingHandlers(invocations, lastCommand)),
+          "cancel discovery registry initializes");
+    ffui::ShortcutMap shortcuts;
+    shortcuts.ResetDefaults(registry);
+    const auto* cancel = registry.Find(L"file.cancel-operations");
+    Check(cancel != nullptr, "cancel command resolves by stable id");
+    if (!cancel) return;
+    Check(cancel->scope == ffui::ShortcutScope::Global && !cancel->defaultShortcut &&
+          !ffui::CommandUsesSelection(*cancel), "cancel has global selection-independent policy without a shortcut");
+    Check(cancel->disabledReason == L"No file operations are running or queued",
+          "idle cancel explains its availability");
+    const auto idle = ffui::SearchCommands(registry, shortcuts, {}, L"Cancel File Operations");
+    Check(idle.size() == 1 && idle.front().command == cancel && !idle.front().enabled,
+          "idle cancel remains discoverable by its exact name and disabled");
+    Check(!registry.Invoke(cancel->commandId, {}, {}) && invocations == 0,
+          "idle cancel cannot invoke its handler");
+    for (const auto kind : {ffui::SelectionKind::Empty, ffui::SelectionKind::SingleFile,
+                           ffui::SelectionKind::SingleFolder, ffui::SelectionKind::MultipleFiles,
+                           ffui::SelectionKind::MultipleFolders, ffui::SelectionKind::Mixed}) {
+        for (const bool browse : {false, true}) {
+            const ffui::CommandContext active{kind, false, browse, true};
+            const auto matches = ffui::SearchCommands(registry, shortcuts, active, L"Cancel File Operations");
+            Check(matches.size() == 1 && matches.front().enabled && matches.front().command == cancel,
+                  "outstanding work enables cancel across selections and workspaces");
+            Check(registry.Invoke(cancel->commandId, active, {}) && lastCommand == cancel->commandId,
+                  "cancel executes without selected paths");
+            auto fresh = active;
+            fresh.fileOperationsOutstanding = false;
+            const int before = invocations;
+            Check(!registry.Invoke(cancel->commandId, fresh, {L"stale-selection"}) && invocations == before,
+                  "fresh idle context rejects a previously enabled palette command");
+        }
+    }
+}
+
 void TestQuickActions() {
     const auto launch = ffui::BuildTerminalLaunchSpec(L"C:\\folder & name", L"powershell.exe");
     Check(launch.currentDirectory == L"C:\\folder & name", "terminal target is passed as current directory");
@@ -338,6 +377,7 @@ int main() {
     TestPersistence();
     TestLegacyMigrationAndChordValidation();
     TestBaselinePaletteCoverage();
+    TestCancelOperationsDiscovery();
     TestQuickActions();
     TestAlternateWorkspaceTargets();
     if (fftest::FailureCount() == 0) std::cout << "All command-system tests passed\n";

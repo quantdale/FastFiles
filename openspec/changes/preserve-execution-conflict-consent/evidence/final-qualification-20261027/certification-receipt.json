@@ -1,0 +1,46 @@
+{
+  "standaloneImplementation": "40b6b2da456fc2e8a92d1c0321c7e6f761ee5d53",
+  "standaloneDebug": {
+    "passed": 128,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 285.08
+  },
+  "combinedPortable": "bbe37446518bd4ffddebf71b7d96592896f7d738",
+  "combinedDebug": {
+    "passed": 137,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 282.27
+  },
+  "combinedReleaseTest": {
+    "passed": 137,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 263.59
+  },
+  "combinedNative": "7dc367cc7f2330637813448526cfa00a46e7bcad",
+  "native": {
+    "owned": 8,
+    "conflicts": 7,
+    "ordinaryE2E": 8,
+    "copiedAtCancel": 426,
+    "totalAtCancel": 1024,
+    "allCleanupPassed": true
+  },
+  "analyze": "PASS;9 Ninja steps (2-8 compile/link plus identity)",
+  "strict": {
+    "passed": 99,
+    "failed": 0
+  },
+  "excludedOnly": [
+    "ffverify_process_reaper_ps_tests"
+  ],
+  "notExecuted": [
+    "restricted reaper",
+    "standalone native app",
+    "fresh independent review",
+    "privileged service/release/display matrix"
+  ],
+  "nativeToPortableImplementationDiff": "empty for src/tests/verify/CMakeLists/cmake; documentation-only checkpoint; no whole executable equality asserted"
+}

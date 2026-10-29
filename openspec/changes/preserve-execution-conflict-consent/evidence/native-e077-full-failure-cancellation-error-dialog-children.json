@@ -1,0 +1,30 @@
+[
+  {
+    "Name": "OK",
+    "AutomationId": "2",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 110676
+  },
+  {
+    "Name": "",
+    "AutomationId": "20",
+    "ControlType": "Image",
+    "ClassName": "Static",
+    "ProcessId": 110676
+  },
+  {
+    "Name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-4ca63946fb7d4e788d281b246fe4f1cd\\Fixtures\\FastFilesE2E\\BulkSource\\item-00140.bin\nThe operation was canceled by the user. (0x800704C7)",
+    "AutomationId": "65535",
+    "ControlType": "Text",
+    "ClassName": "Static",
+    "ProcessId": 110676
+  },
+  {
+    "Name": "Last operation errors",
+    "AutomationId": "TitleBar",
+    "ControlType": "TitleBar",
+    "ClassName": "",
+    "ProcessId": 110676
+  }
+]

@@ -1,0 +1,5 @@
+Building 'debug'...
+[1/4] Refreshing FastFiles build identity
+-- FastFiles build identity: ec5bd9579e9456088ffbda988a900c2ebe8bb934 (tree=dirty, config=Debug, arch=x64)
+[2/3] Building CXX object src\ui\CMakeFiles\FastFiles.dir\src\FileOperations.cpp.obj
+[3/3] Linking CXX executable src\ui\FastFiles.exe

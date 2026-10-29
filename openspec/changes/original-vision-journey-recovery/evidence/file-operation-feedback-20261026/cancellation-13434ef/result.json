@@ -1,0 +1,25 @@
+{
+  "cleanup": {
+    "Pass": true,
+    "OwnedPids": [
+      80788,
+      121632
+    ],
+    "Residue": [],
+    "PipePresentBefore": false,
+    "PipePresentAfter": false,
+    "PipeCleanup": {
+      "Pass": true,
+      "State": "absent"
+    },
+    "DiagnosticsPreserved": true,
+    "DiagnosticsCopyError": null,
+    "SessionRootRetained": false
+  },
+  "filter": "cancellation",
+  "failure": "in-flight-copy-observation: Could not observe an actual in-flight partial copy; cancellation is not qualified.",
+  "scope": "Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks",
+  "captures": [],
+  "cases": [],
+  "terminalObservations": []
+}

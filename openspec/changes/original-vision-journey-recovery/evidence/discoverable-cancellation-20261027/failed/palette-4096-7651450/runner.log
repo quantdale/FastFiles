@@ -1,0 +1,5 @@
+[owned-operations] pid=113008; waiting for main window
+[owned-operations] main=True ready=True (engine-connected)
+PHASE: in-flight-copy-fixture
+PHASE: in-flight-copy-source
+PHASE: in-flight-copy-destination

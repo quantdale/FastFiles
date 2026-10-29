@@ -45,3 +45,19 @@ It requires a clean committed `debug-diagnostic` build and a fresh artifact
 folder. Review the actual light/dark PNGs as well as `result.json`; a passing
 functional result is not visual approval. It seeds settings only inside its
 isolated session sandbox and never changes system appearance preferences.
+
+The owned daily-driver runner checks exact multi-selection and copy/move hashes,
+native recycle/Undo, permanent-delete default Cancel and calibrated exclusion,
+an exclusive-lock error with manual recovery, and observed in-flight Escape.
+It uses only marker-owned synthetic files (including a bounded64MiB batch).
+No Explorer window or unrelated Recycle Bin entry is opened or changed:
+
+~~~powershell
+pwsh ./verify/e2e/Test-OwnedFileOperations.ps1 -RepoRoot . -ArtifactsDir build/owned-operations-fresh
+~~~
+
+Run it alone on a clean diagnostic build. Inspect result.json, source binding,
+fresh owned-window Name-property terminal observations, actual measured-DPI
+captures and lifecycle diagnostics. An already completed copy cannot qualify
+cancellation, and absent bin matches cannot qualify permanent exclusion unless
+the owned recycle/Undo positive control first passed.

@@ -610,8 +610,9 @@ function Get-UiaSafeInteractiveState {
 }
 
 function Get-UiaPaletteSemanticState {
-    param($Driver, $Main, [int] $ProcessId, [string[]] $ExpectedCommandNames = @(), [string[]] $ExpectedCommandNameLike = @())
+    param($Driver, $Main, [int] $ProcessId, [string[]] $ExpectedCommandNames = @(), [string[]] $ExpectedCommandNameLike = @(), [switch] $SkipInteractiveState)
     $state = [ordered]@{
+        discoverySucceeded = $false
         editPresent = $false
         editHasKeyboardFocus = $false
         editTextPresent = $false
@@ -624,17 +625,33 @@ function Get-UiaPaletteSemanticState {
         selectedName = $null
         expectedMatches = @()
         expectedNameLikeMatches = @()
-        interactive = Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId
+        interactive = $(if ($SkipInteractiveState) { $null } else { Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId })
     }
     $edit = $null
-    try { $edit = Find-UiaElement -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 500 } catch { }
+    $list = $null
+    # Both controls are native children of the main HWND. A recursive search
+    # can exhaust its budget in thousands of earlier file rows before reaching
+    # these siblings. Failed enumeration is unresolved, never proof of closure.
+    try {
+        $children = @(Get-UiaChildren -Driver $Driver -Element $Main)
+        foreach ($child in $children) {
+            $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
+            # Identity reads may return an all-null record after a provider
+            # error. Such a child cannot establish authoritative absence.
+            if (-not $identity.ProcessId -or $identity.ProcessId -le 0) { return [pscustomobject]$state }
+            if ($identity.ProcessId -ne $ProcessId) { continue }
+            if ($identity.AutomationId -eq '6301' -and $identity.ClassName -eq 'Edit' -and
+                -not (Get-UiaElementProperty -Driver $Driver -Element $child -Name IsOffscreen)) { $edit = $child }
+            if ($identity.AutomationId -eq '6302' -and $identity.ClassName -eq 'ListBox' -and
+                -not (Get-UiaElementProperty -Driver $Driver -Element $child -Name IsOffscreen)) { $list = $child }
+        }
+        $state.discoverySucceeded = $true
+    } catch { return [pscustomobject]$state }
     if ($edit) {
         $state.editPresent = $true
         try { $state.editHasKeyboardFocus = [bool](Get-UiaElementProperty -Driver $Driver -Element $edit -Name 'HasKeyboardFocus') } catch { }
         try { $state.editTextPresent = -not [string]::IsNullOrEmpty((Get-UiaElementTextValue -Driver $Driver -Element $edit)) } catch { }
     }
-    $list = $null
-    try { $list = Find-UiaElement -Driver $Driver -AutomationId '6302' -FromElement $Main -TimeoutMs 500 } catch { }
     if ($list) {
         $state.listPresent = $true
         try { $state.listEnabled = [bool](Get-UiaElementProperty -Driver $Driver -Element $list -Name 'IsEnabled') } catch { }
@@ -711,7 +728,7 @@ function Invoke-UiaPaletteCommand {
             continue
         }
         $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}{SHIFT}p'
-        try { $edit = Wait-UiaElement -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 4000 -PollIntervalMs 250 } catch { }
+        try { $edit = Wait-UiaDirectChild -Driver $Driver -AutomationId '6301' -ClassName Edit -ProcessId $ProcessId -Parent $Main -TimeoutMs 4000 -PollIntervalMs 250 } catch { }
         if (-not $edit) { Start-Sleep -Milliseconds 500 }
     }
     if (-not $edit) {
@@ -762,7 +779,10 @@ function Invoke-UiaPaletteCommand {
         }
     }
     $null = Send-UiaInput -Driver $Driver -Keys '{ENTER}'
-    $paletteClosed = Wait-UiaElementGone -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 3000 -PollIntervalMs 200
+    $paletteClosed = Wait-UiaCondition -Driver $Driver -TimeoutMs 3000 -PollIntervalMs 200 -Description 'native palette controls closed' -ScriptBlock {
+        $closedState = Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId
+        return $closedState.discoverySucceeded -and -not $closedState.editPresent -and -not $closedState.listPresent
+    }
     if (-not $paletteClosed) {
         return [pscustomobject]@{ Pass = $false; Detail = "palette '$Query' did not close after one Enter; commandId='$ExpectedCommandId'; state=$((ConvertTo-Json (Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId -ExpectedCommandNames @($ExpectedCommandName)) -Compress -Depth 8))"; CommandState = $commandState }
     }
@@ -1070,9 +1090,34 @@ function Get-UiaDiagnosticsLogPath {
 }
 
 function Get-UiaCommandDispatchEvidence {
-    param([Parameter(Mandatory)] [string] $CommandId)
-    $logPath = Get-UiaDiagnosticsLogPath
+    param([Parameter(Mandatory)] [string] $CommandId, [string] $LogPath = '',
+        [long] $LogOffset = -1, [int] $ProcessId = 0, [long] $AfterEpochMs = 0)
+    if (-not $LogPath) { $LogPath = Get-UiaDiagnosticsLogPath }
     if (-not $logPath -or -not (Test-Path -LiteralPath $logPath)) { return $null }
+    if ($LogOffset -ge 0) {
+        # A timed action owns an exact session log and pre-input byte offset.
+        # Read forward so later provider traffic cannot evict its dispatch from
+        # a tail window. Bound scanning and require structured PID/time identity.
+        $stream=$null; $reader=$null
+        try {
+            $stream=[IO.File]::Open($LogPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+            if ($stream.Length -lt $LogOffset) { return $null }
+            $null=$stream.Seek($LogOffset,[IO.SeekOrigin]::Begin)
+            $reader=[IO.StreamReader]::new($stream,[Text.Encoding]::UTF8,$true)
+            $scanned=0
+            while ($scanned -lt 2MB -and -not $reader.EndOfStream) {
+                $line=$reader.ReadLine(); $scanned+=$line.Length
+                if ($line -notmatch 'FFDIAG_UI_COMMAND_DISPATCHED') { continue }
+                try { $event=$line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+                if ($event.codeName -ne 'FFDIAG_UI_COMMAND_DISPATCHED' -or
+                    [string]$event.message -notmatch ([regex]::Escape('command='+$CommandId)+'(?:;|$)') -or
+                    ($ProcessId -gt 0 -and $event.pid -ne $ProcessId) -or $event.epochMs -lt $AfterEpochMs) { continue }
+                return [pscustomobject]@{codeName=$event.codeName;message=$event.message;state=$event.state;outcome=$event.outcome;pid=$event.pid;epochMs=$event.epochMs;logOffset=$LogOffset}
+            }
+        } catch { return $null }
+        finally { if($reader) { $reader.Dispose() } elseif($stream) { $stream.Dispose() } }
+        return $null
+    }
     try {
         $commandPattern = [regex]::Escape("command=$CommandId")
         # completion-integrity-hardening-and-release-certification 2.6: opening

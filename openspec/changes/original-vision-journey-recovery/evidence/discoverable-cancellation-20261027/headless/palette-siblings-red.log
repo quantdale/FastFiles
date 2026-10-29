@@ -1,0 +1,5 @@
+FAIL: palette sibling remains discoverable after4096 earlier file rows
+FAIL: palette observation enumerates only direct siblings once
+FAIL: successful enumeration establishes discovery authority
+  ok: same-ID foreign process control is rejected
+FAIL: provider failure is unresolved rather than certified palette absence

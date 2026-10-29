@@ -1,5 +1,7 @@
 ## Why
 
+The bounded4.11 follow-up makes the existing Restore conflict checkbox honor its displayed request-wide promise and counts intentional Restore skips separately from errors. Native multi-collision checkbox qualification extends the existing conflict driver; source/planner success does not certify real app Undo or checkbox input.
+
 The original Find/Navigate/Understand/Act vision is undermined by composition defects: Storage commands discard their selected target, category summaries masquerade as files, and search reveal from Home bypasses typed navigation. Recover these signature journeys before adding visual complexity.
 
 ## What Changes
@@ -11,6 +13,7 @@ The original Find/Navigate/Understand/Act vision is undermined by composition de
 - Keep narrow engine/status feedback legible through bounded one-line presentation without changing full status or connection semantics.
 - Record the five-pillar audit and validate actual native journeys with stronger destination assertions.
 - Extend All-category Largest Files from immediate children to the100 largest logical-size known files under the selected folder, with source/coverage labels, visible containing locations and exact descendant actions. Preserve category refinements as explicitly immediate-folder views and retain hierarchical Treemap data.
+- Explain common file-operation failures with source/destination-aware recovery guidance while preserving original HRESULTs and manual retry semantics; qualify the real owned-file daily-driver journeys.
 
 ## Capabilities
 
@@ -34,3 +37,4 @@ The native conflict-decision slice also restores real accessible action names, W
 Native lifecycle qualification also corrects the E2E Alt+F4 fallback to the existing braced-modifier input contract and preserves close-route evidence without changing ownership controls, timeouts or product shutdown behavior.
 
 The bounded shutdown successor corrects UI COM lifetime, abandons pending icon work and declines saturated file-type lookup admission while retaining active task ownership. Opt-in metadata phases identify actual shutdown progress. This does not establish the cause of the observed Home close timeout or qualify native exit.
+The bounded 4.7 follow-up exposes Cancel File Operations through the native command palette and registry-driven Browse/Search File menus. Availability reflects running or queued work independently of selection; Storage's hardcoded menu is outside this slice. Native qualification remains pending.

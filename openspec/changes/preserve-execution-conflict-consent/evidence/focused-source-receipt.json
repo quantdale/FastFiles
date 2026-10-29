@@ -1,0 +1,14 @@
+{
+  "base": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+  "scope": "Focused worker tests on session-owned source delta; no standalone native app launched",
+  "passed": 2,
+  "failed": 0,
+  "skipped": 0,
+  "seconds": 11.57,
+  "files": {
+    "src/ui/src/FileOperations.cpp": "c895c68e56787d3114bf91be0365c690b2fe2237b0dbfbc550ed4e0dda3d91d3",
+    "tests/fileoperations/test_file_operations_e2e.cpp": "23760ffd35e7e87951dc11a90bd2892828199f563f7100646a5a9c87fa2df676",
+    "tests/fileoperations/CMakeLists.txt": "e98c572b9ba71cbcd01c0c6c88d3c02171c7863103ecf897e27c475f9dc52e7a"
+  },
+  "note": "Final direct iterator include is a header hygiene follow-up; focused recompile follows before commit. No whole-executable identity inferred from dirty checkpoint."
+}

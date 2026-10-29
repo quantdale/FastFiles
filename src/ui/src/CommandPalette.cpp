@@ -148,6 +148,20 @@ void CommandPalette::Reposition() {
                  height - editHeight - Scaled(2), kPaletteOverlayLayoutFlags);
 }
 
+void CommandPalette::UpdateContext(CommandContext context) {
+    context_ = context;
+    if (!visible_) return;
+    bool changed = false;
+    for (auto& result : results_) {
+        const bool enabled = CommandEnabled(*result.command, context_);
+        changed = changed || result.enabled != enabled;
+        result.enabled = enabled;
+    }
+    // original-vision-journey-recovery 4.7: repaint availability in place;
+    // rebuilding the list would reset the query selection and scroll position.
+    if (changed) InvalidateRect(list_, nullptr, FALSE);
+}
+
 void CommandPalette::RefreshResults() {
     wchar_t query[512]{};
     GetWindowTextW(edit_, query, static_cast<int>(std::size(query)));
@@ -176,7 +190,8 @@ void CommandPalette::ExecuteSelected() {
     if (selected == LB_ERR || static_cast<size_t>(selected) >= results_.size()) return;
     const auto& result = results_[static_cast<size_t>(selected)];
     if (!result.enabled) {
-        MessageBoxW(owner_, L"That command is not available for the current selection.",
+        const auto& reason = result.command->disabledReason;
+        MessageBoxW(owner_, reason.empty() ? L"That command is not available for the current selection." : reason.c_str(),
                     L"Command unavailable", MB_OK | MB_ICONINFORMATION);
         return;
     }

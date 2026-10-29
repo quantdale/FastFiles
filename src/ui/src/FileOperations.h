@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -19,6 +20,7 @@ namespace ffui {
 // contains a COM interface or any other apartment-bound value.
 constexpr UINT WM_APP_FILE_OPERATION_EVENT = WM_APP + 2;
 constexpr UINT WM_APP_FILE_OPERATION_CONFLICT = WM_APP + 8;
+constexpr UINT WM_APP_FILE_OPERATION_AVAILABILITY = WM_APP + 14;
 
 struct FileOperationConflictQuestion {
     std::wstring source;
@@ -44,7 +46,19 @@ enum class FileOperationEventKind { Queued, Started, Progress, Completed, Cancel
 struct FileOperationFailure {
     std::wstring path;
     HRESULT error = S_OK;
+    HRESULT cleanupError = S_OK;
 };
+
+// preserve-rename-and-creation-destinations: native same-volume rename with
+// no replacement permission. Used by the worker and its late-target test;
+// caller validates the requested sibling leaf before supplying either path.
+HRESULT RenameWithoutReplacement(const std::wstring& source, const std::wstring& destination);
+
+// Preserve an unreported phase error before recording later unexecuted work.
+// Exposed to the headless worker test; it performs no I/O or shell mutation.
+void CompleteOperationFailures(std::vector<FileOperationFailure>& failures, HRESULT result, bool cancellationRequested,
+    const std::vector<std::wstring>& sources, const std::wstring& destination,
+    const std::vector<ReversiblePath>& completedPaths, const std::vector<ReplacementTarget>& unexecutedReplacements);
 
 struct FileOperationEvent {
     FileOperationEventKind kind;
@@ -89,6 +103,7 @@ public:
     void Stop();
     void Enqueue(FileOperationRequest request);
     void CancelCurrent();
+    bool HasOutstandingWork() const;
 
     // Used by the worker-owned progress sink to return plain-data events to
     // the UI message loop.
@@ -101,17 +116,27 @@ private:
     HWND eventWindow_ = nullptr;
     std::atomic<DWORD> workerThreadId_{0};
     std::thread worker_;
-    std::mutex queueMutex_;
+    mutable std::mutex queueMutex_;
     std::deque<FileOperationRequest> queue_;
     // Guarded by queueMutex_: true while a dequeued request is executing.
     bool executing_ = false;
     std::atomic<bool> stopping_{false};
     std::atomic<bool> cancelRequested_{false};
+    // Presentation cadence only. Queued events from the UI must not reset
+    // progress for the operation still executing on the worker.
+    mutable std::mutex progressMutex_;
+    mutable std::chrono::steady_clock::time_point lastProgressPost_{};
+    mutable bool progressPosted_ = false;
+    mutable bool quantifiedProgressPosted_ = false;
 };
 
 // Last-operation-errors retention contract: only terminal (Completed or
 // Cancelled) events carry the authoritative per-item failure list; Progress
 // ticks never clear a recorded list. WindowShell calls this for every event.
 void RetainLastOperationFailures(std::vector<FileOperationFailure>& retained, const FileOperationEvent& event);
+
+// Human-readable recovery guidance followed by the original diagnostic code.
+// Presentation only: never changes failure classification or retries work.
+std::wstring DescribeFileOperationFailure(HRESULT error);
 
 } // namespace ffui

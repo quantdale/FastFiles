@@ -1,0 +1,17 @@
+[owned-operations] pid=117464; waiting for main window
+[owned-operations] main=True ready=True (engine-connected)
+PHASE: in-flight-copy-fixture
+PHASE: in-flight-copy-source
+PHASE: in-flight-copy-destination
+PHASE: in-flight-copy-observation
+PHASE: in-flight-copy-cancel-input
+FAIL: in-flight-copy-cancel-input: Palette cancellation failed: {"Pass":false,"Detail":"palette 'Cancel File Operations' semantic selection failed: palette-result-list-unavailable: palette result list was missing, hidden, or empty; state={\"editPresent\":false,\"editHasKeyboardFocus\":false,\"editTextPresent\":false,\"listPresent\":false,\"listEnabled\":false,\"listNativeHandle\":null,\"listVisible\":false,\"listItems\":[],\"selectedIndex\":-1,\"selectedName\":null,\"expectedMatches\":[],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":14358166,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"6301\",\"focusedControlType\":\"Edit\",\"focusedProcessId\":117464,\"popupClasses\":[]}}","CommandState":{"editPresent":false,"editHasKeyboardFocus":false,"editTextPresent":false,"listPresent":false,"listEnabled":false,"listNativeHandle":null,"listVisible":false,"listItems":[],"selectedIndex":-1,"selectedName":null,"expectedMatches":[],"expectedNameLikeMatches":[],"interactive":{"foregroundHwnd":14358166,"foregroundEvidenceAvailable":true,"foregroundTitle":"FastFiles","focusedAutomationId":"6301","focusedControlType":"Edit","focusedProcessId":117464,"popupClasses":[]}}}
+[owned-operations] lifecycle teardown complete; cleanupPass=True; residue=
+Exception: D:\Documents\tryPython\FastFiles-worktrees\cancel-command-20261026\verify\e2e\Test-OwnedFileOperations.ps1:486
+Line |
+ 486 |  if($failure) { throw $failure }
+     |                 ~~~~~~~~~~~~~~
+     | in-flight-copy-cancel-input: Palette cancellation failed: {"Pass":false,"Detail":"palette 'Cancel File
+     | Operations' semantic selection failed: palette-result-list-unavailable: palette result list was missing, hidden,
+     | or empty;
+     | state={\"editPresent\":false,\"editHasKeyboardFocus\":false,\"editTextPresent\":false,\"listPresent\":false,\"listEnabled\":false,\"listNativeHandle\":null,\"listVisible\":false,\"listItems\":[],\"selectedIndex\":-1,\"selectedName\":null,\"expectedMatches\":[],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":14358166,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"6301\",\"focusedControlType\":\"Edit\",\"focusedProcessId\":117464,\"popupClasses\":[]}}","CommandState":{"editPresent":false,"editHasKeyboardFocus":false,"editTextPresent":false,"listPresent":false,"listEnabled":false,"listNativeHandle":null,"listVisible":false,"listItems":[],"selectedIndex":-1,"selectedName":null,"expectedMatches":[],"expectedNameLikeMatches":[],"interactive":{"foregroundHwnd":14358166,"foregroundEvidenceAvailable":true,"foregroundTitle":"FastFiles","focusedAutomationId":"6301","focusedControlType":"Edit","focusedProcessId":117464,"popupClasses":[]}}}

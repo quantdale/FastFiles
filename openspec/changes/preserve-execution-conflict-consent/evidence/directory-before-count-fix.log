@@ -1,0 +1,118 @@
+ok: COM initialization failed
+ok: window class registration failed
+ok: event window creation failed
+ok: temp path unavailable
+ok: new worker must be idle
+ok: queued work must be outstanding before worker Start
+ok: idle operation queue must be unavailable for cancellation
+ok: worker did not start
+ok: first target initially absent
+ok: only the expected second collision prompts
+ok: CREATE_NEW proves target appeared after absence preflight
+ok: close owned target sentinel
+ok: write exact owned sentinel before answering conflict
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: deterministic preflight boundary and exactly one terminal event
+ok: source outcomes match actual transfer and intentional skip
+ok: post-preflight destination must never be overwritten without consent
+ok: skipped destination and unrelated sentinel preserved
+ok: exact target inventory retains incoming copy and all existing files
+ok: original total, completion and intentional skip remain truthful
+consent diagnostic: completed=1 failed=0 skipped=1 terminal=3
+ok: first target initially absent
+ok: only the expected second collision prompts
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: deterministic preflight boundary and exactly one terminal event
+ok: source outcomes match actual transfer and intentional skip
+ok: post-preflight destination must never be overwritten without consent
+ok: skipped destination and unrelated sentinel preserved
+ok: exact target inventory retains incoming copy and all existing files
+ok: original total, completion and intentional skip remain truthful
+consent diagnostic: completed=1 failed=0 skipped=1 terminal=3
+ok: first target initially absent
+ok: only the expected second collision prompts
+ok: CREATE_NEW proves target appeared after absence preflight
+ok: close owned target sentinel
+ok: write exact owned sentinel before answering conflict
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: deterministic preflight boundary and exactly one terminal event
+ok: source outcomes match actual transfer and intentional skip
+ok: post-preflight destination must never be overwritten without consent
+ok: skipped destination and unrelated sentinel preserved
+ok: exact target inventory retains incoming copy and all existing files
+ok: original total, completion and intentional skip remain truthful
+ok: move undo names actual collision-safe destination
+consent diagnostic: completed=1 failed=0 skipped=1 terminal=3
+ok: first target initially absent
+ok: only the expected second collision prompts
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: deterministic preflight boundary and exactly one terminal event
+ok: source outcomes match actual transfer and intentional skip
+ok: post-preflight destination must never be overwritten without consent
+ok: skipped destination and unrelated sentinel preserved
+ok: exact target inventory retains incoming copy and all existing files
+ok: original total, completion and intentional skip remain truthful
+ok: move undo names actual collision-safe destination
+consent diagnostic: completed=1 failed=0 skipped=1 terminal=3
+ok: first target initially absent
+ok: owned Shell restore identity unavailable
+ok: owned Shell restore identity unavailable
+ok: only the expected second collision prompts
+ok: CREATE_NEW proves target appeared after absence preflight
+ok: close owned target sentinel
+ok: write exact owned sentinel before answering conflict
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: deterministic preflight boundary and exactly one terminal event
+ok: source outcomes match actual transfer and intentional skip
+ok: post-preflight destination must never be overwritten without consent
+ok: skipped destination and unrelated sentinel preserved
+ok: exact target inventory retains incoming copy and all existing files
+ok: original total, completion and intentional skip remain truthful
+consent diagnostic: completed=1 failed=0 skipped=1 terminal=3
+ok: first target initially absent
+ok: owned Shell restore identity unavailable
+ok: owned Shell restore identity unavailable
+ok: only the expected second collision prompts
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: deterministic preflight boundary and exactly one terminal event
+ok: source outcomes match actual transfer and intentional skip
+ok: post-preflight destination must never be overwritten without consent
+ok: skipped destination and unrelated sentinel preserved
+ok: exact target inventory retains incoming copy and all existing files
+ok: original total, completion and intentional skip remain truthful
+consent diagnostic: completed=1 failed=0 skipped=1 terminal=3
+ok: directory test reaches only expected later conflict
+ok: new target directory appears after parent preflight
+ok: new directory sentinel written
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: directory transfer finishes without repeated prompt or failure
+ok: late directory must not merge over existing nested data
+ok: exact directory inventory keeps both roots with original nested bytes
+ok: directory operation preserves skipped source and destination
+ok: directory source follows copy or move semantics
+directory consent: completed=2 total=2 skipped=1 failures=0
+ok: directory test reaches only expected later conflict
+ok: new target directory appears after parent preflight
+ok: new directory sentinel written
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: directory transfer finishes without repeated prompt or failure
+ok: late directory must not merge over existing nested data
+ok: exact directory inventory keeps both roots with original nested bytes
+ok: directory operation preserves skipped source and destination
+ok: directory source follows copy or move semantics
+directory consent: completed=1 total=2 skipped=1 failures=0
+ok: mixed cancel binds actual replacement prompt
+ok: file operation timed out
+ok: terminal operation did not drain outstanding work
+ok: cancelled mixed request cannot publish completed work or undo
+ok: cancellation prevents ordinary and approved replacement mutation
+ok: cleanup stays within own temporary parent
+ok: owned consent fixture cleaned normally

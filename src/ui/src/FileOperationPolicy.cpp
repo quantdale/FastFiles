@@ -1,13 +1,20 @@
 #include "FileOperationPolicy.h"
 
+#include <algorithm>
 #include <cwctype>
 #include <filesystem>
 #include <set>
 #include <unordered_set>
 
 #include "ffprotocol/WindowsPath.h"
+#include <sherrors.h>
 
 namespace ffui {
+
+bool IsRequestedCancellationFailure(std::int32_t error, bool requested) noexcept {
+    return requested && (error == static_cast<std::int32_t>(HRESULT_FROM_WIN32(ERROR_CANCELLED)) ||
+                         error == static_cast<std::int32_t>(COPYENGINE_E_USER_CANCELLED));
+}
 
 namespace {
 
@@ -24,7 +31,68 @@ std::wstring DestinationKey(const std::wstring& path) {
     return std::filesystem::path(path).lexically_normal().wstring();
 }
 
+std::wstring NormalizeTransferPath(const std::wstring& path) {
+    std::wstring value = DestinationKey(path);
+    if (value.size() >= 8 && ffprotocol::WindowsPathEqual(value.substr(0, 8), L"\\\\?\\UNC\\")) value = L"\\\\" + value.substr(8);
+    else if (value.starts_with(L"\\\\?\\")) value.erase(0, 4);
+    std::replace(value.begin(), value.end(), L'/', L'\\');
+    while (!value.empty() && value.back() == L'\\') value.pop_back();
+    return value;
+}
+
+bool PathContains(const std::wstring& parent, const std::wstring& child) {
+    if (child.size() < parent.size()) return false;
+    if (!ffprotocol::WindowsPathEqual(parent, std::wstring_view(child).substr(0, parent.size()))) return false;
+    return child.size() == parent.size() || child[parent.size()] == L'\\';
+}
+
 } // namespace
+
+bool TransferPathsOverlap(const std::wstring& left, const std::wstring& right) {
+    const auto a = NormalizeTransferPath(left);
+    const auto b = NormalizeTransferPath(right);
+    // An unavailable actual result name cannot establish that replacement is safe.
+    if (a.empty() || b.empty()) return true;
+    return PathContains(a, b) || PathContains(b, a);
+}
+
+ReplacementSafety EvaluateReplacementSafety(size_t submittedOrdinary, bool ordinaryFailed,
+    const std::vector<ReversiblePath>& ordinaryResults, const std::vector<ReplacementTarget>& replacements) {
+    if (ordinaryFailed || ordinaryResults.size() != submittedOrdinary ||
+        std::any_of(ordinaryResults.begin(), ordinaryResults.end(), [](const auto& item) { return item.resultingPath.empty(); }) ||
+        std::any_of(replacements.begin(), replacements.end(), [](const auto& item) { return item.destination.empty(); })) {
+        return ReplacementSafety::Incomplete;
+    }
+    std::vector<std::wstring> ordinaryPaths;
+    ordinaryPaths.reserve(ordinaryResults.size());
+    for (const auto& result : ordinaryResults) {
+        auto path = NormalizeTransferPath(result.resultingPath);
+        if (path.empty()) return ReplacementSafety::Incomplete;
+        ordinaryPaths.push_back(std::move(path));
+    }
+    std::vector<std::wstring> replacementPaths;
+    replacementPaths.reserve(replacements.size());
+    for (const auto& replacement : replacements) {
+        auto path = NormalizeTransferPath(replacement.destination);
+        if (path.empty()) return ReplacementSafety::Incomplete;
+        replacementPaths.push_back(std::move(path));
+    }
+    const ffprotocol::CaseInsensitivePathLess less;
+    std::sort(ordinaryPaths.begin(), ordinaryPaths.end(), less);
+    for (const auto& target : replacementPaths) {
+        if (std::binary_search(ordinaryPaths.begin(), ordinaryPaths.end(), target, less)) return ReplacementSafety::Overlap;
+        const auto descendantPrefix = target + L"\\";
+        const auto child = std::lower_bound(ordinaryPaths.begin(), ordinaryPaths.end(), descendantPrefix, less);
+        if (child != ordinaryPaths.end() && PathContains(target, *child)) return ReplacementSafety::Overlap;
+        for (auto separator = target.find_last_of(L'\\'); separator != std::wstring::npos && separator > 0;
+             separator = target.find_last_of(L'\\', separator - 1)) {
+            if (std::binary_search(ordinaryPaths.begin(), ordinaryPaths.end(), target.substr(0, separator), less)) {
+                return ReplacementSafety::Overlap;
+            }
+        }
+    }
+    return ReplacementSafety::Safe;
+}
 
 bool IsValidFileName(const std::wstring& name, std::wstring* reason) {
     auto reject = [&](const wchar_t* message) {
@@ -127,6 +195,48 @@ std::vector<TransferPlanItem> BuildLinkPlan(const std::vector<std::wstring>& sou
         }
         result.push_back({source, name, false});
         plannedDestinations.insert(DestinationKey(Join(destinationFolder, name)));
+    }
+    return result;
+}
+
+std::optional<std::vector<RestorePlanItem>> BuildRestorePlan(
+    const std::vector<ReversiblePath>& paths, const PathExists& exists,
+    const ConflictPrompt& prompt) {
+    std::vector<RestorePlanItem> result;
+    std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> plannedDestinations;
+    const auto isOccupied = [&](const std::wstring& path) {
+        return plannedDestinations.contains(DestinationKey(path)) || exists(path);
+    };
+    std::optional<ConflictChoice> remainingChoice;
+    for (size_t index = 0; index < paths.size(); ++index) {
+        const auto& originalPath = paths[index].originalPath;
+        const auto original = std::filesystem::path(originalPath);
+        const std::wstring folder = original.parent_path().wstring();
+        const bool plannedCollision = plannedDestinations.contains(DestinationKey(originalPath));
+        if (!plannedCollision && !exists(originalPath)) {
+            result.push_back({index, {}, false});
+            plannedDestinations.insert(DestinationKey(originalPath));
+            continue;
+        }
+        ConflictChoice choice;
+        if (remainingChoice) {
+            choice = *remainingChoice;
+        } else {
+            const ConflictDecision decision = prompt(originalPath, originalPath);
+            choice = decision.choice;
+            if (decision.applyToAllRemaining && choice != ConflictChoice::Cancel) remainingChoice = choice;
+        }
+        if (choice == ConflictChoice::Cancel) return std::nullopt;
+        if (choice == ConflictChoice::Skip) continue;
+        if (choice == ConflictChoice::Replace && !plannedCollision) {
+            result.push_back({index, {}, true});
+            plannedDestinations.insert(DestinationKey(originalPath));
+            continue;
+        }
+        const std::wstring name = GenerateKeepBothName(folder, original.filename().wstring(), isOccupied);
+        if (name.empty()) return std::nullopt;
+        result.push_back({index, name, false});
+        plannedDestinations.insert(DestinationKey(Join(folder, name)));
     }
     return result;
 }

@@ -1,0 +1,6 @@
+  ok: forward offset read retains exact fresh owned dispatch beyond tail traffic
+  ok: foreign PID cannot certify dispatch
+  ok: pre-input timestamp cannot certify dispatch
+  ok: pre-offset receipt cannot certify a later action
+  ok: truncated log cannot borrow an old offset
+  ok: product rejection remains rejected

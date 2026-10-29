@@ -1,12 +1,21 @@
 #pragma once
 
 #include <functional>
+#include <cstdint>
 #include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace ffui {
+
+// preserve-execution-conflict-consent: known user cancellation is not an IO
+// failure. Other errors remain failures even when cancellation was requested.
+bool IsRequestedCancellationFailure(std::int32_t error, bool requested) noexcept;
+
+// protect-generated-transfer-results: lexical Windows namespace overlap,
+// including either ancestor direction. This does not resolve filesystem aliases.
+bool TransferPathsOverlap(const std::wstring& left, const std::wstring& right);
 
 enum class ConflictChoice { Replace, Skip, KeepBoth, Cancel };
 
@@ -45,6 +54,31 @@ struct ReversiblePath {
     std::wstring resultingPath;
     std::vector<std::byte> shellItemId;
 };
+
+struct ReplacementTarget {
+    std::wstring source;
+    std::wstring destination;
+};
+
+enum class ReplacementSafety { Safe, Overlap, Incomplete };
+
+// Missing root callbacks or failed/unnamed ordinary results cannot establish
+// that an approved replacement is disjoint from all incoming output.
+ReplacementSafety EvaluateReplacementSafety(size_t submittedOrdinary, bool ordinaryFailed,
+    const std::vector<ReversiblePath>& ordinaryResults, const std::vector<ReplacementTarget>& replacements);
+
+struct RestorePlanItem {
+    size_t restoreIndex = 0;
+    std::wstring destinationName;
+    bool replacesExisting = false;
+};
+
+// Plans the entire restore before any Shell mutation is submitted. Indices
+// retain the original opaque Shell identity; destination reservations span
+// folders and conflict choices are scoped to this request only.
+std::optional<std::vector<RestorePlanItem>> BuildRestorePlan(
+    const std::vector<ReversiblePath>& paths, const PathExists& exists,
+    const ConflictPrompt& prompt);
 
 struct ReversibleOperation {
     ReversibleOperationKind kind;

@@ -70,6 +70,7 @@ struct CommandContext {
     SelectionKind selectionKind = SelectionKind::Empty;
     bool clipboardCompatible = false;
     bool browseWorkspace = true;
+    bool fileOperationsOutstanding = false;
 };
 
 // Handlers deliberately receive only filesystem paths. This caller-agnostic

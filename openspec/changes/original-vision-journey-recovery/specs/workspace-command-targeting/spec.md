@@ -45,6 +45,35 @@ Native restore qualification SHALL close every app lifecycle through the actual 
 #### Scenario: Restored Home does not close
 - **WHEN** the third restored Home app does not exit within the native close deadline
 - **THEN** restoration qualification fails and retains its close observation instead of accepting later fixture cleanup as a pass
+### Requirement: Restore decisions preserve request scope and data
+
+Restore conflict decisions SHALL honor apply-to-all for subsequent collisions in the same request and SHALL reset for every new request. Skip SHALL be counted separately from failures. The entire restore plan SHALL finish before filesystem mutations are submitted; Cancel SHALL discard all planned moves. Keep-both destinations SHALL be reserved across the plan so later entries cannot overwrite earlier restores.
+
+#### Scenario: Several restore collisions across original folders
+- **WHEN** a user checks apply-to-all and chooses Replace, Skip or Keep both on the first restore collision
+- **THEN** subsequent collisions use that decision, noncollisions retain their own original targets, and the terminal total/completed/skipped/failure counts match the whole request
+- **AND** a new request asks again with its fresh unchecked choice
+
+#### Scenario: Cancel after an unchecked restore decision
+- **WHEN** a user skips one conflict without apply-to-all and cancels a later conflict
+- **THEN** neither earlier planned restores nor noncolliding entries have been moved
+
+#### Scenario: A destination is reserved by an earlier restore
+- **WHEN** Replace would overwrite an item already planned for this same batch
+- **THEN** the later restore receives a distinct reserved Keep-both name instead of replacing the earlier source
+
+### Requirement: File-operation failures provide truthful recovery feedback
+
+Retained failures SHALL show the original filesystem target and HRESULT with readable recovery guidance when the cause is known. Source and destination sharing violations SHALL remain distinct. Unknown failures SHALL retain their diagnostic code without claiming a successful action or automatic retry. An operation stopped with failures SHALL visibly identify errors rather than presenting only a cancellation notice; the existing manual retry and per-item failure contracts SHALL remain unchanged.
+
+#### Scenario: Source is in use
+- **WHEN** a source file is locked and another selected file copies successfully
+- **THEN** the stopped-with-errors feedback identifies the failure, the detail explains that the source is in use and suggests closing the app using it, and its original path/code remain available
+- **AND** releasing the lock and repeating normal Copy/Paste preserves the original bytes
+
+#### Scenario: Unknown failure
+- **WHEN** Windows reports an unmapped operation failure
+- **THEN** the user sees a bounded system description or neutral failure explanation and the unchanged diagnostic code
 
 ### Requirement: Settings completion controls fit the real dialog
 
@@ -172,3 +201,18 @@ The UI SHALL destroy shell COM owners before OLE teardown, abandon queued icon w
 #### Scenario: Close qualification remains truthful
 - **WHEN** native close does not exit within the existing10s bound
 - **THEN** qualification remains failed and phase evidence is retained without attributing an unproven cause
+### Requirement: Cancellation is discoverable independently of selection
+
+The native command palette and registry-driven Browse/Search File menus SHALL expose Cancel File Operations. It SHALL be enabled exactly when the worker has running or queued work, with an idle disabled reason, independently of workspace selection. Invocation SHALL revalidate real outstanding work and share the canonical cancellation action with Escape without changing modal, search, palette or native-edit Escape precedence. Cancellation SHALL retain its existing running-and-queued-at-cancel scope. A visible palette SHALL refresh availability without changing its query or selected command. Storage's hardcoded context menu is outside this requirement.
+
+#### Scenario: Idle discovery
+- **WHEN** the user searches for Cancel File Operations while no work is outstanding
+- **THEN** the command is visible and disabled with No file operations are running or queued, and cannot cancel later work
+
+#### Scenario: Work finishes while the palette is open
+- **WHEN** the last operation drains while the command palette is visible
+- **THEN** its cancellation choice becomes disabled while query, selected command and scroll remain unchanged
+
+#### Scenario: Selection changes during an operation
+- **WHEN** running or queued work exists in any workspace with an empty, file, folder or mixed selection
+- **THEN** the cancellation command remains enabled and acts on outstanding operations without consuming selected paths

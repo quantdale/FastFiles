@@ -1,0 +1,161 @@
+{
+  "main": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+  "base": "12b40ee402582f27f1e21e9df44fffc8bebe51e3",
+  "localStatus": "## test/protect-generated-transfer-results-20261028...origin/fix/shortcut-creation-safety-20261028\n M docs/agent/WORKSTATE.md\n M openspec/lifecycle.json\n M src/ui/src/FileOperationPolicy.cpp\n M src/ui/src/FileOperationPolicy.h\n M src/ui/src/FileOperations.cpp\n M tests/fileoperations/CMakeLists.txt\n M tests/fileoperations/test_file_operation_policy.cpp\n M tests/fileoperations/test_file_operations_e2e.cpp\n?? openspec/changes/protect-generated-transfer-results/",
+  "worktrees": "worktree D:/Documents/tryPython/FastFiles\nHEAD b77d61e7ad21b549be1b2c29bda35a85ce4a97e9\nbranch refs/heads/feat/large-index-lifecycle-and-search-scalability-20261008\n\nworktree D:/Documents/tryPython/FastFiles/.kilo/worktrees/scythe-cloud\nHEAD 0dc33562ad6380c8b505ab221769acb189cd83b1\ndetached\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/acceptance-20261025\nHEAD 4a1457660420f8021295ebadd505f8baf63dfbac\nbranch refs/heads/fix/acceptance-frontier-20261025\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/address-discovery-20261028\nHEAD 30a2bc60bc802648259ca2dad819b54c9c420211\nbranch refs/heads/fix/address-navigation-discovery-20261028\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/cancel-command-20261026\nHEAD 95c1589a7b3ca6511aea93961509b819a1c64270\nbranch refs/heads/feat/discoverable-operation-cancel-20261026\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/column-uia-20261025\nHEAD d2187aa45d0023a3878b94c8891989194ed4f9ac\nbranch refs/heads/fix/column-uia-identity-dispatch-20261025\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/compact-palette-20261028\nHEAD 8a916999a72cceb80e60e51b367e5eba8bed9b58\nbranch refs/heads/feat/compact-native-command-palette-20261028\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/conflict-actions-20261026\nHEAD b028e1165e7d6199bc3cc04d8fece0a9b5f443aa\nbranch refs/heads/fix/accessible-conflict-actions-20261026\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/execution-consent-20261027\nHEAD 430b7111cb3acf91aadc28472d6fdf3146ee4f4d\nbranch refs/heads/fix/execution-conflict-consent-20261027\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/fileops-feedback-20261026\nHEAD fef65837a30aeb6fa44283490d4e25cb584aab3e\nbranch refs/heads/fix/actionable-file-operation-errors-20261026\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/fixture-ownership-20261026\nHEAD 3a9a2460b67d013f07db00c7016ee9b69c7f162a\nbranch refs/heads/fix/uia-fixture-window-ownership-20261026\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/foreground-retry-20261028\nHEAD 30a2bc60bc802648259ca2dad819b54c9c420211\nbranch refs/heads/test/foreground-retry-regression-20261028\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/integration-20261025\nHEAD 07fda9361985e8d64bdaa3e77f9d90aeb8045a2d\nbranch refs/heads/test/original-vision-integration-20261025\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/main-sync\nHEAD a26fe609439a18c128b2a2e557bc7eb2534fa128\nbranch refs/heads/main\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/native-text-20261026\nHEAD a07970ecb4a025a463d8809641fa5bf2c8718a0d\nbranch refs/heads/fix/native-single-line-status-20261026\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/oracle-mixed-20261026\nHEAD 51736309391d1a9081fae38efc3a82ebb0b6af16\nbranch refs/heads/test/mixed-residency-oracle-20261026\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/phase-consent-20261028\nHEAD 12b40ee402582f27f1e21e9df44fffc8bebe51e3\nbranch refs/heads/test/protect-generated-transfer-results-20261028\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/product-20261025\nHEAD 981a9ba678a191107c78eec22a60c9620eb5848e\nbranch refs/heads/feat/original-vision-product-20261025\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/quit-preservation-20261027\nHEAD 733a45b14d4a94cca1837248fa8f1c418fa55793\nbranch refs/heads/fix/preserve-ui-quit-20261027\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/restore-conflicts-20261027\nHEAD ec5bd9579e9456088ffbda988a900c2ebe8bb934\nbranch refs/heads/fix/restore-conflict-policy-20261027\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/search-20261025\nHEAD 8a4f58830238203ce622da8fc25a7ea708c91d8a\nbranch refs/heads/fix/search-result-home-handoff-20261025\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/shortcut-safety-20261027\nHEAD 12b40ee402582f27f1e21e9df44fffc8bebe51e3\nbranch refs/heads/fix/shortcut-creation-safety-20261028\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/shutdown-lifetime-20261026\nHEAD b683f33ba271c0de2b7eb4bc38faf5f9f391fa8c\nbranch refs/heads/fix/native-shutdown-lifetime-20261026\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/storage-compact-20261027\nHEAD 180ea28fdc281a2c55e60b7ad3d7bc4726d0ec68\nbranch refs/heads/fix/compact-storage-navigation-20261027\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/storage-ranking-20261027\nHEAD 275172ac97b65366a4a339359fc2cb60dfd754ba\nbranch refs/heads/feat/storage-intelligence-navigation-20261027\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/storage-ranking-residency-20261027\nHEAD dec145dfe63e6cd352fc3108e0423845a2690423\nbranch refs/heads/test/storage-ranking-residency-20261027\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/storage-uia-20261025\nHEAD 090f7e2f231a6c31f0bad356e982d83b65839cb9\nbranch refs/heads/feat/storage-semantic-list-20261025\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/treemap-intelligence-20261027\nHEAD c3b26ca1d103ced21ebd834b07805e4ff76cb123\nbranch refs/heads/fix/treemap-partial-intelligence-20261027\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/uia-client-probe-20261027\nHEAD e1c8e9fd41a7faef69d364ba1fc268a988a19014\nbranch refs/heads/test/native-uia-client-probe-20261027\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/uia-proxy-bootstrap-20261027\nHEAD 9f12c3a9c959f1682ad6ee44ed644034c5d1add0\nbranch refs/heads/fix/native-ui-verification-fidelity-20261027\n\nworktree D:/Documents/tryPython/FastFiles-worktrees/visible-uia-20261025\nHEAD 5456f1ec109b5fa9a6b24bdcdbf4ffa4b951c3e7\nbranch refs/heads/fix/visible-uia-workspace-20261025",
+  "trackingBranches": "+ feat/compact-native-command-palette-20261028                    8a91699 (D:/Documents/tryPython/FastFiles-worktrees/compact-palette-20261028) [origin/feat/discoverable-operation-cancel-20261026: ahead 1] Fit native command results without moving the query field\n+ feat/discoverable-operation-cancel-20261026                     95c1589 (D:/Documents/tryPython/FastFiles-worktrees/cancel-command-20261026) [origin/feat/discoverable-operation-cancel-20261026] Qualify discoverable cancellation with owned operation and conflict journeys\n+ feat/large-index-lifecycle-and-search-scalability-20261008      b77d61e (D:/Documents/tryPython/FastFiles) large-index-lifecycle: Phase A reproduction, root cause, and reachability evidence\n  feat/measured-performance-acceleration-20260930                 bdd7d7b [origin/feat/measured-performance-acceleration-20260930] measured-performance-and-exact-certification: make the full evidence set durable\n+ feat/original-vision-product-20261025                           981a9ba (D:/Documents/tryPython/FastFiles-worktrees/product-20261025) [origin/feat/original-vision-product-20261025] Keep Settings completion controls inside the visible dialog\n  feat/performance-closure-and-multisurface-acceleration-20261001 3c1c9c2 [origin/feat/performance-closure-and-multisurface-acceleration-20261001] performance-closure: correct the certified implementation SHA in the durable report\n  feat/recursive-storage-ranking-20261027                         1d37c1e [origin/feat/original-vision-product-20261025: ahead 5] Distinguish inactive Storage selection with native row edges\n+ feat/storage-intelligence-navigation-20261027                   275172a (D:/Documents/tryPython/FastFiles-worktrees/storage-ranking-20261027) [origin/feat/storage-intelligence-navigation-20261027] Verify adaptive Storage focus and selection across live resize\n+ feat/storage-semantic-list-20261025                             090f7e2 (D:/Documents/tryPython/FastFiles-worktrees/storage-uia-20261025) Bound fractional UIA geometry with outward pixel rounding\n+ fix/acceptance-frontier-20261025                                4a14576 (D:/Documents/tryPython/FastFiles-worktrees/acceptance-20261025) [origin/fix/acceptance-frontier-20261025] Preserve current-source certification and owner integration boundaries\n+ fix/accessible-conflict-actions-20261026                        b028e11 (D:/Documents/tryPython/FastFiles-worktrees/conflict-actions-20261026) [origin/fix/accessible-conflict-actions-20261026] Record qualified native conflict decisions and lifecycle boundaries\n+ fix/actionable-file-operation-errors-20261026                   fef6583 (D:/Documents/tryPython/FastFiles-worktrees/fileops-feedback-20261026) [origin/fix/actionable-file-operation-errors-20261026] Certify owned file-operation journeys and preserve Home-close boundary\n+ fix/address-navigation-discovery-20261028                       30a2bc6 (D:/Documents/tryPython/FastFiles-worktrees/address-discovery-20261028) [origin/fix/address-navigation-discovery-20261028] Close bounded navigation verification with draft integration handoff\n+ fix/column-uia-identity-dispatch-20261025                       d2187aa (D:/Documents/tryPython/FastFiles-worktrees/column-uia-20261025) [origin/fix/column-uia-identity-dispatch-20261025] Record qualified Column View identity and visible-focus contract\n+ fix/compact-storage-navigation-20261027                         180ea28 (D:/Documents/tryPython/FastFiles-worktrees/storage-compact-20261027) Prioritize Storage content with adaptive native view navigation\n+ fix/execution-conflict-consent-20261027                         430b711 (D:/Documents/tryPython/FastFiles-worktrees/execution-consent-20261027) [origin/fix/execution-conflict-consent-20261027] Certify collision-safe transfers and truthful native cancellation\n+ fix/native-shutdown-lifetime-20261026                           b683f33 (D:/Documents/tryPython/FastFiles-worktrees/shutdown-lifetime-20261026) [origin/fix/native-shutdown-lifetime-20261026] Qualify native shutdown lifetime and three clean restore closes\n+ fix/native-single-line-status-20261026                          a07970e (D:/Documents/tryPython/FastFiles-worktrees/native-text-20261026) [origin/fix/native-single-line-status-20261026] Preserve full combined product certification and actual visual limits\n+ fix/native-ui-verification-fidelity-20261027                    9f12c3a (D:/Documents/tryPython/FastFiles-worktrees/uia-proxy-bootstrap-20261027) [origin/fix/native-ui-verification-fidelity-20261027] Certify native verification fidelity without waiving product failures\n+ fix/preserve-ui-quit-20261027                                   733a45b (D:/Documents/tryPython/FastFiles-worktrees/quit-preservation-20261027) [origin/fix/preserve-ui-quit-20261027] Certify quit preservation with restored Home and full native journeys\n+ fix/restore-conflict-policy-20261027                            ec5bd95 (D:/Documents/tryPython/FastFiles-worktrees/restore-conflicts-20261027) [origin/fix/restore-conflict-policy-20261027] Certify request-scoped Restore conflict planning on isolated Debug source\n+ fix/search-result-home-handoff-20261025                         8a4f588 (D:/Documents/tryPython/FastFiles-worktrees/search-20261025) [origin/main: ahead 3] Preserve active workspaces during UIA foreground acquisition\n+ fix/shortcut-creation-safety-20261028                           12b40ee (D:/Documents/tryPython/FastFiles-worktrees/shortcut-safety-20261027) [origin/fix/shortcut-creation-safety-20261028] Close verified shortcut safety with draft integration handoff\n+ fix/treemap-partial-intelligence-20261027                       c3b26ca (D:/Documents/tryPython/FastFiles-worktrees/treemap-intelligence-20261027) Preserve truthful Treemap loading and unavailable status\n+ fix/uia-fixture-window-ownership-20261026                       3a9a246 (D:/Documents/tryPython/FastFiles-worktrees/fixture-ownership-20261026) [origin/fix/uia-fixture-window-ownership-20261026] Restrict UIA teardown to registered Explorer windows\n+ fix/visible-uia-workspace-20261025                              5456f1e (D:/Documents/tryPython/FastFiles-worktrees/visible-uia-20261025) Dispatch Home accessibility invokes on the owner thread\n+ main                                                            a26fe60 (D:/Documents/tryPython/FastFiles-worktrees/main-sync) [origin/main] docs(agents): add shared UX, DX, and AX principles\n+ test/foreground-retry-regression-20261028                       30a2bc6 (D:/Documents/tryPython/FastFiles-worktrees/foreground-retry-20261028) [origin/fix/address-navigation-discovery-20261028] Close bounded navigation verification with draft integration handoff\n+ test/mixed-residency-oracle-20261026                            5173630 (D:/Documents/tryPython/FastFiles-worktrees/oracle-mixed-20261026) Support mixed-residency canonical oracles at large scales\n+ test/native-uia-client-probe-20261027                           e1c8e9f (D:/Documents/tryPython/FastFiles-worktrees/uia-client-probe-20261027) Checkpoint native event-observation failure without accepting later cases\n+ test/original-vision-integration-20261025                       07fda93 (D:/Documents/tryPython/FastFiles-worktrees/integration-20261025) [origin/main: ahead 187] Reconcile published shortcut and navigation safety evidence\n* test/protect-generated-transfer-results-20261028                12b40ee [origin/fix/shortcut-creation-safety-20261028] Close verified shortcut safety with draft integration handoff\n+ test/storage-ranking-residency-20261027                         dec145d (D:/Documents/tryPython/FastFiles-worktrees/storage-ranking-residency-20261027) Qualify scoped file ranking across actual hot and cold read planes",
+  "prs": [
+    {
+      "baseRefName": "fix/execution-conflict-consent-20261027",
+      "headRefName": "fix/shortcut-creation-safety-20261028",
+      "headRefOid": "12b40ee402582f27f1e21e9df44fffc8bebe51e3",
+      "isDraft": true,
+      "number": 32,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "fix/native-ui-verification-fidelity-20261027",
+      "headRefName": "fix/address-navigation-discovery-20261028",
+      "headRefOid": "30a2bc60bc802648259ca2dad819b54c9c420211",
+      "isDraft": true,
+      "number": 31,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "fix/restore-conflict-policy-20261027",
+      "headRefName": "fix/execution-conflict-consent-20261027",
+      "headRefOid": "430b7111cb3acf91aadc28472d6fdf3146ee4f4d",
+      "isDraft": true,
+      "number": 30,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "feat/storage-intelligence-navigation-20261027",
+      "headRefName": "fix/preserve-ui-quit-20261027",
+      "headRefOid": "733a45b14d4a94cca1837248fa8f1c418fa55793",
+      "isDraft": true,
+      "number": 29,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "fix/native-ui-verification-fidelity-20261027",
+      "headRefOid": "9f12c3a9c959f1682ad6ee44ed644034c5d1add0",
+      "isDraft": true,
+      "number": 28,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "feat/discoverable-operation-cancel-20261026",
+      "headRefName": "fix/restore-conflict-policy-20261027",
+      "headRefOid": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+      "isDraft": true,
+      "number": 27,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "feat/storage-intelligence-navigation-20261027",
+      "headRefOid": "275172ac97b65366a4a339359fc2cb60dfd754ba",
+      "isDraft": true,
+      "number": 26,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "fix/actionable-file-operation-errors-20261026",
+      "headRefName": "feat/discoverable-operation-cancel-20261026",
+      "headRefOid": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "isDraft": true,
+      "number": 25,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "fix/uia-fixture-window-ownership-20261026",
+      "headRefName": "fix/native-shutdown-lifetime-20261026",
+      "headRefOid": "b683f33ba271c0de2b7eb4bc38faf5f9f391fa8c",
+      "isDraft": true,
+      "number": 24,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "fix/accessible-conflict-actions-20261026",
+      "headRefName": "fix/actionable-file-operation-errors-20261026",
+      "headRefOid": "fef65837a30aeb6fa44283490d4e25cb584aab3e",
+      "isDraft": true,
+      "number": 23,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "fix/accessible-conflict-actions-20261026",
+      "headRefName": "fix/uia-fixture-window-ownership-20261026",
+      "headRefOid": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "isDraft": true,
+      "number": 22,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "fix/accessible-conflict-actions-20261026",
+      "headRefOid": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "isDraft": true,
+      "number": 21,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "fix/native-single-line-status-20261026",
+      "headRefOid": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "isDraft": true,
+      "number": 20,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "fix/column-uia-identity-dispatch-20261025",
+      "headRefOid": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "isDraft": true,
+      "number": 19,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "feat/original-vision-product-20261025",
+      "headRefOid": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "isDraft": true,
+      "number": 18,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "feat/durable-cold-search-and-hybrid-residency",
+      "headRefName": "fix/acceptance-frontier-20261025",
+      "headRefOid": "4a1457660420f8021295ebadd505f8baf63dfbac",
+      "isDraft": true,
+      "number": 17,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "fix/f9-theme-toggle-follow-system",
+      "headRefOid": "e75a230db9ac89f6a638754cb6ad672735e4d644",
+      "isDraft": true,
+      "number": 16,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "headRefName": "feat/durable-cold-search-and-hybrid-residency",
+      "headRefOid": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+      "isDraft": true,
+      "number": 15,
+      "state": "OPEN"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "headRefOid": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+      "isDraft": false,
+      "number": 14,
+      "state": "OPEN"
+    }
+  ]
+}

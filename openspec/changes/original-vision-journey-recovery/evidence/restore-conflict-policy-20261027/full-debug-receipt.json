@@ -1,0 +1,40 @@
+{
+  "implementation": "be2036d7136d75309eee6d68e2ceb6f9be8b0c66",
+  "build": "PASS; 441 steps; confirmation exit0",
+  "selectedDebug": {
+    "passed": 127,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 272.03,
+    "command": "ctest --test-dir build/debug -E '^ffverify_process_reaper_ps_tests$' --output-on-failure"
+  },
+  "notExecuted": [
+    "ffverify_process_reaper_ps_tests",
+    "standalone native app",
+    "actual multi-item Recycle Bin Undo",
+    "hosted certification"
+  ],
+  "combinedReference": "1794c2e11facff5b3dde15a7f2e40be69c6f2329",
+  "componentScope": [
+    "src/ui/src/FileOperations.cpp",
+    "src/ui/src/FileOperationPolicy.cpp",
+    "src/ui/src/FileOperationPolicy.h"
+  ],
+  "componentBlobs": [
+    {
+      "path": "src/ui/src/FileOperations.cpp",
+      "standalone": "810f54e233d610b69280fe1f1a79b521373ec055",
+      "combined": "810f54e233d610b69280fe1f1a79b521373ec055"
+    },
+    {
+      "path": "src/ui/src/FileOperationPolicy.cpp",
+      "standalone": "81686e89aea6d9863d31e2890a908f00f94d9dea",
+      "combined": "81686e89aea6d9863d31e2890a908f00f94d9dea"
+    },
+    {
+      "path": "src/ui/src/FileOperationPolicy.h",
+      "standalone": "09c27cf4182a1e09b9aae27c295a914e9d4b9748",
+      "combined": "09c27cf4182a1e09b9aae27c295a914e9d4b9748"
+    }
+  ]
+}
