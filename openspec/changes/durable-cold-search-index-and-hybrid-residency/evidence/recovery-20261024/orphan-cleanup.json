@@ -1,0 +1,55 @@
+{
+  "schema": "fastfiles-owned-interrupted-fixture-cleanup-v1",
+  "directory": "C:\\Users\\Michael Roy\\AppData\\Local\\Temp\\FastFiles-large-index-46492-126882593-5000000-0",
+  "timestamp": "2026-10-24T06:29:35.586636+00:00",
+  "ownership": "MakeTemporaryDirectory/BuildSyntheticDatabase exact temp pattern, zero GUID and deterministic 5M xor serial, generated root/folder samples; PID46492 confirmed absent; interrupted non-final fixture, not original open-5m.db",
+  "rows": 3612672,
+  "sample": [
+    [
+      5,
+      5,
+      ""
+    ],
+    [
+      100,
+      5,
+      "folder_0_branch_0"
+    ],
+    [
+      101,
+      5,
+      "folder_1_branch_1"
+    ],
+    [
+      102,
+      5,
+      "folder_2_branch_2"
+    ],
+    [
+      103,
+      5,
+      "folder_3_branch_3"
+    ],
+    [
+      104,
+      5,
+      "folder_4_branch_4"
+    ]
+  ],
+  "files": [
+    {
+      "path": "C:\\Users\\Michael Roy\\AppData\\Local\\Temp\\FastFiles-large-index-46492-126882593-5000000-0\\index.db",
+      "bytes": 4096
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\AppData\\Local\\Temp\\FastFiles-large-index-46492-126882593-5000000-0\\index.db-shm",
+      "bytes": 5603328
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\AppData\\Local\\Temp\\FastFiles-large-index-46492-126882593-5000000-0\\index.db-wal",
+      "bytes": 2878013672
+    }
+  ],
+  "free_before": 1942278144,
+  "free_after": 4825899008
+}

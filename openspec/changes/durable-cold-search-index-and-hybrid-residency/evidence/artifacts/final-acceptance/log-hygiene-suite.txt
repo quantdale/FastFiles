@@ -1,0 +1,476 @@
+[33;1mWARNING: The names of some imported commands from the module 'RepositoryState' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+Project status: 5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac on feat/durable-cold-search-and-hybrid-residency
+Worktree dirty: False; CTest discovered:
+OpenSpec unchecked tasks: 33; active local open: 5; release candidate: NOT_RUN
+OpenSpec lifecycle model: PASS
+External certification frontier:
+  physical-environment: 7 tasks
+  external-provider: 8 tasks
+  production-signing: 5 tasks
+  privileged-ntfs: 2 tasks
+  clean-host: 3 tasks
+Selected verifier result: SKIPPED (explicit-verification-run-result-not-supplied)
+JSON: build/campaign/final-acceptance/parity-final/20261023-212922/ci-status/project-status.json
+Markdown: build/campaign/final-acceptance/parity-final/20261023-212922/ci-status/project-status.md
+[33;1mWARNING: The names of some imported commands from the module 'RepositoryState' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+Release-readiness frontier: SKIPPED
+Local commit: 5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac
+OpenSpec unchecked tasks: 33; active local open: 5
+OpenSpec lifecycle model: PASS
+JSON: build\campaign\final-acceptance\parity-final\20261023-212922\ci-status\release-readiness-frontier.json
+Markdown: build\campaign\final-acceptance\parity-final\20261023-212922\ci-status\release-readiness-frontier.md
+ok: clean Git fixture is classified clean
+ok: dirty Git fixture preserves the changed path and diff failure
+ok: successful evidence is PASS
+ok: optional unavailable evidence is SKIPPED
+ok: required unavailable evidence stays externally blocked
+ok: available failing evidence is FAIL
+ok: signing task is production-signing blocked
+ok: guest task is provider blocked
+ok: display task is environment blocked
+ok: unmarked task remains visible as local work
+ok: task evidence text redacts absolute paths
+ok: explicit lifecycle category overrides misleading task prose
+ok: lifecycle fixture parses the complete raw unchecked inventory, including nested task IDs
+ok: active local task remains local with low-confidence fallback provenance
+ok: completed external task stays visible in a blocked bucket, not local-open
+ok: nested task override is lifecycle-visible and remains provider-blocked
+ok: later-satisfied administrative task stays historical when its old checkbox remains open
+ok: superseded task preserves typed evidence and avoids local-open
+ok: explicit metadata wins over misleading signing/interactive prose
+ok: mixed local/external task is not flattened into local-open
+ok: signing and provider tasks remain in their explicit external buckets
+ok: interactive, elevated, and clean-host tasks remain blocked
+ok: active lifecycle entries cannot silently lose every unchecked task
+ok: lifecycle frontier ordering is stable across repeated generation
+ok: lifecycle fixture validates against its schema
+ok: archived changes stay lifecycle-addressable under their canonical name
+ok: completed archived tasks never reappear as open work
+ok: an archived change with open tasks still requires a lifecycle entry under its canonical name
+ok: repository traversal evidence fails closed
+ok: absolute repository evidence is rejected
+ok: missing repository evidence is diagnosed
+ok: repository reparse-point evidence is rejected
+ok: schema-v1 string evidence is never trusted
+ok: non-integer lifecycle schema versions fail closed
+ok: non-authoritative notes cannot complete a change
+ok: self-supersession is rejected
+ok: multi-node supersession cycles are rejected
+ok: external local-only override is rejected
+ok: mixed override requires an external component
+ok: unchecked active PASS override is rejected
+ok: hosted run without a durable binding is non-authoritative
+ok: malformed lifecycle metadata is a first-class status failure
+ok: malformed lifecycle metadata retains the task as ambiguous, never local-open
+ok: future campaign fixture active-local count is lifecycle-derived
+ok: future campaign appears in lifecycle-driven local-open without hard-coded test name
+ok: future local-open tasks are lifecycle-active with active disposition
+ok: JUnit last-result parser preserves pass/fail/skip counts
+ok: repository paths are projected relative to the root
+ok: external absolute paths are redacted
+ok: full reachable Git evidence resolves authoritatively
+ok: abbreviated Git evidence is rejected
+ok: nonexistent Git evidence is rejected
+ok: selected verifier result is projected with identity and counts
+ok: selected verifier contradiction is a harness failure
+ok: matching dynamic claims pass the drift seam
+ok: stale test/frontier claims fail with regeneration guidance
+ok: Markdown projection does not emit a host-user path
+ok: release evidence stays non-production without a production gate
+ok: lifecycle integrity failure cannot project production readiness
+ok: release-readiness frontier generator completes from a fixture composition
+ok: generated release-readiness frontier validates against its schema
+ok: release composition cross-check never infers production readiness
+ok: release frontier redacts slash-normalized absolute paths
+ok: schema validator accepts ISO timestamp values round-tripped by ConvertFrom-Json
+ok: generated project status validates against its schema
+ok: live lifecycle manifest validates against its schema
+ok: live Git evidence contains branch and SHA
+ok: live OpenSpec frontier parses all task ledgers
+ok: historical and external campaign tasks do not reappear as active local work
+ok: live local-open projection count matches frontier active-local count
+ok: live local-open tasks are lifecycle-active with active disposition
+ok: live local-open tasks are local category
+ok: live lifecycle model passes structural, evidence, and semantic integrity
+ok: live hosted-run evidence is an exact-SHA durable binding
+ok: hosted-run binding requires an exact run ID token
+ok: live lifecycle projection contains no invalid evidence objects
+All project-status tests passed.
+PASS: fake descriptor validates against the provider contract
+PASS: successful lifecycle returns PASS
+PASS: successful lifecycle order is deterministic
+PASS: successful lifecycle cleans up
+PASS: cleanup is idempotent on repetition
+PASS: preflight failure is unavailable, not a product pass
+PASS: provisioning failure preserves unavailable classification
+PASS: activation failure is a hard failure
+PASS: log collection failure is visible
+PASS: snapshot restore failure is unavailable
+PASS: cleanup failure is never hidden
+PASS: cancellation is classified as SKIPPED with cleanup still attempted
+PASS: a new context can resume after an interrupted run
+PASS: corrupt descriptor is rejected
+PASS: unsupported interface version is rejected
+PASS: missing provider dependency is surfaced as FAIL
+All provider contract checks passed.
+[33;1mWARNING: The names of some imported commands from the module 'BaselineManifest' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+  ok: empty manifest valid
+  ok: add entry with hash
+  ok: manifest with one entry valid
+  ok: duplicate without -Force rejected
+  ok: duplicate with -Force updates
+  ok: different theme is distinct entry
+  ok: density variant gets a distinct baselineId
+  ok: DPI variant gets a distinct baselineId
+  ok: all-zero SourceCommit rejected
+  ok: malformed SourceTree rejected
+  ok: all-zero SourceTree rejected
+  ok: theme filter returns all density/DPI variants
+  ok: full environment filter selects one entry
+  ok: absolute path without BaselineRoot rejected
+  ok: save/load round-trip
+  ok: compare identical (after update) passes
+  ok: missing baseline detected
+  ok: duplicate environmentKey fails validation
+RESULT: all baseline tests passed
+[33;1mWARNING: The names of some imported commands from the module 'VisualCapture' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+  ok: first image registers with a SHA-256 hash
+  ok: unexpected duplicate is rejected
+  ok: rejected duplicate file is removed
+  ok: declared duplicate records its source and reason
+  ok: duplicate declaration must name the actual source scenario
+  ok: wrong duplicate declaration file is removed
+  ok: capture refuses a failed semantic post-condition before touching the window
+  ok: manifest record declares the canonical capture method
+  ok: manifest record stores a relative screenshot and passing assertion
+  ok: manifest schema is versioned
+  ok: manifest contains the recorded scenario
+  ok: readable Markdown summary is written
+RESULT: all visual-capture contract tests passed
+  ok: all PASS valid
+  ok: overall PASS
+  ok: visual regression FAIL => overall FAIL
+  ok: blocked legs => BLOCKED
+  ok: visual review ADVISORY => overall ADVISORY
+  ok: visual review PASS allowed (but should be from real evidence)
+  ok: invalid functional enum rejected
+  ok: format contains legs
+RESULT: all classification tests passed
+closure packet: C:\Users\Michael Roy\AppData\Local\Temp\ff-closure-test-7533c601c8cd461da13195a146c46258\packet\closure.json
+diff map: C:\Users\Michael Roy\AppData\Local\Temp\ff-closure-test-7533c601c8cd461da13195a146c46258\packet\diff-map.png
+comparison: Different passed=True diffPercent=0.00048828125
+  ok: closure packet file created
+  ok: closure summary file created
+  ok: packet schema marker
+  ok: packet scenario id
+  ok: fixture evidence labeled honestly
+  ok: packet carries first-class finding id
+  ok: before/after hashes recorded and differ
+  ok: comparator result and diff map recorded
+  ok: regression lane recorded
+  ok: review lane defaults to blocked, never fake pass
+  ok: uia lane blocked when not executed
+  ok: accessibility lane blocked when not executed
+  ok: functional lane records caller evidence
+  ok: disposition recorded
+  ok: worktree state is a known value
+  ok: provenance state is a known value
+  ok: commit is real or null, never fabricated zeros
+  ok: tree is real or null, never fabricated zeros
+  ok: summary names finding and evidence kind
+closure packet: C:\Users\Michael Roy\AppData\Local\Temp\ff-closure-test-7533c601c8cd461da13195a146c46258\packet-default\closure.json
+diff map: C:\Users\Michael Roy\AppData\Local\Temp\ff-closure-test-7533c601c8cd461da13195a146c46258\packet-default\diff-map.png
+comparison: Different passed=True diffPercent=0.00048828125
+  ok: default review lane is blocked
+  ok: default uia lane is blocked
+  ok: default accessibility lane is blocked
+  ok: default functional lane is blocked
+  ok: default disposition needs review
+  ok: missing before image throws
+RESULT: all closure tests passed
+  ok: identical images => zero diff, Identical, passed
+  ok: one pixel change => changedPixels == 1
+  ok: one pixel => small diffPercent
+  ok: one pixel => Different classification
+  ok: diff map produced for non-identical
+  ok: diff bounded for small change
+[33;1mWARNING: visual regression FAIL: diffPercent=0.25 threshold=0.01 changed=1024/4096[0m
+  ok: large region has more changed pixels than one pixel
+  ok: large region diffPercent > small diffPercent
+  ok: large 32x32 region => 1024 changed pixels
+  ok: dimension mismatch => DimensionMismatch
+[33;1mWARNING: visual regression FAIL: diffPercent=0.25 threshold=0.001 changed=1024/4096[0m
+  ok: tight threshold rejects large diff
+  ok: loose threshold passes large diff
+  ok: deterministic repeated runs
+  ok: malformed image => UnsupportedFormat, not passed
+  ok: missing baseline throws
+RESULT: all comparator tests passed
+  ok: FakeCritic deterministic for same input
+  ok: clipping fixture => blocker finding
+  ok: clean fixture => no findings
+  ok: clip finding FAKE-CLIP-001 validates
+  ok: default finding FAKE-ADVISORY-001 validates
+  ok: fake provider is available locally but cannot submit externally
+  ok: real provider blocked without credentials
+  ok: real without creds => BLOCKED-001
+  ok: partial real configuration is misconfigured
+  ok: malformed real endpoint is misconfigured
+  ok: credentials without an adapter are not implemented
+  ok: configured provider without adapter => NOT-IMPLEMENTED-001
+  ok: configured provider with explicit adapter is available
+  ok: real adapter is blocked until privacy gate is explicit
+  ok: approved adapter response is normalized and returned
+  ok: adapter exception => PROVIDER-ERROR-001
+  ok: subjective FAKE-ADVISORY-001 not regression candidate
+RESULT: all critic tests passed
+[33;1mWARNING: The names of some imported commands from the module 'VisualCapture' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+  ok: valid v2 record passes
+  ok: development provenance is explicit and never zero-SHA
+  ok: actual DPI and requested percentage are separate
+  ok: missing required provenance and screenshot fields fail
+  ok: invalid commit SHA fails
+  ok: invalid theme enum fails
+  ok: malformed viewport fails
+  ok: unsupported schema version fails
+  ok: all-zero commit fails
+  ok: PASS without a captured image is rejected
+  ok: manifest written
+  ok: manifest-v2 written
+  ok: manifest-v2 contains v2 records
+  ok: emitted v2 record validates
+  ok: emitted record preserves observed DPI semantics
+  ok: screenshot path is sanitized relative
+RESULT: all visual-evidence-v2 tests passed
+  ok: valid blocker finding passes
+  ok: confidence >1 rejected at construction
+  ok: invalid category rejected
+  ok: missing observedProblem/expectedRule fails validation
+  ok: subjective suggestion is valid
+  ok: subjective blocker rejected
+  ok: subjective regression candidate rejected
+  ok: objective blocker valid
+  ok: subjective advisory is suggestion, not blocker
+RESULT: all visual-findings tests passed
+  ok: 100 percent matches observed 96 DPI
+  ok: 150 percent matches observed 144 DPI
+  ok: 100 percent request with 144 observed is a recorded mismatch, not a pass
+  ok: unobserved DPI is unknown, never silently 96
+  ok: PASS with unobserved DPI throws instead of fabricating 96
+  ok: observed DPI flows into record and v2 evidence
+  ok: v2 separates observed dpi from requested percent
+  ok: DPI mismatch is recorded, observed value preserved
+  ok: stale tool-owned run dir removed
+  ok: fresh runs and foreign dirs preserved
+  ok: missing root removes nothing
+RESULT: all DPI and retention tests passed
+  ok: Invoke-UiaCoreSmoke is exported by UiAutomationValidation
+  ok: smoke entry point is a function
+  ok: smoke requires an Exe parameter
+  ok: smoke accepts RepoRoot
+  ok: smoke accepts ScenarioId
+  ok: smoke never exits the host process
+  ok: smoke covers launch-main-window
+  ok: smoke covers home-activation
+  ok: smoke covers address-bar-navigate
+  ok: smoke covers dual-pane-toggle
+  ok: smoke covers search-open-filters
+  ok: smoke covers storage-analysis-open
+  ok: smoke covers settings-open
+  ok: smoke covers command-palette
+RESULT: all smoke promotion tests passed
+[33;1mWARNING: The names of some imported commands from the module 'RepositoryState' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+PASS: no TEMP-DEBUG or DEBUG_STALL markers in 238 production source files
+PASS: top-level CMake rejects the diagnostic escape hatch before release-pin evaluation
+PASS: CMake has an explicit shipped-build diagnostic escape-hatch rejection
+PASS: the escape hatch is limited to Debug and excluded from release-test builds
+PASS: the production setup seam is the only shipped target carrying the diagnostic definition
+PASS: the only additional definition is explicitly scoped to the disposable Debug discovery test
+PASS: no unrelated application target receives the diagnostic definition
+PASS: release preset does not enable the diagnostic escape hatch
+PASS: release-test preset does not enable the diagnostic escape hatch
+PASS: hosted CI invokes the diagnostic policy source gate
+INFO: release cache is absent; CMake source guard remains the enforcement evidence.
+INFO: release-test cache is absent; CMake source guard remains the enforcement evidence.
+Failures: 0
+PASS: README.md/AGENTS.md/CLAUDE.md/CODE_INDEX.md contain no superseded claims
+PASS: no mixed line endings in 365 .cpp/.h files under src/ or tests/
+PASS: tracked documentation prose names no excluded vendor-specific VM technology
+PASS: semantic truth contracts over current-facing guidance
+PASS: doc-drift, line-ending, and truth checks
+PASS: fixture positive-control-deterministic
+PASS: fixture historical-passthrough
+PASS: fixture missing-supported-verb
+PASS: fixture extra-nonexistent-verb
+PASS: fixture exitcode-mismatch
+PASS: fixture exitcode-missing
+PASS: fixture stale-current-change-completed
+PASS: fixture stale-current-open-work-pointer
+PASS: fixture lifecycle-disagreement-unknown-name
+PASS: fixture removed-snapshot-mechanic
+PASS: fixture preset-missing
+PASS: fixture preset-unknown
+PASS: fixture target-renamed-in-build
+PASS: fixture target-ghost-in-doc
+PASS: fixture fence-unclosed
+PASS: fixture fence-unknown-contract
+PASS: fixture fence-duplicate
+PASS: fixture authority-unreadable-fails-closed
+PASS: fixture diagnostics-redacted
+PASS: doc-truth fixture matrix
+[33;1mWARNING: The names of some imported commands from the module 'RepositoryState' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+ok: clean HEAD resolves full commit/tree identities and is exact-tree eligible
+ok: clean HEAD has no source deltas
+ok: clean source-state digest is deterministic
+ok: unstaged tracked change is non-qualifying
+ok: staged tracked change is non-qualifying
+ok: tracked deletion is non-qualifying
+ok: non-ignored untracked source input is non-qualifying
+ok: ignored build/status artifacts do not invalidate source qualification
+ok: dirty correction keeps the old committed identity and cannot certify it
+ok: dirty development PASS cannot become exact-tree qualification evidence
+ok: fixture reproduces divergent committed and working-tree content
+ok: mid-run source mutation is detected
+ok: mid-run mutation fails exact-tree qualification
+ok: clean unchanged state produces exact-tree qualification provenance
+ok: result from prior commit cannot qualify a newer HEAD/tree
+ok: exact-tree result binds to its own candidate commit/tree
+ok: detached clean HEAD is supported by the source-provenance model
+ok: missing Git metadata fails closed
+ok: provenance reason codes are deterministically ordered
+ok: provenance output does not leak absolute fixture paths
+ok: pre-existing qualification destination fails safely without deleting caller content
+All source-provenance fixtures passed.
+ok: clean Git fixture is classified clean
+ok: dirty Git fixture preserves the changed path and diff failure
+ok: successful evidence is PASS
+ok: optional unavailable evidence is SKIPPED
+ok: required unavailable evidence stays externally blocked
+ok: available failing evidence is FAIL
+ok: signing task is production-signing blocked
+ok: guest task is provider blocked
+ok: display task is environment blocked
+ok: unmarked task remains visible as local work
+ok: task evidence text redacts absolute paths
+ok: explicit lifecycle category overrides misleading task prose
+ok: lifecycle fixture parses the complete raw unchecked inventory, including nested task IDs
+ok: active local task remains local with low-confidence fallback provenance
+ok: completed external task stays visible in a blocked bucket, not local-open
+ok: nested task override is lifecycle-visible and remains provider-blocked
+ok: later-satisfied administrative task stays historical when its old checkbox remains open
+ok: superseded task preserves typed evidence and avoids local-open
+ok: explicit metadata wins over misleading signing/interactive prose
+ok: mixed local/external task is not flattened into local-open
+ok: signing and provider tasks remain in their explicit external buckets
+ok: interactive, elevated, and clean-host tasks remain blocked
+ok: active lifecycle entries cannot silently lose every unchecked task
+ok: lifecycle frontier ordering is stable across repeated generation
+ok: lifecycle fixture validates against its schema
+ok: archived changes stay lifecycle-addressable under their canonical name
+ok: completed archived tasks never reappear as open work
+ok: an archived change with open tasks still requires a lifecycle entry under its canonical name
+ok: repository traversal evidence fails closed
+ok: absolute repository evidence is rejected
+ok: missing repository evidence is diagnosed
+ok: repository reparse-point evidence is rejected
+ok: schema-v1 string evidence is never trusted
+ok: non-integer lifecycle schema versions fail closed
+ok: non-authoritative notes cannot complete a change
+ok: self-supersession is rejected
+ok: multi-node supersession cycles are rejected
+ok: external local-only override is rejected
+ok: mixed override requires an external component
+ok: unchecked active PASS override is rejected
+ok: hosted run without a durable binding is non-authoritative
+ok: malformed lifecycle metadata is a first-class status failure
+ok: malformed lifecycle metadata retains the task as ambiguous, never local-open
+ok: future campaign fixture active-local count is lifecycle-derived
+ok: future campaign appears in lifecycle-driven local-open without hard-coded test name
+ok: future local-open tasks are lifecycle-active with active disposition
+ok: JUnit last-result parser preserves pass/fail/skip counts
+ok: repository paths are projected relative to the root
+ok: external absolute paths are redacted
+ok: full reachable Git evidence resolves authoritatively
+ok: abbreviated Git evidence is rejected
+ok: nonexistent Git evidence is rejected
+ok: selected verifier result is projected with identity and counts
+ok: selected verifier contradiction is a harness failure
+ok: matching dynamic claims pass the drift seam
+ok: stale test/frontier claims fail with regeneration guidance
+ok: Markdown projection does not emit a host-user path
+ok: release evidence stays non-production without a production gate
+ok: lifecycle integrity failure cannot project production readiness
+ok: release-readiness frontier generator completes from a fixture composition
+ok: generated release-readiness frontier validates against its schema
+ok: release composition cross-check never infers production readiness
+ok: release frontier redacts slash-normalized absolute paths
+ok: schema validator accepts ISO timestamp values round-tripped by ConvertFrom-Json
+ok: generated project status validates against its schema
+ok: live lifecycle manifest validates against its schema
+ok: live Git evidence contains branch and SHA
+ok: live OpenSpec frontier parses all task ledgers
+ok: historical and external campaign tasks do not reappear as active local work
+ok: live local-open projection count matches frontier active-local count
+ok: live local-open tasks are lifecycle-active with active disposition
+ok: live local-open tasks are local category
+ok: live lifecycle model passes structural, evidence, and semantic integrity
+ok: live hosted-run evidence is an exact-SHA durable binding
+ok: hosted-run binding requires an exact run ID token
+ok: live lifecycle projection contains no invalid evidence objects
+All project-status tests passed.
+[33;1mWARNING: The names of some imported commands from the module 'RepositoryState' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+Project status: 5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac on ff-exact-tree-202d59e13ec84d288f98482d530d4ec7
+Worktree dirty: False; CTest discovered:
+OpenSpec unchecked tasks: 33; active local open: 5; release candidate: NOT_RUN
+OpenSpec lifecycle model: PASS
+External certification frontier:
+  physical-environment: 7 tasks
+  external-provider: 8 tasks
+  production-signing: 5 tasks
+  privileged-ntfs: 2 tasks
+  clean-host: 3 tasks
+Selected verifier result: SKIPPED (explicit-verification-run-result-not-supplied)
+JSON: <external-path>
+Markdown: <external-path>
+[33;1mWARNING: The names of some imported commands from the module 'RepositoryState' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+Release-readiness frontier: SKIPPED
+Local commit: 5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac
+OpenSpec unchecked tasks: 33; active local open: 5
+OpenSpec lifecycle model: PASS
+JSON: C:\Users\Michael Roy\AppData\Local\Temp\FastFiles-exact-tree-status-202d59e13ec84d288f98482d530d4ec7\release-readiness-frontier.json
+Markdown: C:\Users\Michael Roy\AppData\Local\Temp\FastFiles-exact-tree-status-202d59e13ec84d288f98482d530d4ec7\release-readiness-frontier.md
+Exact-tree qualification: PASS
+Commit: 5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac
+Tree:   cec82cef9d62d842c6c50bf36a7c88a79dbac9ac
+Bound:  True
+- source-marker-policy: PASS
+- diagnostic-policy: PASS
+- documentation-truth: PASS
+- documentation-truth-fixtures: PASS
+- source-provenance-fixtures: PASS
+- project-status-contract: PASS
+- project-status-generation: PASS
+- release-frontier-generation: PASS
+Result: build\campaign\final-acceptance\parity-final\20261023-212922\ci-status\exact-tree-qualification.json
+[33;1mWARNING: The names of some imported commands from the module 'RepositoryState' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+Project status: 5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac on feat/durable-cold-search-and-hybrid-residency
+Worktree dirty: False; CTest discovered:
+OpenSpec unchecked tasks: 33; active local open: 5; release candidate: NOT_RUN
+OpenSpec lifecycle model: PASS
+External certification frontier:
+  physical-environment: 7 tasks
+  external-provider: 8 tasks
+  production-signing: 5 tasks
+  privileged-ntfs: 2 tasks
+  clean-host: 3 tasks
+Selected verifier result: PASS; qualification=exact-tree
+JSON: build/campaign/final-acceptance/parity-final/20261023-212922/ci-status/project-status.json
+Markdown: build/campaign/final-acceptance/parity-final/20261023-212922/ci-status/project-status.md
+[33;1mWARNING: The names of some imported commands from the module 'RepositoryState' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.[0m
+Release-readiness frontier: SKIPPED
+Local commit: 5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac
+OpenSpec unchecked tasks: 33; active local open: 5
+OpenSpec lifecycle model: PASS
+Selected verification qualification: exact-tree
+JSON: build\campaign\final-acceptance\parity-final\20261023-212922\ci-status\release-readiness-frontier.json
+Markdown: build\campaign\final-acceptance\parity-final\20261023-212922\ci-status\release-readiness-frontier.md

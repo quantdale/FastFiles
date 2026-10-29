@@ -1,0 +1,6 @@
+{
+  "verify/e2e/FastFilesE2E.psm1": "2b21019ad0c5a0fa3a6f2bdba3e90c978fae4f80500810233d787a8d64080266",
+  "verify/e2e/Run-FastFilesE2E.ps1": "43deca13c2895a734e3ac9acd55204dcc8630e38eeb6a180dff2ed4169e104f9",
+  "tests/e2e/Test-E2EFailureEvidenceOwnership.ps1": "ab289be118462e0871a4736b0225b005a444544f5bc2b664b75daa98e5e4e5b0",
+  "tests/e2e/Test-E2EProvenance.ps1": "94d9c8225c865919b91dfee8a1529a3205902baf0dd8447a2278088e7b5e94a6"
+}

@@ -1,0 +1,28 @@
+Test project D:/Documents/tryPython/FastFiles-worktrees/shutdown-lifetime-20261026/build/debug-diagnostic
+    Start 116: ffe2e_harness_ps_tests
+1/1 Test #116: ffe2e_harness_ps_tests ...........***Failed    1.89 sec
+PASS: the E2E root is inside itself
+PASS: a descendant path is accepted
+PASS: a sibling prefix escape is rejected
+PASS: the assert helper rejects paths outside the fixture root
+PASS: bounded wait returns a successful condition
+PASS: bounded wait reports a finite timeout
+PASS: the E2E module exposes its safety, wait, evidence, and runner entry points
+PASS: recorded WindowPattern failure uses the bounded native close fallback
+PASS: close fallback actually holds Alt while pressing F4 and releases both keys
+PASS: close evidence preserves rejection, actual fallback input and bounded exit observation
+PASS: recorded restore traverses the real three-lifecycle scenario without live processes
+Check: D:\Documents\tryPython\FastFiles-worktrees\shutdown-lifetime-20261026\tests\e2e\Test-E2EHarness.ps1:128
+Line |
+ 128 |      Check ($serialized.data.marker -eq 'recorded-visible' -and $seria …
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | FAIL: restore JSON retains visibility and all three real close observations
+
+
+0% tests passed, 1 tests failed out of 1
+
+Total Test time (real) =   2.07 sec
+
+The following tests FAILED:
+	116 - ffe2e_harness_ps_tests (Failed)
+Errors while running CTest

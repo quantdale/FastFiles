@@ -119,6 +119,9 @@ void TestEmptyCategoryClearsTheModel() {
 
     Check(root->children.empty(), "empty category produces no stale Treemap children");
     Check(root->totalSizeBytes == 0, "empty category produces a zero aggregate");
+    ffui::RecomputeTreemapTotals(*root);
+    Check(root->totalSizeBytes == 0 && root->totalAllocatedSizeBytes == 0,
+          "production rollup never resurrects unfiltered bytes after an empty category result");
 }
 
 void TestClassifierIsSharedWithTheFilter() {
@@ -199,6 +202,17 @@ void TestFilteredIncompleteNodesArePartialNotCalculating() {
 } // namespace
 
 int main() {
+    {
+        ffui::CategoryEngine engine;
+        engine.SetCategories({{L"other", L"Other", {L".foo"}},
+                              {L".ff-uncategorized", L"Internal-looking user category", {L".bar"}}});
+        const auto fallback = engine.UncategorizedFilterId();
+        Check(fallback != L"other" && fallback != L".ff-uncategorized",
+              "uncategorized filter identity cannot collide with configured category IDs");
+        Check(engine.Matches(L"known.foo", L"other") && !engine.Matches(L"unknown.zzz", L"other") &&
+              engine.Matches(L"unknown.zzz", fallback) && !engine.Matches(L"known.foo", fallback),
+              "configured Other and uncategorized rows filter different real files");
+    }
     TestAllPreservesTheFullTree();
     TestImageKeepsNestedContainersAndReaggregates();
     TestDifferentCategoryRemovesThePreviousCategory();

@@ -11,9 +11,6 @@ namespace ffui {
 namespace {
 constexpr int kPaletteEditId = 6301;
 constexpr int kPaletteListId = 6302;
-constexpr int kPaletteDimmerId = 6300;
-constexpr UINT_PTR kPaletteDimmerSubclassId = 0xFF7A1E01;
-constexpr BYTE kPaletteDimmerAlpha = 120;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
@@ -47,10 +44,6 @@ CommandPalette::~CommandPalette() {
         DeleteObject(paletteFont_);
         paletteFont_ = nullptr;
     }
-    if (dimmer_ != nullptr) {
-        RemoveWindowSubclass(dimmer_, DimmerSubclassProc, kPaletteDimmerSubclassId);
-        dimmer_ = nullptr;
-    }
 }
 
 bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, const ShortcutMap* shortcuts,
@@ -59,22 +52,6 @@ bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, con
     registry_ = registry;
     shortcuts_ = shortcuts;
     execute_ = std::move(execute);
-    dimmer_ = CreateWindowExW(WS_EX_LAYERED | WS_EX_NOACTIVATE, L"STATIC", L"",
-                              WS_CHILD | SS_NOTIFY,
-                              0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteDimmerId)),
-                              nullptr, nullptr);
-    if (dimmer_ == nullptr) {
-        dimmer_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_NOTIFY,
-                                  0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteDimmerId)),
-                                  nullptr, nullptr);
-    }
-    if (dimmer_ != nullptr) {
-        if ((GetWindowLongW(dimmer_, GWL_EXSTYLE) & WS_EX_LAYERED) != 0) {
-            SetLayeredWindowAttributes(dimmer_, 0, kPaletteDimmerAlpha, LWA_ALPHA);
-        }
-        SetWindowSubclass(dimmer_, DimmerSubclassProc, kPaletteDimmerSubclassId,
-                          reinterpret_cast<DWORD_PTR>(this));
-    }
     edit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL,
                             0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteEditId)), nullptr, nullptr);
     list_ = CreateWindowExW(0, L"LISTBOX", L"",
@@ -108,9 +85,8 @@ void CommandPalette::ApplyDensityMetrics() {
 void CommandPalette::Show(CommandContext context) {
     context_ = context;
     visible_ = true;
-    SetWindowTextW(edit_, L"");
     ApplyDensityMetrics();
-    Reposition();
+    SetWindowTextW(edit_, L"");
     RefreshResults();
     // final-local-certification-closure FC-001: verified (not fire-and-forget)
     // focus acquisition. Best-effort: when the owner is not yet foreground-
@@ -127,8 +103,8 @@ bool CommandPalette::EditHasFocus() const {
 bool CommandPalette::EnsureEditFocus() {
     if (edit_ == nullptr || IsWindow(edit_) == FALSE) return false;
     if (EditHasFocus()) return true;
-    // The edit is shown with SWP_NOACTIVATE by design (the dimmer must not
-    // activate), so focus rests solely on this SetFocus. A single unverified
+    // The edit is shown with SWP_NOACTIVATE by design, so focus rests solely
+    // on this SetFocus. A single unverified
     // call was the iteration-22 race: verify, then re-assert visibility and
     // try once more to cover a first call that raced SetWindowPos.
     if (IsWindowEnabled(edit_) == FALSE) return false;
@@ -142,7 +118,6 @@ bool CommandPalette::EnsureEditFocus() {
 void CommandPalette::Hide() {
     if (!visible_) return;
     visible_ = false;
-    if (dimmer_ != nullptr) ShowWindow(dimmer_, SW_HIDE);
     ShowWindow(edit_, SW_HIDE);
     ShowWindow(list_, SW_HIDE);
     // Guard the focus return against a dead/null owner (never hand focus to
@@ -150,25 +125,6 @@ void CommandPalette::Hide() {
     if (owner_ != nullptr && IsWindow(owner_) != FALSE) {
         SetFocus(owner_);
     }
-}
-
-LRESULT CALLBACK CommandPalette::DimmerSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
-                                                    UINT_PTR subclassId, DWORD_PTR refData) {
-    if (subclassId != kPaletteDimmerSubclassId) {
-        return DefSubclassProc(hwnd, message, wParam, lParam);
-    }
-    auto* self = reinterpret_cast<CommandPalette*>(refData);
-    if (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN) {
-        if (self != nullptr) self->Hide();
-        return 0;
-    }
-    if (message == WM_ERASEBKGND) {
-        RECT client{};
-        GetClientRect(hwnd, &client);
-        FillRect(reinterpret_cast<HDC>(wParam), &client, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
-        return 1;
-    }
-    return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
 void CommandPalette::Reposition() {
@@ -179,21 +135,45 @@ void CommandPalette::Reposition() {
     if (owner_ == nullptr || !visible_) return;
     RECT client{};
     GetClientRect(owner_, &client);
-    const int clientWidth = static_cast<int>(client.right - client.left);
-    const int clientHeight = static_cast<int>(client.bottom - client.top);
-    const int width = (std::min)(Scaled(560), (std::max)(Scaled(240), clientWidth - Scaled(40)));
-    const int height = (std::min)(Scaled(360), (std::max)(Scaled(140), clientHeight - Scaled(80)));
-    const int left = (client.right - width) / 2;
-    const int top = (std::max)(Scaled(20), (clientHeight - height) / 4);
-    const int editHeight = Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).controlHeight + 6.0f));
-    const bool showDimmer = dimmer_ != nullptr && !UiSystemHighContrast();
-    if (dimmer_ != nullptr) {
-        SetWindowPos(dimmer_, HWND_TOP, 0, 0, clientWidth, clientHeight,
-                     showDimmer ? kPaletteOverlayLayoutFlags : (SWP_NOACTIVATE | SWP_HIDEWINDOW));
-    }
+    const int clientWidth = (std::max)(0, static_cast<int>(client.right - client.left));
+    const int clientHeight = (std::max)(0, static_cast<int>(client.bottom - client.top));
+    const int margin = Scaled(static_cast<int>(UiMetrics::kPaletteMargin));
+    const int horizontalMargin = (std::min)(margin, clientWidth / 2);
+    const int width = (std::min)(Scaled(static_cast<int>(UiMetrics::kPaletteWidth)),
+                                 clientWidth - 2 * horizontalMargin);
+    const int maximumHeight = (std::min)(Scaled(static_cast<int>(UiMetrics::kPaletteMaxHeight)),
+        (std::max)(0, clientHeight - Scaled(static_cast<int>(UiMetrics::kPaletteVerticalClearance))));
+    const int left = (clientWidth - width) / 2;
+    // fit-native-command-palette-to-results 1.3: anchor against the maximum
+    // envelope, not the result count, so typing never moves the query field.
+    const int top = (std::min)(clientHeight, (std::max)(margin, (clientHeight - maximumHeight) / 4));
+    const int editHeight = (std::min)(clientHeight - top,
+        Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).controlHeight + UiMetrics::kPaletteQueryExtraHeight)));
+    const int gap = (std::min)(Scaled(static_cast<int>(UiMetrics::kSpaceXxs)), clientHeight - top - editHeight);
+    const int listBudget = (std::max)(0, (std::min)(maximumHeight - editHeight - gap,
+                                                   clientHeight - top - editHeight - gap));
+    const LRESULT nativeRowHeight = SendMessageW(list_, LB_GETITEMHEIGHT, 0, 0);
+    const int rowHeight = nativeRowHeight > 0 ? static_cast<int>(nativeRowHeight)
+        : (std::max)(1, Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).rowHeight)));
+    const size_t visibleRows = (std::min)((std::max)(size_t{1}, results_.size()),
+                                         static_cast<size_t>(listBudget / rowHeight));
+    const int listHeight = static_cast<int>(visibleRows) * rowHeight;
     SetWindowPos(edit_, HWND_TOP, left, top, width, editHeight, kPaletteOverlayLayoutFlags);
-    SetWindowPos(list_, HWND_TOP, left, top + editHeight + Scaled(2), width,
-                 height - editHeight - Scaled(2), kPaletteOverlayLayoutFlags);
+    SetWindowPos(list_, HWND_TOP, left, top + editHeight + gap, width, listHeight, kPaletteOverlayLayoutFlags);
+}
+
+void CommandPalette::UpdateContext(CommandContext context) {
+    context_ = context;
+    if (!visible_) return;
+    bool changed = false;
+    for (auto& result : results_) {
+        const bool enabled = CommandEnabled(*result.command, context_);
+        changed = changed || result.enabled != enabled;
+        result.enabled = enabled;
+    }
+    // original-vision-journey-recovery 4.7: repaint availability in place;
+    // rebuilding the list would reset the query selection and scroll position.
+    if (changed) InvalidateRect(list_, nullptr, FALSE);
 }
 
 void CommandPalette::RefreshResults() {
@@ -207,6 +187,7 @@ void CommandPalette::RefreshResults() {
         // explanatory text rather than a command.
         SendMessageW(list_, LB_ADDSTRING, 0,
                      reinterpret_cast<LPARAM>(L"No matching commands"));
+        Reposition();
         return;
     }
     for (const auto& result : results_) {
@@ -217,6 +198,7 @@ void CommandPalette::RefreshResults() {
                      reinterpret_cast<LPARAM>(result.command->displayName.c_str()));
     }
     SendMessageW(list_, LB_SETCURSEL, 0, 0);
+    Reposition();
 }
 
 void CommandPalette::ExecuteSelected() {
@@ -224,7 +206,8 @@ void CommandPalette::ExecuteSelected() {
     if (selected == LB_ERR || static_cast<size_t>(selected) >= results_.size()) return;
     const auto& result = results_[static_cast<size_t>(selected)];
     if (!result.enabled) {
-        MessageBoxW(owner_, L"That command is not available for the current selection.",
+        const auto& reason = result.command->disabledReason;
+        MessageBoxW(owner_, reason.empty() ? L"That command is not available for the current selection." : reason.c_str(),
                     L"Command unavailable", MB_OK | MB_ICONINFORMATION);
         return;
     }
@@ -234,7 +217,18 @@ void CommandPalette::ExecuteSelected() {
 }
 
 bool CommandPalette::HandleMessage(const MSG& message) {
-    if (!visible_ || message.message != WM_KEYDOWN) return false;
+    if (!visible_) return false;
+    if (message.message == WM_LBUTTONDOWN || message.message == WM_RBUTTONDOWN) {
+        const bool inPalette = message.hwnd == edit_ || message.hwnd == list_ ||
+            IsChild(edit_, message.hwnd) || IsChild(list_, message.hwnd);
+        if (!inPalette) {
+            // original-vision-journey-recovery: consume the dismissal click
+            // without sending it to a background file/workspace control.
+            Hide();
+            return true;
+        }
+    }
+    if (message.message != WM_KEYDOWN) return false;
     if (message.wParam == VK_ESCAPE) {
         Hide();
         return true;

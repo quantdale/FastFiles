@@ -1,0 +1,377 @@
+{
+  "implementation_sha": "5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac",
+  "repeatability": [
+    {
+      "scale": 200000,
+      "class": "selective",
+      "cold_n": 2,
+      "cold_ms": [
+        3.7891,
+        1.852
+      ],
+      "cold_median_ms": 2.82055,
+      "warm_n": 20,
+      "warm_median_ms": 0.67605,
+      "unavailable": false
+    },
+    {
+      "scale": 200000,
+      "class": "exact_name",
+      "cold_n": 2,
+      "cold_ms": [
+        4.7888,
+        2.1353
+      ],
+      "cold_median_ms": 3.46205,
+      "warm_n": 20,
+      "warm_median_ms": 0.7315499999999999,
+      "unavailable": false
+    },
+    {
+      "scale": 200000,
+      "class": "no_match",
+      "cold_n": 2,
+      "cold_ms": [
+        0.913,
+        0.8442
+      ],
+      "cold_median_ms": 0.8786,
+      "warm_n": 20,
+      "warm_median_ms": 0.886,
+      "unavailable": false
+    },
+    {
+      "scale": 1000000,
+      "class": "selective",
+      "cold_n": 2,
+      "cold_ms": [
+        3.8419,
+        3.4477
+      ],
+      "cold_median_ms": 3.6448,
+      "warm_n": 10,
+      "warm_median_ms": 4.0603,
+      "unavailable": false
+    },
+    {
+      "scale": 1000000,
+      "class": "exact_name",
+      "cold_n": 2,
+      "cold_ms": [
+        4.4327,
+        2.9219
+      ],
+      "cold_median_ms": 3.6773,
+      "warm_n": 10,
+      "warm_median_ms": 4.564299999999999,
+      "unavailable": false
+    },
+    {
+      "scale": 1000000,
+      "class": "no_match",
+      "cold_n": 2,
+      "cold_ms": [
+        1.2523,
+        0.858
+      ],
+      "cold_median_ms": 1.05515,
+      "warm_n": 10,
+      "warm_median_ms": 1.21305,
+      "unavailable": false
+    }
+  ],
+  "incomplete_run": "repeat-200k-1m-2 timed out after recorded query cells; excluded from completed-run distributions",
+  "independent_review": "NOT_OBTAINED: provider402 quota exhaustion",
+  "gallery": "3 reproducible inherited FAILs on PR15; PR16 separate fix not integrated",
+  "manifest": [
+    {
+      "file": "e2e.log",
+      "bytes": 31969,
+      "sha256": "db161f9701193eb061302f042594472272f9ca11015e71755df6c6e6ce6668fc",
+      "raw_archive": "e2e.log.gz",
+      "raw_bytes": 32869,
+      "raw_sha256": "90d8dc2cc06670ecee72f04df1854e3666af7b04171db0a4b2cc32092459c5af",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "ingestion-5m-final.json",
+      "bytes": 19063,
+      "sha256": "1b8df33d36680ea80483dfc35574d828caf53dcadc3d16ec4971ee931420b9e8",
+      "raw_archive": "ingestion-5m-final.json.gz",
+      "raw_bytes": 19063,
+      "raw_sha256": "1b8df33d36680ea80483dfc35574d828caf53dcadc3d16ec4971ee931420b9e8",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "ingestion-5m-final.log",
+      "bytes": 3484,
+      "sha256": "bef048dc8bde0e71427f883b6d49841ebde3c6dce44e7aaa56c979fc926ab9f4",
+      "raw_archive": "ingestion-5m-final.log.gz",
+      "raw_bytes": 3540,
+      "raw_sha256": "07b4901f3b5aaf6fad60544d7e763296d6dcb0d284b07a9c5d5fea06234fe465",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "log-asan-slice.txt",
+      "bytes": 1154,
+      "sha256": "11a52998882cd20b10626da08177cc3bcfe22430956e9ad19b6722a673f7f450",
+      "raw_archive": "log-asan-slice.txt.gz",
+      "raw_bytes": 1155,
+      "raw_sha256": "d672415767854b37ea7e34a2a32ad6b883d15d6efef22f25144e1484713f373c",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "log-ctest-debug.txt",
+      "bytes": 18237,
+      "sha256": "703d7e7ac2bc05d6498ec616e34689f7d70f49db085e0df5e460e07fd2fe0843",
+      "raw_archive": "log-ctest-debug.txt.gz",
+      "raw_bytes": 18237,
+      "raw_sha256": "703d7e7ac2bc05d6498ec616e34689f7d70f49db085e0df5e460e07fd2fe0843",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "log-ctest-release-test.txt",
+      "bytes": 18244,
+      "sha256": "c2b34a5b3fee96132ff47d47b0663f548b8a1e02d0b54deb871c1e6cc5bedcd7",
+      "raw_archive": "log-ctest-release-test.txt.gz",
+      "raw_bytes": 18244,
+      "raw_sha256": "c2b34a5b3fee96132ff47d47b0663f548b8a1e02d0b54deb871c1e6cc5bedcd7",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "log-hygiene-suite.txt",
+      "bytes": 27963,
+      "sha256": "66730435a384c18d65df1a9822ebe574066fffc70e587239710cea045996120d",
+      "raw_archive": "log-hygiene-suite.txt.gz",
+      "raw_bytes": 28442,
+      "raw_sha256": "3cb16b5603186568f9b0debecf8da8fc2b9d58db97fbfe0ac2ba4f66a9f81721",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "log-openspec.txt",
+      "bytes": 4002,
+      "sha256": "4b06e3b6b5b247463cb3882318caacb16df35c150ab8f9de3c175649dce9eeec",
+      "raw_archive": "log-openspec.txt.gz",
+      "raw_bytes": 4096,
+      "raw_sha256": "a5691505896ca4a9ff8ab12cf2c4a090f26e0ac6e2fc99ad274def80b1d3c100",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "log-policy.txt",
+      "bytes": 1279,
+      "sha256": "76cecf713d6dd029172d24d762582054e03d91c5f175fe05c86b971154e86ab3",
+      "raw_archive": "log-policy.txt.gz",
+      "raw_bytes": 1297,
+      "raw_sha256": "4694438b51a3072bb1307e192080aa32ed7c745c617d7b3802f3e236f83c6e97",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "migration-5m-final.json",
+      "bytes": 4141,
+      "sha256": "e8f10628dd77063caa1616812774e95836fde36767c8289badfe8fe544ae7799",
+      "raw_archive": "migration-5m-final.json.gz",
+      "raw_bytes": 4141,
+      "raw_sha256": "e8f10628dd77063caa1616812774e95836fde36767c8289badfe8fe544ae7799",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "migration-5m-recovery-final.json",
+      "bytes": 3249,
+      "sha256": "f011b3e4abe01da9d8876e01fd5a2ac4a740ee69aaac0840f651b1a4845c9233",
+      "raw_archive": "migration-5m-recovery-final.json.gz",
+      "raw_bytes": 3249,
+      "raw_sha256": "f011b3e4abe01da9d8876e01fd5a2ac4a740ee69aaac0840f651b1a4845c9233",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "migration-5m-wal-monitor.json",
+      "bytes": 832,
+      "sha256": "d104594dd8135cc28725db30f56e14d5afd7a82e6fb8fd84ebced710f32220de",
+      "raw_archive": "migration-5m-wal-monitor.json.gz",
+      "raw_bytes": 858,
+      "raw_sha256": "65cb76c718dea777948688ca5214913d07ff9af70d14e3a456505234320ae133",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "migration-5m-watched.json",
+      "bytes": 3186,
+      "sha256": "84f1400627d29bf1646cf2c82638770137816cd9a0a40b1f79077fa3171ee0f4",
+      "raw_archive": "migration-5m-watched.json.gz",
+      "raw_bytes": 3186,
+      "raw_sha256": "84f1400627d29bf1646cf2c82638770137816cd9a0a40b1f79077fa3171ee0f4",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "oracle-200k-extended-final.json",
+      "bytes": 8768,
+      "sha256": "15d7a79475f0d560fb8bbbfc6e3249ee468030db3c1cb7600649080a44709905",
+      "raw_archive": "oracle-200k-extended-final.json.gz",
+      "raw_bytes": 8768,
+      "raw_sha256": "15d7a79475f0d560fb8bbbfc6e3249ee468030db3c1cb7600649080a44709905",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "oracle-5m-final.json",
+      "bytes": 5055,
+      "sha256": "aa2ae3893fbcf27db075b312af3fd79d495c012078dfb8f1fbb4a4b2fd23fe74",
+      "raw_archive": "oracle-5m-final.json.gz",
+      "raw_bytes": 5055,
+      "raw_sha256": "aa2ae3893fbcf27db075b312af3fd79d495c012078dfb8f1fbb4a4b2fd23fe74",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "oracle-5m-final.log",
+      "bytes": 1378,
+      "sha256": "a2b92e483eed864cd5d908fec41aa6e38f6c19bd6b3e1f5b1c6a237fad92030b",
+      "raw_archive": "oracle-5m-final.log.gz",
+      "raw_bytes": 1404,
+      "raw_sha256": "54cc497dd59689e13e2c0c3d20902d4b76f00042a8096dac6eb91254084402ac",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "parity-report.json",
+      "bytes": 3604,
+      "sha256": "bed043645a3b523d4fa2ae6db9c17a517aaebfe65fbd388bbe7c55a9c03e5444",
+      "raw_archive": "parity-report.json.gz",
+      "raw_bytes": 3740,
+      "raw_sha256": "4e63d28ae5acbdfc6c0b3055f7ec410403ff04fe2e317d9eed02cc8fa43a8922",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "profile-5m-after-fallback.log",
+      "bytes": 79029,
+      "sha256": "ec24f9f315df2b1b2222804dccb9447701656598cc5ce7057e3294c1eab001f5",
+      "raw_archive": "profile-5m-after-fallback.log.gz",
+      "raw_bytes": 79695,
+      "raw_sha256": "5db0a3036ff9abd74326bede5e939581f1927c24f20fe0d20c445132e7571bda",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "profile-5m-before-fallback.log",
+      "bytes": 51325,
+      "sha256": "1a801b2e07ec7a3a3cc58e917ab2b58df676e61742e541742b0d94107aed43dc",
+      "raw_archive": "profile-5m-before-fallback.log.gz",
+      "raw_bytes": 51757,
+      "raw_sha256": "141ba8dd246904c2bff7c5839aa69d3ce77d2d5e6dd3bda3c4d8a4305d552678",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "profile-5m-entries-only.log",
+      "bytes": 78912,
+      "sha256": "a9f41f0fe4f75175d2e6e3c7f43f4ab041a81b328d37e5b0f0f18be2488413db",
+      "raw_archive": "profile-5m-entries-only.log.gz",
+      "raw_bytes": 79578,
+      "raw_sha256": "da0afbf3709e62d5ee557f94a4bc39966200bfc1094f06cd34d5909a3e20875d",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "projection-budget-green.log",
+      "bytes": 16231,
+      "sha256": "fa19cfd8afdcaf3a8785bb3f4b18207d4fb9a3218033728e0aeeba698cb8f14d",
+      "raw_archive": "projection-budget-green.log.gz",
+      "raw_bytes": 16507,
+      "raw_sha256": "a178b60ffc7d1481bbba6773ca820f173b1abacc40219606ea1a506e6f95313d",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "projection-budget-red.log",
+      "bytes": 16215,
+      "sha256": "79e5517f94a3a4ff8ff42c73d96be8761bd3b8d9498325b215391c86f52576ac",
+      "raw_archive": "projection-budget-red.log.gz",
+      "raw_bytes": 16490,
+      "raw_sha256": "6dd7e17724a39c52c2f1d47b6170ddc4c3b1740ad8e6bb00b5bd1adb7c4bcfb2",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "repeat-200k-1m-1.json",
+      "bytes": 480691,
+      "sha256": "f2aedde56a891bc9748b413a890c803a71b6aaefc6e8340dc63724822a485ff1",
+      "raw_archive": "repeat-200k-1m-1.json.gz",
+      "raw_bytes": 480691,
+      "raw_sha256": "f2aedde56a891bc9748b413a890c803a71b6aaefc6e8340dc63724822a485ff1",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "repeat-200k-1m-2.log",
+      "bytes": 3619,
+      "sha256": "716731797d69485343447c4e5c180ee16f152a63f3374bf8db9e67ac6b8a719c",
+      "raw_archive": "repeat-200k-1m-2.log.gz",
+      "raw_bytes": 3674,
+      "raw_sha256": "a0debb4b974caf689e1bd97cd837d87e200dbce715354dfae363a50d23c6f0b0",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "repeat-200k-1m-3.json",
+      "bytes": 480463,
+      "sha256": "cc79496d8d6266d67e41f1fd5f8054933c4f094f1808f093e86274f9ec76ddd7",
+      "raw_archive": "repeat-200k-1m-3.json.gz",
+      "raw_bytes": 480463,
+      "raw_sha256": "cc79496d8d6266d67e41f1fd5f8054933c4f094f1808f093e86274f9ec76ddd7",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "uia-core.json",
+      "bytes": 1784,
+      "sha256": "7b352af9e996e59608e9b0f0ae0a106144f8957bb8c4446f7dd7d80415dd2cbf",
+      "raw_archive": "uia-core.json.gz",
+      "raw_bytes": 1854,
+      "raw_sha256": "53bf85579baa8819bbde8ffcd651e85b7ef27d57e3f91d6c372afb3c86e0509b",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "uia-full.json",
+      "bytes": 41715,
+      "sha256": "5fd2f1c397a36574c6cf1bbec8b0b7ff087af2d6c7dfa3915198a045859e8aa3",
+      "raw_archive": "uia-full.json.gz",
+      "raw_bytes": 42829,
+      "raw_sha256": "e1a435f6455a12441f9b2428ea8ece8fbfe99153cc3cee1dd7cbad8663e399d1",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "uia-visual.json",
+      "bytes": 19125,
+      "sha256": "9738e032303c2d0f4d05659652f94cbdbf9d082c2194222f909c60e15022bac3",
+      "raw_archive": "uia-visual.json.gz",
+      "raw_bytes": 19709,
+      "raw_sha256": "63368040d3b90da242719fa5186f8bdbad30a0cfa9280537f861de31eccd5529",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "v2-open-after-rollback.log",
+      "bytes": 44,
+      "sha256": "a2372a16f2da31808d80406a61dd969c56bdbe8aa0613113b2051b53a9379a53",
+      "raw_archive": "v2-open-after-rollback.log.gz",
+      "raw_bytes": 45,
+      "raw_sha256": "6baac732bc5707563787bed5acee346e5e722a26bf0ea6cb67229b0f97947e33",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "v2-refusal.log",
+      "bytes": 28,
+      "sha256": "08f31d06f4067143e4dc3281fa21d7bb8bcd429b9f764d840300ef2571de666f",
+      "raw_archive": "v2-refusal.log.gz",
+      "raw_bytes": 29,
+      "raw_sha256": "10eae9b78fe4a0c279030851f20c7ac59b7c6d5bc5d782da54ab423c8c417d4f",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "v2-rollback-preservation.log",
+      "bytes": 60,
+      "sha256": "9405d4cd31ff331da661ab88ff4b3059794c7a62f3d388e8317cede9c9376f1d",
+      "raw_archive": "v2-rollback-preservation.log.gz",
+      "raw_bytes": 62,
+      "raw_sha256": "32419efb0ffdcaa96ca5d16cb2ed19fdd6c892b6e563dbcead1f6c887b83d2f4",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    },
+    {
+      "file": "visual-gallery-summary.md",
+      "bytes": 2620,
+      "sha256": "030f6bd29830594cdd3b144a67d5d5a623d8fc32af2d39ba1a2ba11fa1afdbf3",
+      "raw_archive": "visual-gallery-summary.md.gz",
+      "raw_bytes": 2652,
+      "raw_sha256": "14567c16f23ba1bad4979f4dfb22ee670986601fa1be4575bd3d33899b4bb4f5",
+      "normalization": "UTF-8 text view: LF endings, strip end-of-line whitespace; original bytes preserved in gzip payload"
+    }
+  ],
+  "artifact_storage": "reviewable LF text plus exact original bytes in per-file gzip (mtime=0); raw hashes refer to decompressed archive payloads"
+}

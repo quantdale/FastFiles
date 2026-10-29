@@ -76,6 +76,21 @@ function Get-VerificationBuildProcessSnapshot {
             $startUtc = $null
             try { $startUtc = [Management.ManagementDateTimeConverter]::ToDateTime([string]$process.CreationDate).ToUniversalTime().ToString('o') } catch { $startUtc = $null }
             if ($null -eq $startUtc) {
+                # PR #14 closure: independent StartTime fallback before declaring
+                # the identity unreadable. Win32_Process.CreationDate can
+                # transiently read back empty for a live process (observed
+                # 2026-10-21: the same two pids failed the CIM read in BOTH the
+                # before and after snapshots), which failed closed every honest
+                # run as CLEANUP_INCOMPLETE with empty residue.
+                # Test-VerificationProcessIdentityCurrent already compares via
+                # Get-Process StartTime (2-second tolerance), so the fallback
+                # reads the same underlying clock.
+                try {
+                    $gp = Get-Process -Id ([int]$process.ProcessId) -ErrorAction Stop
+                    if ($null -ne $gp.StartTime) { $startUtc = $gp.StartTime.ToUniversalTime().ToString('o') }
+                } catch { $startUtc = $null }
+            }
+            if ($null -eq $startUtc) {
                 # The identity is unreadable. If the process already exited, there is
                 # nothing to adopt or kill and no residue: skip it. Only a still-live
                 # process with an unreadable creation time is an unverifiable identity.

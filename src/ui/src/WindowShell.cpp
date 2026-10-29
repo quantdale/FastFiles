@@ -1,5 +1,8 @@
 #include "WindowShell.h"
+#include "ShutdownDiagnostics.h"
+#include "ffui/AsyncWorkAdmission.h"
 #include "IconCache.h"
+#include "ThemeToggle.h"
 #include "UITheme.h"
 #include "UiComponents.h" // ui-v3: shared state-panel presentation for details
 
@@ -9,6 +12,7 @@
 #include "ffui/DropFeedbackLayout.h" // ui-v3 drag/drop: pure feedback-geometry seam
 #include "ffui/DisplayPath.h"
 #include "ffui/StorageLayout.h"
+#include "ffui/ColumnVisibility.h"
 #include "UiaHostQuery.h"
 
 #include <commctrl.h>
@@ -207,7 +211,8 @@ WindowShell::WindowShell() : previewController_([this](uint64_t requestId, Previ
             case PreviewState::Loading: columnView_.SetUiaDetailsStatus(L"Preview: Loading"); break;
             case PreviewState::Unsupported: columnView_.SetUiaDetailsStatus(L"Preview: Unsupported"); break;
         }
-        if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_PREVIEW_READY, 0, 0);
+        const HWND target = hwnd_.load();
+        if (target != nullptr) PostMessageW(target, WM_APP_PREVIEW_READY, 0, 0);
     }
 }) {}
 
@@ -266,6 +271,7 @@ void WindowShell::OpenStorageWorkspace() {
 }
 
 void WindowShell::SyncWorkspaceChrome() {
+    columnView_.SetBrowseContentActive(!searchPanel_.Visible() && !storageAnalysis_.Visible());
     NavigationSidebar::ActiveWorkspace workspace = NavigationSidebar::ActiveWorkspace::Browse;
     if (searchPanel_.Visible()) workspace = NavigationSidebar::ActiveWorkspace::Search;
     else if (storageAnalysis_.Visible()) workspace = NavigationSidebar::ActiveWorkspace::Storage;
@@ -277,7 +283,8 @@ void WindowShell::SyncWorkspaceChrome() {
     navigationChrome_.Refresh();
 }
 
-void WindowShell::NavigateToLocation(const NavigationLocation& location) {
+void WindowShell::NavigateToLocation(const NavigationLocation& location,
+                                     const std::function<void()>& populateFileSystem) {
     HideToolWorkspaces();
     // quick-access-home 5.4: Home and filesystem destinations take separate
     // model + view paths. `Navigate` no-ops when the model is already at the
@@ -290,7 +297,8 @@ void WindowShell::NavigateToLocation(const NavigationLocation& location) {
     } else {
         navigationWorkspace_.Navigate(location.path);
         columnView_.SetPaneHome(activePane, false);
-        if (location.path.empty()) columnView_.NavigateToComputerRoot();
+        if (populateFileSystem) populateFileSystem();
+        else if (location.path.empty()) columnView_.NavigateToComputerRoot();
         else columnView_.NavigateToPath(location.path);
         // ui-v3 hardening V3-03: address-bar/breadcrumb/drive/sidebar commits
         // rebuild the column chain from scratch, which used to keep the
@@ -299,8 +307,9 @@ void WindowShell::NavigateToLocation(const NavigationLocation& location) {
         EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
     }
     RefreshSelectionPresentation();
-    navigationChrome_.Refresh();
-    navigationSidebar_.Refresh();
+    // original-vision-journey-recovery 3.1: workspace chrome must observe the
+    // new location, after Home/filesystem state and the columns agree.
+    SyncWorkspaceChrome();
     RefreshHomeData();
     RequestRepaint();
 }
@@ -394,13 +403,25 @@ ffui::MainShellLayout WindowShell::CurrentShellLayout() const {
 }
 
 CommandContext WindowShell::CurrentCommandContext() const {
-    return {ClassifySelection(columnView_.ActiveSelectionItems()),
-            !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_)};
+    return {ClassifySelection(CurrentCommandSelection()),
+            !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_),
+            !storageAnalysis_.Visible() && !searchPanel_.Visible(),
+            fileOperations_.HasOutstandingWork()};
+}
+
+std::vector<SelectionItem> WindowShell::CurrentCommandSelection() const {
+    if (storageAnalysis_.Visible()) return storageAnalysis_.ActiveSelectionItems();
+    if (searchPanel_.Visible()) return searchPanel_.ActiveSelectionItems();
+    return columnView_.ActiveSelectionItems();
 }
 
 bool WindowShell::InitializeCommands() {
     const BaselineHandlers handlers{[this](const std::wstring& commandId) -> CommandHandler {
         return [this, commandId](const std::vector<std::wstring>& paths) {
+            if (commandId == L"file.cancel-operations") {
+                CancelFileOperations();
+                return;
+            }
             const std::wstring activePath = columnView_.ActivePanePath();
             if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
                 navigationWorkspace_.Navigate(activePath);
@@ -512,6 +533,10 @@ bool WindowShell::InitializeCommands() {
                     }
                 }
             } else if (commandId == L"item.open" && paths.size() == 1) {
+                if (searchPanel_.Visible()) {
+                    searchPanel_.ActivateSelection();
+                    return;
+                }
                 const DWORD attributes = GetFileAttributesW(paths.front().c_str());
                 if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) NavigateWorkspace(paths.front());
                 else if (!OpenWithDefaultApplication(hwnd_, paths.front())) MessageBoxW(hwnd_, L"The item could not be opened.", L"Open", MB_OK | MB_ICONERROR);
@@ -586,6 +611,9 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"app.last-operation-errors") {
                 SendMessageW(hwnd_, WM_COMMAND, kMenuOperationDetails, 0);
             } else if (commandId == L"app.command-palette") {
+                paletteTargets_ = SelectionPaths(CurrentCommandSelection());
+                paletteStorage_ = storageAnalysis_.Visible();
+                paletteSearch_ = searchPanel_.Visible();
                 commandPalette_.Show(CurrentCommandContext());
             } else if (commandId == L"navigation.focus-path") {
                 navigationChrome_.FocusAddressBar();
@@ -727,19 +755,33 @@ bool WindowShell::InitializeCommands() {
         }
     }
     if (!commandPalette_.Initialize(hwnd_, &commandRegistry_, &shortcuts_,
-                                    [this](const std::wstring& id) { InvokeCommand(id); })) return false;
+        [this](const std::wstring& id) {
+            const auto* command = commandRegistry_.Find(id);
+            if (command != nullptr && CommandUsesSelection(*command) &&
+                (paletteStorage_ != storageAnalysis_.Visible() || paletteSearch_ != searchPanel_.Visible() ||
+                 paletteTargets_ != SelectionPaths(CurrentCommandSelection()))) {
+                ShowStatusNotice(L"The selection changed. Select the item again to run that command.");
+                return;
+            }
+            InvokeCommand(id);
+        })) return false;
     if (!searchPanel_.Initialize(hwnd_, &engineClient_, [this](const ffsearch::Candidate& candidate,
                                                                   const ffsearch::PathReconstruction& path) {
         const std::wstring navigationPath = candidate.isDirectory
             ? (std::filesystem::path(candidate.folder) / candidate.name).wstring()
             : candidate.folder;
-        if (!navigationPath.empty()) navigationWorkspace_.Navigate(navigationPath);
-        if (path.complete) columnView_.NavigateToHierarchy(path.segments, candidate.isDirectory);
-        else columnView_.NavigateToHierarchy((std::filesystem::path(candidate.folder) / candidate.name).wstring(), candidate.isDirectory);
-        RefreshSelectionPresentation();
-        navigationChrome_.Refresh();
-        RefreshHomeData(); // quick-access-home 5.5: navigation records recents
-        RequestRepaint();
+        if (navigationPath.empty()) {
+            SyncWorkspaceChrome();
+            return;
+        }
+        // original-vision-journey-recovery 3.1: use the Home-aware shell
+        // transition, retaining the engine's reconstructed ancestry without
+        // first rebuilding/enumerating a second, path-only column chain.
+        NavigateToLocation(NavigationLocation::FromPath(navigationPath), [this, &candidate, &path]() {
+            if (path.complete) columnView_.NavigateToHierarchy(path.segments, candidate.isDirectory);
+            else columnView_.NavigateToHierarchy(
+                (std::filesystem::path(candidate.folder) / candidate.name).wstring(), candidate.isDirectory);
+        });
     }, settings_.retainSearchHistory)) return false;
     searchPanel_.SetDefaultScope(settings_.defaultSearchScope);
     // quick-access-home 5.6: search history changes refresh Home's Recent
@@ -835,12 +877,35 @@ void WindowShell::FinishInlineRename(bool commit) {
     fileOperations_.Enqueue({FileOperationKind::Rename, {path}, {}, value, true});
 }
 
+void WindowShell::CancelFileOperations() {
+    if (!fileOperations_.HasOutstandingWork()) return;
+    fileOperations_.CancelCurrent();
+    // original-vision-journey-recovery 4.7: a terminal event can reach the UI
+    // before the worker clears executing_. Request cancellation from live worker
+    // state, but never overwrite an already presented terminal caption.
+    if (fileOpOutstanding_) SetWindowTextW(hwnd_, L"FastFiles \u2014 cancelling operation\u2026");
+}
+
 bool WindowShell::InvokeCommand(const std::wstring& commandId) {
     const size_t workspacePaneCountBefore = navigationWorkspace_.ActivePaneCount();
     const size_t activePaneBefore = navigationWorkspace_.ActivePaneIndex();
     const bool viewDualBefore = columnView_.IsDualPane();
-    const CommandContext context = CurrentCommandContext();
-    const auto paths = columnView_.ActiveSelectionPaths();
+    auto selection = CurrentCommandSelection();
+    const auto* descriptor = commandRegistry_.Find(commandId);
+    const bool usesSelection = descriptor != nullptr && CommandUsesSelection(*descriptor);
+    const auto paths = usesSelection ? SelectionPaths(selection) : std::vector<std::wstring>{};
+    const bool browseWorkspace = !storageAnalysis_.Visible() && !searchPanel_.Visible();
+    // Alternate-workspace rows may have become stale since rendering. Never
+    // recover by borrowing a selection from the hidden browsing surface.
+    const auto liveSelection = browseWorkspace || !usesSelection
+        ? std::optional{selection} : ResolveExistingSelection(paths);
+    if (!liveSelection) {
+        ShowStatusNotice(L"The selected item is no longer available. Refresh its location and try again.");
+        return false;
+    }
+    const CommandContext context{ClassifySelection(*liveSelection),
+        !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_), browseWorkspace,
+        fileOperations_.HasOutstandingWork()};
     const bool accepted = commandRegistry_.Invoke(commandId, context, paths);
     AppendUiCommandDiagnostic(commandId, accepted, workspacePaneCountBefore,
                               navigationWorkspace_.ActivePaneCount(), activePaneBefore,
@@ -866,6 +931,9 @@ bool WindowShell::DispatchShortcut(const MSG& message, ShortcutScope scope, bool
 
 void WindowShell::ShowContextMenu(POINT screenPoint) {
     const CommandContext context = CurrentCommandContext();
+    const auto expectedTargets = SelectionPaths(CurrentCommandSelection());
+    const bool expectedStorage = storageAnalysis_.Visible();
+    const bool expectedSearch = searchPanel_.Visible();
     std::vector<const CommandDescriptor*> commands;
     for (const auto* command : commandRegistry_.Query(context)) {
         if (command->category == L"File" || command->category == L"Item") commands.push_back(command);
@@ -877,7 +945,7 @@ void WindowShell::ShowContextMenu(POINT screenPoint) {
     std::wstring previousCategory;
     for (const auto* command : commands) {
         if (!previousCategory.empty() && previousCategory != command->category) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        const bool enabled = !command->enabledPredicate || command->enabledPredicate(context);
+        const bool enabled = CommandEnabled(*command, context);
         const UINT id = kContextCommandBase + static_cast<UINT>(commandIds.size());
         AppendMenuW(menu, MF_STRING | (enabled ? MF_ENABLED : MF_GRAYED), id, command->displayName.c_str());
         commandIds.push_back(command->commandId);
@@ -887,7 +955,15 @@ void WindowShell::ShowContextMenu(POINT screenPoint) {
                                            screenPoint.x, screenPoint.y, hwnd_, nullptr);
     DestroyMenu(menu);
     if (selected >= kContextCommandBase && selected < kContextCommandBase + commandIds.size()) {
-        InvokeCommand(commandIds[selected - kContextCommandBase]);
+        const auto& id = commandIds[selected - kContextCommandBase];
+        const auto* command = commandRegistry_.Find(id);
+        if (command != nullptr && CommandUsesSelection(*command) &&
+            (expectedStorage != storageAnalysis_.Visible() || expectedSearch != searchPanel_.Visible() ||
+             expectedTargets != SelectionPaths(CurrentCommandSelection()))) {
+            ShowStatusNotice(L"The selection changed. Select the item again to run that command.");
+            return;
+        }
+        InvokeCommand(id);
     }
 }
 
@@ -1112,7 +1188,9 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                     return;
                 }
                 navigationWorkspace_.Navigate(path);
+                columnView_.SetPaneHome(static_cast<int>(navigationWorkspace_.ActivePaneIndex()), false);
                 columnView_.NavigateToPath(path);
+                EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
                 RefreshSelectionPresentation();
                 navigationChrome_.Refresh();
                 navigationSidebar_.Refresh();
@@ -1121,10 +1199,13 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
             }
         },
         [this]() {
-            storageAnalysis_.Hide();
+            HideToolWorkspaces();
             RequestRepaint();
         },
-        [this](const std::wstring& commandId, const std::vector<std::wstring>& /*paths*/) {
+        [this](const std::wstring& commandId, const std::vector<std::wstring>& paths) {
+            // Selection may change in TrackPopupMenu's nested message loop.
+            // Reject stale menu targets rather than retargeting another row.
+            if (paths != SelectionPaths(storageAnalysis_.ActiveSelectionItems())) return;
             InvokeCommand(commandId);
         })) return false;
     // semantic-treemap-uia 10.x: attach the Storage Analysis treemap surface
@@ -1207,23 +1288,30 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                    !pendingSnapshotGeneration_.compare_exchange_weak(pending, generation)) {
             }
             if (!snapshotRefreshPosted_.exchange(true)) {
-                PostMessageW(hwnd_, WM_APP_SNAPSHOT_UPDATED, 0, 0);
+                const HWND target = hwnd_.load();
+                if (target != nullptr) PostMessageW(target, WM_APP_SNAPSHOT_UPDATED, 0, 0);
             }
         },
         [this](EngineConnectionState state, bool privilegedPathActive) {
             columnView_.SetEngineStatus(state, privilegedPathActive);
-            PostMessageW(hwnd_, WM_APP_ENGINE_STATUS, static_cast<WPARAM>(state), privilegedPathActive ? 1 : 0);
+            const HWND target = hwnd_.load();
+            if (target != nullptr) PostMessageW(target, WM_APP_ENGINE_STATUS, static_cast<WPARAM>(state), privilegedPathActive ? 1 : 0);
         },
         [this](const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
             columnView_.OnDirectoryError(path, reason);
-            PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
+            const HWND target = hwnd_.load();
+            if (target != nullptr) PostMessageW(target, WM_APP_REPAINT, 0, 0);
         });
 
     // overnight-recovery-campaign: EngineClient drops directory requests until
     // Start publishes its running state. Restore the initial path only after
     // Start so a cold launch cannot strand every restored column on
     // "Refreshing…" until the user touches the address bar.
-    if (!initialLocation.IsHome() && !initialLocation.path.empty()) {
+    if (initialLocation.IsHome()) {
+        // original-vision-journey-recovery: resolving a typed Home location
+        // must also restore its real pane/model/chrome presentation.
+        NavigateToLocation(initialLocation);
+    } else if (!initialLocation.path.empty()) {
         columnView_.NavigateToPath(initialLocation.path);
         // ui-overhaul phase 3: a deep startup location must reveal its leaf
         // column immediately, exactly like an address/sidebar navigation. The
@@ -1272,9 +1360,18 @@ int WindowShell::RunMessageLoop() {
         // swallow the key before the main window's WM_KEYDOWN sees it). The
         // command palette and settings dialog above keep precedence.
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && searchPanel_.Visible()) {
-            searchPanel_.Hide();
-            SetFocus(hwnd_);
+            HideToolWorkspaces();
             RequestRepaint();
+            continue;
+        }
+        // original-vision-journey-recovery 4.6: native child controls do not
+        // bubble WM_KEYDOWN to the shell. Preserve modal/search/edit Escape
+        // ownership, then route a running operation's cancellation through the
+        // same shell handler even when a navigation/preview child has focus.
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE &&
+            fileOperations_.HasOutstandingWork() && !nativeEditFocused &&
+            msg.hwnd != hwnd_ && IsChild(hwnd_, msg.hwnd)) {
+            SendMessageW(hwnd_, WM_KEYDOWN, msg.wParam, msg.lParam);
             continue;
         }
         if (!commandPalette_.Visible() && DispatchShortcut(msg, ShortcutScope::ActiveView, nativeEditFocused)) continue;
@@ -1288,14 +1385,18 @@ int WindowShell::RunMessageLoop() {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    AppendShutdownPhase(L"message-loop-exit", L"observed");
     navigationWorkspace_.FlushState();
+    AppendShutdownPhase(L"engine-client-stop", L"begin");
     engineClient_.Stop();
+    AppendShutdownPhase(L"engine-client-stop", L"end");
     fileOperations_.Stop();
     return static_cast<int>(msg.wParam);
 }
 
 void WindowShell::RequestRepaint() {
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    const HWND target = hwnd_.load();
+    if (target != nullptr) InvalidateRect(target, nullptr, FALSE);
 }
 
 bool WindowShell::IsSystemDark() const {
@@ -1366,6 +1467,7 @@ void WindowShell::MarkDeviceDirty() {
     detailsTextBrush_.Reset();
     detailsSecondaryBrush_.Reset();
     detailsTextFormat_.Reset();
+    statusLineLayout_.Reset();
     detailsTitleFormat_.Reset();
     previewTextFormat_.Reset();
     // ui-v3 details: the caption format and state-panel brush cache follow the
@@ -1459,6 +1561,16 @@ void WindowShell::Render() {
         detailsLayout.availableColumnWidthDip,
         detailsLayout.viewportHeightDip);
 
+    // The eased scroll animations are the authoritative offsets; sync the values
+    // the render/hit-test paths read so paints always reflect the eased position.
+    // Pane 1's offset lives in ColumnView and is only touched mid-flight so its
+    // idle state (tab restore, direct writes) is preserved untouched.
+    scrollOffset_ = scrollAnim_.Value();
+    if (scrollAnim2_.IsAnimating()) {
+        columnView_.SetScrollOffset2(scrollAnim2_.Value());
+    }
+    const float pane1FrameScroll = columnView_.ScrollOffset2();
+
     // semantic-uia-core-surfaces 2.5/1.4: push the live geometry the UIA
     // providers convert to screen coordinates. Updated every render (plain
     // floats) so bounds always track the eased scroll offsets and layout.
@@ -1470,7 +1582,7 @@ void WindowShell::Render() {
         geometry.heightDip = detailsLayout.viewportHeightDip;
         geometry.dpiScale = CurrentDpiScale();
         geometry.hScroll0Dip = scrollOffset_;
-        geometry.hScroll1Dip = columnView_.ScrollOffset2();
+        geometry.hScroll1Dip = pane1FrameScroll;
         geometry.hwnd = hwnd_;
         geometry.keyboardFocus = GetFocus() == hwnd_;
         geometry.revision = ++uiaGeometryRevision_;
@@ -1514,14 +1626,6 @@ void WindowShell::Render() {
         }
     }
 
-    // The eased scroll animations are the authoritative offsets; sync the values
-    // the render/hit-test paths read so paints always reflect the eased position.
-    // Pane 1's offset lives in ColumnView and is only touched mid-flight so its
-    // idle state (tab restore, direct writes) is preserved untouched.
-    scrollOffset_ = scrollAnim_.Value();
-    if (scrollAnim2_.IsAnimating()) {
-        columnView_.SetScrollOffset2(scrollAnim2_.Value());
-    }
 
     context->SetTransform(D2D1::Matrix3x2F::Translation(shellLayout.contentRect.left,
                                                         shellLayout.contentRect.top));
@@ -1557,7 +1661,7 @@ void WindowShell::Render() {
             galleryRect, ffui::gUiDarkTheme, CurrentDpiScale());
     } else if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
         storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), shellLayout.contentRect);
-    } else if (searchPanel_.Visible() || storageAnalysis_.Visible()) {
+    } else if (!columnView_.BrowseContentActive()) {
         // ui-v3 hardening V3-01: search/storage own the workspace through native
         // child controls separated by inset gutters. Rendering browse pixels
         // beneath them leaked stale columns/headings through every gap between
@@ -1566,7 +1670,7 @@ void WindowShell::Render() {
         // background; Clear covers the full target regardless of transform.
         context->Clear(ffui::GetUiTheme(ffui::gUiDarkTheme).background);
     } else {
-        columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, columnView_.ScrollOffset2());
+        columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, pane1FrameScroll);
     }
     // ui-v3 drag/drop: destination emphasis paints over the browse surface but
     // under the details card, so a drag over the workspace reads as an accent
@@ -1657,6 +1761,7 @@ void WindowShell::RefreshSelectionPresentation() {
 }
 
 void WindowShell::RequestFileType(const std::wstring& path) {
+    if (!AdmitAsyncWork(fileTypeWork_, kMaxInFlightFileTypeLookups)) return;
     {
         std::lock_guard<std::mutex> lock(fileTypeMutex_);
         if (fileTypes_.contains(path)) return;
@@ -1668,14 +1773,6 @@ void WindowShell::RequestFileType(const std::wstring& path) {
         }
         fileTypes_.emplace(path, L"");
     }
-    fileTypeWork_.erase(std::remove_if(fileTypeWork_.begin(), fileTypeWork_.end(), [](std::shared_future<void>& work) {
-        return work.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
-    }), fileTypeWork_.end());
-    // Bound the in-flight list too. shared_future destruction never blocks,
-    // so abandoning the oldest lookup cannot stall the UI thread or shutdown.
-    if (fileTypeWork_.size() >= kMaxInFlightFileTypeLookups) {
-        fileTypeWork_.erase(fileTypeWork_.begin());
-    }
     fileTypeWork_.push_back(std::async(std::launch::async, [this, path] {
         SHFILEINFOW info{};
         std::wstring description;
@@ -1686,7 +1783,8 @@ void WindowShell::RequestFileType(const std::wstring& path) {
             std::lock_guard<std::mutex> lock(fileTypeMutex_);
             fileTypes_[path] = std::move(description);
         }
-        if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
+        const HWND target = hwnd_.load();
+        if (target != nullptr) PostMessageW(target, WM_APP_REPAINT, 0, 0);
     }).share());
 }
 
@@ -1965,7 +2063,7 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                                 ffprotocol::FolderAggregateResultV2Payload{engineRequestId, status, itemCount, totalSizeBytes,
                                                                            totalAllocatedSizeBytes, allocatedBytesKnownCount,
                                                                            allocatedBytesTotalCount});
-                            const HWND target = hwnd_;
+                            const HWND target = hwnd_.load();
                             if (target != nullptr
                                 && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
                                                 reinterpret_cast<LPARAM>(payload.get()))) {
@@ -2140,56 +2238,83 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
     // rides the status line until it expires.
     std::wstring statusText = status;
     if (!statusNotice_.empty() && GetTickCount64() < statusNoticeUntilMs_) {
-        statusText += L"  \u2022  " + statusNotice_;
+        // Keep recovery/completion feedback ahead of a potentially long path.
+        statusText = statusNotice_ + L"  \u2022  " + status;
     }
-    context->DrawText(statusText.c_str(), static_cast<UINT32>(statusText.size()), detailsTextFormat_.Get(),
-        D2D1::RectF(8, statusTop, sceneWidth - 8, sceneHeight), detailsTextBrush_.Get());
+    const D2D1_RECT_F statusRect = D2D1::RectF(8, statusTop, sceneWidth - 8, sceneHeight);
+    const float statusWidth = statusRect.right - statusRect.left;
+    if (statusLineLayout_ == nullptr || statusLineText_ != statusText || statusLineWidth_ != statusWidth) {
+        UiCreateSingleLineTextLayout(renderer_.DWriteFactory(), detailsTextFormat_.Get(), statusText.c_str(),
+            static_cast<UINT32>(statusText.size()), statusWidth, statusRect.bottom - statusRect.top,
+            &statusLineLayout_);
+        statusLineText_ = statusText;
+        statusLineWidth_ = statusWidth;
+    }
+    if (statusLineLayout_) {
+        context->DrawTextLayout(D2D1::Point2F(statusRect.left, statusRect.top), statusLineLayout_.Get(),
+            detailsTextBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
 }
 
 
 void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
-    // Defensive: before the first real size the viewport can be zero; scrolling
-    // with a zero viewport would translate the whole chain off-screen.
-    if (viewportWidth <= 0.0f) return;
-    const float columnLeft = columnIndex * ColumnView::kColumnWidth;
-    const float columnRight = columnLeft + ColumnView::kColumnWidth;
+    EnsurePaneColumnVisible(columnView_.ActivePane(), columnIndex, viewportWidth);
+}
+
+void WindowShell::EnsurePaneColumnVisible(int pane, int columnIndex, float viewportWidth) {
+    if (viewportWidth <= 0.0f || columnIndex < 0 || pane < 0 ||
+        pane >= (columnView_.IsDualPane() ? 2 : 1) || columnView_.IsPaneHome(pane)) return;
     const uint64_t now = GetTickCount64();
     if (columnView_.IsDualPane()) {
         const float paneWidth = viewportWidth / 2.0f;
-        const int pane = columnView_.ActivePane();
         const float paneScroll = pane == 0 ? scrollAnim_.Value()
             : (scrollAnim2_.IsAnimating() ? scrollAnim2_.Value() : columnView_.ScrollOffset2());
-        float newScroll = paneScroll;
-        if (columnLeft < paneScroll) {
-            newScroll = columnLeft;
-        } else if (columnRight > paneScroll + paneWidth) {
-            newScroll = columnRight - paneWidth;
-        }
-        const float maxScroll = std::max(0.0f, columnView_.PaneContentWidth(pane) - paneWidth);
-        newScroll = std::clamp(newScroll, 0.0f, maxScroll);
-        if (pane == 0) {
-            scrollAnim_.AnimateTo(newScroll, kUiAnimationDefaultMs, now);
-        } else {
+        const float target = ColumnRevealScrollOffset(columnIndex, ColumnView::kColumnWidth,
+            columnView_.PaneContentWidth(pane), paneWidth, paneScroll);
+        if (pane == 0) scrollAnim_.AnimateTo(target, kUiAnimationDefaultMs, now);
+        else {
             if (!scrollAnim2_.IsAnimating()) scrollAnim2_.Snap(columnView_.ScrollOffset2());
-            scrollAnim2_.AnimateTo(newScroll, kUiAnimationDefaultMs, now);
+            scrollAnim2_.AnimateTo(target, kUiAnimationDefaultMs, now);
         }
-        HandleAnimationTimer(true);
     } else {
-        const float paneScroll = scrollAnim_.Value();
-        float newScroll = paneScroll;
-        if (columnLeft < paneScroll) {
-            newScroll = columnLeft;
-        } else if (columnRight > paneScroll + viewportWidth) {
-            newScroll = columnRight - viewportWidth;
-        }
-        const float maxScroll = std::max(0.0f, columnView_.ContentWidth() - viewportWidth);
-        scrollAnim_.AnimateTo(std::clamp(newScroll, 0.0f, maxScroll), kUiAnimationDefaultMs, now);
-        HandleAnimationTimer(true);
+        const float target = ColumnRevealScrollOffset(columnIndex, ColumnView::kColumnWidth,
+            columnView_.ContentWidth(), viewportWidth, scrollAnim_.Value());
+        scrollAnim_.AnimateTo(target, kUiAnimationDefaultMs, now);
     }
+    HandleAnimationTimer(true);
+}
+
+void WindowShell::ReconcileBrowseInteraction(bool revealFocusedColumn) {
+    if (!columnView_.UiaBrowseContentActive()) return;
+    navigationWorkspace_.ActivatePane(static_cast<size_t>(columnView_.ActivePane()));
+    RefreshSelectionPresentation();
+    // Home has no filesystem columns and its empty path never reaches Navigate.
+    if (revealFocusedColumn && !columnView_.IsPaneHome(columnView_.ActivePane())) {
+        EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
+    }
+    const std::wstring activePath = columnView_.ActivePanePath();
+    if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
+        navigationWorkspace_.Navigate(activePath);
+    }
+    navigationChrome_.Refresh();
+    RequestRepaint();
 }
 
 LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+        case WM_PARENTNOTIFY:
+            if (LOWORD(wParam) == WM_CREATE) {
+                const HWND child = reinterpret_cast<HWND>(lParam);
+                if (child != nullptr && GetParent(child) == hwnd) {
+                    // original-vision-journey-recovery: stable z-order alone
+                    // does not clip native workspace paints under the palette.
+                    // Apply the sibling paint contract to future children too.
+                    const LONG_PTR style = GetWindowLongPtrW(child, GWL_STYLE);
+                    SetWindowLongPtrW(child, GWL_STYLE, style | WS_CLIPSIBLINGS);
+                }
+            }
+            return DefWindowProcW(hwnd, message, wParam, lParam);
+
 #ifdef _DEBUG
         case WM_COPYDATA: {
             const auto* request = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
@@ -2373,13 +2498,27 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             searchPanel_.HandleCompletion(lParam);
             return 0;
 
-        // stabilize-live-uia-e2e: search-result activation marshaled from the
-        // UIA provider thread to the UI thread (see SearchPanel::
-        // SearchActivationNeedsUiThreadMarshal). Runs the exact activation
-        // path; the index is re-validated against the current result set.
-        case WM_APP_SEARCH_RESULT_ACTIVATE:
-            searchPanel_.ActivateResultItem(static_cast<size_t>(wParam));
-            return 0;
+        case WM_APP_COLUMNVIEW_BROWSE_ACTION: {
+            if (lParam == 0) return 0;
+            const auto& request = *reinterpret_cast<const UiaBrowseActionRequest*>(lParam);
+            if (!columnView_.HandleUiaBrowseAction(request)) return 0;
+            // column-uia-identity-dispatch: owner-thread mutations must also
+            // run the same visible navigation/preview/reveal boundary as input.
+            if (request.kind == UiaBrowseActionKind::ScrollItem) {
+                EnsurePaneColumnVisible(request.pane, request.column, NavigationViewportWidth());
+                RequestRepaint();
+            } else if (request.kind != UiaBrowseActionKind::FocusRoot) {
+                if (request.kind == UiaBrowseActionKind::FocusItem) {
+                    columnView_.EnsureFocusedItemVisible(CurrentShellLayout().details.viewportHeightDip);
+                }
+                ReconcileBrowseInteraction(true);
+            }
+            return 1;
+        }
+
+        case WM_APP_COLUMNVIEW_HOME_ACTION:
+            return lParam != 0 && columnView_.HandleUiaHomeAction(
+                *reinterpret_cast<const UiaHomeActionRequest*>(lParam)) ? 1 : 0;
 
         case WM_APP_INDEXED_SEARCH_COMPLETE:
             searchPanel_.HandleIndexedCompletion(lParam);
@@ -2554,6 +2693,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_APP_STORAGE_RANKING:
+            storageAnalysis_.HandleRankingCompletion(lParam);
+            return 0;
+
         case WM_APP_TREEMAP_AGGREGATE:
             storageAnalysis_.HandleTreemapCompletion(lParam);
             return 0;
@@ -2583,9 +2726,18 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_APP_FILE_OPERATION_AVAILABILITY:
+            if (commandPalette_.Visible()) commandPalette_.UpdateContext(CurrentCommandContext());
+            return 0;
+
         case WM_APP_FILE_OPERATION_EVENT: {
             std::unique_ptr<FileOperationEvent> event(reinterpret_cast<FileOperationEvent*>(lParam));
             if (!event) return 0;
+            // Progress cannot change availability; avoid rebuilding a potentially
+            // large selection and clipboard context for every presentation tick.
+            if (event->kind != FileOperationEventKind::Progress && commandPalette_.Visible()) {
+                commandPalette_.UpdateContext(CurrentCommandContext());
+            }
             if (event->kind == FileOperationEventKind::Queued || event->kind == FileOperationEventKind::Started) {
                 SetWindowTextW(hwnd_, event->kind == FileOperationEventKind::Queued ? L"FastFiles — operation queued" : L"FastFiles — operation in progress");
                 fileOpInProgress_ = true;
@@ -2614,6 +2766,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 fileOpOutstanding_ = false;
                 RetainLastOperationFailures(lastOperationFailures_, *event);
                 std::wstring title = event->kind == FileOperationEventKind::Cancelled ? L"FastFiles — cancelled" : L"FastFiles — complete";
+                if (!event->failures.empty()) {
+                    title = event->kind == FileOperationEventKind::Cancelled
+                        ? L"FastFiles — stopped with errors" : L"FastFiles — complete with errors";
+                }
                 title += L" — " + std::to_wstring(event->completed) + L" of " + std::to_wstring(event->total);
                 if (event->skipped > 0) title += L" — " + std::to_wstring(event->skipped) + L" skipped";
                 title += L" — " + std::to_wstring(event->failures.size()) + L" failed";
@@ -2625,13 +2781,15 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 // also ride the non-modal status line, so an outcome is never
                 // visible only in the window title. Failures stay actionable
                 // through the existing last-operation-errors surface.
-                if (event->kind == FileOperationEventKind::Cancelled) {
-                    ShowStatusNotice(L"Cancelled after " + std::to_wstring(event->completed) + L" of " +
-                                     std::to_wstring(event->total) + L" item(s).");
-                } else if (!event->failures.empty()) {
+                if (!event->failures.empty()) {
                     ShowStatusNotice(std::to_wstring(event->failures.size()) + L" of " +
                                      std::to_wstring(event->total) +
-                                     L" item(s) failed. Right-click for last operation errors.");
+                                     L" item(s) failed. " +
+                                     (event->kind == FileOperationEventKind::Cancelled ? L"Operation stopped. " : L"") +
+                                     L"Right-click for last operation errors.");
+                } else if (event->kind == FileOperationEventKind::Cancelled) {
+                    ShowStatusNotice(L"Cancelled after " + std::to_wstring(event->completed) + L" of " +
+                                     std::to_wstring(event->total) + L" item(s).");
                 } else if (event->skipped > 0) {
                     // Skipped items are a user decision, not a failure: an
                     // all-skip batch must not read as "0 item(s) completed".
@@ -2736,14 +2894,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             navigationWorkspace_.ActivatePane(static_cast<size_t>(columnView_.ActivePane()));
             dragOrigin_ = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             dragArmed_ = !columnView_.ActiveSelectionPaths().empty();
-            RefreshSelectionPresentation();
-            EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
-            const std::wstring activePath = columnView_.ActivePanePath();
-            if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
-                navigationWorkspace_.Navigate(activePath);
-            }
-            navigationChrome_.Refresh();
-            RequestRepaint();
+            ReconcileBrowseInteraction(true);
             return 0;
         }
 
@@ -2893,8 +3044,19 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         }
 
         case WM_CONTEXTMENU: {
+            if (storageAnalysis_.Visible()) {
+                // Preserve WM_CONTEXTMENU's screen coordinates and keyboard
+                // sentinel. Cancel/empty/summary clicks never open a hidden
+                // browsing menu as a fallback.
+                storageAnalysis_.HandleContextMenu(wParam, lParam);
+                return 0;
+            }
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            if (point.x == -1 && point.y == -1) {
+            if (point.x == -1 && point.y == -1 && searchPanel_.Visible()) {
+                RECT selected{};
+                if (!searchPanel_.ActiveSelectionRect(selected)) return 0;
+                point = {selected.left, selected.bottom};
+            } else if (point.x == -1 && point.y == -1) {
                 const auto shellLayout = CurrentShellLayout();
                 const int column = columnView_.FocusedColumnIndex();
                 const int item = columnView_.FocusedItemIndex();
@@ -2906,61 +3068,36 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                                                         static_cast<float>((std::max)(0, item)) * rowHeight + rowHeight))};
                 ClientToScreen(hwnd_, &point);
             }
-            if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() != StorageAnalysis::ViewMode::Treemap) {
-                ScreenToClient(hwnd_, &point);
-                if (storageAnalysis_.HandleContextMenu(wParam, MAKELPARAM(point.x, point.y))) {
-                    return 0;
-                }
-                ClientToScreen(hwnd_, &point);
-            }
             ShowContextMenu(point);
             return 0;
         }
 
         case WM_KEYDOWN: {
             if (wParam == VK_F9) {
-                settings_.theme = settings_.theme == ffprotocol::ThemePreference::Light ? ffprotocol::ThemePreference::Dark : ffprotocol::ThemePreference::Light;
+                // theme-toggle-follow-system: resolve Follow-System at press
+                // time and flip the RENDERED theme (the historical inline map
+                // made the first press a visible no-op on light systems).
+                settings_.theme = ffui::NextThemeTogglePreference(settings_.theme, IsSystemDark());
                 SaveAndNotifySettings();
                 ApplyTheme();
                 return 0;
             }
             if (wParam == VK_ESCAPE) {
                 if (searchPanel_.Visible()) {
-                    searchPanel_.Hide();
-                    SetFocus(hwnd_);
+                    HideToolWorkspaces();
                     return 0;
                 }
                 // Only cancel when an operation is actually outstanding; an
                 // idle Escape must not claim "cancelling operation…".
-                if (fileOpOutstanding_) {
-                    fileOperations_.CancelCurrent();
-                    SetWindowTextW(hwnd_, L"FastFiles — cancelling operation…");
-                }
+                CancelFileOperations();
                 return 0;
             }
+            if (searchPanel_.Visible() || storageAnalysis_.Visible()) return 0;
             columnView_.OnKeyDown(static_cast<int>(wParam));
             if (wParam == VK_UP || wParam == VK_DOWN) {
                 columnView_.EnsureFocusedItemVisible(CurrentShellLayout().details.viewportHeightDip);
             }
-            RefreshSelectionPresentation();
-            // quick-access-home 5.4: for a Home pane ActivePanePath() returns
-            // L"" and the active context's currentPath is also L"", so this
-            // reconciliation is naturally a no-op (both empty) -- Home never
-            // triggers a model Navigate here.
-            const std::wstring activePath = columnView_.ActivePanePath();
-            if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
-                navigationWorkspace_.Navigate(activePath);
-            }
-            navigationChrome_.Refresh();
-            if (wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_RETURN) {
-                // quick-access-home 5.4: Home has no columns, so horizontal
-                // scroll-into-view is meaningless for a Home pane. EnsureFocusedItemVisible
-                // above is already Home-aware in ColumnView.
-                if (!columnView_.IsPaneHome(columnView_.ActivePane())) {
-                    EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
-                }
-            }
-            RequestRepaint();
+            ReconcileBrowseInteraction(wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_RETURN);
             return 0;
         }
 
@@ -2979,7 +3116,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     engineClient_.RequestUnavailableVolumes([this](auto records) {
                         auto owned = std::make_unique<std::vector<ffprotocol::UnavailableVolumeRecord>>(
                             std::move(records));
-                        const HWND target = hwnd_;
+                        const HWND target = hwnd_.load();
                         if (target != nullptr
                             && PostMessageW(target, WM_APP_UNAVAILABLE_VOLUMES, 0,
                                             reinterpret_cast<LPARAM>(owned.get()))) {
@@ -2990,12 +3127,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 case kMenuOperationDetails: {
                     std::wstring details;
                     for (const auto& failure : lastOperationFailures_) {
-                        if (!details.empty()) details += L"\n";
-                        wchar_t error[16]{};
-                        swprintf_s(error, L"0x%08X", static_cast<unsigned int>(failure.error));
+                        if (!details.empty()) details += L"\n\n";
                         details += (failure.path.empty() ? std::wstring(L"(operation)")
                                                          : ffui::NormalizeDisplayPath(failure.path)) +
-                                    std::wstring(L" — ") + error;
+                                    L"\n" + ffui::DescribeFileOperationFailure(failure.error);
+                        if (FAILED(failure.cleanupError)) {
+                            details += L"\nThe incomplete new file could not be removed: " +
+                                       ffui::DescribeFileOperationFailure(failure.cleanupError);
+                        }
                     }
                     if (!details.empty()) {
                         MessageBoxW(hwnd_, details.c_str(), L"Last operation errors", MB_OK | MB_ICONERROR);
@@ -3062,6 +3201,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_DESTROY:
+            AppendShutdownPhase(L"wm-destroy", L"begin");
+            storageAnalysis_.StopRanking();
             KillTimer(hwnd_, kWorkspaceSaveTimer);
             KillTimer(hwnd_, kUiScrollAnimTimer);
             navigationWorkspace_.FlushState();
@@ -3069,12 +3210,15 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             RevokeDragDrop(hwnd);
             dropTarget_.Reset();
             fileOperations_.Stop();
+            AppendShutdownPhase(L"wm-destroy-file-operations-stop", L"end");
             previewController_.Clear();
+            AppendShutdownPhase(L"wm-destroy-preview-clear", L"end");
             // semantic-uia-core-surfaces 2.5: release the app's provider
             // references; client-held elements become safe zombies via the
             // owner-lifetime token before the HWND is destroyed.
             columnView_.ReleaseUiaProvider();
             searchPanel_.ReleaseUiaProvider();
+            AppendShutdownPhase(L"wm-destroy-providers-release", L"end");
             hwnd_ = nullptr;
             PostQuitMessage(0);
             return 0;

@@ -1,0 +1,98 @@
+[
+  {
+    "name": "shared.bin",
+    "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested",
+    "description": "",
+    "identity": {
+      "Name": "shared.bin",
+      "AutomationId": "",
+      "ControlType": "ListItem",
+      "ClassName": "",
+      "ProcessId": 130516
+    },
+    "runtimeId": [
+      4,
+      1,
+      205569763,
+      170318282
+    ],
+    "bounds": {
+      "x": 339,
+      "y": 371,
+      "width": 628,
+      "height": 24
+    }
+  },
+  {
+    "name": "deep-only.bin",
+    "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested",
+    "description": "",
+    "identity": {
+      "Name": "deep-only.bin",
+      "AutomationId": "",
+      "ControlType": "ListItem",
+      "ClassName": "",
+      "ProcessId": 130516
+    },
+    "runtimeId": [
+      4,
+      1,
+      -1855434021,
+      -1324544526
+    ],
+    "bounds": {
+      "x": 339,
+      "y": 395,
+      "width": 628,
+      "height": 24
+    }
+  },
+  {
+    "name": "shared.bin",
+    "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope",
+    "description": "",
+    "identity": {
+      "Name": "shared.bin",
+      "AutomationId": "",
+      "ControlType": "ListItem",
+      "ClassName": "",
+      "ProcessId": 130516
+    },
+    "runtimeId": [
+      4,
+      1,
+      -279140843,
+      -1324505593
+    ],
+    "bounds": {
+      "x": 339,
+      "y": 419,
+      "width": 628,
+      "height": 24
+    }
+  },
+  {
+    "name": "small.txt",
+    "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope",
+    "description": "",
+    "identity": {
+      "Name": "small.txt",
+      "AutomationId": "",
+      "ControlType": "ListItem",
+      "ClassName": "",
+      "ProcessId": 130516
+    },
+    "runtimeId": [
+      4,
+      1,
+      -1560140037,
+      177995084
+    ],
+    "bounds": {
+      "x": 339,
+      "y": 443,
+      "width": 628,
+      "height": 24
+    }
+  }
+]

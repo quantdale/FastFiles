@@ -1,0 +1,49 @@
+{
+  "source": "b0cf4bbf98a053fadddcf785901f1b680356d560",
+  "status": "FAIL",
+  "passed": 7,
+  "failed": 1,
+  "skipped": 0,
+  "results": [
+    {
+      "id": "launch-ready",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "navigation-browse",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "search-user-flow",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "storage-terminal-geometry",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "preview-terminal-state",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "file-operations",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "cold-restore",
+      "status": "FAIL",
+      "stage": "restored-location"
+    },
+    {
+      "id": "process-lifecycle",
+      "status": "PASS",
+      "stage": "complete"
+    }
+  ]
+}

@@ -257,7 +257,9 @@ function Get-UiaElementCenter {
 # app even when SetForegroundWindow loses the fight.
 function Invoke-UiaActivateAppWindow {
     param($Driver, $Main)
+    if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) { return }
     $null = Set-UiaForeground -Driver $Driver -Element $Main
+    if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) { return }
     $br = Get-UiaElementProperty -Driver $Driver -Element $Main -Name 'BoundingRectangle'
     if ($br -and $br.width -gt 0 -and $br.height -gt 0) {
         $null = Send-UiaMouseInput -Driver $Driver -X ([int]($br.x + $br.width / 2)) -Y ([int]($br.y + 8)) -Button 'Left' -Action 'Click'
@@ -514,24 +516,36 @@ function Invoke-UiaAddressBarNavigate {
     $labelBlock = {
         $labels = @()
         try {
-            $tabs = @(Find-UiaElement -Driver $Driver -ClassName 'Button' -FromElement $Main -TimeoutMs 1500 -All |
-                Where-Object { $_.Current.AutomationId -match '^830' })
-            $labels = @($tabs | ForEach-Object { (Get-UiaElementIdentity -Driver $Driver -Element $_).Name })
+            # repair-address-navigation-discovery 1.2: native chrome is a
+            # direct sibling of the virtualized browser; never walk file rows.
+            foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $Main)) {
+                $chrome = Get-UiaElementIdentity -Driver $Driver -Element $child
+                if ($chrome.ClassName -ne 'FastFilesNavigationChrome' -or
+                    ($ProcessId -gt 0 -and $chrome.ProcessId -ne $ProcessId)) { continue }
+                foreach ($button in @(Get-UiaChildren -Driver $Driver -Element $child)) {
+                    $identity = Get-UiaElementIdentity -Driver $Driver -Element $button
+                    if ($identity.ClassName -eq 'Button' -and $identity.AutomationId -match '^83[0-9]{2}$' -and
+                        ($ProcessId -le 0 -or $identity.ProcessId -eq $ProcessId)) {
+                        $labels += $identity.Name
+                    }
+                }
+            }
         } catch { }
         foreach ($label in $labels) {
-            if ($label -and $label -like "*$ExpectedLeaf*") { return $true }
+            if ($label -and $label.IndexOf($ExpectedLeaf, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
         }
         return $false
     }
     $labelOk = Wait-UiaCondition -Driver $Driver -TimeoutMs 6000 -PollIntervalMs 400 -Description "tab label reflects '$ExpectedLeaf'" -ScriptBlock $labelBlock
     if (-not $labelOk) {
-        # stabilize-live-uia-e2e: the value was verified in the edit, but the
-        # commit key can be swallowed by a transient foreground shift. ONE
-        # bounded commit retry (foreground re-verified, Enter re-sent); the
-        # edit still holds the verified value, so re-committing is safe.
+        # repair-address-navigation-discovery 1.2: a label lookup failure does
+        # not mean Enter was lost. Once focus returns to browsing, another
+        # Enter could open the selected item. Recommit only in the same edit.
         $null = Set-UiaForeground -Driver $Driver -Element $Main
         Start-Sleep -Milliseconds 400
-        if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) {
+        $editFocus = $null
+        try { $editFocus = Get-UiaElementProperty -Driver $Driver -Element $addr -Name HasKeyboardFocus } catch { }
+        if ($editFocus -is [bool] -and $editFocus -and (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
             $null = Send-UiaInput -Driver $Driver -Keys '{ENTER}'
         }
         $labelOk = Wait-UiaCondition -Driver $Driver -TimeoutMs 6000 -PollIntervalMs 400 -Description "tab label reflects '$ExpectedLeaf' (retry)" -ScriptBlock $labelBlock
@@ -608,8 +622,9 @@ function Get-UiaSafeInteractiveState {
 }
 
 function Get-UiaPaletteSemanticState {
-    param($Driver, $Main, [int] $ProcessId, [string[]] $ExpectedCommandNames = @(), [string[]] $ExpectedCommandNameLike = @())
+    param($Driver, $Main, [int] $ProcessId, [string[]] $ExpectedCommandNames = @(), [string[]] $ExpectedCommandNameLike = @(), [switch] $SkipInteractiveState)
     $state = [ordered]@{
+        discoverySucceeded = $false
         editPresent = $false
         editHasKeyboardFocus = $false
         editTextPresent = $false
@@ -622,17 +637,33 @@ function Get-UiaPaletteSemanticState {
         selectedName = $null
         expectedMatches = @()
         expectedNameLikeMatches = @()
-        interactive = Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId
+        interactive = $(if ($SkipInteractiveState) { $null } else { Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId })
     }
     $edit = $null
-    try { $edit = Find-UiaElement -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 500 } catch { }
+    $list = $null
+    # Both controls are native children of the main HWND. A recursive search
+    # can exhaust its budget in thousands of earlier file rows before reaching
+    # these siblings. Failed enumeration is unresolved, never proof of closure.
+    try {
+        $children = @(Get-UiaChildren -Driver $Driver -Element $Main)
+        foreach ($child in $children) {
+            $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
+            # Identity reads may return an all-null record after a provider
+            # error. Such a child cannot establish authoritative absence.
+            if (-not $identity.ProcessId -or $identity.ProcessId -le 0) { return [pscustomobject]$state }
+            if ($identity.ProcessId -ne $ProcessId) { continue }
+            if ($identity.AutomationId -eq '6301' -and $identity.ClassName -eq 'Edit' -and
+                -not (Get-UiaElementProperty -Driver $Driver -Element $child -Name IsOffscreen)) { $edit = $child }
+            if ($identity.AutomationId -eq '6302' -and $identity.ClassName -eq 'ListBox' -and
+                -not (Get-UiaElementProperty -Driver $Driver -Element $child -Name IsOffscreen)) { $list = $child }
+        }
+        $state.discoverySucceeded = $true
+    } catch { return [pscustomobject]$state }
     if ($edit) {
         $state.editPresent = $true
         try { $state.editHasKeyboardFocus = [bool](Get-UiaElementProperty -Driver $Driver -Element $edit -Name 'HasKeyboardFocus') } catch { }
         try { $state.editTextPresent = -not [string]::IsNullOrEmpty((Get-UiaElementTextValue -Driver $Driver -Element $edit)) } catch { }
     }
-    $list = $null
-    try { $list = Find-UiaElement -Driver $Driver -AutomationId '6302' -FromElement $Main -TimeoutMs 500 } catch { }
     if ($list) {
         $state.listPresent = $true
         try { $state.listEnabled = [bool](Get-UiaElementProperty -Driver $Driver -Element $list -Name 'IsEnabled') } catch { }
@@ -709,7 +740,7 @@ function Invoke-UiaPaletteCommand {
             continue
         }
         $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}{SHIFT}p'
-        try { $edit = Wait-UiaElement -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 4000 -PollIntervalMs 250 } catch { }
+        try { $edit = Wait-UiaDirectChild -Driver $Driver -AutomationId '6301' -ClassName Edit -ProcessId $ProcessId -Parent $Main -TimeoutMs 4000 -PollIntervalMs 250 } catch { }
         if (-not $edit) { Start-Sleep -Milliseconds 500 }
     }
     if (-not $edit) {
@@ -760,7 +791,10 @@ function Invoke-UiaPaletteCommand {
         }
     }
     $null = Send-UiaInput -Driver $Driver -Keys '{ENTER}'
-    $paletteClosed = Wait-UiaElementGone -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 3000 -PollIntervalMs 200
+    $paletteClosed = Wait-UiaCondition -Driver $Driver -TimeoutMs 3000 -PollIntervalMs 200 -Description 'native palette controls closed' -ScriptBlock {
+        $closedState = Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId
+        return $closedState.discoverySucceeded -and -not $closedState.editPresent -and -not $closedState.listPresent
+    }
     if (-not $paletteClosed) {
         return [pscustomobject]@{ Pass = $false; Detail = "palette '$Query' did not close after one Enter; commandId='$ExpectedCommandId'; state=$((ConvertTo-Json (Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId -ExpectedCommandNames @($ExpectedCommandName)) -Compress -Depth 8))"; CommandState = $commandState }
     }
@@ -1068,9 +1102,34 @@ function Get-UiaDiagnosticsLogPath {
 }
 
 function Get-UiaCommandDispatchEvidence {
-    param([Parameter(Mandatory)] [string] $CommandId)
-    $logPath = Get-UiaDiagnosticsLogPath
+    param([Parameter(Mandatory)] [string] $CommandId, [string] $LogPath = '',
+        [long] $LogOffset = -1, [int] $ProcessId = 0, [long] $AfterEpochMs = 0)
+    if (-not $LogPath) { $LogPath = Get-UiaDiagnosticsLogPath }
     if (-not $logPath -or -not (Test-Path -LiteralPath $logPath)) { return $null }
+    if ($LogOffset -ge 0) {
+        # A timed action owns an exact session log and pre-input byte offset.
+        # Read forward so later provider traffic cannot evict its dispatch from
+        # a tail window. Bound scanning and require structured PID/time identity.
+        $stream=$null; $reader=$null
+        try {
+            $stream=[IO.File]::Open($LogPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+            if ($stream.Length -lt $LogOffset) { return $null }
+            $null=$stream.Seek($LogOffset,[IO.SeekOrigin]::Begin)
+            $reader=[IO.StreamReader]::new($stream,[Text.Encoding]::UTF8,$true)
+            $scanned=0
+            while ($scanned -lt 2MB -and -not $reader.EndOfStream) {
+                $line=$reader.ReadLine(); $scanned+=$line.Length
+                if ($line -notmatch 'FFDIAG_UI_COMMAND_DISPATCHED') { continue }
+                try { $event=$line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+                if ($event.codeName -ne 'FFDIAG_UI_COMMAND_DISPATCHED' -or
+                    [string]$event.message -notmatch ([regex]::Escape('command='+$CommandId)+'(?:;|$)') -or
+                    ($ProcessId -gt 0 -and $event.pid -ne $ProcessId) -or $event.epochMs -lt $AfterEpochMs) { continue }
+                return [pscustomobject]@{codeName=$event.codeName;message=$event.message;state=$event.state;outcome=$event.outcome;pid=$event.pid;epochMs=$event.epochMs;logOffset=$LogOffset}
+            }
+        } catch { return $null }
+        finally { if($reader) { $reader.Dispose() } elseif($stream) { $stream.Dispose() } }
+        return $null
+    }
     try {
         $commandPattern = [regex]::Escape("command=$CommandId")
         # completion-integrity-hardening-and-release-certification 2.6: opening
@@ -1700,28 +1759,8 @@ function Remove-UiaScenarioContext {
         try { Close-UiaExplorerWindow -Driver $Context.Driver -WindowElement $win }
         catch { $cleanupFailures += "explorer-close-exception:$($_.Exception.Message)" }
     }
-    # Close any remaining visible test-owned Explorer windows (title contains a
-    # fixture leaf) that the bound-element close could not reach.
-    foreach ($fixture in @($Context.Fixtures)) {
-        $leaf = Split-Path $fixture -Leaf
-        if (-not $leaf) { continue }
-        try {
-            # Explorer windows are top-level root children. A recursive
-            # desktop `FindAll` during teardown can retain unrelated shell
-            # fragments and can itself fail while a window is closing.
-            $root = Get-UiaRootElement -Driver $Context.Driver
-            $leftovers = @(Get-UiaChildren -Driver $Context.Driver -Element $root | Where-Object {
-                (Get-UiaElementIdentity -Driver $Context.Driver -Element $_).ClassName -eq 'CabinetWClass'
-            })
-            foreach ($lo in $leftovers) {
-                $loName = (Get-UiaElementIdentity -Driver $Context.Driver -Element $lo).Name
-                if ($loName -like "*$leaf*") {
-                    try { Close-UiaExplorerWindow -Driver $Context.Driver -WindowElement $lo }
-                    catch { $cleanupFailures += "explorer-close-exception:$($_.Exception.Message)" }
-                }
-            }
-        } catch { }
-    }
+    # Fixtures own filesystem data only. Explorer windows must be explicitly
+    # registered above; a matching fixture title does not establish ownership.
     # hardening-campaign Phase 4: restore desktop input state before the
     # lifecycle goes away -- release any held modifiers and drop the topmost
     # style the foreground helpers set, so neither leaks past the scenario
@@ -1822,13 +1861,20 @@ function Export-UiaEvidence {
     try {
         Add-Type -AssemblyName System.Drawing
         Add-Type -AssemblyName System.Windows.Forms
-        $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        # Failure evidence is diagnostic, not a passing visual-catalog entry.
+        # Never fall back to capturing unrelated windows across the desktop.
+        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) { throw 'Owned main window is not foreground; screenshot omitted.' }
+        $rect = Get-UiaElementProperty -Driver $Driver -Element $Main -Name BoundingRectangle
+        if (-not $rect -or $rect.width -le 0 -or $rect.height -le 0) { throw 'Owned window bounds unavailable; screenshot omitted.' }
+        $windowBounds = [System.Drawing.Rectangle]::new($rect.x, $rect.y, $rect.width, $rect.height)
+        $bounds = [System.Drawing.Rectangle]::Intersect($windowBounds, [System.Windows.Forms.SystemInformation]::VirtualScreen)
+        if ($bounds.Width -le 0 -or $bounds.Height -le 0) { throw 'Owned window is outside the desktop; screenshot omitted.' }
         $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
         $g = [System.Drawing.Graphics]::FromImage($bmp)
         $g.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size)
         $png = Join-Path $ArtifactsDir ($Name + '.png')
         $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
-        $paths += [pscustomobject]@{ path = $png; type = 'screenshot'; virtualScreen = "$($bounds.X),$($bounds.Y),$($bounds.Width),$($bounds.Height)" }
+        $paths += [pscustomobject]@{ path = $png; type = 'screenshot'; captureScope = 'foreground-window'; windowBounds = "$($bounds.X),$($bounds.Y),$($bounds.Width),$($bounds.Height)" }
     } catch { }
     finally {
         if ($g) { $g.Dispose() }
@@ -2206,10 +2252,26 @@ function Set-UiaSearchQuery {
     Start-Sleep -Milliseconds 250
     try { $null = $target.SetFocus() } catch { }
     Start-Sleep -Milliseconds 100
-    try { $null = Invoke-UiaElementAction -Driver $Driver -Element $target } catch { }
-    Start-Sleep -Milliseconds 100
+    # Text entry has no default Invoke action. A generic click after SetFocus
+    # can retarget the selected result; require the query edit itself to own
+    # keyboard focus before sending editing chords.
+    $queryHasFocus = $false
+    try { $queryHasFocus = [bool]$target.Current.HasKeyboardFocus } catch { }
+    if (-not $queryHasFocus) {
+        # The native query focus command runs on the UI thread. In
+        # particular it restores editing after a result owned focus, where
+        # the stock Edit provider can reject a cross-process SetFocus call.
+        $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}f'
+        Start-Sleep -Milliseconds 200
+        try { $queryHasFocus = [bool]$target.Current.HasKeyboardFocus } catch { }
+    }
+    if (-not $queryHasFocus) {
+        return [pscustomobject]@{ Pass = $false; Detail = 'query edit did not acquire keyboard focus before typing' }
+    }
     # Keystrokes raise CBN_EDITCHANGE. ValuePattern SetValue can update the
     # UIA cache without changing the Win32 combo edit, so it is not proof.
+    $focusClassBeforeTyping = ''
+    try { $focusClassBeforeTyping = [System.Windows.Automation.AutomationElement]::FocusedElement.Current.ClassName } catch { }
     $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}a'
     $null = Send-UiaText -Driver $Driver -Text $Query
     $observed = $null
@@ -2249,7 +2311,7 @@ function Set-UiaSearchQuery {
         Pass = $false
         Detail = "search query '$Query' was not accepted on AutomationId 7101; observed='$observed'" +
             " [diag: editFound=$editFound comboHwndAtStart=$comboHwndAtStart comboHwndAtEnd=$comboHwndAtEnd" +
-            " nativeReadback='$observedNative' uiaReadback='$observedUiA' retried=$retried]"
+            " nativeReadback='$observedNative' uiaReadback='$observedUiA' retried=$retried focusClassBeforeTyping='$focusClassBeforeTyping']"
     }
 }
 
@@ -3285,8 +3347,10 @@ function Invoke-UiaScenarioDragIn {
         $copied2 = $false
         $dragAttempts = 0
         $acceptedInputAttempts = 0
+        $armObservedAttempts = 0
         $foregroundBlocked = $false
         $lastDragDetail = 'no attempt was completed'
+        $attemptLog = [System.Collections.Generic.List[string]]::new()
         for ($attempt = 0; $attempt -lt 3 -and -not $copied2; $attempt++) {
             $dragAttempts++
             $freshWin = Get-UiaExplorerReadyWindow -Driver $driver -Path $dragSource -CandidateProcessIds (Get-UiaExplorerPidSet) -TimeoutMs 6000
@@ -3296,18 +3360,26 @@ function Invoke-UiaScenarioDragIn {
             }
             [void]$Context.ExplorerWindows.Add($freshWin)
             $freshItem = $null
-            try { $freshItem = Wait-UiaElement -Driver $driver -Name 'explorer-in.txt' -FromElement $freshWin -TimeoutMs 3000 -PollIntervalMs 300 } catch { }
+            # PR #14 closure (Phase C): target the ListItem ROW explicitly.
+            # A name-only match can land on Explorer's Details-view name
+            # container (Group 'DetailsViewControlRootGrid', observed
+            # pid=32016), which has no SelectionItemPattern -- run evidence
+            # shows the row (ControlType ListItem, class UIItem) exposes it.
+            try { $freshItem = Wait-UiaElement -Driver $driver -Name 'explorer-in.txt' -ControlType 'ListItem' -FromElement $freshWin -TimeoutMs 3000 -PollIntervalMs 300 } catch { }
             if (-not $freshItem) {
                 $lastDragDetail = "attempt=$dragAttempts source item was not reacquired"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             if (-not (Wait-UiaStableGeometry -Driver $driver -Element $freshItem -StablePolls 2 -PollIntervalMs 120 -TimeoutMs 1500)) {
                 $lastDragDetail = "attempt=$dragAttempts source geometry did not settle"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             $freshBr = Get-UiaElementProperty -Driver $driver -Element $freshItem -Name 'BoundingRectangle'
             if (-not $freshBr -or $freshBr.width -le 0 -or $freshBr.height -le 0) {
                 $lastDragDetail = "attempt=$dragAttempts source has no usable geometry"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             if (-not (Test-UiaForegroundWindow -Driver $driver -Element $freshWin)) {
@@ -3317,18 +3389,46 @@ function Invoke-UiaScenarioDragIn {
             if (-not (Test-UiaForegroundWindow -Driver $driver -Element $freshWin)) {
                 $foregroundBlocked = $true
                 $lastDragDetail = "attempt=$dragAttempts Explorer foreground could not be established"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
+            # large-index-lifecycle-and-search-scalability closure (PR #14 final
+            # integrity): EVIDENCE CAPTURE ONLY — branching and outcomes are
+            # unchanged. The three distinct failure modes (pattern unavailable /
+            # Select threw / Select returned without a selected row) previously
+            # collapsed into one message that discarded the exception, which made
+            # the Explorer-attribution claim unprovable from run artifacts. The
+            # failure detail now carries the exact mode, the exception type +
+            # HRESULT + message, and the failing element's identity.
             $selected = $false
+            $selectEvidence = 'not-attempted'
             try {
-                if (Test-UiaPatternAvailable -Driver $driver -Element $freshItem -PatternName 'SelectionItem') {
-                    $null = Invoke-UiaPattern -Driver $driver -Element $freshItem -PatternName 'SelectionItem' -Method 'Select'
-                    Start-Sleep -Milliseconds 600
-                    $selected = [bool](Invoke-UiaPattern -Driver $driver -Element $freshItem -PatternName 'SelectionItem' -Method 'GetSelection')
+                if (-not (Test-UiaPatternAvailable -Driver $driver -Element $freshItem -PatternName 'SelectionItem')) {
+                    $selectEvidence = 'SelectionItemPattern unavailable'
+                } else {
+                    $selectThrew = $false
+                    try {
+                        $null = Invoke-UiaPattern -Driver $driver -Element $freshItem -PatternName 'SelectionItem' -Method 'Select'
+                        $selectEvidence = 'Select returned'
+                    } catch {
+                        $selectThrew = $true
+                        $selectEvidence = 'Select threw ' + $_.Exception.GetType().Name + ' hr=' + ('0x{0:X8}' -f ($_.Exception.HResult -band 0xFFFFFFFF)) + ' msg=' + $_.Exception.Message
+                    }
+                    if (-not $selectThrew) {
+                        Start-Sleep -Milliseconds 600
+                        $selected = [bool](Invoke-UiaPattern -Driver $driver -Element $freshItem -PatternName 'SelectionItem' -Method 'GetSelection')
+                        if (-not $selected) { $selectEvidence = $selectEvidence + '; IsSelected=False after 600ms' }
+                    }
                 }
-            } catch { $selected = $false }
+            } catch { $selected = $false; $selectEvidence = $selectEvidence + '; outer=' + $_.Exception.Message }
             if (-not $selected) {
-                $lastDragDetail = "attempt=$dragAttempts SelectionItemPattern.Select did not produce a selected row"
+                $idText = ''
+                try {
+                    $idProbe = Get-UiaElementIdentity -Driver $driver -Element $freshItem
+                    $idText = " name='$($idProbe.Name)' automationId='$($idProbe.AutomationId)' controlType='$($idProbe.ControlType)' className='$($idProbe.ClassName)' pid=$($idProbe.ProcessId)"
+                } catch { $idText = ' identity-unavailable: ' + $_.Exception.Message }
+                $lastDragDetail = "attempt=$dragAttempts SelectionItemPattern.Select did not produce a selected row [$selectEvidence;$idText]"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             $sourceIdentity = Get-UiaElementIdentity -Driver $driver -Element $freshItem
@@ -3343,6 +3443,7 @@ function Invoke-UiaScenarioDragIn {
             }
             if (-not $dst2) {
                 $lastDragDetail = "attempt=$dragAttempts FastFiles target geometry was not reacquired"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             $input = Send-UiaMouseDrag -Driver $driver -FromX $src2.x -FromY $src2.y -ToX $dst2.x -ToY $dst2.y -SourceWindow $freshWin
@@ -3350,6 +3451,7 @@ function Invoke-UiaScenarioDragIn {
             $acceptedInputAttempts++
             if ([bool]$input.armObserved) { $armObservedAttempts++ }
             $lastDragDetail = "attempt=$dragAttempts acceptedInput=true armObserved=$([bool]$input.armObserved) source='$($sourceIdentity.Name)'"
+            [void]$attemptLog.Add($lastDragDetail)
             $copied2 = Wait-UiaCondition -Driver $driver -TimeoutMs 8000 -PollIntervalMs 300 -Description "destination file exists" -ScriptBlock {
                 Test-Path -LiteralPath (Join-Path $dragTarget 'explorer-in.txt')
             }
@@ -3357,7 +3459,7 @@ function Invoke-UiaScenarioDragIn {
         if (-not $copied2) {
             if ($acceptedInputAttempts -eq 3 -and -not $foregroundBlocked) {
                 $armEvidence = if ($armObservedAttempts -eq 3) { 'armObserved=true' } else { 'armObserved=false (cross-process capture was not observable)' }
-                return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "BLOCKED_ENVIRONMENT: three fresh Explorer-source attempts selected the item and every native input stage was accepted, but no destination file appeared; $armEvidence; $lastDragDetail"
+                return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "BLOCKED_ENVIRONMENT: three fresh Explorer-source attempts selected the item and every native input stage was accepted, but no destination file appeared; boundary=drop-delivery-into-FastFiles (source interaction proven available — see evidence/uia-explorer-drag-in-investigation.md); $armEvidence; $($attemptLog -join ' | ')"
             }
             if ($foregroundBlocked -and $acceptedInputAttempts -eq 0) {
                 $safe = Get-UiaSafeInteractiveState -Driver $driver -ProcessId $appPid
@@ -3366,7 +3468,7 @@ function Invoke-UiaScenarioDragIn {
                 }
                 return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "BLOCKED_ENVIRONMENT: Explorer source foreground was not established after bounded retries; foreground='$($safe.foregroundTitle)'; no drag input was claimed"
             }
-            return & $fail "destination\\explorer-in.txt was not created after $dragAttempts attempt(s); acceptedInput=$acceptedInputAttempts; $lastDragDetail"
+            return & $fail "destination\\explorer-in.txt was not created after $dragAttempts attempt(s); acceptedInput=$acceptedInputAttempts; $($attemptLog -join ' | ')"
         }
         # FastFiles UIA refresh: the file must appear in the target column.
         $refreshed = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'explorer-in.txt' -PaneId 'Pane.0' -TimeoutMs 12000

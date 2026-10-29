@@ -1,0 +1,9 @@
+{
+  "sourceStillClean": true,
+  "fixtureSha256After": "02119aeb252154a9de1530f6b244775d40898659d8c4f5006626ef64defdcd46",
+  "fixtureSha256Before": "02119aeb252154a9de1530f6b244775d40898659d8c4f5006626ef64defdcd46",
+  "oracleExit": 1,
+  "source": "b424c2e48ee6edadf5771bd1a6a1a810514e48b2",
+  "sourceStillSame": true,
+  "inputUnchanged": true
+}

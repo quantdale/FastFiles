@@ -1,6 +1,7 @@
 #include "IconCache.h"
 
 #include "UITheme.h"
+#include "ShutdownDiagnostics.h"
 
 #include <shellapi.h>
 
@@ -19,10 +20,15 @@ IconCache::~IconCache() {
         // then block until some unrelated prefetch wakes the worker.
         std::lock_guard<std::mutex> lock(mutex_);
         stopping_.store(true);
+        // original-vision-journey-recovery 4.8: abandon work nobody can use.
+        queue_.clear();
+        queuedSet_.clear();
     }
     workAvailable_.notify_all();
     if (worker_.joinable()) {
+        AppendShutdownPhase(L"icon-worker-join", L"begin");
         worker_.join();
+        AppendShutdownPhase(L"icon-worker-join", L"end");
     }
     // Release any HICONs the worker resolved but the UI thread never converted.
     std::lock_guard<std::mutex> lock(mutex_);
@@ -71,7 +77,7 @@ void IconCache::WorkerLoop() {
         {
             std::unique_lock<std::mutex> lock(mutex_);
             workAvailable_.wait(lock, [this] { return stopping_.load() || !queue_.empty(); });
-            if (stopping_.load() && queue_.empty()) {
+            if (stopping_.load()) {
                 return;
             }
             key = std::move(queue_.front());
@@ -87,14 +93,13 @@ void IconCache::WorkerLoop() {
             std::lock_guard<std::mutex> lock(mutex_);
             // Keep the first unresolved icon for a key; drop later duplicates
             // so GDI handles stay bounded.
-            if (pendingIcons_.find(key) != pendingIcons_.end()) {
+            if (stopping_.load() || pendingIcons_.find(key) != pendingIcons_.end()) {
                 DestroyIcon(icon);
                 continue;
             }
             pendingIcons_.emplace(key, icon);
-        }
-        if (owner_ != nullptr) {
-            PostMessageW(owner_, WM_APP_ICON_READY, 0, 0);
+            // Publish under the stop mutex: never post after stop is observed.
+            if (owner_ != nullptr) PostMessageW(owner_, WM_APP_ICON_READY, 0, 0);
         }
     }
 }

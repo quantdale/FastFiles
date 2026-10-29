@@ -1,0 +1,26 @@
+START selective (2000000 rows)
+PASS selective rows=1/1 scanned=1/2000000 candidate=1 premises=1
+START exact_name (2000000 rows)
+PASS exact_name rows=1/1 scanned=1/2000000 candidate=1 premises=1
+START no_match (2000000 rows)
+PASS no_match rows=0/0 scanned=0/2000000 candidate=1 premises=1
+START broad (2000000 rows)
+PASS broad rows=4096/4096 scanned=799999/2000000 candidate=0 premises=1
+START extension (2000000 rows)
+PASS extension rows=4096/4096 scanned=2000000/2000000 candidate=0 premises=1
+START unicode (2000000 rows)
+PASS unicode rows=4096/4096 scanned=2000000/2000000 candidate=0 premises=1
+START moderate (2000000 rows)
+PASS moderate rows=4096/4096 scanned=400000/2000000 candidate=0 premises=1
+START prefix (2000000 rows)
+PASS prefix rows=4096/4096 scanned=400000/2000000 candidate=0 premises=1
+START worst_substring (2000000 rows)
+PASS worst_substring rows=4096/4096 scanned=600000/2000000 candidate=0 premises=1
+START high_limit_broad (2000000 rows)
+PASS high_limit_broad rows=4096/4096 scanned=799999/2000000 candidate=0 premises=1
+START mixed_case (2000000 rows)
+PASS mixed_case rows=4096/4096 scanned=599999/2000000 candidate=0 premises=1
+START short_prefix (2000000 rows)
+PASS short_prefix rows=4096/4096 scanned=2000000/2000000 candidate=0 premises=1
+START cancel_immediate (2000000 rows)
+PASS cancel_immediate rows=0/0 scanned=0/0 candidate=0 premises=1

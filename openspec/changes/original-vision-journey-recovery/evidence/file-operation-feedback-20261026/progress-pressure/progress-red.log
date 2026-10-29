@@ -1,0 +1,103 @@
+Test project D:/Documents/tryPython/FastFiles-worktrees/fileops-feedback-20261026/build/debug
+    Start 47: fffileoperations_e2e_tests
+1/1 Test #47: fffileoperations_e2e_tests .......***Failed    8.85 sec
+FAIL: a progress burst flooded the posted-message queue
+FAIL: progress cadence lost first quantified progress or the next operation's first progress
+FAIL: progress pressure lost/reordered lifecycle or terminal failure details
+ok: COM initialization failed
+ok: window class registration failed
+ok: event window creation failed
+ok: temp path unavailable
+ok: worker did not start
+ok: file operation timed out
+ok: folder creation failed or did not expose the item for inline rename
+ok: file operation timed out
+ok: file creation failed or did not expose the item for inline rename
+ok: file operation timed out
+ok: rename failed
+ok: rename was not recorded as reversible
+ok: file operation timed out
+ok: rename undo failed or recursively recorded history
+ok: file operation timed out
+ok: copy failed
+ok: file operation timed out
+ok: move failed
+ok: move was not recorded as reversible
+ok: file operation timed out
+ok: move undo failed or recursively recorded history
+ok: file operation timed out
+ok: Recycle Bin delete was not captured for undo
+ok: file operation timed out
+ok: Recycle Bin restore failed
+ok: file operation timed out
+ok: permanent delete was incorrectly recorded as undoable
+ok: file operation timed out
+ok: pre-baked plan bypassed the conflict policy instead of overwriting via Replace
+ok: overwrite was incorrectly recorded as undoable
+ok: file operation timed out
+ok: undo fixture move failed
+ok: file operation timed out
+ok: undo move silently overwrote an occupied target instead of applying conflict policy
+ok: file operation timed out
+ok: copy onto itself was not rejected as a self-target transfer
+ok: file operation timed out
+ok: copy of a folder into its own subtree was not rejected
+ok: file operation timed out
+ok: in-batch Replace collision overwrote an earlier source
+ok: file operation timed out
+ok: drag link worker operation failed
+ok: could not create sparse-file fixture
+ok: could not mark sparse file
+ok: could not size sparse file
+ok: file operation timed out
+ok: cooperative mid-batch cancellation did not stop the large batch
+ok: file operation timed out
+ok: vanished item aborted remaining batch
+ok: could not establish exclusive lock
+ok: file operation timed out
+ok: locked item aborted remaining batch
+ok: could not prepare permission-denied test
+ok: file operation timed out
+ok: permission-denied operation was not reported safely
+ok: file operation timed out
+ok: Keep Both transfer failed
+ok: Skip modified the existing destination
+ok: could not create sparse-file fixture
+ok: could not mark sparse file
+ok: could not size sparse file
+ok: queued batch did not drain after cancellation
+ok: cancellation did not stop a queued-not-yet-started operation
+ok: long-path fixture directory not created
+ok: long-path fixture file not created
+ok: file operation timed out
+ok: existence preflight missed an occupied destination past MAX_PATH
+ok: long-path fixture cleanup failed
+ok: conflict prompt was not posted
+ok: Stop during an in-flight conflict prompt did not resolve as Cancel
+ok: worker did not restart after conflict-prompt Stop
+ok: real Shell source sharing failure lost its identity, recovery or diagnostic code
+ok: destination sharing failure was confused with source sharing failure
+ok: unrecognized failure lost its original diagnostic code
+ok: terminal event failures were not retained
+ok: a progress event wiped the retained failure list
+ok: a later successful terminal event did not clear the retained list
+ok: file operation timed out
+ok: all-skip batch did not report three skipped items
+ok: file operation timed out
+ok: mixed skip batch did not report completed and skipped counts
+ok: file operation timed out
+ok: an idle Escape pre-cancelled the next batch
+ok: worker did not restart after Stop
+ok: file operation timed out
+ok: operation was cancelled after Start following Stop
+ok: temporary test directory cleanup failed
+file operations end-to-end tests passed
+
+
+0% tests passed, 1 tests failed out of 1
+
+Total Test time (real) =   8.91 sec
+
+The following tests FAILED:
+	 47 - fffileoperations_e2e_tests (Failed)
+Errors while running CTest

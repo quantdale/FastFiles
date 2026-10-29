@@ -1,0 +1,45 @@
+{
+  "schema": "fastfiles-independent-review-availability-v1",
+  "final_implementation_sha": "4c1c4501e5b1f0579a2d34f4f7afea5f83708979",
+  "verdict": "BLOCKED_EXTERNAL",
+  "completed_reviews": {
+    "provider_model": "openai-codex/gpt-6.1-sol",
+    "contexts": "five independent fresh contexts at8c4c848 plus scoped followups",
+    "scope": "Not final4c1c450 approval; see preserved full reports"
+  },
+  "last_native_followups": [
+    {
+      "run_id": "51490155-3d99-43e8-969e-db1bbed8d9ce",
+      "requested_source_sha": "dab21288f400967f883598e1c24e7ca2a270ecb9",
+      "scope": "data integrity",
+      "result": "failed before verdict",
+      "error": "Codex error: The usage limit has been reached"
+    },
+    {
+      "run_id": "b1c4d218-d10c-47e1-a13a-cf9f9290dd06",
+      "requested_source_sha": "dab21288f400967f883598e1c24e7ca2a270ecb9",
+      "scope": "performance and methodology",
+      "result": "failed before verdict",
+      "error": "Codex error: The usage limit has been reached"
+    }
+  ],
+  "fixed_free_adapter_static_check": {
+    "command": "hy3-free-worker doctor --json",
+    "status": "blocked",
+    "summary": "hy3-free-worker doctor failed closed during static preflight.",
+    "findings": [
+      "Pi worker runtime still exists at ~/.pi/agent.",
+      "Native Kimi --version did not return successfully."
+    ],
+    "uncertainties": [
+      "The exact Kimi ACP route was not exercised because preflight failed."
+    ],
+    "provider": "opencode",
+    "model": "hy3-free",
+    "canonical_model_key": "opencode/hy3-free",
+    "effort_effective": "unavailable",
+    "exit_code": 1,
+    "review_executed": false
+  },
+  "boundary": "No credentials, billing, permissions, installations or security policy changed; no failed-route fallback or excluded experiment attempted. Self-review is not independent approval."
+}

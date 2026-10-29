@@ -1,0 +1,324 @@
+{
+  "observedUtc": "2026-10-26T11:59:41.224874+00:00",
+  "fetch": "git fetch origin --prune --tags succeeded before capture",
+  "implementation": "9195788352a7bdba1996e42bda3c48570b794037",
+  "implementationBase": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+  "baseReason": "PR21 provides native conflict and close-observation dependencies; avoids duplicating sibling PR19/20 and backend PR14/15/17.",
+  "main": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+  "remotes": [
+    "origin\thttps://github.com/quantdale/FastFiles.git (fetch)",
+    "origin\thttps://github.com/quantdale/FastFiles.git (push)"
+  ],
+  "worktrees": [
+    {
+      "path": "D:/Documents/tryPython/FastFiles",
+      "branch": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "head": "b77d61e7ad21b549be1b2c29bda35a85ce4a97e9",
+      "upstream": null,
+      "remote": "origin/feat/large-index-lifecycle-and-search-scalability-20261008",
+      "remoteSha": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+      "relation": "diverged",
+      "localRemoteCounts": [
+        "4",
+        "21"
+      ],
+      "status": [
+        "M docs/agent/WORKSTATE.md",
+        " M openspec/changes/large-index-lifecycle-and-search-scalability/evidence/rebuild/rebuild-root-cause-and-reachability.md",
+        " M tests/indexstore/test_projection.cpp"
+      ]
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles/.kilo/worktrees/scythe-cloud",
+      "branch": null,
+      "head": "0dc33562ad6380c8b505ab221769acb189cd83b1",
+      "upstream": null,
+      "remote": null,
+      "remoteSha": null,
+      "relation": "unpublished-or-detached",
+      "localRemoteCounts": null,
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/acceptance-20261025",
+      "branch": "fix/acceptance-frontier-20261025",
+      "head": "4a1457660420f8021295ebadd505f8baf63dfbac",
+      "upstream": "origin/fix/acceptance-frontier-20261025",
+      "remote": "origin/fix/acceptance-frontier-20261025",
+      "remoteSha": "4a1457660420f8021295ebadd505f8baf63dfbac",
+      "relation": "equal",
+      "localRemoteCounts": [
+        "0",
+        "0"
+      ],
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/cancel-command-20261026",
+      "branch": "feat/discoverable-operation-cancel-20261026",
+      "head": "8e1aaf052d3e14d58c28b49d85457e8efc346a88",
+      "upstream": null,
+      "remote": null,
+      "remoteSha": null,
+      "relation": "unpublished-or-detached",
+      "localRemoteCounts": null,
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/column-uia-20261025",
+      "branch": "fix/column-uia-identity-dispatch-20261025",
+      "head": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "upstream": "origin/fix/column-uia-identity-dispatch-20261025",
+      "remote": "origin/fix/column-uia-identity-dispatch-20261025",
+      "remoteSha": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "relation": "equal",
+      "localRemoteCounts": [
+        "0",
+        "0"
+      ],
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/conflict-actions-20261026",
+      "branch": "fix/accessible-conflict-actions-20261026",
+      "head": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "upstream": "origin/fix/accessible-conflict-actions-20261026",
+      "remote": "origin/fix/accessible-conflict-actions-20261026",
+      "remoteSha": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "relation": "equal",
+      "localRemoteCounts": [
+        "0",
+        "0"
+      ],
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/fileops-feedback-20261026",
+      "branch": "fix/actionable-file-operation-errors-20261026",
+      "head": "9195788352a7bdba1996e42bda3c48570b794037",
+      "upstream": null,
+      "remote": null,
+      "remoteSha": null,
+      "relation": "unpublished-or-detached",
+      "localRemoteCounts": null,
+      "status": [
+        "?? openspec/changes/original-vision-journey-recovery/evidence/file-operation-feedback-20261026/qualified-9195788/"
+      ]
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/fixture-ownership-20261026",
+      "branch": "fix/uia-fixture-window-ownership-20261026",
+      "head": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "upstream": "origin/fix/uia-fixture-window-ownership-20261026",
+      "remote": "origin/fix/uia-fixture-window-ownership-20261026",
+      "remoteSha": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "relation": "equal",
+      "localRemoteCounts": [
+        "0",
+        "0"
+      ],
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/integration-20261025",
+      "branch": "test/original-vision-integration-20261025",
+      "head": "51903c6a1002af9b4ca2efdb87448e5459f097bd",
+      "upstream": "origin/main",
+      "remote": null,
+      "remoteSha": null,
+      "relation": "unpublished-or-detached",
+      "localRemoteCounts": null,
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/main-sync",
+      "branch": "main",
+      "head": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "upstream": "origin/main",
+      "remote": "origin/main",
+      "remoteSha": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "relation": "equal",
+      "localRemoteCounts": [
+        "0",
+        "0"
+      ],
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/native-text-20261026",
+      "branch": "fix/native-single-line-status-20261026",
+      "head": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "upstream": "origin/fix/native-single-line-status-20261026",
+      "remote": "origin/fix/native-single-line-status-20261026",
+      "remoteSha": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "relation": "equal",
+      "localRemoteCounts": [
+        "0",
+        "0"
+      ],
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/oracle-mixed-20261026",
+      "branch": "test/mixed-residency-oracle-20261026",
+      "head": "51736309391d1a9081fae38efc3a82ebb0b6af16",
+      "upstream": null,
+      "remote": null,
+      "remoteSha": null,
+      "relation": "unpublished-or-detached",
+      "localRemoteCounts": null,
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/product-20261025",
+      "branch": "feat/original-vision-product-20261025",
+      "head": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "upstream": "origin/feat/original-vision-product-20261025",
+      "remote": "origin/feat/original-vision-product-20261025",
+      "remoteSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "relation": "equal",
+      "localRemoteCounts": [
+        "0",
+        "0"
+      ],
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/search-20261025",
+      "branch": "fix/search-result-home-handoff-20261025",
+      "head": "8a4f58830238203ce622da8fc25a7ea708c91d8a",
+      "upstream": "origin/main",
+      "remote": null,
+      "remoteSha": null,
+      "relation": "unpublished-or-detached",
+      "localRemoteCounts": null,
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/shutdown-lifetime-20261026",
+      "branch": "fix/native-shutdown-lifetime-20261026",
+      "head": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "upstream": null,
+      "remote": null,
+      "remoteSha": null,
+      "relation": "unpublished-or-detached",
+      "localRemoteCounts": null,
+      "status": [
+        "M src/protocol/include/ffprotocol/Diagnostics.h",
+        " M src/protocol/src/Diagnostics.cpp",
+        " M src/ui/src/IconCache.cpp",
+        " M src/ui/src/Main.cpp",
+        " M src/ui/src/WindowShell.cpp",
+        "?? src/ui/include/ffui/AsyncWorkAdmission.h",
+        "?? src/ui/src/ShutdownDiagnostics.h"
+      ]
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/storage-uia-20261025",
+      "branch": "feat/storage-semantic-list-20261025",
+      "head": "090f7e2f231a6c31f0bad356e982d83b65839cb9",
+      "upstream": null,
+      "remote": null,
+      "remoteSha": null,
+      "relation": "unpublished-or-detached",
+      "localRemoteCounts": null,
+      "status": []
+    },
+    {
+      "path": "D:/Documents/tryPython/FastFiles-worktrees/visible-uia-20261025",
+      "branch": "fix/visible-uia-workspace-20261025",
+      "head": "5456f1ec109b5fa9a6b24bdcdbf4ffa4b951c3e7",
+      "upstream": null,
+      "remote": null,
+      "remoteSha": null,
+      "relation": "unpublished-or-detached",
+      "localRemoteCounts": null,
+      "status": []
+    }
+  ],
+  "pull": "No relevant clean tracking branch was strictly behind; dirty/diverged owner checkout preserved.",
+  "openPullRequests": [
+    {
+      "baseRefName": "fix/accessible-conflict-actions-20261026",
+      "headRefName": "fix/uia-fixture-window-ownership-20261026",
+      "headRefOid": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "isDraft": true,
+      "number": 22,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/22"
+    },
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "fix/accessible-conflict-actions-20261026",
+      "headRefOid": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "isDraft": true,
+      "number": 21,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/21"
+    },
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "fix/native-single-line-status-20261026",
+      "headRefOid": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "isDraft": true,
+      "number": 20,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/20"
+    },
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "fix/column-uia-identity-dispatch-20261025",
+      "headRefOid": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "isDraft": true,
+      "number": 19,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/19"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "feat/original-vision-product-20261025",
+      "headRefOid": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "isDraft": true,
+      "number": 18,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/18"
+    },
+    {
+      "baseRefName": "feat/durable-cold-search-and-hybrid-residency",
+      "headRefName": "fix/acceptance-frontier-20261025",
+      "headRefOid": "4a1457660420f8021295ebadd505f8baf63dfbac",
+      "isDraft": true,
+      "number": 17,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/17"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "fix/f9-theme-toggle-follow-system",
+      "headRefOid": "e75a230db9ac89f6a638754cb6ad672735e4d644",
+      "isDraft": true,
+      "number": 16,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/16"
+    },
+    {
+      "baseRefName": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "headRefName": "feat/durable-cold-search-and-hybrid-residency",
+      "headRefOid": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+      "isDraft": true,
+      "number": 15,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/15"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "headRefOid": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+      "isDraft": false,
+      "number": 14,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/14"
+    }
+  ],
+  "sharedMergesOrRelease": "NONE"
+}

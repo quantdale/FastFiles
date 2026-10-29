@@ -1,0 +1,263 @@
+Test project C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/release-test
+        Start   1: ffprotocol_tests
+  1/129 Test   #1: ffprotocol_tests ...................................   Passed    0.13 sec
+        Start   2: ffprotocol_diagnostics_tests
+  2/129 Test   #2: ffprotocol_diagnostics_tests .......................   Passed    0.15 sec
+        Start   3: ffprotocol_diagnostics_concurrency_tests
+  3/129 Test   #3: ffprotocol_diagnostics_concurrency_tests ...........   Passed    0.81 sec
+        Start   4: ffprotocol_snapshot_pooled_equivalence_tests
+  4/129 Test   #4: ffprotocol_snapshot_pooled_equivalence_tests .......   Passed    0.68 sec
+        Start   5: ffprotocol_fuzz_tests
+  5/129 Test   #5: ffprotocol_fuzz_tests ..............................   Passed    1.18 sec
+        Start   6: ffipc_framing_tests
+  6/129 Test   #6: ffipc_framing_tests ................................   Passed    2.38 sec
+        Start   7: ffipc_listener_lifecycle_tests
+  7/129 Test   #7: ffipc_listener_lifecycle_tests .....................   Passed   50.77 sec
+        Start   8: ffindexstore_store_tests
+  8/129 Test   #8: ffindexstore_store_tests ...........................   Passed    1.42 sec
+        Start   9: ffindexstore_projection_tests
+  9/129 Test   #9: ffindexstore_projection_tests ......................   Passed    1.89 sec
+        Start  10: ffindexstore_flat_hash_map_tests
+ 10/129 Test  #10: ffindexstore_flat_hash_map_tests ...................   Passed    0.10 sec
+        Start  11: ffindexstore_read_session_tests
+ 11/129 Test  #11: ffindexstore_read_session_tests ....................   Passed    0.47 sec
+        Start  12: ffsearch_tests
+ 12/129 Test  #12: ffsearch_tests .....................................   Passed    0.10 sec
+        Start  13: ffsearch_ascii_fold_tests
+ 13/129 Test  #13: ffsearch_ascii_fold_tests ..........................   Passed    0.12 sec
+        Start  14: ffsearch_scan_tests
+ 14/129 Test  #14: ffsearch_scan_tests ................................   Passed    0.21 sec
+        Start  15: ffsearch_ondisk_filter_tests
+ 15/129 Test  #15: ffsearch_ondisk_filter_tests .......................   Passed    0.09 sec
+        Start  16: ffsearch_history_tests
+ 16/129 Test  #16: ffsearch_history_tests .............................   Passed    0.11 sec
+        Start  17: ffsearch_admission_tests
+ 17/129 Test  #17: ffsearch_admission_tests ...........................   Passed    0.33 sec
+        Start  18: ffmftparser_tests
+ 18/129 Test  #18: ffmftparser_tests ..................................   Passed    0.08 sec
+        Start  19: ffusnrecord_tests
+ 19/129 Test  #19: ffusnrecord_tests ..................................   Passed    0.07 sec
+        Start  20: ffprivilege_diagnostics_tests
+ 20/129 Test  #20: ffprivilege_diagnostics_tests ......................   Passed    0.10 sec
+        Start  21: ffcommand_surface_tests
+ 21/129 Test  #21: ffcommand_surface_tests ............................   Passed    0.07 sec
+        Start  22: ffconnection_registry_tests
+ 22/129 Test  #22: ffconnection_registry_tests ........................   Passed    0.07 sec
+        Start  23: ffvolumescanner_terminal_tests
+ 23/129 Test  #23: ffvolumescanner_terminal_tests .....................   Passed    1.43 sec
+        Start  24: ffindexsvc_write_deadline_policy_tests
+ 24/129 Test  #24: ffindexsvc_write_deadline_policy_tests .............   Passed    0.09 sec
+        Start  25: ffservice_revalidation_policy_tests
+ 25/129 Test  #25: ffservice_revalidation_policy_tests ................   Passed    0.09 sec
+        Start  26: ffservice_exception_boundary_policy_tests
+ 26/129 Test  #26: ffservice_exception_boundary_policy_tests ..........   Passed    0.10 sec
+        Start  27: ffntfsobserve_tests
+ 27/129 Test  #27: ffntfsobserve_tests ................................   Passed    0.07 sec
+        Start  28: ffengine_index_pipeline_tests
+ 28/129 Test  #28: ffengine_index_pipeline_tests ......................   Passed    3.38 sec
+        Start  29: ffengine_volume_session_manager_tests
+ 29/129 Test  #29: ffengine_volume_session_manager_tests ..............   Passed   12.19 sec
+        Start  30: ffengine_legacy_scan_failure_binding_tests
+ 30/129 Test  #30: ffengine_legacy_scan_failure_binding_tests .........   Passed    0.28 sec
+        Start  31: ffengine_privileged_connection_seam_policy_tests
+ 31/129 Test  #31: ffengine_privileged_connection_seam_policy_tests ...   Passed    0.10 sec
+        Start  32: ffengine_authenticode_verification_tests
+ 32/129 Test  #32: ffengine_authenticode_verification_tests ...........   Passed    6.08 sec
+        Start  33: ffengine_degraded_special_files_tests
+ 33/129 Test  #33: ffengine_degraded_special_files_tests ..............   Passed    0.12 sec
+        Start  34: ffengine_directory_watcher_tests
+ 34/129 Test  #34: ffengine_directory_watcher_tests ...................   Passed    0.80 sec
+        Start  35: ffengine_idle_manager_tests
+ 35/129 Test  #35: ffengine_idle_manager_tests ........................   Passed    0.78 sec
+        Start  36: ffengine_ui_server_lifecycle_tests
+ 36/129 Test  #36: ffengine_ui_server_lifecycle_tests .................   Passed    5.73 sec
+        Start  37: ffengine_pooled_snapshot_lifetime_tests
+ 37/129 Test  #37: ffengine_pooled_snapshot_lifetime_tests ............   Passed    0.27 sec
+        Start  38: ffengine_snapshot_publisher_tests
+ 38/129 Test  #38: ffengine_snapshot_publisher_tests ..................   Passed    0.32 sec
+        Start  39: ffengine_client_handshake_tests
+ 39/129 Test  #39: ffengine_client_handshake_tests ....................   Passed    0.57 sec
+        Start  40: ffengine_active_path_resilience_tests
+ 40/129 Test  #40: ffengine_active_path_resilience_tests ..............   Passed    3.15 sec
+        Start  41: ffengine_subtree_gating_tests
+ 41/129 Test  #41: ffengine_subtree_gating_tests ......................   Passed    0.22 sec
+        Start  42: ffengine_seeded_indexed_mode_tests
+ 42/129 Test  #42: ffengine_seeded_indexed_mode_tests .................   Passed    0.28 sec
+        Start  43: ffengine_index_pipeline_concurrency_tests
+ 43/129 Test  #43: ffengine_index_pipeline_concurrency_tests ..........   Passed    0.85 sec
+        Start  44: ffengine_identity_ordering_oracle_self_tests
+ 44/129 Test  #44: ffengine_identity_ordering_oracle_self_tests .......   Passed    0.11 sec
+        Start  45: ffnavigation_tests
+ 45/129 Test  #45: ffnavigation_tests .................................   Passed    0.17 sec
+        Start  46: ffcommand_tests
+ 46/129 Test  #46: ffcommand_tests ....................................   Passed    0.12 sec
+        Start  47: fffileoperations_tests
+ 47/129 Test  #47: fffileoperations_tests .............................   Passed    0.12 sec
+        Start  48: fffileoperations_e2e_tests
+ 48/129 Test  #48: fffileoperations_e2e_tests .........................   Passed   10.23 sec
+        Start  49: ffselection_tests
+ 49/129 Test  #49: ffselection_tests ..................................   Passed    0.08 sec
+        Start  50: ffpreview_tests
+ 50/129 Test  #50: ffpreview_tests ....................................   Passed    1.00 sec
+        Start  51: fftreemap_layout_tests
+ 51/129 Test  #51: fftreemap_layout_tests .............................   Passed    0.07 sec
+        Start  52: fftreemap_filter_tests
+ 52/129 Test  #52: fftreemap_filter_tests .............................   Passed    0.11 sec
+        Start  53: ffengine_discovery_tests
+ 53/129 Test  #53: ffengine_discovery_tests ...........................   Passed    0.13 sec
+        Start  54: ffengine_status_tests
+ 54/129 Test  #54: ffengine_status_tests ..............................   Passed    0.07 sec
+        Start  55: ffui_text_encoding_tests
+ 55/129 Test  #55: ffui_text_encoding_tests ...........................   Passed    0.08 sec
+        Start  56: ffstorage_percentage_tests
+ 56/129 Test  #56: ffstorage_percentage_tests .........................   Passed    0.07 sec
+        Start  57: ffdetails_layout_tests
+ 57/129 Test  #57: ffdetails_layout_tests .............................   Passed    0.06 sec
+        Start  58: ffchrome_layout_tests
+ 58/129 Test  #58: ffchrome_layout_tests ..............................   Passed    0.08 sec
+        Start  59: ffui_state_palette_tests
+ 59/129 Test  #59: ffui_state_palette_tests ...........................   Passed    0.08 sec
+        Start  60: ffshell_layout_tests
+ 60/129 Test  #60: ffshell_layout_tests ...............................   Passed    0.07 sec
+        Start  61: ffhome_layout_tests
+ 61/129 Test  #61: ffhome_layout_tests ................................   Passed    0.07 sec
+        Start  62: ffsidebar_destinations_tests
+ 62/129 Test  #62: ffsidebar_destinations_tests .......................   Passed    0.07 sec
+        Start  63: ffsettings_pages_tests
+ 63/129 Test  #63: ffsettings_pages_tests .............................   Passed    0.07 sec
+        Start  64: ffcolumn_hit_test_tests
+ 64/129 Test  #64: ffcolumn_hit_test_tests ............................   Passed    0.11 sec
+        Start  65: ffhome_interaction_tests
+ 65/129 Test  #65: ffhome_interaction_tests ...........................   Passed    0.06 sec
+        Start  66: ffsnapshot_aggregate_tests
+ 66/129 Test  #66: ffsnapshot_aggregate_tests .........................   Passed    0.10 sec
+        Start  67: ffdetails_aggregate_state_tests
+ 67/129 Test  #67: ffdetails_aggregate_state_tests ....................   Passed    0.08 sec
+        Start  68: ffselection_identity_tests
+ 68/129 Test  #68: ffselection_identity_tests .........................   Passed    0.10 sec
+        Start  69: ffselection_model_tests
+ 69/129 Test  #69: ffselection_model_tests ............................   Passed    0.08 sec
+        Start  70: ffsnapshot_freshness_tests
+ 70/129 Test  #70: ffsnapshot_freshness_tests .........................   Passed    0.08 sec
+        Start  71: ffasync_result_gate_tests
+ 71/129 Test  #71: ffasync_result_gate_tests ..........................   Passed    0.07 sec
+        Start  72: ffui_icon_lru_tests
+ 72/129 Test  #72: ffui_icon_lru_tests ................................   Passed    0.07 sec
+        Start  73: ffstorage_visibility_tests
+ 73/129 Test  #73: ffstorage_visibility_tests .........................   Passed    0.07 sec
+        Start  74: ffstorage_radio_state_tests
+ 74/129 Test  #74: ffstorage_radio_state_tests ........................   Passed    0.07 sec
+        Start  75: ffdisplay_path_tests
+ 75/129 Test  #75: ffdisplay_path_tests ...............................   Passed    0.07 sec
+        Start  76: ffaddress_bar_focus_tests
+ 76/129 Test  #76: ffaddress_bar_focus_tests ..........................   Passed    0.12 sec
+        Start  77: ffchrome_tab_traversal_tests
+ 77/129 Test  #77: ffchrome_tab_traversal_tests .......................   Passed    0.30 sec
+        Start  78: ffdialog_focus_return_tests
+ 78/129 Test  #78: ffdialog_focus_return_tests ........................   Passed    0.13 sec
+        Start  79: ffpalette_focus_tests
+ 79/129 Test  #79: ffpalette_focus_tests ..............................   Passed    0.15 sec
+        Start  80: ffshortcut_routing_tests
+ 80/129 Test  #80: ffshortcut_routing_tests ...........................   Passed    0.11 sec
+        Start  81: ffquick_actions_tests
+ 81/129 Test  #81: ffquick_actions_tests ..............................   Passed    0.12 sec
+        Start  82: ffclipboard_classifier_tests
+ 82/129 Test  #82: ffclipboard_classifier_tests .......................   Passed    0.11 sec
+        Start  83: ffcolumnview_uia_tests
+ 83/129 Test  #83: ffcolumnview_uia_tests .............................   Passed    0.15 sec
+        Start  84: ffhome_uia_tests
+ 84/129 Test  #84: ffhome_uia_tests ...................................   Passed    0.12 sec
+        Start  85: ffsearch_uia_tests
+ 85/129 Test  #85: ffsearch_uia_tests .................................   Passed    0.13 sec
+        Start  86: ffdrop_destination_tests
+ 86/129 Test  #86: ffdrop_destination_tests ...........................   Passed    0.09 sec
+        Start  87: ffdrop_feedback_tests
+ 87/129 Test  #87: ffdrop_feedback_tests ..............................   Passed    0.07 sec
+        Start  88: ffsearch_filters_disclosure_tests
+ 88/129 Test  #88: ffsearch_filters_disclosure_tests ..................   Passed    0.09 sec
+        Start  89: ffsearch_snapshot_refresh_tests
+ 89/129 Test  #89: ffsearch_snapshot_refresh_tests ....................   Passed    0.09 sec
+        Start  90: ffgui_show_command_tests
+ 90/129 Test  #90: ffgui_show_command_tests ...........................   Passed    0.09 sec
+        Start  91: ffsearch_tab_order_tests
+ 91/129 Test  #91: ffsearch_tab_order_tests ...........................   Passed    0.07 sec
+        Start  92: ffuia_geometry_tests
+ 92/129 Test  #92: ffuia_geometry_tests ...............................   Passed    0.07 sec
+        Start  93: ffuia_events_tests
+ 93/129 Test  #93: ffuia_events_tests .................................   Passed    0.15 sec
+        Start  94: fftreemap_metadata_tests
+ 94/129 Test  #94: fftreemap_metadata_tests ...........................   Passed    0.09 sec
+        Start  95: fftreemap_uia_tests
+ 95/129 Test  #95: fftreemap_uia_tests ................................   Passed    0.18 sec
+        Start  96: ffui_style_tests
+ 96/129 Test  #96: ffui_style_tests ...................................   Passed    0.11 sec
+        Start  97: ffnative_header_theme_tests
+ 97/129 Test  #97: ffnative_header_theme_tests ........................   Passed    0.13 sec
+        Start  98: ffsearch_metadata_tests
+ 98/129 Test  #98: ffsearch_metadata_tests ............................   Passed    0.13 sec
+        Start  99: ffgallery_tests
+ 99/129 Test  #99: ffgallery_tests ....................................   Passed    0.13 sec
+        Start 100: ffuia_driver_ps_tests
+100/129 Test #100: ffuia_driver_ps_tests ..............................   Passed    5.52 sec
+        Start 101: ffintake_gate_ps_tests
+101/129 Test #101: ffintake_gate_ps_tests .............................   Passed    1.01 sec
+        Start 102: ffsetup_security_descriptor_tests
+102/129 Test #102: ffsetup_security_descriptor_tests ..................   Passed    0.10 sec
+        Start 103: ffsetup_peer_image_match_tests
+103/129 Test #103: ffsetup_peer_image_match_tests .....................   Passed    0.09 sec
+        Start 104: ffsetup_package_trust_tests
+104/129 Test #104: ffsetup_package_trust_tests ........................   Passed    0.24 sec
+        Start 105: ffsetup_installer_source_policy_tests
+105/129 Test #105: ffsetup_installer_source_policy_tests ..............   Passed    0.10 sec
+        Start 106: ffsetup_install_lifecycle_tests
+106/129 Test #106: ffsetup_install_lifecycle_tests ....................   Passed    0.09 sec
+        Start 107: ffdoc_drift_tests
+107/129 Test #107: ffdoc_drift_tests ..................................   Passed    2.48 sec
+        Start 108: ffdoc_truth_fixture_tests
+108/129 Test #108: ffdoc_truth_fixture_tests ..........................   Passed    4.08 sec
+        Start 109: ffsource_provenance_fixture_tests
+109/129 Test #109: ffsource_provenance_fixture_tests ..................   Passed    5.74 sec
+        Start 110: ffbuild_identity_freshness_tests
+110/129 Test #110: ffbuild_identity_freshness_tests ...................   Passed    4.69 sec
+        Start 111: ffbuild_identity_binding_tests
+111/129 Test #111: ffbuild_identity_binding_tests .....................   Passed    0.66 sec
+        Start 112: ffproject_status_ps_tests
+112/129 Test #112: ffproject_status_ps_tests ..........................   Passed   22.30 sec
+        Start 113: ffprovider_contract_ps_tests
+113/129 Test #113: ffprovider_contract_ps_tests .......................   Passed    0.98 sec
+        Start 114: ffverify_result_composition_ps_tests
+114/129 Test #114: ffverify_result_composition_ps_tests ...............   Passed   47.42 sec
+        Start 115: ffverify_uia_selection_ps_tests
+115/129 Test #115: ffverify_uia_selection_ps_tests ....................   Passed    1.29 sec
+        Start 116: ffverify_process_reaper_ps_tests
+116/129 Test #116: ffverify_process_reaper_ps_tests ...................   Passed    2.00 sec
+        Start 117: ffe2e_harness_ps_tests
+117/129 Test #117: ffe2e_harness_ps_tests .............................   Passed    2.43 sec
+        Start 118: ffverify_provenance_ps_tests
+118/129 Test #118: ffverify_provenance_ps_tests .......................   Passed    4.21 sec
+        Start 119: ffverify_foreground_skip_ps_tests
+119/129 Test #119: ffverify_foreground_skip_ps_tests ..................   Passed    1.27 sec
+        Start 120: ffverify_parity_contract_ps_tests
+120/129 Test #120: ffverify_parity_contract_ps_tests ..................   Passed    0.64 sec
+        Start 121: ffverify_openspec_child_ps_tests
+121/129 Test #121: ffverify_openspec_child_ps_tests ...................   Passed    3.13 sec
+        Start 122: ffverify_visual_catalog_coverage_ps_tests
+122/129 Test #122: ffverify_visual_catalog_coverage_ps_tests ..........   Passed    1.09 sec
+        Start 123: ffverify_clean_host_harness_ps_tests
+123/129 Test #123: ffverify_clean_host_harness_ps_tests ...............   Passed    0.93 sec
+        Start 124: ffverify_display_matrix_harness_ps_tests
+124/129 Test #124: ffverify_display_matrix_harness_ps_tests ...........   Passed    1.32 sec
+        Start 125: ffreadonly_mode_ps_tests
+125/129 Test #125: ffreadonly_mode_ps_tests ...........................   Passed    1.70 sec
+        Start 126: ffgit_mutation_guard_ps_tests
+126/129 Test #126: ffgit_mutation_guard_ps_tests ......................   Passed    1.97 sec
+        Start 127: ffmission_precedence_ps_tests
+127/129 Test #127: ffmission_precedence_ps_tests ......................   Passed    2.85 sec
+        Start 128: ffreadonly_terminal_ps_tests
+128/129 Test #128: ffreadonly_terminal_ps_tests .......................   Passed    8.44 sec
+        Start 129: ffhook_guard_ps_tests
+129/129 Test #129: ffhook_guard_ps_tests ..............................   Passed    4.13 sec
+
+100% tests passed, 0 tests failed out of 129
+
+Total Test time (real) = 248.33 sec

@@ -1,0 +1,66 @@
+{
+  "status": "PASS",
+  "filter": "restore",
+  "executable": "D:\\Documents\\tryPython\\FastFiles-worktrees\\shutdown-lifetime-20261026\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+  "artifactsDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\shutdown-lifetime-20261026\\build\\shutdown-lifetime-20261026\\restore-a25633e",
+  "passed": 1,
+  "failed": 0,
+  "skipped": 0,
+  "results": [
+    {
+      "id": "cold-restore",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "Nested directory and typed Home each restored after real close/relaunch in the same isolated state directory",
+      "durationMs": 11448.2,
+      "data": {
+        "main": {
+          "Name": "FastFiles",
+          "AutomationId": "MainWindow",
+          "ControlType": "Window",
+          "ClassName": "FastFilesMainWindow",
+          "ProcessId": 121988
+        },
+        "mainHelpText": "Preview: No selection",
+        "tabLabels": [
+          "1: Home"
+        ],
+        "pane": {
+          "Name": "Pane 1",
+          "AutomationId": "Pane.0",
+          "ControlType": "Pane",
+          "ClassName": "",
+          "ProcessId": 121988
+        },
+        "visibleColumns": [],
+        "processId": 121988,
+        "sessionRoot": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-restore-first-c4e6e43fc8134deda65e5fed3d2ec7b5-7397f0e875d84abea8a91a9a786b0ce8",
+        "closeObservations": [
+          {
+            "processId": 125616,
+            "uiaCloseReturned": true,
+            "uiaError": "",
+            "fallbackAttempted": false,
+            "fallbackKeys": "",
+            "fallbackInput": [],
+            "fallbackError": "",
+            "deadlineMs": 10000,
+            "exitObserved": true
+          },
+          {
+            "processId": 123996,
+            "uiaCloseReturned": true,
+            "uiaError": "",
+            "fallbackAttempted": false,
+            "fallbackKeys": "",
+            "fallbackInput": [],
+            "fallbackError": "",
+            "deadlineMs": 10000,
+            "exitObserved": true
+          }
+        ]
+      },
+      "artifactDir": ""
+    }
+  ]
+}

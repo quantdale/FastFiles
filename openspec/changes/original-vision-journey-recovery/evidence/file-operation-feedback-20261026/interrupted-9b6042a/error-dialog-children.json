@@ -1,0 +1,30 @@
+[
+  {
+    "Name": "OK",
+    "AutomationId": "2",
+    "ControlType": "Button",
+    "ClassName": "Button",
+    "ProcessId": 17608
+  },
+  {
+    "Name": "",
+    "AutomationId": "20",
+    "ControlType": "Image",
+    "ClassName": "Static",
+    "ProcessId": 17608
+  },
+  {
+    "Name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-5792867bcdc94461bb4c14ed5681b233\\Fixtures\\FastFilesE2E\\Source\\locked-source.txt\nThe source file is in use. Close the app using it, then try the operation again. (0x80270027)",
+    "AutomationId": "65535",
+    "ControlType": "Text",
+    "ClassName": "Static",
+    "ProcessId": 17608
+  },
+  {
+    "Name": "Last operation errors",
+    "AutomationId": "TitleBar",
+    "ControlType": "TitleBar",
+    "ClassName": "",
+    "ProcessId": 17608
+  }
+]

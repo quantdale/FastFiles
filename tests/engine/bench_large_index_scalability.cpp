@@ -34,7 +34,9 @@
 // performance-closure-and-multisurface-acceleration 8.1: benchmark-scoped
 // allocator probe. The replacement global operators are defined in this
 // translation unit only (FFBENCH_ALLOCATOR_PROBE_DEFINE).
+#ifndef FFBENCH_NO_ALLOCATOR_PROBE
 #define FFBENCH_ALLOCATOR_PROBE_DEFINE
+#endif
 #include "bench_allocator_probe.h"
 #include "ffsetup/BuildIdentity.h"
 
@@ -156,6 +158,7 @@ struct Options {
     std::vector<size_t> scales{10'000, 100'000, 500'000, 1'000'000, 2'000'000};
     std::filesystem::path outputPath = std::filesystem::path(L"docs/benchmarks/large-index-scalability.json");
     bool detailedDiagnostics = false;
+    bool searchAcceptanceOnly = false;
     // performance-closure-and-multisurface-acceleration 8.1: projection-memory
     // decomposition mode. When set, the benchmark runs only the memory report
     // (fixture generation -> rebuild cycles -> export weighing -> teardown) and
@@ -219,6 +222,10 @@ bool ParseOptions(int argc, wchar_t** argv, Options& options) {
         }
         if (argument == L"--diagnostics") {
             options.detailedDiagnostics = true;
+            continue;
+        }
+        if (argument == L"--search-acceptance-only") {
+            options.searchAcceptanceOnly = true;
             continue;
         }
         if (argument == L"--memory-report" && index + 1 < argc) {
@@ -973,33 +980,41 @@ DatasetResult::ContentionResult RunContentionProbe(ffengine::IndexPipeline& pipe
     ffprotocol::IndexedSearchResponse secondResponse;
 
     std::thread ingestion([&] {
+        if (detailedDiagnostics) std::printf("  [diag] ingestion enter\n"); std::fflush(stdout);
         const auto start = Clock::now();
         ingestionSucceeded = pipeline.ApplyMftBatch(volumeId, {
             MakeMftRecord(10'000'000 + static_cast<uint64_t>(scale), 5,
                           L"contention_writer.txt", 0, 7, 777),
         });
         ingestionMs = ElapsedMs(start);
+        if (detailedDiagnostics) std::printf("  [diag] ingestion done\n"); std::fflush(stdout);
         ingestionDone.store(true, std::memory_order_release);
     });
     std::thread aggregate([&] {
+        if (detailedDiagnostics) std::printf("  [diag] aggregate enter\n"); std::fflush(stdout);
         const auto start = Clock::now();
         (void)pipeline.GetFolderAggregate(volumeId, ffindexstore::FileId{5, 0});
         aggregateMs = ElapsedMs(start);
+        if (detailedDiagnostics) std::printf("  [diag] aggregate done %.1f ms\n", aggregateMs); std::fflush(stdout);
         aggregateDone.store(true, std::memory_order_release);
     });
     std::thread snapshot([&] {
+        if (detailedDiagnostics) std::printf("  [diag] snapshot enter\n"); std::fflush(stdout);
         const auto start = Clock::now();
         (void)pipeline.ExportDirectorySnapshot(volumeId, L"C:");
         snapshotMs = ElapsedMs(start);
+        if (detailedDiagnostics) std::printf("  [diag] snapshot done %.1f ms\n", snapshotMs); std::fflush(stdout);
         snapshotDone.store(true, std::memory_order_release);
     });
     std::thread secondSearch([&] {
+        if (detailedDiagnostics) std::printf("  [diag] secondSearch enter\n"); std::fflush(stdout);
         ffprotocol::IndexedSearchRequest request = firstRequest;
         request.requestId += 1;
         request.query = L"report";
         const auto start = Clock::now();
         secondResponse = pipeline.SearchIndexed(request);
         secondSearchMs = ElapsedMs(start);
+        if (detailedDiagnostics) std::printf("  [diag] secondSearch done %.1f ms\n", secondSearchMs); std::fflush(stdout);
         secondSearchDone.store(true, std::memory_order_release);
     });
 
@@ -1017,16 +1032,22 @@ DatasetResult::ContentionResult RunContentionProbe(ffengine::IndexPipeline& pipe
     const bool snapshotFinishedWhileHeld = snapshotDone.load(std::memory_order_acquire);
     const bool secondSearchFinishedWhileHeld = secondSearchDone.load(std::memory_order_acquire);
 
+    if (detailedDiagnostics) std::printf("  [diag-contention] deadline passed; releasing\n"); std::fflush(stdout);
     cancelFirst.store(true, std::memory_order_release);
     const auto cancellationStart = Clock::now();
     coldStreamBarrier.Release();
     firstSearch.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] firstSearch joined\n"); std::fflush(stdout);
     result.cancellationMs = ElapsedMs(cancellationStart);
     result.cancelledSearch = firstResponse.status == ffprotocol::IndexedSearchStatus::Cancelled;
     ingestion.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] ingestion joined\n"); std::fflush(stdout);
     aggregate.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] aggregate joined\n"); std::fflush(stdout);
     snapshot.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] snapshot joined\n"); std::fflush(stdout);
     secondSearch.join();
+    if (detailedDiagnostics) std::printf("  [diag-contention] secondSearch joined\n"); std::fflush(stdout);
     pipeline.SetSearchTestHooks({});
 
     result.ingestionCompletedWhileHeld = ingestionFinishedWhileHeld && ingestionSucceeded;
@@ -1527,6 +1548,12 @@ struct MemoryCapturePoint {
     bool hasProjection = false;
     ffindexstore::Projection::MemoryBreakdown breakdown;
     size_t estimatedBytes = 0;
+    // large-index-lifecycle-and-search-scalability post-completion audit:
+    // surface the reload outcome so a REJECTED rebuild can never masquerade
+    // as a fast one in measurement artifacts (a failed RebuildAll leaves the
+    // projection empty and the cycle time near zero).
+    uint64_t coldReloadCount = 0;
+    uint64_t coldReloadFailedCount = 0;
 };
 
 MemoryCapturePoint CaptureMemoryPoint(const std::string& name, const double elapsedMs) {
@@ -1551,7 +1578,10 @@ MemoryCapturePoint CaptureProjectionPoint(const std::string& name, ffengine::Ind
                                           const double elapsedMs) {
     MemoryCapturePoint point = CaptureMemoryPoint(name, elapsedMs);
     point.breakdown = pipeline.GetProjectionMemoryBreakdown();
-    point.estimatedBytes = pipeline.GetProjectionMemoryDiagnostics().estimatedBytes;
+    const auto diagnostics = pipeline.GetProjectionMemoryDiagnostics();
+    point.estimatedBytes = diagnostics.estimatedBytes;
+    point.coldReloadCount = diagnostics.coldReloadCount;
+    point.coldReloadFailedCount = diagnostics.coldReloadFailedCount;
     point.hasProjection = true;
     return point;
 }
@@ -1873,9 +1903,9 @@ void WriteBreakdown(std::ostream& output, const ffindexstore::Projection::Memory
            << ",\"filename_index_bucket_count\":" << b.filenameIndexBucketCount
            << ",\"filename_index_bucket_bytes\":" << b.filenameIndexBucketBytes
            << ",\"filename_index_approx_node_bytes\":" << b.filenameIndexApproxNodeBytes
-           << ",\"filename_index_non_ascii_count\":" << b.filenameIndexNonAsciiCount
-           << ",\"filename_index_non_ascii_slots\":" << b.filenameIndexNonAsciiSlots
-           << ",\"filename_index_non_ascii_bytes\":" << b.filenameIndexNonAsciiBytes
+           << ",\"filename_index_exceptional_count\":" << b.filenameIndexExceptionalCount
+           << ",\"filename_index_exceptional_slots\":" << b.filenameIndexExceptionalSlots
+           << ",\"filename_index_exceptional_bytes\":" << b.filenameIndexExceptionalBytes
            << ",\"filename_index_bytes\":" << b.filenameIndexBytes
            << ",\"lru_slot_capacity\":" << b.lruSlotCapacity
            << ",\"lru_slot_count\":" << b.lruSlotCount
@@ -1909,7 +1939,10 @@ void WriteCapturePoint(std::ostream& output, const MemoryCapturePoint& point) {
            << ",\"shareable_bytes\":" << point.workingSetSplit.shareableBytes
            << ",\"private_bytes\":" << point.workingSetSplit.privateBytes << '}';
     if (point.hasProjection) {
-        output << ",\"estimator_bytes\":" << point.estimatedBytes << ",\"projection\":";
+        output << ",\"estimator_bytes\":" << point.estimatedBytes
+               << ",\"cold_reload_count\":" << point.coldReloadCount
+               << ",\"cold_reload_failed_count\":" << point.coldReloadFailedCount
+               << ",\"projection\":";
         WriteBreakdown(output, point.breakdown);
     }
     output << '}';
@@ -2227,12 +2260,16 @@ int wmain(int argc, wchar_t** argv) {
 
         for (size_t caseIndex = 0; caseIndex < queryCases.size(); ++caseIndex) {
             const QueryCase& queryCase = queryCases[caseIndex];
-            const size_t warmRuns = scale >= kLargeSearchThreshold ? kWarmRunsLarge : kWarmRunsNormal;
+            const bool keyCell = std::string_view(queryCase.name) == "selective" ||
+                std::string_view(queryCase.name) == "exact_name" ||
+                std::string_view(queryCase.name) == "no_match";
+            const size_t warmRuns = options.searchAcceptanceOnly && !keyCell ? 1 :
+                (scale >= kLargeSearchThreshold ? kWarmRunsLarge : kWarmRunsNormal);
             if (caseIndex == 0) {
                 const SearchOutcome first = RunSearch(pipeline, scale, queryCase, 0,
                                                       "cold-ish-first-after-rebuild", options.detailedDiagnostics);
                 searchRuns.push_back(first.run);
-            } else {
+            } else if (!options.searchAcceptanceOnly || keyCell) {
                 RunSearch(pipeline, scale, queryCase, 0, "warmup", options.detailedDiagnostics);
                 RunSearch(pipeline, scale, queryCase, 1, "warmup", options.detailedDiagnostics);
             }
@@ -2259,7 +2296,9 @@ int wmain(int argc, wchar_t** argv) {
                         beforeUnload.estimatedBytes, afterUnload.estimatedBytes);
             std::fflush(stdout);
             for (const auto& queryCase : queryCases) {
-                RunSearch(pipeline, scale, queryCase, 0, "warmup", options.detailedDiagnostics);
+                if (!options.searchAcceptanceOnly) {
+                    RunSearch(pipeline, scale, queryCase, 0, "warmup", options.detailedDiagnostics);
+                }
                 const SearchOutcome measured = RunSearch(pipeline, scale, queryCase, 0, "cold",
                                                          options.detailedDiagnostics);
                 searchRuns.push_back(measured.run);
@@ -2275,7 +2314,7 @@ int wmain(int argc, wchar_t** argv) {
         // durable-snapshot broad-search and cancellation paths. Keep this
         // evidence to the first requested scale so the default multi-million
         // row run remains useful without multiplying full-dataset churn.
-        if (scale == options.scales.front()) {
+        if (!options.searchAcceptanceOnly && scale == options.scales.front()) {
             const QueryCase sustainedCase{"sustained_write_broad", L"common", 0};
             std::atomic<size_t> validationCount{0};
             pipeline.SetSearchTestHooks({[&](const ffengine::IndexPipeline::SearchPhase phase) {
@@ -2300,7 +2339,7 @@ int wmain(int argc, wchar_t** argv) {
                 pipeline, volumeId, scale, options.detailedDiagnostics));
         }
 
-        if (scale == 1'000'000) {
+        if (!options.searchAcceptanceOnly && scale == 1'000'000) {
             const std::vector<std::wstring> steps{L"p", L"ph", L"pho", L"phot", L"photo"};
             for (const auto& step : steps) {
                 QueryCase stepCase{"incremental", step.c_str(), 0};
@@ -2321,7 +2360,9 @@ int wmain(int argc, wchar_t** argv) {
         // snapshot, second-search, and cancellation paths while that query
         // is intentionally in flight. This is evidence, not a pass/fail
         // timing gate; the booleans make lock monopolization visible.
-        dataset.contention = RunContentionProbe(pipeline, volumeId, scale, options.detailedDiagnostics);
+        if (!options.searchAcceptanceOnly) {
+            dataset.contention = RunContentionProbe(pipeline, volumeId, scale, options.detailedDiagnostics);
+        }
         dataset.readPlane = pipeline.GetReadPlaneDiagnostics();
         dataset.postQuery = ReadMemory();
         dataset.resourcesPostQuery = ReadResources(database);
@@ -2344,16 +2385,19 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     std::vector<SnapshotRun> snapshotRuns;
-    for (const size_t rows : {size_t{100}, size_t{1'000}, size_t{10'000}, size_t{50'000},
-                              size_t{100'000}, size_t{250'000}, size_t{500'000}}) {
-        snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
+    size_t largestRows = 0;
+    if (!options.searchAcceptanceOnly) {
+        for (const size_t rows : {size_t{100}, size_t{1'000}, size_t{10'000}, size_t{50'000},
+                                  size_t{100'000}, size_t{250'000}, size_t{500'000}}) {
+            snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
+        }
+        largestRows = FindLargestSnapshotRows();
+        for (const double fraction : {0.50, 0.75, 0.90, 1.00}) {
+            const size_t rows = static_cast<size_t>(static_cast<double>(largestRows) * fraction);
+            snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
+        }
+        snapshotRuns.push_back(RunSnapshot(largestRows + 1, publisher, options.detailedDiagnostics));
     }
-    const size_t largestRows = FindLargestSnapshotRows();
-    for (const double fraction : {0.50, 0.75, 0.90, 1.00}) {
-        const size_t rows = static_cast<size_t>(static_cast<double>(largestRows) * fraction);
-        snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
-    }
-    snapshotRuns.push_back(RunSnapshot(largestRows + 1, publisher, options.detailedDiagnostics));
     publisher.Stop();
 
     std::filesystem::path parent = options.outputPath.parent_path();
@@ -2377,7 +2421,34 @@ int wmain(int argc, wchar_t** argv) {
             largestPublishedSnapshotRows = std::max(largestPublishedSnapshotRows, run.rows);
         }
     }
-    output << "{\n  \"schema\":\"fastfiles-large-index-scalability-v2\",\n  \"machine\":";
+    output << "{\n  \"schema\":\"fastfiles-large-index-scalability-v2\",\n";
+    // durable-cold-search-index-and-hybrid-residency 5.5 (campaign section
+    // 14): authoritative source/executable identity is embedded in the
+    // artifact itself. source_sha/source_state/preset are caller-asserted
+    // and labeled as such; build_identity binds the binary to the source
+    // tree (ffsetup identity, refreshed at build time).
+    output << "  \"identity\":{";
+    output << "\"source_sha\":"; WriteJsonString(output, options.sourceSha);
+    output << ",\"source_state\":"; WriteJsonString(output, options.sourceState);
+    output << ",\"source_state_asserted_by\":\"caller\"";
+    output << ",\"preset\":"; WriteJsonString(output, options.preset);
+    output << ",\"build_identity\":\"" << ffsetup::kBuildIdentityAscii << "\"";
+    output << ",\"command_line\":"; WriteJsonString(output, options.commandLine);
+    output << ",\"generated_epoch_seconds\":" << static_cast<long long>(std::time(nullptr));
+    output << ",\"candidate_index_version\":3";
+    output << ",\"search_acceptance_only\":" << (options.searchAcceptanceOnly ? "true" : "false");
+    output << ",\"sampling_note\":";
+    WriteJsonString(output, options.searchAcceptanceOnly ?
+        "same fixture/RunSearch timing; key cells retain warmups/five samples at large scale; other classes one ordered sample; forced-cold one sample; no churn/contention/snapshot-capacity probes" :
+        "legacy full sampling and ancillary probes");
+#ifdef FFBENCH_NO_ALLOCATOR_PROBE
+    output << ",\"allocator_probe_enabled\":false";
+#else
+    output << ",\"allocator_probe_enabled\":true";
+#endif
+    output << ",\"fixture_generation\":\"deterministic index-derived names (no RNG seed)\"";
+    output << ",\"projection_memory_budget_bytes\":" << (500ull * 1024ull * 1024ull);
+    output << "},\n  \"machine\":";
     WriteMachine(output, machine);
     output << ",\n  \"snapshot_maximum_payload_bytes\":" << ffprotocol::kSnapshotMaximumPayloadBytes
            << ",\n  \"snapshot_capacity_estimate_rows\":" << largestRows

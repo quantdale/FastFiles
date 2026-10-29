@@ -1,0 +1,27 @@
+{
+  "schema": "fastfiles-uninstrumented-ingestion-runner-v1",
+  "source_sha": "dab21288f400967f883598e1c24e7ca2a270ecb9",
+  "executable_sha256": "26bb2c7a1c72c200193b000873790047af152e7630ace85821f1a7fbe17b876a",
+  "command": [
+    "build\\release-test\\tests\\engine\\ffengine_bench_ingestion_uninstrumented.exe",
+    "--scales",
+    "200000,1000000",
+    "--output",
+    "build\\campaign\\recovery-20261024\\ingestion-no-probe-staged.json",
+    "--source-sha",
+    "dab21288f400967f883598e1c24e7ca2a270ecb9",
+    "--source-state",
+    "clean",
+    "--preset",
+    "release-test"
+  ],
+  "free_before": 2317713408,
+  "full_5m_status": "NOT_EXECUTED",
+  "full_5m_reason": "only about2.15GiB free; prior partial3.6M WAL2.878GB plus final DB exceeds safe headroom; no exhaustion or forced termination allowed",
+  "3_1m_cliff_runtime_status": "NOT_EXECUTED under current disk budget; structural eviction regression separately passes",
+  "allocator_binding": "link map resolves replaceable scalar operator new to MSVCRT:new_scalar.obj; object has UNDEF global new, not allocator-probe definitions",
+  "preset": "release-test (RelWithDebInfo /O2, unsigned test artifacts)",
+  "exit_code": 0,
+  "elapsed_s": 37.788283348083496,
+  "free_after": 2317676544
+}

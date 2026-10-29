@@ -55,6 +55,14 @@ class ProjectionEntryCursor {
 public:
     ProjectionEntryCursor() = default;
     bool Next(const ProjectionEntry*& entry);
+    // large-index-lifecycle-and-search-scalability review-lane C Finding 2:
+    // true when the layout this cursor walks was disturbed underneath it
+    // (entries_ reallocated or reordered, or the id->index flat table grew).
+    // A disturbed cursor would silently skip rows, so callers must treat it
+    // as a stale generation and re-capture instead of accepting a truncated
+    // iteration. Ordinary in-place updates and appends within reserved
+    // capacity do not disturb it.
+    bool Stale() const noexcept;
 
 private:
     friend class Projection;
@@ -65,6 +73,9 @@ private:
     bool dense_ = false;
     size_t denseIndex_ = 0;
     EntryMap::Iterator iterator_;
+    // Layout markers captured at construction (lane C Finding 2).
+    const void* entriesData_ = nullptr;
+    size_t mapBuckets_ = 0;
 };
 
 // The compact, RAM-resident view of the index that search/browse/storage-
@@ -175,9 +186,9 @@ public:
         size_t filenameIndexBucketCount = 0;
         size_t filenameIndexBucketBytes = 0;
         size_t filenameIndexApproxNodeBytes = 0;
-        size_t filenameIndexNonAsciiCount = 0;  // live entries (size, not capacity)
-        size_t filenameIndexNonAsciiSlots = 0;
-        size_t filenameIndexNonAsciiBytes = 0;
+        size_t filenameIndexExceptionalCount = 0;  // live entries (size, not capacity)
+        size_t filenameIndexExceptionalSlots = 0;
+        size_t filenameIndexExceptionalBytes = 0;
         size_t filenameIndexBytes = 0;
         // ---- LRU / eviction metadata -------------------------------------
         size_t lruSlotCapacity = 0;             // dense per-slot timestamp vector
@@ -200,11 +211,25 @@ public:
     // batch. Upsert deliberately does not compact per record: compaction
     // rebuilds every projection index and must not turn a large scan into an
     // O(N) operation for every record.
-    void EnforceMemoryLimitNow();
+    // large-index-lifecycle-and-search-scalability review-lane D P2-1/P1-1:
+    // enforcement loops with bounded passes until the low watermark is
+    // reached or no pass makes progress. If these fine-grained passes cannot
+    // reach the watermark, whole-volume cold eviction restores the budget
+    // instead of repeating tiny victims/full compactions on every batch.
+    // The durable store remains authoritative. Returns
+    // true when at least one eviction pass ran: every eviction ends in
+    // CompactStorage, which repacks ALL row slots and can cold-mark any
+    // volume, so callers must treat that as a query-visible structural
+    // change (the same ProjectionResidency epoch mechanism
+    // SetProjectionMemoryBudget / UnloadVolumeFromProjection use).
+    bool EnforceMemoryLimitNow();
     // Initial/reconciliation scans are bulk mutations. Disable the expensive
     // eviction/compaction path and the optional filename accelerator while a
     // scan is active; canonical matching remains correct and the durable
-    // store is authoritative.
+    // store is authoritative. Ending the scan (false) re-enables enforcement
+    // AND rebuilds the filename accelerator once (review-lane C Finding 3:
+    // previously the accelerator stayed dead after every bulk scan, silently
+    // disabling selective-query acceleration until the next full rebuild).
     void SetBulkScanActive(bool active) noexcept;
 
     // Evicted subtrees remain durable in Store. The engine calls this before
@@ -242,13 +267,60 @@ public:
                        EntryFieldMask fields);
     // No-op if the entry is not present.
     void Remove(VolumeRowId volumeRowId, FileId frn);
+    // large-index-lifecycle-and-search-scalability 4.4: batch removal with
+    // one bulk filename-accelerator update instead of per-entry sorted-vector
+    // posting erases (quadratic in posting sizes for large batches).
+    // keepFilenameIndexCurrent rebuilds the accelerator once after a bulk
+    // removal; false leaves it invalidated for a caller that rebuilds it as
+    // part of an enclosing bulk operation. Observable removal semantics are
+    // identical to per-entry Remove in both modes; in keep=false mode the
+    // accelerator is invalidated regardless of batch size (review-lane C
+    // Finding 5: the small-batch path previously left it valid, contradicting
+    // this contract).
+    void RemoveBatch(VolumeRowId volumeRowId, const std::vector<FileId>& frns,
+                     bool keepFilenameIndexCurrent = true);
     // tasks.md 7.4's projection half: drops every entry belonging to a
     // forgotten volume (dense-slot tombstoning, id->index and
     // parent->children rows) -- equivalent to calling Remove on each of
     // the volume's entries. Interned names are not reclaimed, exactly as
     // with individual Remove (the pool is reclaimed on the next full
     // rebuild -- design.md "Risks" name-pool eviction note).
-    void RemoveVolume(VolumeRowId volumeRowId);
+    // large-index-lifecycle-and-search-scalability 4.4: routes through
+    // RemoveBatch's bulk accelerator maintenance.
+    void RemoveVolume(VolumeRowId volumeRowId, bool keepFilenameIndexCurrent = true);
+
+#ifdef FF_INDEXSTORE_TESTING
+    // large-index-lifecycle-and-search-scalability 4.2: benchmark-only
+    // differential-isolation seam for the removal-cost attribution matrix
+    // (bench_rebuild_isolation). Compiled only into the isolation benchmark
+    // target via FF_INDEXSTORE_TESTING; production builds contain none of
+    // this. RemovalMaintenanceMode::Production (the default) preserves exact
+    // production removal semantics; the other modes skip ONE kind of
+    // per-entry secondary maintenance so the matrix can attribute removal
+    // wall-time to filename-accelerator maintenance vs. parent/child unlink
+    // vs. the residual id-map/free-list work. Never set in production code.
+    enum class RemovalMaintenanceMode : uint8_t {
+        Production = 0,
+        SkipFilenameMaintenance = 1,
+        SkipChildUnlink = 2,
+        SkipBoth = 3,
+    };
+    void SetRemovalMaintenanceMode(RemovalMaintenanceMode mode) noexcept {
+        removalMaintenanceMode_ = mode;
+    }
+#endif
+
+    // large-index-lifecycle-and-search-scalability review-remediation (P2-A):
+    // testing-only seam that force-marks a UTF-16 unit as fold-exceptional
+    // (simulates a host ordinal table that equates it with ASCII, e.g. U+017F
+    // LONG S vs 's'), so the candidate-completeness machinery for the
+    // exceptional-name fallback is deterministically testable on hosts whose
+    // real table has no cross-ASCII fold classes. The DECLARATION is visible
+    // to every build so static analysis sees the seam; the definition and its
+    // override state are compiled only with FF_INDEXSTORE_TESTING (test and
+    // bench targets), so production binaries contain no seam behavior. Never
+    // set in production.
+    static void SetTestingFoldExceptionalUnit(char16_t unit, bool exceptional);
 
     const ProjectionEntry* Find(VolumeRowId volumeRowId, FileId frn) const;
 
@@ -257,6 +329,11 @@ public:
     // Returns a conservative candidate set for an already ASCII-folded
     // simple literal. nullopt means the secondary accelerator is ineligible
     // or unavailable, so callers must use the canonical live-entry scan.
+    // The candidate set is a CONSERVATIVE SUPERSET of the rows the canonical
+    // (CompareStringOrdinal ignore-case) matcher would accept: every row the
+    // matcher accepts is present, though the set may contain false positives
+    // that only the canonical matcher rejects. False negatives are forbidden
+    // (review-remediation P2-A enforces this for every host ordinal table).
     // Returned slot indices belong to this projection generation and are
     // valid only while the caller holds the projection's synchronization.
     std::optional<std::vector<uint32_t>> FilenameCandidateIndices(
@@ -385,9 +462,11 @@ public:
 
 private:
     friend class ProjectionEntryCursor;
-    void EnforceMemoryLimit();
-    void EnforceMemoryLimitTo(size_t targetBytes);
-    void EnforceMemoryLimitOnceTo(size_t targetBytes);
+    // review-lane D P2-1: return whether an eviction pass ran (see the public
+    // EnforceMemoryLimitNow contract).
+    bool EnforceMemoryLimit();
+    bool EnforceMemoryLimitTo(size_t targetBytes);
+    bool EnforceMemoryLimitOnceTo(size_t targetBytes);
     std::optional<EntryKey> LeastRecentlyUsedEntry() const;
     void EvictSubtree(const EntryKey& rootKey);
     void CompactStorage();
@@ -409,9 +488,20 @@ private:
     FlatChildrenMap parentToChildren_;
     bool denseIterationOrderValid_ = false;
     std::unordered_map<uint64_t, std::vector<uint32_t>> filenameTrigramPostings_;
-    std::vector<uint32_t> filenameNonAsciiEntries_;
+    // review-remediation (P2-A): rows whose names can match an ASCII needle
+    // through a non-ASCII unit under the host ordinal table, plus every
+    // surrogate-bearing name (conservative). Sorted slot indices; merged into
+    // every ASCII candidate set so the superset invariant holds.
+    std::vector<uint32_t> filenameExceptionalEntries_;
     bool filenameIndexValid_ = true;
     bool filenameIndexBuilding_ = false;
+    // large-index-lifecycle-and-search-scalability review-lane C Finding 3/6:
+    // tracks the bulk-scan state so scan end can revive the accelerator and
+    // cold reloads do not resurrect it mid-scan.
+    bool bulkScanActive_ = false;
+#ifdef FF_INDEXSTORE_TESTING
+    RemovalMaintenanceMode removalMaintenanceMode_ = RemovalMaintenanceMode::Production;
+#endif
     size_t maximumMemoryBytes_ = kDefaultMaximumMemoryBytes;
     mutable uint64_t accessClock_ = 0;
     // performance-closure-and-multisurface-acceleration 8.3: one access

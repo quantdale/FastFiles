@@ -1,0 +1,434 @@
+OWNED_FIXTURE_DIRECTORY=C:\Users\Michael Roy\AppData\Local\Temp\ff-owned-storage-pressure-20524-209261531
+ok: test forwarding VFS installs
+ok: reader fixture opens
+ok: reader baseline commits
+ok: no reader checkpoint succeeds
+ok: independent reader opens
+ok: reader pins a real snapshot
+ok: writer progresses while old reader snapshot is pinned
+ok: RESTART reports busy rather than false completion under pinned reader
+ok: checkpoint failure is bounded, not a busy loop
+ok: writer progresses while old reader snapshot is pinned
+ok: RESTART reports busy rather than false completion under pinned reader
+ok: checkpoint failure is bounded, not a busy loop
+ok: writer progresses while old reader snapshot is pinned
+ok: RESTART reports busy rather than false completion under pinned reader
+ok: checkpoint failure is bounded, not a busy loop
+ok: writer progresses while old reader snapshot is pinned
+ok: RESTART reports busy rather than false completion under pinned reader
+ok: checkpoint failure is bounded, not a busy loop
+ok: independent reader opens
+ok: reader pins a real snapshot
+ok: overlapping-reader writer commits
+ok: first reader releases snapshot
+ok: second overlapping reader still pins newer frames
+ok: second reader releases snapshot
+ok: maintenance recovers after all readers release
+ok: unblocked WAL can be physically reclaimed (test-only TRUNCATE probe)
+ok: released WAL truncates to zero bytes
+ok: cancellable production reader opens
+ok: reader early cancellation stops cleanly
+ok: writer progresses after reader early stop
+ok: cancelled reader teardown releases snapshot
+READERS peak_wal_bytes=1668632
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL fixture opens
+ok: FULL baseline commits
+ok: FULL baseline checkpoint succeeds
+ok: test-only small cache forces actual write operations within SQL statements
+FULL cell=ordinary-ingestion fired=1 wal=1 offset=24752 bytes=24 sql=INSERT INTO entries(volume_id, frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, allocated_size_bytes, creation_time, last_modified_time, last_access_time, attributes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(volume_id, frn_low, frn_high) DO UPDATE SET parent_frn_low=CASE WHEN (? & 1) != 0 THEN excluded.parent_frn_low ELSE entries.parent_frn_low END, parent_frn_high=CASE WHEN (? & 1) != 0 THEN excluded.parent_frn_high ELSE entries.parent_frn_high END, name=CASE WHEN (? & 2) != 0 THEN excluded.name ELSE entries.name END, size_bytes=CASE WHEN (? & 4) != 0 THEN excluded.size_bytes ELSE entries.size_bytes END, allocated_size_bytes=CASE WHEN (? & 128) != 0 THEN excluded.allocated_size_bytes   ELSE entries.allocated_size_bytes END, creation_time=CASE WHEN (? & 8) != 0 THEN excluded.creation_time ELSE entries.creation_time END, last_modified_time=CASE WHEN (? & 16) != 0 THEN excluded.last_modified_time ELSE entries.last_modified_time END, last_access_time=CASE WHEN (? & 32) != 0 THEN excluded.last_access_time ELSE entries.last_access_time END, attributes=CASE WHEN (? & 64) != 0 THEN excluded.attributes ELSE entries.attributes END;
+ok: specified SQLite statement actually reached failing xWrite
+ok: actual SQLITE_FULL is not reported as successful durable mutation
+ok: failed batch leaves no open transaction
+ok: failed mutation preserves original entry
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL database reopens
+ok: retry after space restoration commits
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL fixture opens
+ok: FULL baseline commits
+ok: FULL baseline checkpoint succeeds
+ok: test-only small cache forces actual write operations within SQL statements
+FULL cell=candidate-map fired=1 wal=1 offset=37112 bytes=24 sql=INSERT INTO entry_name_index_map(volume_id, frn_low, frn_high) VALUES(?,?,?) ON CONFLICT(volume_id, frn_low, frn_high) DO NOTHING;
+ok: specified SQLite statement actually reached failing xWrite
+ok: actual SQLITE_FULL is not reported as successful durable mutation
+ok: failed batch leaves no open transaction
+ok: failed mutation preserves original entry
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL database reopens
+ok: retry after space restoration commits
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL fixture opens
+ok: FULL baseline commits
+ok: FULL baseline checkpoint succeeds
+ok: test-only small cache forces actual write operations within SQL statements
+FULL cell=fts-mutation fired=1 wal=1 offset=0 bytes=32 sql=SELECT T.'rowid', T.c0 FROM 'main'.'entry_name_terms_content' T WHERE T.'rowid'=?
+ok: specified SQLite statement actually reached failing xWrite
+ok: actual SQLITE_FULL is not reported as successful durable mutation
+ok: failed batch leaves no open transaction
+ok: failed mutation preserves original entry
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL database reopens
+ok: retry after space restoration commits
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL fixture opens
+ok: FULL baseline commits
+ok: FULL baseline checkpoint succeeds
+ok: test-only small cache forces actual write operations within SQL statements
+FULL cell=reconciliation-removal fired=1 wal=1 offset=12392 bytes=24 sql=DELETE FROM entries WHERE volume_id=? AND frn_low=? AND frn_high=?;
+ok: specified SQLite statement actually reached failing xWrite
+ok: actual SQLITE_FULL is not reported as successful durable mutation
+ok: failed batch leaves no open transaction
+ok: failed mutation preserves original entry
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL database reopens
+ok: retry after space restoration commits
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL fixture opens
+ok: FULL baseline commits
+ok: FULL baseline checkpoint succeeds
+ok: test-only small cache forces actual write operations within SQL statements
+FULL cell=commit fired=1 wal=1 offset=325536 bytes=4096 sql=COMMIT / REPLACE INTO 'main'.'entry_name_terms_data'(id, block) VALUES(?,?)
+ok: specified SQLite statement actually reached failing xWrite
+ok: actual SQLITE_FULL is not reported as successful durable mutation
+ok: failed batch leaves no open transaction
+ok: failed mutation preserves original entry
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: FULL database reopens
+ok: retry after space restoration commits
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: checkpoint FULL fixture opens
+ok: auto checkpoint disabled only for controlled checkpoint injection
+ok: checkpoint input is committed
+ok: checkpoint FULL is propagated as failure
+FULL cell=checkpoint fired=1 wal=0 offset=0 bytes=4096 sql=REPLACE INTO 'main'.'entry_name_terms_data'(id, block) VALUES(?,?)
+ok: checkpoint failed actual database-file xWrite
+ok: checkpoint failure does not lose committed WAL entries
+ok: checkpoint retry succeeds after restoration
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: rebuild fixture opens
+ok: rebuild seed commits
+ok: derived-state preparation opens
+ok: derived-state repair obligation prepared
+ok: migration/rebuild write failure fails open closed
+FULL cell=rebuild fired=1 wal=1 offset=0 bytes=32 sql=COMMIT / REPLACE INTO 'main'.'entry_name_terms_data'(id, block) VALUES(?,?)
+ok: FULL is injected and is not misclassified as corruption
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: retry rebuild/migration succeeds after restoration
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: rebuild fixture opens
+ok: rebuild seed commits
+ok: derived-state preparation opens
+ok: derived-state repair obligation prepared
+ok: migration/rebuild write failure fails open closed
+FULL cell=migration fired=1 wal=1 offset=0 bytes=32 sql=CREATE TABLE IF NOT EXISTS entry_name_index_map (  volume_id INTEGER NOT NULL,  frn_low INTEGER NOT NULL,  frn_high INTEGER NOT NULL DEFAULT 0,  term_rowid INTEGER PRIMARY KEY,  UNIQUE(volume_id, frn_low, frn_high));
+ok: FULL is injected and isFAIL: every missing required structure forces rebuild before ready publication
+FAIL: missing FTS table cannot produce successful false-negative search
+FAIL: every missing required structure forces rebuild before ready publication
+FAIL: failed volume enumeration cannot be reported as complete rebuild
+FAIL: value move revalidates readiness for incoming snapshot and falls back
+ not misclassified as corruption
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: retry rebuild/migration succeeds after restoration
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: recovered candidate query completes
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: enumeration seed opens
+ok: enumeration seed commits
+ok: migration obligation prepared
+ok: actual volume-enumeration VM is interrupted exactly once
+ok: interrupted rebuild retry succeeds
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: move-cache seed opens
+ok: move-cache seed commits
+ok: moved reader query completes
+ok: old reader caches ready verdict
+ok: new snapshot has incomplete candidate index
+ok: moved reader query completes
+ok: crash seed opens
+ok: 12,000 long-name crash rows commit
+ok: real crash child launches
+ok: child reaches exact named crash boundary
+ok: parent kills child (not graceful ExitProcess rollback)
+ok: killed child exits within bound
+CRASH phase=0 expected_entries=12001 boundary_reached=1
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: killed database reopens through real pipeline
+ok: in-memory reconciliation obligation does not survive restart
+ok: restart full rescan observes surviving root
+ok: reconstructed pass converges after restart
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: real crash child launches
+ok: child reaches exact named crash boundary
+ok: parent kills child (not graceful ExitProcess rollback)
+ok: killed child exits within bound
+CRASH phase=1 expected_entries=12001 boundary_reached=1
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: killed database reopens through real pipeline
+ok: in-memory reconciliation obligation does not survive restart
+ok: restart full rescan observes surviving root
+ok: reconstructed pass converges after restart
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: real crash child launches
+ok: child reaches exact named crash boundary
+ok: parent kills child (not graceful ExitProcess rollback)
+ok: killed child exits within bound
+CRASH phase=2 expected_entries=7001 boundary_reached=1
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: killed database reopens through real pipeline
+ok: in-memory reconciliation obligation does not survive restart
+ok: restart full rescan observes surviving root
+ok: reconstructed pass converges after restart
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: real crash child launches
+ok: child reaches exact named crash boundary
+ok: parent kills child (not graceful ExitProcess rollback)
+ok: killed child exits within bound
+CRASH phase=3 expected_entries=7001 boundary_reached=1
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: killed database reopens through real pipeline
+ok: in-memory reconciliation obligation does not survive restart
+ok: restart full rescan observes surviving root
+ok: reconstructed pass converges after restart
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: real crash child launches
+ok: child reaches exact named crash boundary
+ok: parent kills child (not graceful ExitProcess rollback)
+ok: killed child exits within bound
+CRASH phase=4 expected_entries=7001 boundary_reached=1
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: killed database reopens through real pipeline
+ok: in-memory reconciliation obligation does not survive restart
+ok: restart full rescan observes surviving root
+ok: reconstructed pass converges after restart
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: real crash child launches
+ok: child reaches exact named crash boundary
+ok: parent kills child (not graceful ExitProcess rollback)
+ok: killed child exits within bound
+CRASH phase=5 expected_entries=1 boundary_reached=1
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: killed database reopens through real pipeline
+ok: in-memory reconciliation obligation does not survive restart
+ok: restart full rescan observes surviving root
+ok: reconstructed pass converges after restart
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+OWNED_FIXTURE_CLEANED=1 failures=5

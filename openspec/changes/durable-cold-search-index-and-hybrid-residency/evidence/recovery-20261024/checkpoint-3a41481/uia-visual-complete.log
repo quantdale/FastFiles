@@ -1,0 +1,75 @@
+Starting UIA long-run certification: scenario='visual-matrix', iterations=25, preset=debug-diagnostic
+Git: head=3a41481a78df16b44928469f932d75427fd72a9c, tree=98bcd6ede7f2af91117fd6cb80730db9df44efba, exactTreeBound=True
+Executable: build/debug-diagnostic/src/ui/FastFiles.exe (hash: 0f582f246699eaa73a5f51b161c74d495b16297f26b4789c697613c811f8e15f)
+  Iteration 1/25 PASS: 14/14 checks (27657.79ms)
+  Iteration 2/25 PASS: 14/14 checks (27954.71ms)
+  Iteration 3/25 PASS: 14/14 checks (27448.77ms)
+  Iteration 4/25 PASS: 14/14 checks (27641.97ms)
+  Iteration 5/25 PASS: 14/14 checks (27447.61ms)
+  Iteration 6/25 PASS: 14/14 checks (27474.63ms)
+  Iteration 7/25 PASS: 14/14 checks (27505.2ms)
+  Iteration 8/25 PASS: 14/14 checks (27451.77ms)
+  Iteration 9/25 PASS: 14/14 checks (27346.07ms)
+  Iteration 10/25 PASS: 14/14 checks (27678.85ms)
+  Iteration 11/25 PASS: 14/14 checks (28060.49ms)
+  Iteration 12/25 PASS: 14/14 checks (27446.67ms)
+  Iteration 13/25 PASS: 14/14 checks (27534.65ms)
+  Iteration 14/25 PASS: 14/14 checks (27855.86ms)
+  Iteration 15/25 PASS: 14/14 checks (27685.3ms)
+  Iteration 16/25 PASS: 14/14 checks (27651.79ms)
+  Iteration 17/25 PASS: 14/14 checks (27634.44ms)
+  Iteration 18/25 PASS: 14/14 checks (27077.62ms)
+  Iteration 19/25 PASS: 14/14 checks (27431.54ms)
+  Iteration 20/25 PASS: 14/14 checks (27520.61ms)
+  Iteration 21/25 PASS: 14/14 checks (27512.55ms)
+  Iteration 22/25 PASS: 14/14 checks (27479.34ms)
+  Iteration 23/25 PASS: 14/14 checks (27591.72ms)
+  Iteration 24/25 PASS: 14/14 checks (27931.17ms)
+  Iteration 25/25 PASS: 14/14 checks (27697.15ms)
+UIA long-run completed: 25/25 passed. Disposition: PASS
+Timing: min=27077.62ms, median=27534.65ms, p95=27931.17ms, max=28060.49ms
+Artifact written: build/campaign/recovery-20261024/uia-visual-complete.json (SHA-256: ff3ce2feefd3c50218863c2ad6c417bca0ef7f6305b672b228035b6f760b5fab)
+
+[32;1mschemaVersion          : [0m1
+[32;1mtestId                 : [0mffuia_visual-matrix
+[32;1mcategory               : [0muia
+[32;1mcommand                : [0mbuild/debug-diagnostic/src/ui/FastFiles.exe
+[32;1mcommit                 : [0m3a41481a78df16b44928469f932d75427fd72a9c
+[32;1mtree                   : [0m98bcd6ede7f2af91117fd6cb80730db9df44efba
+[32;1mexactTreeBound         : [0mTrue
+[32;1mexecutableHash         : [0m0f582f246699eaa73a5f51b161c74d495b16297f26b4789c697613c811f8e15f
+[32;1menvironment            : [0m{[os, Microsoft Windows NT 10.0.26200.0], [architecture, AMD64], [computer, <local-host>], 
+                         [powershell, 7.6.5]}
+[32;1mstartUtc               : [0m2026-10-24T11:32:41.0363355Z
+[32;1mendUtc                 : [0m2026-10-24T11:44:10.7952422Z
+[32;1mrequestedIterations    : [0m25
+[32;1mcompletedIterations    : [0m25
+[32;1mpassed                 : [0m25
+[32;1mfailed                 : [0m0
+[32;1mtimedOut               : [0m0
+[32;1mskipped                : [0m0
+[32;1mtotalIterations        : [0m25
+[32;1miterationLedger        : [0m{@{iteration=1; pass=True; assertions=14; failedAssertions=0; durationMs=27657.79; 
+                         failedCheck=; phases=}, @{iteration=2; pass=True; assertions=14; failedAssertions=0; 
+                         durationMs=27954.71; failedCheck=; phases=}, @{iteration=3; pass=True; assertions=14; 
+                         failedAssertions=0; durationMs=27448.77; failedCheck=; phases=}, @{iteration=4; pass=True; 
+                         assertions=14; failedAssertions=0; durationMs=27641.97; failedCheck=; phases=}.}
+[32;1mphaseDurations         : [0m{}
+[32;1massertionCounts        : [0m{[total, 350], [failed, 0]}
+[32;1msemanticPostconditions : [0m@{scopeWarmupSub=True; scopeWarmupBack=True; windowWidthPx=1024; pane0WidthDetailsOpenPx=508; 
+                         pane0WidthDetailsClosedPx=788; fullcardSkipped=window 1024px < 1600px; rail regime 
+                         delta=280px recorded, magnitude not asserted; storageBlocked=; 
+                         topLevelPercents={"fileA.bin":10.0,"fileB.bin":20.0,"fileC.bin":30.0,"Sub":40.0}; 
+                         topLevelSum=100; drilledPercent=100}
+[32;1mdisplayMatrix          : [0m{@{requested=; observed=; realized=True; unrealizedFields=System.Object[]}}
+[32;1munrealizedDimensions   : [0m{}
+[32;1mcapabilities           : [0m{uia-core-smoke, uia-keyboard-navigation, dual-pane, details-pane.}
+[32;1mcleanup                : [0m{[pass, True], [status, PASS], [method, none-required], [residue, System.Object[]].}
+[32;1mminDurationMs          : [0m27077.62
+[32;1mmedianDurationMs       : [0m27534.65
+[32;1mp95DurationMs          : [0m27931.17
+[32;1mmaxDurationMs          : [0m28060.49
+[32;1mfirstFailure           : [0m
+[32;1martifactHashes         : [0m{[uia-visual-complete.md, c9910c9b44af6c57ee5044e2a323d86172c71a62f87c0dc448166832728ce3f1]}
+[32;1mdisposition            : [0mPASS
+

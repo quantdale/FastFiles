@@ -1,0 +1,18 @@
+PASS: no TEMP-DEBUG or DEBUG_STALL markers in 238 production source files
+PASS: top-level CMake rejects the diagnostic escape hatch before release-pin evaluation
+PASS: CMake has an explicit shipped-build diagnostic escape-hatch rejection
+PASS: the escape hatch is limited to Debug and excluded from release-test builds
+PASS: the production setup seam is the only shipped target carrying the diagnostic definition
+PASS: the only additional definition is explicitly scoped to the disposable Debug discovery test
+PASS: no unrelated application target receives the diagnostic definition
+PASS: release preset does not enable the diagnostic escape hatch
+PASS: release-test preset does not enable the diagnostic escape hatch
+PASS: hosted CI invokes the diagnostic policy source gate
+INFO: release cache is absent; CMake source guard remains the enforcement evidence.
+PASS: release-test cache does not enable the diagnostic escape hatch
+Failures: 0
+PASS: README.md/AGENTS.md/CLAUDE.md/CODE_INDEX.md contain no superseded claims
+PASS: no mixed line endings in 365 .cpp/.h files under src/ or tests/
+PASS: tracked documentation prose names no excluded vendor-specific VM technology
+PASS: semantic truth contracts over current-facing guidance
+PASS: doc-drift, line-ending, and truth checks

@@ -2,6 +2,7 @@
 #include <atomic>
 #include <windows.h>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <map>
 
@@ -48,6 +49,8 @@ private:
 
     void Render();
     void EnsureColumnVisible(int columnIndex, float viewportWidth);
+    void EnsurePaneColumnVisible(int pane, int columnIndex, float viewportWidth);
+    void ReconcileBrowseInteraction(bool revealFocusedColumn);
     void RequestRepaint();
     void ApplyTheme();
     void MarkDeviceDirty();
@@ -68,7 +71,9 @@ private:
     std::wstring FileTypeFor(const std::wstring& path) const;
     bool InitializeCommands();
     CommandContext CurrentCommandContext() const;
+    std::vector<SelectionItem> CurrentCommandSelection() const;
     bool InvokeCommand(const std::wstring& commandId);
+    void CancelFileOperations();
     bool DispatchShortcut(const MSG& message, ShortcutScope scope, bool nativeEditFocused);
     bool QueueTransfer(const std::vector<std::wstring>& paths, const std::wstring& destination, FileOperationKind kind);
     void BeginInlineRename(const std::wstring& path);
@@ -78,8 +83,10 @@ private:
     void NavigateColumnViewTo(const std::wstring& path);
     // quick-access-home 5.4: the single Home-aware navigation entry. Keeps the
     // model, the per-pane ColumnView Home kind, and the Home data snapshot in
-    // lockstep for both Home and filesystem destinations.
-    void NavigateToLocation(const NavigationLocation& location);
+    // lockstep for both Home and filesystem destinations. A filesystem caller
+    // may supply its reconstructed hierarchy; the callback runs synchronously.
+    void NavigateToLocation(const NavigationLocation& location,
+                            const std::function<void()>& populateFileSystem = {});
     // quick-access-home 5.5: rebuild the Home snapshot from live workspace /
     // search state and push it into ColumnView (no polling).
     void RefreshHomeData();
@@ -92,7 +99,9 @@ private:
     float NavigationViewportWidth() const;
     ffui::MainShellLayout CurrentShellLayout() const;
 
-    HWND hwnd_ = nullptr;
+    // Workers publish completion while WM_DESTROY retires the shell. Atomic
+    // publication removes the C++ data race; it does not extend HWND lifetime.
+    std::atomic<HWND> hwnd_{nullptr};
     bool uiaReady_ = false;
     Renderer renderer_;
     // Owns the bounded type-icon cache; the column view resolves icons through
@@ -115,6 +124,9 @@ private:
     CommandRegistry commandRegistry_;
     ShortcutMap shortcuts_;
     CommandPalette commandPalette_;
+    std::vector<std::wstring> paletteTargets_;
+    bool paletteStorage_ = false;
+    bool paletteSearch_ = false;
     SearchPanel searchPanel_;
     StorageAnalysis storageAnalysis_;
     SettingsDialog settingsDialog_;
@@ -152,8 +164,8 @@ private:
     PreviewController previewController_;
     mutable std::mutex fileTypeMutex_;
     std::map<std::wstring, std::wstring> fileTypes_;
-    // shared_future destruction never blocks, so bounding this list cannot
-    // stall shutdown on stragglers stuck behind dead network paths.
+    // original-vision-journey-recovery 4.8: retain unfinished async states;
+    // final destruction joins before fileTypes_ and fileTypeMutex_ die.
     std::vector<std::shared_future<void>> fileTypeWork_;
     // Details-pane metadata is fetched once per selection change (not per
     // paint frame); a failed fetch renders "—" rather than epoch-zero times.
@@ -167,6 +179,9 @@ private:
     // pane carries a real hierarchy (title > values > labels/path).
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsSecondaryBrush_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTextFormat_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> statusLineLayout_;
+    std::wstring statusLineText_;
+    float statusLineWidth_ = 0.0f;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTitleFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> previewTextFormat_;
     // ui-v3 details: caption format + shared brush cache for the deliberate

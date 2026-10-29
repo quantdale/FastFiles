@@ -1,0 +1,349 @@
+{
+  "cases": [],
+  "cleanup": {
+    "Pass": true,
+    "OwnedPids": [
+      121204,
+      72008
+    ],
+    "Residue": [],
+    "PipePresentBefore": false,
+    "PipePresentAfter": false,
+    "PipeCleanup": {
+      "Pass": true,
+      "State": "absent"
+    },
+    "DiagnosticsPreserved": true,
+    "DiagnosticsCopyError": null,
+    "SessionRootRetained": false
+  },
+  "filter": "cancellation",
+  "scope": "Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks",
+  "copySamples": [
+    {
+      "title": "FastFiles — operation queued",
+      "copied": 0,
+      "elapsedMs": 59
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 95
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 125
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 157
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 188
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 220
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 252
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 284
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 315
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 348
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 380
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 411
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 442
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 474
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 506
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 538
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 569
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 600
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 631
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 663
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 694
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 726
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 757
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 789
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 822
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 853
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 883
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 915
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 946
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 977
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1009
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1040
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1072
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1102
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1135
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1166
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1197
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1229
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1259
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1290
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1321
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1353
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1384
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1416
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1448
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1479
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1509
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1542
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1573
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1605
+    },
+    {
+      "title": "FastFiles — operation in progress",
+      "copied": 0,
+      "elapsedMs": 1637
+    },
+    {
+      "title": "FastFiles — 0% — speed/ETA estimating…",
+      "copied": 0,
+      "elapsedMs": 1670
+    },
+    {
+      "title": "FastFiles — 0% — speed/ETA estimating…",
+      "copied": 2,
+      "elapsedMs": 1701
+    }
+  ],
+  "cancelInput": {
+    "focusedElement": {
+      "Name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-6f39bd77e5c344d19d2c1d93c9bc008f\\Fixtures\\FastFilesE2E\\BulkTarget",
+      "AutomationId": "Pane.0.Column.9",
+      "ControlType": "List",
+      "ClassName": "",
+      "ProcessId": 121204
+    },
+    "route": "Palette",
+    "activationReturned": true,
+    "terminalMs": null,
+    "beforeTitle": "FastFiles — C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-6f39bd77e5c344d19d2c1d93c9bc008f\\Fixtures\\FastFilesE2E\\BulkSource\\item-00060.bin — 11% — speed/ETA estimating…",
+    "result": {
+      "Pass": false,
+      "Detail": "palette 'Cancel File Operations' did not close after one Enter; commandId='file.cancel-operations'; state={\"editPresent\":true,\"editHasKeyboardFocus\":false,\"editTextPresent\":true,\"listPresent\":true,\"listEnabled\":false,\"listNativeHandle\":21894184,\"listVisible\":true,\"listItems\":[\"Cancel File Operations\"],\"selectedIndex\":0,\"selectedName\":\"Cancel File Operations\",\"expectedMatches\":[\"Cancel File Operations\"],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":2102630,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"<foreign>\",\"focusedAutomationId\":\"2\",\"focusedControlType\":\"Button\",\"focusedProcessId\":121204,\"popupClasses\":[\"#32770\"]}}",
+      "CommandState": {
+        "editPresent": true,
+        "editHasKeyboardFocus": true,
+        "editTextPresent": true,
+        "listPresent": true,
+        "listEnabled": true,
+        "listNativeHandle": 21894184,
+        "listVisible": true,
+        "listItems": [
+          "Cancel File Operations"
+        ],
+        "selectedIndex": 0,
+        "selectedName": "Cancel File Operations",
+        "expectedMatches": [
+          "Cancel File Operations"
+        ],
+        "expectedNameLikeMatches": [],
+        "interactive": {
+          "foregroundHwnd": 14352998,
+          "foregroundEvidenceAvailable": true,
+          "foregroundTitle": "FastFiles",
+          "focusedAutomationId": "6301",
+          "focusedControlType": "Edit",
+          "focusedProcessId": 121204,
+          "popupClasses": []
+        }
+      }
+    },
+    "beforeUtc": "2026-10-26T17:08:52.3354162Z",
+    "afterInputMs": 10350,
+    "foreground": true
+  },
+  "copyObservation": {
+    "polls": 53,
+    "last": {
+      "title": "FastFiles — 0% — speed/ETA estimating…",
+      "copied": 2,
+      "elapsedMs": 1701
+    }
+  },
+  "cancellationRoute": "Palette",
+  "idleCancelInput": null,
+  "captures": [],
+  "terminalObservations": [],
+  "failure": "in-flight-copy-cancel-input: Palette cancellation failed: {\"Pass\":false,\"Detail\":\"palette 'Cancel File Operations' did not close after one Enter; commandId='file.cancel-operations'; state={\\\"editPresent\\\":true,\\\"editHasKeyboardFocus\\\":false,\\\"editTextPresent\\\":true,\\\"listPresent\\\":true,\\\"listEnabled\\\":false,\\\"listNativeHandle\\\":21894184,\\\"listVisible\\\":true,\\\"listItems\\\":[\\\"Cancel File Operations\\\"],\\\"selectedIndex\\\":0,\\\"selectedName\\\":\\\"Cancel File Operations\\\",\\\"expectedMatches\\\":[\\\"Cancel File Operations\\\"],\\\"expectedNameLikeMatches\\\":[],\\\"interactive\\\":{\\\"foregroundHwnd\\\":2102630,\\\"foregroundEvidenceAvailable\\\":true,\\\"foregroundTitle\\\":\\\"<foreign>\\\",\\\"focusedAutomationId\\\":\\\"2\\\",\\\"focusedControlType\\\":\\\"Button\\\",\\\"focusedProcessId\\\":121204,\\\"popupClasses\\\":[\\\"#32770\\\"]}}\",\"CommandState\":{\"editPresent\":true,\"editHasKeyboardFocus\":true,\"editTextPresent\":true,\"listPresent\":true,\"listEnabled\":true,\"listNativeHandle\":21894184,\"listVisible\":true,\"listItems\":[\"Cancel File Operations\"],\"selectedIndex\":0,\"selectedName\":\"Cancel File Operations\",\"expectedMatches\":[\"Cancel File Operations\"],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":14352998,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"6301\",\"focusedControlType\":\"Edit\",\"focusedProcessId\":121204,\"popupClasses\":[]}}}"
+}

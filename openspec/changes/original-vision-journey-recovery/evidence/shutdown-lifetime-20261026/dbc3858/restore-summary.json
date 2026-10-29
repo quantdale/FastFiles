@@ -1,0 +1,77 @@
+{
+  "status": "PASS",
+  "filter": "restore",
+  "executable": "D:\\Documents\\tryPython\\FastFiles-worktrees\\shutdown-lifetime-20261026\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+  "artifactsDir": "D:\\Documents\\tryPython\\FastFiles-worktrees\\shutdown-lifetime-20261026\\build\\shutdown-lifetime-20261026\\restore-dbc3858",
+  "passed": 1,
+  "failed": 0,
+  "skipped": 0,
+  "results": [
+    {
+      "id": "cold-restore",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "Nested directory and typed Home restored and all three app lifecycles closed normally in the same isolated state directory",
+      "durationMs": 13071.2,
+      "data": {
+        "main": {
+          "Name": "FastFiles",
+          "AutomationId": "MainWindow",
+          "ControlType": "Window",
+          "ClassName": "FastFilesMainWindow",
+          "ProcessId": 116580
+        },
+        "mainHelpText": "Preview: No selection",
+        "tabLabels": [
+          "1: Home"
+        ],
+        "pane": {
+          "Name": "Pane 1",
+          "AutomationId": "Pane.0",
+          "ControlType": "Pane",
+          "ClassName": "",
+          "ProcessId": 116580
+        },
+        "visibleColumns": [],
+        "processId": 116580,
+        "sessionRoot": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-restore-first-f65febe915f74a41b1e3d44c924dbe8f-0273d9ed3127422d9793df001ca59cfe",
+        "closeObservations": [
+          {
+            "processId": 125196,
+            "uiaCloseReturned": true,
+            "uiaError": "",
+            "fallbackAttempted": false,
+            "fallbackKeys": "",
+            "fallbackInput": [],
+            "fallbackError": "",
+            "deadlineMs": 10000,
+            "exitObserved": true
+          },
+          {
+            "processId": 122268,
+            "uiaCloseReturned": true,
+            "uiaError": "",
+            "fallbackAttempted": false,
+            "fallbackKeys": "",
+            "fallbackInput": [],
+            "fallbackError": "",
+            "deadlineMs": 10000,
+            "exitObserved": true
+          },
+          {
+            "processId": 116580,
+            "uiaCloseReturned": true,
+            "uiaError": "",
+            "fallbackAttempted": false,
+            "fallbackKeys": "",
+            "fallbackInput": [],
+            "fallbackError": "",
+            "deadlineMs": 10000,
+            "exitObserved": true
+          }
+        ]
+      },
+      "artifactDir": ""
+    }
+  ]
+}

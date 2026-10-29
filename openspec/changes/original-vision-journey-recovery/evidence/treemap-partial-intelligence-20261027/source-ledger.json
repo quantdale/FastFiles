@@ -1,0 +1,31 @@
+{
+  "base": "26cc17f5f063b4479cb847fe5c0aaed11e14ee03",
+  "scope": "Worker pure/headless implementation only; UI/native uncompiled/unverified; root owns source publication and actual UI qualification",
+  "evidence": [
+    {
+      "path": "red-build.log.gz",
+      "rawSha256": "5740bb1e3c5dcbb67ea580b2c9dcc151361b2c84adf236a1a190b0dd18e70b85",
+      "compressedSha256": "9022c5b0a75c62bfb95e07bfe5a44a7aa8fbb1ecb725558a0ec77b3079af51c5"
+    },
+    {
+      "path": "red-test.log.gz",
+      "rawSha256": "330415c71f1f0ba44b76863213d9900756ed3581c01941ed3280bcd835545ca9",
+      "compressedSha256": "2ec26c88cb969722446c54e3deccd7a0e7977f62f94ed41d9549b3f73abc44f8"
+    },
+    {
+      "path": "acceptance-pure.log.gz",
+      "rawSha256": "601f9a477be15c35557139100c02f7dc378dcc662bbf84e69d816cdc13b57013",
+      "compressedSha256": "f4e92f5ea78cd2fdc56b9ef192407e29c1dfb3c7f13e5a788c4095bb281fe7b8"
+    },
+    {
+      "path": "final-doc-drift.log.gz",
+      "rawSha256": "95a03809eaa9a71c259232af5267760bd7e3a67a8037c9195f359ff5dca99f99",
+      "compressedSha256": "391a665f9459b13e28c4732f591a1fa46ecb32f68270635b5e2c79e419af7d65"
+    },
+    {
+      "path": "openspec.log.gz",
+      "rawSha256": "655e2cdc5d107469ef6697794577dd86ef42d7bd67f4fea228d395a6223983e2",
+      "compressedSha256": "4dac33c2b0d48202b8dfca0ffb54f4365c08fc7639b47ca07e1de957ee6ad0ca"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "path": "debug-build.log.gz",
+    "uncompressedSha256": "d636a2c704ff3344166dab8efb4370b8f1d9c7e74d998cc58c71a9ef3d60fa26",
+    "compressedSha256": "405c6f792f0c383504bdb2067979df36f5b8610e701d666d3ce02eb4afbfffca",
+    "uncompressedBytes": 45402
+  },
+  {
+    "path": "debug-selected.log.gz",
+    "uncompressedSha256": "c6a6778fb81cffd1af6167b47c0ffff595be270e7ef0d19783bbf392be750376",
+    "compressedSha256": "835956ccf4e8c385e51f3aec2ef9eababaf132a4c13f3abbe0d5f387404f9000",
+    "uncompressedBytes": 18043
+  },
+  {
+    "path": "release-test-build.log.gz",
+    "uncompressedSha256": "f2cfcc2dde85b22080ba6776100ccb7f8ee83fb520bdf29aef8699985bab6c82",
+    "compressedSha256": "e1710b5a15327d2523760bd11556af1114cc7cf60912aced00cbad8667d86f5b",
+    "uncompressedBytes": 46982
+  },
+  {
+    "path": "release-test-selected.log.gz",
+    "uncompressedSha256": "17e7aa53790cdac45a7522810dff2e5b40112ede314ffd64c0c2e3ea16b42313",
+    "compressedSha256": "a1008c618e81f908be6c9d1fdb96ea003b242e79d418e7f82fcb6fbc86a78590",
+    "uncompressedBytes": 18050
+  },
+  {
+    "path": "analyze-ui.log.gz",
+    "uncompressedSha256": "b1c6f6854f7bf13a65aec18b5f006ebaecc6232a036319967be7ab14d092f06e",
+    "compressedSha256": "607e096e021fd613344cb2a226c8b7a7162c91c18a41c7ca753e7af212abed9b",
+    "uncompressedBytes": 6663
+  }
+]

@@ -1,0 +1,873 @@
+{
+  "implementation": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+  "profiles": {
+    "debug": {
+      "source": {
+        "headSha": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+        "treeSha": "5ad64a175a7c581228a4d70539a9240f39e8fd3d",
+        "treeSemantic": "HEAD^{tree}",
+        "sourceClean": true,
+        "stateDigest": "46155577ab418e7cab6583dcfd00937d30e0ae1b0117e2f0c50ac9a5d0eb484f",
+        "reasonCodes": []
+      },
+      "setIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+      "setConsistent": true,
+      "boundToHead": true,
+      "boundToTree": false,
+      "treeBindingStatus": "NOT_EMBEDDED",
+      "checkResult": {
+        "status": "PASS",
+        "issueCodes": [],
+        "reason": null
+      },
+      "binaries": [
+        {
+          "filename": "FastFiles.exe",
+          "sha256": "a24156c4f10b96789d842316983fe23848dcf2b7d35b1406cb17da049046ac6c",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "Debug",
+          "issues": []
+        },
+        {
+          "filename": "FastFilesEngine.exe",
+          "sha256": "9ad0d68e6d71b9f51e57da6636546f885f0481749290f11fe478ea976be7b9f7",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "Debug",
+          "issues": []
+        },
+        {
+          "filename": "FastFilesIndexSvc.exe",
+          "sha256": "7fd43cee4e4e8a4dbf0458e76fad0157551372bd944117ea966ec461cdfed7f5",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "Debug",
+          "issues": []
+        },
+        {
+          "filename": "FastFilesSetup.exe",
+          "sha256": "1ad901e42ef7d9f35e4e6f442a1db9328c8029dcd6a96bf006cec78344a2ef5f",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "Debug",
+          "issues": []
+        },
+        {
+          "filename": "fftest.exe",
+          "sha256": "d07eef376752c4ab0e4b62c2e562aa15316b0c1ec244d1793c316c26e8754fa8",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "Debug",
+          "issues": []
+        }
+      ],
+      "selectedTestsPassed": 131,
+      "durationSeconds": 262.73,
+      "excludedTests": [
+        "ffverify_process_reaper_ps_tests"
+      ],
+      "logSha256": "74bcc062090549b34ded6e9885d6b113acf902e4b4f4ef19c92f27ab7e85bdbd"
+    },
+    "release-test": {
+      "source": {
+        "headSha": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+        "treeSha": "5ad64a175a7c581228a4d70539a9240f39e8fd3d",
+        "treeSemantic": "HEAD^{tree}",
+        "sourceClean": true,
+        "stateDigest": "46155577ab418e7cab6583dcfd00937d30e0ae1b0117e2f0c50ac9a5d0eb484f",
+        "reasonCodes": []
+      },
+      "setIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+      "setConsistent": true,
+      "boundToHead": true,
+      "boundToTree": false,
+      "treeBindingStatus": "NOT_EMBEDDED",
+      "checkResult": {
+        "status": "PASS",
+        "issueCodes": [],
+        "reason": null
+      },
+      "binaries": [
+        {
+          "filename": "FastFiles.exe",
+          "sha256": "e92aa9230534f0765102f2cc8ba25ce023ac664234e5e99088d145c504a8c82d",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "RelWithDebInfo",
+          "issues": []
+        },
+        {
+          "filename": "FastFilesEngine.exe",
+          "sha256": "69926b7d8fdbfe50014262490eadfd703f9a571473ce6547328e0f1819dba705",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "RelWithDebInfo",
+          "issues": []
+        },
+        {
+          "filename": "FastFilesIndexSvc.exe",
+          "sha256": "ed103ae1eb5b40f7e5e82fa7e8975f095988a00c6ba85122b0ac3a3ccced1983",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "RelWithDebInfo",
+          "issues": []
+        },
+        {
+          "filename": "FastFilesSetup.exe",
+          "sha256": "3d2fe352f2b85c3e0937226b29abfba9a61dfb58f2a750674c25a86748a5a03f",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "RelWithDebInfo",
+          "issues": []
+        },
+        {
+          "filename": "fftest.exe",
+          "sha256": "c44f267ddb468d4212c80461cfba2113bbabff63d4e8172eb3eaca9067748a4a",
+          "buildIdentity": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+          "worktreeState": "clean",
+          "configuration": "RelWithDebInfo",
+          "issues": []
+        }
+      ],
+      "selectedTestsPassed": 131,
+      "durationSeconds": 212.88,
+      "excludedTests": [
+        "ffverify_process_reaper_ps_tests"
+      ],
+      "logSha256": "632f0dcb17e2de2a90f7426241b1c4d9afb0c64698bd7eeaa8d0a844c2dd5090"
+    }
+  },
+  "e2e": {
+    "status": "PASS",
+    "passed": 8,
+    "failed": 0,
+    "skipped": 0
+  },
+  "focus": [
+    {
+      "status": "PASS",
+      "mode": "normal",
+      "observations": [
+        {
+          "row": "830,370,301,48",
+          "pane": "444,288,686,503",
+          "hasKeyboardFocus": true,
+          "offscreen": false
+        }
+      ],
+      "screenshot": {
+        "Path": "focus-normal-a3e20ab.png",
+        "Hash": "dd963baf7872f0d45ba7507bb0b6cf3011023f79a198da838e7bc60f162c6a2b",
+        "Bounds": {
+          "Hwnd": {
+            "value": 24970216
+          },
+          "X": 168,
+          "Y": 160,
+          "Width": 1008,
+          "Height": 632,
+          "Dpi": 120,
+          "Source": "DwmExtendedFrameBounds"
+        },
+        "DuplicateOf": null,
+        "DuplicateReason": "",
+        "PrivacyRedactions": []
+      },
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          113584,
+          115508
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": null,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      },
+      "detail": "Original row focus and physical visibility passed; screenshot requires actual visual review."
+    },
+    {
+      "status": "PASS",
+      "mode": "narrow-dual",
+      "observations": [
+        {
+          "row": "325,242,301,48",
+          "pane": "324,160,141,643",
+          "hasKeyboardFocus": true,
+          "offscreen": false
+        },
+        {
+          "row": "465,242,301,48",
+          "pane": "465,160,141,643",
+          "hasKeyboardFocus": false,
+          "offscreen": false
+        },
+        {
+          "row": "324,242,300,48",
+          "pane": "324,160,141,643",
+          "hasKeyboardFocus": true,
+          "offscreen": false
+        }
+      ],
+      "screenshot": {
+        "Path": "focus-narrow-dual-a3e20ab.png",
+        "Hash": "c651151989960aa2d9a2bae718d927311eae1889c903727c51c761ad05bde580",
+        "Bounds": {
+          "Hwnd": {
+            "value": 15076952
+          },
+          "X": 48,
+          "Y": 32,
+          "Width": 604,
+          "Height": 772,
+          "Dpi": 120,
+          "Source": "DwmExtendedFrameBounds"
+        },
+        "DuplicateOf": null,
+        "DuplicateReason": "",
+        "PrivacyRedactions": []
+      },
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          77684,
+          60480
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": null,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      },
+      "detail": "Original row focus, physical visibility and inactive-pane preservation passed; screenshot requires actual visual review."
+    }
+  ],
+  "catalog": {
+    "source": "a3e20abb2cf5f97247ae632751743ce518ace69c",
+    "captures": [
+      {
+        "scenarioId": "home-default",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "c2c3f4549c38417036c9aba25f3f403e87ebcc74507aa3e391a18c8ef9e80dfb",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Command": {
+              "Pass": true,
+              "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1792957885,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":76452,\\\"tid\\\":65500,\\\"epochMs\\\":1792957885663}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":987082,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":76452,\"popupClasses\":[]}",
+              "CommandState": {
+                "editPresent": true,
+                "editHasKeyboardFocus": true,
+                "editTextPresent": true,
+                "listPresent": true,
+                "listEnabled": true,
+                "listNativeHandle": 1116630,
+                "listVisible": true,
+                "listItems": [
+                  "Home",
+                  "Open Command Palette"
+                ],
+                "selectedIndex": 0,
+                "selectedName": "Home",
+                "expectedMatches": [
+                  "Home"
+                ],
+                "expectedNameLikeMatches": [],
+                "interactive": {
+                  "foregroundHwnd": 987082,
+                  "foregroundEvidenceAvailable": true,
+                  "foregroundTitle": "FastFiles",
+                  "focusedAutomationId": "6301",
+                  "focusedControlType": "Pane",
+                  "focusedProcessId": 76452,
+                  "popupClasses": []
+                }
+              },
+              "PaletteClosed": true,
+              "DispatchEvidence": {
+                "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+                "message": "command=navigation.home",
+                "state": "{\"timestamp\":1792957885,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":76452,\"tid\":65500,\"epochMs\":1792957885663}",
+                "outcome": "accepted"
+              }
+            },
+            "Surface": {
+              "Pass": true,
+              "Found": [
+                "1: Home",
+                "Pane.0.Home"
+              ],
+              "Missing": []
+            }
+          }
+        }
+      },
+      {
+        "scenarioId": "browse-column-view",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "34f529adaca98d00090f11b8812d3d6000da93d0c190cd9353ab836d315de0fa",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "tab label reflects 'CatalogBrowse' (used SendInput-fallback)"
+          }
+        }
+      },
+      {
+        "scenarioId": "browse-keyboard-focus",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "aacde33d34d294e686e31a49f7aea77166fdfcc487c2148d5dcd25d581ef9765",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "keyboard focus moved to row 'EmptyFolder' (selected) via DOWN",
+            "Before": [],
+            "After": [
+              "EmptyFolder"
+            ]
+          }
+        }
+      },
+      {
+        "scenarioId": "browse-empty-state",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "e0d1beb95c95004b2d8d5f4f8750f5904baafa49ef68a3eca7ed74a47452cd44",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "tab label reflects 'EmptyFolder' (used SendInput-fallback)"
+          }
+        }
+      },
+      {
+        "scenarioId": "home-wide",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1600,
+        "observedDpi": 120,
+        "imageHash": "768e5209d542a1ad0b37bc77823c5b96c2c18e388b55b0d60367daf5c12be5b9",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Command": {
+              "Pass": true,
+              "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1792957901,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":76452,\\\"tid\\\":65500,\\\"epochMs\\\":1792957901956}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":987082,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":76452,\"popupClasses\":[]}",
+              "CommandState": {
+                "editPresent": true,
+                "editHasKeyboardFocus": true,
+                "editTextPresent": true,
+                "listPresent": true,
+                "listEnabled": true,
+                "listNativeHandle": 1116630,
+                "listVisible": true,
+                "listItems": [
+                  "Home",
+                  "Open Command Palette"
+                ],
+                "selectedIndex": 0,
+                "selectedName": "Home",
+                "expectedMatches": [
+                  "Home"
+                ],
+                "expectedNameLikeMatches": [],
+                "interactive": {
+                  "foregroundHwnd": 987082,
+                  "foregroundEvidenceAvailable": true,
+                  "foregroundTitle": "FastFiles",
+                  "focusedAutomationId": "6301",
+                  "focusedControlType": "Pane",
+                  "focusedProcessId": 76452,
+                  "popupClasses": []
+                }
+              },
+              "PaletteClosed": true,
+              "DispatchEvidence": {
+                "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+                "message": "command=navigation.home",
+                "state": "{\"timestamp\":1792957901,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":76452,\"tid\":65500,\"epochMs\":1792957901956}",
+                "outcome": "accepted"
+              }
+            },
+            "Surface": {
+              "Pass": true,
+              "Found": [
+                "1: Home",
+                "Pane.0.Home"
+              ],
+              "Missing": []
+            }
+          }
+        }
+      },
+      {
+        "scenarioId": "details-closed",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "d03e9a4f0ee725576669d2a4906421df4da5601d6599b713350fe88ec153d132",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Navigation": {
+              "Pass": true,
+              "Detail": "tab label reflects 'CatalogBrowse' (used SendInput-fallback)"
+            },
+            "Command": {
+              "Pass": true,
+              "Detail": "palette 'details' activated commandId='view.toggle-details-pane'; selected='Toggle Details Pane'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=view.toggle-details-pane\",\"state\":\"{\\\"timestamp\\\":1792957907,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=view.toggle-details-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=view.toggle-details-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":76452,\\\"tid\\\":65500,\\\"epochMs\\\":1792957907827}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":987082,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"Pane.0.Column.8\",\"focusedControlType\":\"List\",\"focusedProcessId\":76452,\"popupClasses\":[]}",
+              "CommandState": {
+                "editPresent": true,
+                "editHasKeyboardFocus": true,
+                "editTextPresent": true,
+                "listPresent": true,
+                "listEnabled": true,
+                "listNativeHandle": 1116630,
+                "listVisible": true,
+                "listItems": [
+                  "Toggle Details Pane"
+                ],
+                "selectedIndex": 0,
+                "selectedName": "Toggle Details Pane",
+                "expectedMatches": [
+                  "Toggle Details Pane"
+                ],
+                "expectedNameLikeMatches": [],
+                "interactive": {
+                  "foregroundHwnd": 987082,
+                  "foregroundEvidenceAvailable": true,
+                  "foregroundTitle": "FastFiles",
+                  "focusedAutomationId": "6301",
+                  "focusedControlType": "Pane",
+                  "focusedProcessId": 76452,
+                  "popupClasses": []
+                }
+              },
+              "PaletteClosed": true,
+              "DispatchEvidence": {
+                "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+                "message": "command=view.toggle-details-pane",
+                "state": "{\"timestamp\":1792957907,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=view.toggle-details-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=view.toggle-details-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":76452,\"tid\":65500,\"epochMs\":1792957907827}",
+                "outcome": "accepted"
+              }
+            }
+          }
+        }
+      },
+      {
+        "scenarioId": "dual-pane",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "3884ad8900134238f083a0dae7245efe42826eca76f82503a06f89116953ebc0",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Command": {
+              "Pass": true,
+              "Detail": "palette 'dual pane' activated commandId='navigation.toggle-dual-pane'; selected='Toggle Dual Pane'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.toggle-dual-pane\",\"state\":\"{\\\"timestamp\\\":1792957912,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.toggle-dual-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=2;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=true\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.toggle-dual-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=2;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=true\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":76452,\\\"tid\\\":65500,\\\"epochMs\\\":1792957912921}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":987082,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"Pane.0.Column.8\",\"focusedControlType\":\"List\",\"focusedProcessId\":76452,\"popupClasses\":[]}",
+              "CommandState": {
+                "editPresent": true,
+                "editHasKeyboardFocus": true,
+                "editTextPresent": true,
+                "listPresent": true,
+                "listEnabled": true,
+                "listNativeHandle": 1116630,
+                "listVisible": true,
+                "listItems": [
+                  "Toggle Dual Pane",
+                  "Toggle Details Pane"
+                ],
+                "selectedIndex": 0,
+                "selectedName": "Toggle Dual Pane",
+                "expectedMatches": [
+                  "Toggle Dual Pane"
+                ],
+                "expectedNameLikeMatches": [],
+                "interactive": {
+                  "foregroundHwnd": 987082,
+                  "foregroundEvidenceAvailable": true,
+                  "foregroundTitle": "FastFiles",
+                  "focusedAutomationId": "6301",
+                  "focusedControlType": "Pane",
+                  "focusedProcessId": 76452,
+                  "popupClasses": []
+                }
+              },
+              "PaletteClosed": true,
+              "DispatchEvidence": {
+                "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+                "message": "command=navigation.toggle-dual-pane",
+                "state": "{\"timestamp\":1792957912,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.toggle-dual-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=2;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=true\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.toggle-dual-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=2;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=true\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":76452,\"tid\":65500,\"epochMs\":1792957912921}",
+                "outcome": "accepted"
+              }
+            },
+            "Surface": {
+              "Pass": true,
+              "Found": [
+                "Pane.0",
+                "Pane.1"
+              ],
+              "Missing": []
+            }
+          }
+        }
+      },
+      {
+        "scenarioId": "home-from-command",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "f7097eefbd95a23dcce221f608a80b5eb2c3bbeb7fe6d85fc896b2bc6507a93a",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Command": {
+              "Pass": true,
+              "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1792957919,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":76452,\\\"tid\\\":65500,\\\"epochMs\\\":1792957919524}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":987082,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":76452,\"popupClasses\":[]}",
+              "CommandState": {
+                "editPresent": true,
+                "editHasKeyboardFocus": true,
+                "editTextPresent": true,
+                "listPresent": true,
+                "listEnabled": true,
+                "listNativeHandle": 1116630,
+                "listVisible": true,
+                "listItems": [
+                  "Home",
+                  "Open Command Palette"
+                ],
+                "selectedIndex": 0,
+                "selectedName": "Home",
+                "expectedMatches": [
+                  "Home"
+                ],
+                "expectedNameLikeMatches": [],
+                "interactive": {
+                  "foregroundHwnd": 987082,
+                  "foregroundEvidenceAvailable": true,
+                  "foregroundTitle": "FastFiles",
+                  "focusedAutomationId": "6301",
+                  "focusedControlType": "Pane",
+                  "focusedProcessId": 76452,
+                  "popupClasses": []
+                }
+              },
+              "PaletteClosed": true,
+              "DispatchEvidence": {
+                "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+                "message": "command=navigation.home",
+                "state": "{\"timestamp\":1792957919,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":76452,\"tid\":65500,\"epochMs\":1792957919524}",
+                "outcome": "accepted"
+              }
+            },
+            "Surface": {
+              "Pass": true,
+              "Found": [
+                "1: Home",
+                "Pane.0.Home"
+              ],
+              "Missing": []
+            }
+          }
+        }
+      },
+      {
+        "scenarioId": "fast-search-idle",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "b84bbf888620eeed6d4f97d5c4864d7c8228e7149dc56639c4ed9e85cba16f7e",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "palette 'search' activated commandId='search.focus'; selected='Search'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=search.focus\",\"state\":\"{\\\"timestamp\\\":1792957921,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":76452,\\\"tid\\\":65500,\\\"epochMs\\\":1792957921230}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":987082,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"1001\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":76452,\"popupClasses\":[]}",
+            "Ui": {
+              "Pass": true,
+              "Found": [
+                "Filters",
+                "Search.Results",
+                "7101"
+              ],
+              "Missing": []
+            }
+          }
+        }
+      },
+      {
+        "scenarioId": "search-filters-expanded",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "84851b8f4180b670da47113c4cfcc03960f5179918dbf6ab2df1f806d00678c5",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "ExpandCollapse state='Expanded'"
+          }
+        }
+      },
+      {
+        "scenarioId": "search-results",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "782ef47499592fb709f0583ffdc4f83b89c367b642adf616b79c9341e14f07c8",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Query": {
+              "Pass": true,
+              "Detail": "query='readme'"
+            }
+          }
+        }
+      },
+      {
+        "scenarioId": "search-no-results",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "99f24d8d1a16dfff95152b9a06cf891b98972bd9f29c79a3e07eeb24c6f1b504",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Query": {
+              "Pass": true,
+              "Detail": "query='zzzz_no_matching_files_query_9999'"
+            }
+          }
+        }
+      },
+      {
+        "scenarioId": "storage-overview",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "6c2fff9adb334a95aa4f6e8788b286998493087aa05f78d41fb568d874527a81",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "palette 'analyze' activated commandId='storage.analyze'; selected='Analyze Storage'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze\",\"state\":\"{\\\"timestamp\\\":1792957929,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":76452,\\\"tid\\\":65500,\\\"epochMs\\\":1792957929983}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":987082,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"7211\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":76452,\"popupClasses\":[]}"
+          }
+        }
+      },
+      {
+        "scenarioId": "settings-general",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 620,
+        "observedDpi": 120,
+        "imageHash": "c777729cf9b8b5568b8dd1f522f6a8275438bcc20e68738062fa13e41770c0bd",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "settings opened through the command palette"
+          }
+        }
+      },
+      {
+        "scenarioId": "command-palette",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "45bf86d3338095739cbac94b177570b42823fdf3d26422393a0c42d90bf73095",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "palette edit present"
+          }
+        }
+      },
+      {
+        "scenarioId": "home-narrow",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 800,
+        "observedDpi": 120,
+        "imageHash": "1aec8d2df1ca815408b49984876ace31c91895287b80837d055ddbcd6685b980",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Command": {
+              "Pass": true,
+              "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1792957939,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":76452,\\\"tid\\\":65500,\\\"epochMs\\\":1792957939948}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":987082,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":76452,\"popupClasses\":[]}",
+              "CommandState": {
+                "editPresent": true,
+                "editHasKeyboardFocus": true,
+                "editTextPresent": true,
+                "listPresent": true,
+                "listEnabled": true,
+                "listNativeHandle": 1116630,
+                "listVisible": true,
+                "listItems": [
+                  "Home",
+                  "Open Command Palette"
+                ],
+                "selectedIndex": 0,
+                "selectedName": "Home",
+                "expectedMatches": [
+                  "Home"
+                ],
+                "expectedNameLikeMatches": [],
+                "interactive": {
+                  "foregroundHwnd": 987082,
+                  "foregroundEvidenceAvailable": true,
+                  "foregroundTitle": "FastFiles",
+                  "focusedAutomationId": "6301",
+                  "focusedControlType": "Pane",
+                  "focusedProcessId": 76452,
+                  "popupClasses": []
+                }
+              },
+              "PaletteClosed": true,
+              "DispatchEvidence": {
+                "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+                "message": "command=navigation.home",
+                "state": "{\"timestamp\":1792957939,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":76452,\"tid\":65500,\"epochMs\":1792957939948}",
+                "outcome": "accepted"
+              }
+            },
+            "Surface": {
+              "Pass": true,
+              "Found": [
+                "1: Home",
+                "Pane.0.Home"
+              ],
+              "Missing": []
+            }
+          }
+        }
+      },
+      {
+        "scenarioId": "home-dark",
+        "status": "PASS",
+        "theme": "Dark",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "180c493e8da50e99caac35971bda6cd3a299bc35b6978cf8b4b2d1c14423626f",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Found": [
+              "1: Home",
+              "Pane.0.Home"
+            ],
+            "Missing": []
+          }
+        }
+      },
+      {
+        "scenarioId": "gallery-light",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "26579b0d9ba194baf904c47b05ee9b86494f6114286601cfdddcd1f19c3a4e55",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "window title='FastFiles — Gallery (debug)'; measured mean=233.2 (light requires >128)"
+          }
+        }
+      },
+      {
+        "scenarioId": "gallery-dark",
+        "status": "PASS",
+        "theme": "Dark",
+        "width": 1280,
+        "observedDpi": 120,
+        "imageHash": "adb04315a8ec51f1c1900412f13acd36cd9139ea82454a00e2b560a531c4d41d",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "window title='FastFiles — Gallery (debug)' after F9 dark toggle; lightMean=233.2 darkMean=30.4"
+          }
+        }
+      },
+      {
+        "scenarioId": "gallery-narrow",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 800,
+        "observedDpi": 120,
+        "imageHash": "b5c363b7db2f576901980bab47e3ef8776b0a3be17cf1b760aa3c8e0ac8e1ece",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "window title='FastFiles — Gallery (debug)' at 800px; mean=228.6"
+          }
+        }
+      },
+      {
+        "scenarioId": "gallery-wide",
+        "status": "PASS",
+        "theme": "Light",
+        "width": 1600,
+        "observedDpi": 120,
+        "imageHash": "6e7bd9cc8ab72f0eacebce672909a5a47a9e230e77a97bd49046cb502670e257",
+        "assertionResult": {
+          "pass": true,
+          "evidence": {
+            "Pass": true,
+            "Detail": "window title='FastFiles — Gallery (debug)' at 1600px; mean=234.2"
+          }
+        }
+      }
+    ],
+    "visualApproval": "NOT_GLOBAL: narrow debug Gallery horizontally clipped; focus images reviewed and accepted"
+  },
+  "qualification": "Local unsigned/degraded development only; hosted, independent-review, privileged/release and physical display boundaries remain separate"
+}

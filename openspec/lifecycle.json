@@ -1642,10 +1642,61 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/explore-findings.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/index.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/owner-handoff.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/certification-report.md"
         }
       ],
       "supersededBy": null,
-      "taskOverrides": []
+      "taskOverrides": [
+        {
+          "task": "7.11",
+          "disposition": "external",
+          "categories": [
+            "external-provider",
+            "interactive"
+          ],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/native-acceptance-report.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/uia-explorer-drag-in-investigation.md"
+            }
+          ]
+        },
+        {
+          "task": "7.12",
+          "disposition": "external",
+          "categories": [
+            "external-provider",
+            "interactive"
+          ],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/native-acceptance-report.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/uia-explorer-drag-in-investigation.md"
+            }
+          ]
+        }
+      ]
     },
     {
       "name": "overnight-truth-audit-and-measured-performance",
@@ -1672,6 +1723,243 @@
           "runId": "36588334920",
           "sha": "ea3d64f7c144343ec6faf849143d3f545e6fab36",
           "record": "openspec/changes/overnight-truth-audit-and-measured-performance/evidence/explore-findings.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "large-index-lifecycle-and-search-scalability",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/explore-findings.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "43fc3c175d4a940a094e1261b1c96aa8bf0668d1"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/certification-ladder.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/equivalence-gate-adversarial-matrix.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/uia-explorer-drag-in-investigation.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/hosted-ci-truth-2026-10-21.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": [
+        {
+          "task": "10.3",
+          "disposition": "external",
+          "categories": [
+            "external-provider"
+          ],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            {
+              "kind": "hosted-run",
+              "runId": "39600223131",
+              "sha": "2f365a52748511420499b5d3459e5560739ea958",
+              "record": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/hosted-ci-truth-2026-10-21.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/hosted-ci-truth-2026-10-21.md"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "durable-cold-search-index-and-hybrid-residency",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/specs/index-engine/spec.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/evidence/final-closure/mixed-scale-closure-20261026.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "original-vision-journey-recovery",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/original-vision-journey-recovery/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "column-uia-identity-dispatch",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/column-uia-identity-dispatch/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/column-uia-identity-dispatch/evidence/validation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "93cd2b604641dc38c56940e3330ec2acb74962af"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "preserve-ui-quit-through-message-drains",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-ui-quit-through-message-drains/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "preserve-execution-conflict-consent",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-execution-conflict-consent/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "prevent-shortcut-creation-overwrite",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/prevent-shortcut-creation-overwrite/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "protect-generated-transfer-results",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/protect-generated-transfer-results/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "preserve-rename-and-creation-destinations",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-rename-and-creation-destinations/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "fit-native-command-palette-to-results",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/fit-native-command-palette-to-results/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "repair-native-ui-verification-fidelity",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repair-native-ui-verification-fidelity/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repair-native-ui-verification-fidelity/evidence/qualification.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "repair-address-navigation-discovery",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repair-address-navigation-discovery/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "preserve-e2e-failure-evidence",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-e2e-failure-evidence/tasks.md"
         }
       ],
       "supersededBy": null,

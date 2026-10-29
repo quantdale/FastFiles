@@ -1,0 +1,383 @@
+{
+  "observedAt": "2026-10-28T02:25:41.754195+08:00",
+  "main": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+  "successorBaseline": "d14308c9802f23d2ff3b83d019b2d62c4ac5784d",
+  "prs": [
+    {
+      "pr": 14,
+      "remote": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+      "local": "b77d61e7ad21b549be1b2c29bda35a85ce4a97e9",
+      "relationship": "diverged 4 ahead/21 behind",
+      "base": "main",
+      "state": "OPEN",
+      "draft": false,
+      "worktree": "D:/Documents/tryPython/FastFiles",
+      "dirty": [
+        "M docs/agent/WORKSTATE.md",
+        " M openspec/changes/large-index-lifecycle-and-search-scalability/evidence/rebuild/rebuild-root-cause-and-reachability.md",
+        " M tests/indexstore/test_projection.cpp"
+      ]
+    },
+    {
+      "pr": 15,
+      "remote": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+      "local": null,
+      "relationship": "no same-name local branch",
+      "base": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": null,
+      "dirty": []
+    },
+    {
+      "pr": 16,
+      "remote": "e75a230db9ac89f6a638754cb6ad672735e4d644",
+      "local": null,
+      "relationship": "no same-name local branch",
+      "base": "main",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": null,
+      "dirty": []
+    },
+    {
+      "pr": 17,
+      "remote": "4a1457660420f8021295ebadd505f8baf63dfbac",
+      "local": "4a1457660420f8021295ebadd505f8baf63dfbac",
+      "relationship": "equal",
+      "base": "feat/durable-cold-search-and-hybrid-residency",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/acceptance-20261025",
+      "dirty": []
+    },
+    {
+      "pr": 18,
+      "remote": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "local": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "relationship": "equal",
+      "base": "main",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/product-20261025",
+      "dirty": []
+    },
+    {
+      "pr": 19,
+      "remote": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "local": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "relationship": "equal",
+      "base": "feat/original-vision-product-20261025",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/column-uia-20261025",
+      "dirty": []
+    },
+    {
+      "pr": 20,
+      "remote": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "local": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "relationship": "equal",
+      "base": "feat/original-vision-product-20261025",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/native-text-20261026",
+      "dirty": []
+    },
+    {
+      "pr": 21,
+      "remote": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "local": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "relationship": "equal",
+      "base": "feat/original-vision-product-20261025",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/conflict-actions-20261026",
+      "dirty": []
+    },
+    {
+      "pr": 22,
+      "remote": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "local": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "relationship": "equal",
+      "base": "fix/accessible-conflict-actions-20261026",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/fixture-ownership-20261026",
+      "dirty": []
+    },
+    {
+      "pr": 23,
+      "remote": "fef65837a30aeb6fa44283490d4e25cb584aab3e",
+      "local": "fef65837a30aeb6fa44283490d4e25cb584aab3e",
+      "relationship": "equal",
+      "base": "fix/accessible-conflict-actions-20261026",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/fileops-feedback-20261026",
+      "dirty": []
+    },
+    {
+      "pr": 24,
+      "remote": "b683f33ba271c0de2b7eb4bc38faf5f9f391fa8c",
+      "local": "b683f33ba271c0de2b7eb4bc38faf5f9f391fa8c",
+      "relationship": "equal",
+      "base": "fix/uia-fixture-window-ownership-20261026",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/shutdown-lifetime-20261026",
+      "dirty": []
+    },
+    {
+      "pr": 25,
+      "remote": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "local": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "relationship": "equal",
+      "base": "fix/actionable-file-operation-errors-20261026",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/cancel-command-20261026",
+      "dirty": []
+    },
+    {
+      "pr": 26,
+      "remote": "275172ac97b65366a4a339359fc2cb60dfd754ba",
+      "local": "275172ac97b65366a4a339359fc2cb60dfd754ba",
+      "relationship": "equal",
+      "base": "feat/original-vision-product-20261025",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/storage-ranking-20261027",
+      "dirty": []
+    },
+    {
+      "pr": 27,
+      "remote": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+      "local": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+      "relationship": "equal",
+      "base": "feat/discoverable-operation-cancel-20261026",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/restore-conflicts-20261027",
+      "dirty": []
+    },
+    {
+      "pr": 28,
+      "remote": "9f12c3a9c959f1682ad6ee44ed644034c5d1add0",
+      "local": "9f12c3a9c959f1682ad6ee44ed644034c5d1add0",
+      "relationship": "equal",
+      "base": "main",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/uia-proxy-bootstrap-20261027",
+      "dirty": []
+    },
+    {
+      "pr": 29,
+      "remote": "733a45b14d4a94cca1837248fa8f1c418fa55793",
+      "local": "733a45b14d4a94cca1837248fa8f1c418fa55793",
+      "relationship": "equal",
+      "base": "feat/storage-intelligence-navigation-20261027",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/quit-preservation-20261027",
+      "dirty": []
+    },
+    {
+      "pr": 30,
+      "remote": "430b7111cb3acf91aadc28472d6fdf3146ee4f4d",
+      "local": "430b7111cb3acf91aadc28472d6fdf3146ee4f4d",
+      "relationship": "equal",
+      "base": "fix/restore-conflict-policy-20261027",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/execution-consent-20261027",
+      "dirty": []
+    },
+    {
+      "pr": 31,
+      "remote": "30a2bc60bc802648259ca2dad819b54c9c420211",
+      "local": "30a2bc60bc802648259ca2dad819b54c9c420211",
+      "relationship": "equal",
+      "base": "fix/native-ui-verification-fidelity-20261027",
+      "state": "OPEN",
+      "draft": true,
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/address-discovery-20261028",
+      "dirty": []
+    }
+  ],
+  "worktrees": [
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles",
+      "HEAD": "b77d61e7ad21b549be1b2c29bda35a85ce4a97e9",
+      "branch": "refs/heads/feat/large-index-lifecycle-and-search-scalability-20261008",
+      "status": [
+        " M docs/agent/WORKSTATE.md",
+        " M openspec/changes/large-index-lifecycle-and-search-scalability/evidence/rebuild/rebuild-root-cause-and-reachability.md",
+        " M tests/indexstore/test_projection.cpp"
+      ]
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles/.kilo/worktrees/scythe-cloud",
+      "HEAD": "0dc33562ad6380c8b505ab221769acb189cd83b1",
+      "detached": "",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/acceptance-20261025",
+      "HEAD": "4a1457660420f8021295ebadd505f8baf63dfbac",
+      "branch": "refs/heads/fix/acceptance-frontier-20261025",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/address-discovery-20261028",
+      "HEAD": "30a2bc60bc802648259ca2dad819b54c9c420211",
+      "branch": "refs/heads/fix/address-navigation-discovery-20261028",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/cancel-command-20261026",
+      "HEAD": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "branch": "refs/heads/feat/discoverable-operation-cancel-20261026",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/column-uia-20261025",
+      "HEAD": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "branch": "refs/heads/fix/column-uia-identity-dispatch-20261025",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/conflict-actions-20261026",
+      "HEAD": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "branch": "refs/heads/fix/accessible-conflict-actions-20261026",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/execution-consent-20261027",
+      "HEAD": "430b7111cb3acf91aadc28472d6fdf3146ee4f4d",
+      "branch": "refs/heads/fix/execution-conflict-consent-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/fileops-feedback-20261026",
+      "HEAD": "fef65837a30aeb6fa44283490d4e25cb584aab3e",
+      "branch": "refs/heads/fix/actionable-file-operation-errors-20261026",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/fixture-ownership-20261026",
+      "HEAD": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "branch": "refs/heads/fix/uia-fixture-window-ownership-20261026",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/integration-20261025",
+      "HEAD": "3acfa1261243963a641046c059062cdddf0a6df6",
+      "branch": "refs/heads/test/original-vision-integration-20261025",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/main-sync",
+      "HEAD": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "branch": "refs/heads/main",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/native-text-20261026",
+      "HEAD": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "branch": "refs/heads/fix/native-single-line-status-20261026",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/oracle-mixed-20261026",
+      "HEAD": "51736309391d1a9081fae38efc3a82ebb0b6af16",
+      "branch": "refs/heads/test/mixed-residency-oracle-20261026",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/product-20261025",
+      "HEAD": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "branch": "refs/heads/feat/original-vision-product-20261025",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/quit-preservation-20261027",
+      "HEAD": "733a45b14d4a94cca1837248fa8f1c418fa55793",
+      "branch": "refs/heads/fix/preserve-ui-quit-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/restore-conflicts-20261027",
+      "HEAD": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+      "branch": "refs/heads/fix/restore-conflict-policy-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/search-20261025",
+      "HEAD": "8a4f58830238203ce622da8fc25a7ea708c91d8a",
+      "branch": "refs/heads/fix/search-result-home-handoff-20261025",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/shortcut-safety-20261027",
+      "HEAD": "d14308c9802f23d2ff3b83d019b2d62c4ac5784d",
+      "branch": "refs/heads/test/shortcut-creation-safety-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/shutdown-lifetime-20261026",
+      "HEAD": "b683f33ba271c0de2b7eb4bc38faf5f9f391fa8c",
+      "branch": "refs/heads/fix/native-shutdown-lifetime-20261026",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/storage-compact-20261027",
+      "HEAD": "180ea28fdc281a2c55e60b7ad3d7bc4726d0ec68",
+      "branch": "refs/heads/fix/compact-storage-navigation-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/storage-ranking-20261027",
+      "HEAD": "275172ac97b65366a4a339359fc2cb60dfd754ba",
+      "branch": "refs/heads/feat/storage-intelligence-navigation-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/storage-ranking-residency-20261027",
+      "HEAD": "dec145dfe63e6cd352fc3108e0423845a2690423",
+      "branch": "refs/heads/test/storage-ranking-residency-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/storage-uia-20261025",
+      "HEAD": "090f7e2f231a6c31f0bad356e982d83b65839cb9",
+      "branch": "refs/heads/feat/storage-semantic-list-20261025",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/treemap-intelligence-20261027",
+      "HEAD": "c3b26ca1d103ced21ebd834b07805e4ff76cb123",
+      "branch": "refs/heads/fix/treemap-partial-intelligence-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/uia-client-probe-20261027",
+      "HEAD": "e1c8e9fd41a7faef69d364ba1fc268a988a19014",
+      "branch": "refs/heads/test/native-uia-client-probe-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/uia-proxy-bootstrap-20261027",
+      "HEAD": "9f12c3a9c959f1682ad6ee44ed644034c5d1add0",
+      "branch": "refs/heads/fix/native-ui-verification-fidelity-20261027",
+      "status": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/visible-uia-20261025",
+      "HEAD": "5456f1ec109b5fa9a6b24bdcdbf4ffa4b951c3e7",
+      "branch": "refs/heads/fix/visible-uia-workspace-20261025",
+      "status": []
+    }
+  ]
+}

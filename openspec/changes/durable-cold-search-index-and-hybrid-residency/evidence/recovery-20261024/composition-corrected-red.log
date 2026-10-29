@@ -1,0 +1,59 @@
+FAIL: interrupted schema repair cannot leave empty terms certified ready
+OWNED_FIXTURE_DIRECTORY=C:\Users\Michael Roy\AppData\Local\Temp\ff-owned-storage-pressure-40500-220364296
+ok: test forwarding VFS installs
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: missing-table seed opens
+ok: missing-table seed commits
+ok: one derived table is dropped without clearing readiness
+ok: missing-table store recovers
+ok: every missing required structure forces rebuild before ready publication
+ok: recovered candidate query completes
+ok: missing FTS table cannot produce successful false-negative search
+ok: interrupted missing-table fixture opens
+ok: interrupted repair seed commits
+ok: interrupted repair drops only FTS table
+ok: FULL interrupts missing-table clearing transaction
+ok: interrupted missing-table repair reaches actual failed WAL write
+ok: missing-table recovery retries after clearing rollback
+ok: enumeration seed opens
+ok: enumeration seed commits
+ok: migration obligation prepared
+ok: actual volume-enumeration VM is interrupted exactly once
+ok: failed volume enumeration cannot be reported as complete rebuild
+ok: interrupted rebuild retry succeeds
+ok: raw reopen succeeds before Store can repair derived state
+ok: SQLite integrity_check returns ok
+ok: authoritative count equals expected committed prefix
+ok: volume identity survives failure
+ok: FTS and identity map cover authoritative rows before repair
+ok: no orphan or stale candidate identity/name
+ok: no orphan candidate exceptions
+ok: FTS internal integrity check succeeds
+ok: move-cache seed opens
+ok: move-cache seed commits
+ok: moved reader query completes
+ok: old reader caches ready verdict
+ok: new snapshot has incomplete candidate index
+ok: moved reader query completes
+ok: value move revalidates readiness for incoming snapshot and falls back
+OWNED_FIXTURE_CLEANED=1 failures=1

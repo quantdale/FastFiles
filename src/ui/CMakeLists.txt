@@ -70,6 +70,8 @@ set(FF_UI_STORAGE_SOURCES
 set(FF_UI_FILE_OPERATION_SOURCES
   src/FileOperations.cpp
   src/FileOperations.h
+  src/NewFileWriter.cpp
+  src/NewFileWriter.h
   src/FileOperationPolicy.cpp
   src/FileOperationPolicy.h
   src/ConflictDialog.cpp
@@ -138,6 +140,7 @@ set(FF_UI_PUBLIC_HEADERS
   include/ffui/StoragePercentage.h
   include/ffui/StorageRadioState.h
   include/ffui/StorageVisibility.h
+  include/ffui/StorageRanking.h
   include/ffui/TreemapLayout.h
   include/ffui/TreemapSemantics.h
   include/ffui/UiaEvents.h

@@ -1,14 +1,21 @@
+#include "OwnedMessageDrain.h"
 #include "FileOperations.h"
+#include "NewFileWriter.h"
 
 #include <algorithm>
 #include <chrono>
+#include <cwchar>
 #include <cwctype>
 #include <deque>
 #include <filesystem>
 #include <memory>
+#include <set>
+#include "ffprotocol/WindowsPath.h"
+#include <iterator>
 #include <shobjidl.h>
 #include <shlobj_core.h>
 #include <shellapi.h>
+#include <sherrors.h>
 #include <wrl/client.h>
 
 namespace ffui {
@@ -16,6 +23,7 @@ namespace ffui {
 namespace {
 
 constexpr UINT WM_APP_FILE_OPERATION_REQUEST = WM_APP + 41;
+constexpr auto kProgressPostInterval = std::chrono::milliseconds(34);
 
 class ProgressSink final : public IFileOperationProgressSink {
 public:
@@ -39,7 +47,7 @@ public:
         return references;
     }
 
-    IFACEMETHODIMP StartOperations() override { return S_OK; }
+    IFACEMETHODIMP StartOperations() override { samples_.clear(); return S_OK; }
     IFACEMETHODIMP FinishOperations(HRESULT) override { return S_OK; }
     IFACEMETHODIMP PreRenameItem(DWORD, IShellItem* item, LPCWSTR) override { return PreItem(item); }
     IFACEMETHODIMP PostRenameItem(DWORD, IShellItem* item, LPCWSTR, HRESULT result, IShellItem* created) override { return PostItem(item, result, created); }
@@ -49,8 +57,9 @@ public:
     IFACEMETHODIMP PostCopyItem(DWORD, IShellItem* item, IShellItem*, LPCWSTR, HRESULT result, IShellItem* created) override { return PostItem(item, result, created); }
     IFACEMETHODIMP PreDeleteItem(DWORD, IShellItem* item) override { return PreItem(item); }
     IFACEMETHODIMP PostDeleteItem(DWORD, IShellItem* item, HRESULT result, IShellItem* recycled) override {
+        const size_t priorPaths = completedPaths_.size();
         const HRESULT callbackResult = PostItem(item, result, nullptr);
-        if (SUCCEEDED(result) && recycled != nullptr && !completedPaths_.empty()) {
+        if (SUCCEEDED(result) && recycled != nullptr && completedPaths_.size() > priorPaths) {
             PIDLIST_ABSOLUTE identifier = nullptr;
             if (SUCCEEDED(SHGetIDListFromObject(recycled, &identifier)) && identifier != nullptr) {
                 const size_t byteCount = ILGetSize(identifier);
@@ -63,8 +72,11 @@ public:
     }
     IFACEMETHODIMP PreNewItem(DWORD, IShellItem*, LPCWSTR) override { return CancelledResult(); }
     IFACEMETHODIMP PostNewItem(DWORD, IShellItem*, LPCWSTR newName, LPCWSTR, DWORD, HRESULT result, IShellItem* created) override {
-        if (FAILED(result)) failures_.push_back({newName ? newName : L"", result});
-        else {
+        if (FAILED(result)) {
+            if (!IsRequestedCancellationFailure(static_cast<std::int32_t>(result), cancelled_.load())) {
+                failures_.push_back({newName ? newName : L"", result});
+            }
+        } else {
             ++completed_;
             completedPaths_.push_back({{}, ItemPath(created), {}});
         }
@@ -92,7 +104,14 @@ public:
     IFACEMETHODIMP PauseTimer() override { return S_OK; }
     IFACEMETHODIMP ResumeTimer() override { return S_OK; }
 
+    void RegisterRoot(IShellItem* item) {
+        const auto path = ItemPath(item);
+        if (!path.empty()) rootPaths_.insert(path);
+        else if (item != nullptr) rootItems_.emplace_back(item);
+    }
+
     std::vector<FileOperationFailure> Failures() const { return failures_; }
+    bool HasFailures() const { return !failures_.empty(); }
     unsigned int Completed() const { return completed_; }
     std::vector<ReversiblePath> CompletedPaths() const { return completedPaths_; }
 
@@ -115,13 +134,26 @@ private:
     }
     HRESULT PostItem(IShellItem* item, HRESULT result, IShellItem* created) {
         if (FAILED(result)) {
-            failures_.push_back({ItemPath(item), result});
-        } else {
+            if (!IsRequestedCancellationFailure(static_cast<std::int32_t>(result), cancelled_.load())) {
+                failures_.push_back({ItemPath(item), result});
+            }
+        } else if (IsRoot(item)) {
             ++completed_;
             completedPaths_.push_back({ItemPath(item), ItemPath(created), {}});
         }
         return PostResult(result);
     }
+    bool IsRoot(IShellItem* item) const {
+        const auto path = ItemPath(item);
+        if (!path.empty() && rootPaths_.contains(path)) return true;
+        for (const auto& root : rootItems_) {
+            int order = 1;
+            if (item != nullptr && SUCCEEDED(root->Compare(item, SICHINT_CANONICAL, &order)) && order == 0) return true;
+        }
+        return false;
+    }
+    std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> rootPaths_;
+    std::vector<Microsoft::WRL::ComPtr<IShellItem>> rootItems_;
     HRESULT PostResult(HRESULT) { return CancelledResult(); }
     HRESULT CancelledResult() const { return cancelled_ ? HRESULT_FROM_WIN32(ERROR_CANCELLED) : S_OK; }
 
@@ -198,6 +230,45 @@ bool PathExistsWin32(const std::wstring& path) {
 
 } // namespace
 
+HRESULT RenameWithoutReplacement(const std::wstring& source, const std::wstring& destination) {
+    // No REPLACE_EXISTING or COPY_ALLOWED: an arriving sibling must never be
+    // overwritten and this operation must not become a copy/delete sequence.
+    if (MoveFileExW(ExtendedLengthPath(source).c_str(), ExtendedLengthPath(destination).c_str(), 0)) return S_OK;
+    return HRESULT_FROM_WIN32(GetLastError());
+}
+
+void CompleteOperationFailures(std::vector<FileOperationFailure>& failures, HRESULT result, bool cancellationRequested,
+    const std::vector<std::wstring>& sources, const std::wstring& destination,
+    const std::vector<ReversiblePath>& completedPaths, const std::vector<ReplacementTarget>& unexecutedReplacements) {
+    const bool phaseErrorMissing = FAILED(result) &&
+        !IsRequestedCancellationFailure(static_cast<std::int32_t>(result), cancellationRequested) &&
+        std::none_of(failures.begin(), failures.end(), [&](const auto& failure) { return failure.error == result; });
+    if (phaseErrorMissing && !failures.empty()) {
+        // An earlier item error does not account for a different phase HRESULT.
+        // Attribute the unobserved phase error to the operation, not to a
+        // potentially successful source.
+        failures.push_back({destination, result});
+    } else if (phaseErrorMissing) {
+        const std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> sourcePaths(sources.begin(), sources.end());
+        std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> completedSources;
+        std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> unexecutedSources;
+        for (const auto& path : completedPaths) completedSources.insert(path.originalPath);
+        for (const auto& target : unexecutedReplacements) unexecutedSources.insert(target.source);
+        const bool unidentifiableCompletion = std::any_of(completedPaths.begin(), completedPaths.end(), [&](const auto& completed) {
+            return completed.originalPath.empty() || !sourcePaths.contains(completed.originalPath);
+        });
+        if (!unidentifiableCompletion) {
+            for (const auto& source : sources) {
+                if (!unexecutedSources.contains(source) && !completedSources.contains(source)) failures.push_back({source, result});
+            }
+        }
+        if (failures.empty()) failures.push_back({destination, result});
+    }
+    for (const auto& target : unexecutedReplacements) {
+        failures.push_back({target.source, HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED)});
+    }
+}
+
 FileOperations::~FileOperations() { Stop(); }
 
 bool FileOperations::Start(HWND eventWindow) {
@@ -219,9 +290,7 @@ void FileOperations::Stop() {
     }
     stopping_ = true;
     if (eventWindow_ != nullptr) {
-        MSG pending{};
-        while (PeekMessageW(&pending, eventWindow_, WM_APP_FILE_OPERATION_CONFLICT,
-                            WM_APP_FILE_OPERATION_CONFLICT, PM_REMOVE)) {
+        DrainOwnedMessages(eventWindow_, WM_APP_FILE_OPERATION_CONFLICT, [](const MSG& pending) {
             // The posted heap shared_ptr owns the message's reference; release
             // it (and answer Cancel) so a later dispatch cannot see it.
             std::unique_ptr<FileOperationConflictQuestionRef> posted(
@@ -234,7 +303,7 @@ void FileOperations::Stop() {
                 }
                 (*posted)->answeredCondition.notify_one();
             }
-        }
+        });
     }
     if (workerThreadId_ != 0) PostThreadMessageW(workerThreadId_, WM_QUIT, 0, 0);
     if (worker_.joinable()) worker_.join();
@@ -251,6 +320,11 @@ void FileOperations::Enqueue(FileOperationRequest request) {
     if (workerThreadId_ != 0) PostThreadMessageW(workerThreadId_, WM_APP_FILE_OPERATION_REQUEST, 0, 0);
 }
 
+bool FileOperations::HasOutstandingWork() const {
+    std::lock_guard<std::mutex> lock(queueMutex_);
+    return executing_ || !queue_.empty();
+}
+
 void FileOperations::CancelCurrent() {
     std::lock_guard<std::mutex> lock(queueMutex_);
     // An idle Escape (no running or queued work) must not latch into the next
@@ -263,6 +337,22 @@ void FileOperations::CancelCurrent() {
 
 void FileOperations::PostEvent(FileOperationEvent event) const {
     if (eventWindow_ == nullptr) return;
+    // original-vision-journey-recovery 4.6: thousands of per-item progress
+    // messages can fill the window queue and lose the terminal result. Bound
+    // presentation traffic; every sink callback still checks cancellation.
+    if (event.kind == FileOperationEventKind::Started) {
+        std::lock_guard lock(progressMutex_);
+        progressPosted_ = false;
+        quantifiedProgressPosted_ = false;
+    } else if (event.kind == FileOperationEventKind::Progress) {
+        std::lock_guard lock(progressMutex_);
+        const auto now = std::chrono::steady_clock::now();
+        const bool firstQuantified = event.total > 0 && !quantifiedProgressPosted_;
+        if (progressPosted_ && !firstQuantified && now - lastProgressPost_ < kProgressPostInterval) return;
+        lastProgressPost_ = now;
+        progressPosted_ = true;
+        quantifiedProgressPosted_ = quantifiedProgressPosted_ || event.total > 0;
+    }
     auto owned = std::make_unique<FileOperationEvent>(std::move(event));
     if (PostMessageW(eventWindow_, WM_APP_FILE_OPERATION_EVENT, 0, reinterpret_cast<LPARAM>(owned.get()))) owned.release();
 }
@@ -311,6 +401,9 @@ void FileOperations::WorkerMain() {
                 std::lock_guard<std::mutex> lock(queueMutex_);
                 executing_ = false;
             }
+            // The terminal event may already have reached the UI before the
+            // worker became idle. Refresh availability after that transition.
+            if (eventWindow_ != nullptr) PostMessageW(eventWindow_, WM_APP_FILE_OPERATION_AVAILABILITY, 0, 0);
             // The batch that just finished consumed any cancel request observed
             // while it ran; siblings queued at that moment carry their own
             // cancelledBeforeStart bit. A request enqueued after the cancel is
@@ -354,6 +447,7 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     }
     FileOperationRequest request = input;
     std::vector<FileOperationFailure> rejectedSources;
+    std::vector<RestorePlanItem> restorePlan;
     unsigned int skipped = 0;
     if (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move) {
         // Self-target rejection covers every caller (drop, paste, undo):
@@ -404,6 +498,32 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
             return;
         }
     }
+    if (request.kind == FileOperationKind::Restore) {
+        // original-vision-journey-recovery 4.11: the checkbox applies to this
+        // entire restore request, including distinct original folders. Finish
+        // preflight before submitting any Shell item; later Cancel mutates none.
+        const auto plan = BuildRestorePlan(request.restorePaths,
+            [](const std::wstring& path) { return PathExistsWin32(path); },
+            [this](const std::wstring& source, const std::wstring& destination) {
+                return RequestConflictDecision(source, destination);
+            });
+        if (!plan) {
+            PostEvent({FileOperationEventKind::Cancelled, request.kind, {}, 0,
+                       static_cast<unsigned int>((std::max)(size_t{1}, request.restorePaths.size())), 0, {}});
+            return;
+        }
+        restorePlan = *plan;
+        skipped = static_cast<unsigned int>(request.restorePaths.size() - restorePlan.size());
+        request.sources.clear();
+        for (const auto& item : restorePlan) request.sources.push_back(request.restorePaths[item.restoreIndex].originalPath);
+        if (restorePlan.empty()) {
+            FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {}, 0,
+                static_cast<unsigned int>(request.restorePaths.size()), 100, {}};
+            completion.skipped = skipped;
+            PostEvent(std::move(completion));
+            return;
+        }
+    }
     PostEvent({FileOperationEventKind::Started, request.kind, {}, 0, static_cast<unsigned int>(request.sources.size()), 0, {}});
     if (request.kind == FileOperationKind::Rename) {
         if (request.sources.size() != 1 || !IsValidFileName(request.newName)) {
@@ -412,61 +532,156 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
             return;
         }
         const std::wstring sibling = ParentPath(request.sources.front()) + request.newName;
-        const DWORD attributes = GetFileAttributesW(ExtendedLengthPath(sibling).c_str());
-        if (attributes != INVALID_FILE_ATTRIBUTES && _wcsicmp(sibling.c_str(), request.sources.front().c_str()) != 0) {
-            PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0, 1, 0,
-                       {{sibling, HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)}}});
+        if (cancelRequested_.load()) {
+            PostEvent({FileOperationEventKind::Cancelled, request.kind, {}, 0, 1, 0, {}});
             return;
         }
+        // preserve-rename-and-creation-destinations 1.2: Shell RenameItem with
+        // NOCONFIRMATION can replace a target arriving after an existence
+        // check. Refuse replacement at the native mutation boundary instead.
+        const HRESULT result = RenameWithoutReplacement(request.sources.front(), sibling);
+        FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {},
+                                      SUCCEEDED(result) ? 1u : 0u, 1, SUCCEEDED(result) ? 100u : 0u, {}};
+        if (FAILED(result)) completion.failures.push_back({sibling, result});
+        else {
+            completion.affectedPaths = {request.sources.front(), sibling};
+            if (request.recordHistory) {
+                completion.reversibleOperation = ReversibleOperation{ReversibleOperationKind::Rename,
+                    {{request.sources.front(), sibling, {}}}};
+            }
+        }
+        PostEvent(std::move(completion));
+        return;
+    }
+    if (request.kind == FileOperationKind::CreateFile || request.kind == FileOperationKind::CreateFolder) {
+        if (request.destination.empty() || !IsValidFileName(request.newName)) {
+            PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0, 1, 0,
+                       {{request.newName, HRESULT_FROM_WIN32(ERROR_INVALID_NAME)}}});
+            return;
+        }
+        if (cancelRequested_.load()) {
+            PostEvent({FileOperationEventKind::Cancelled, request.kind, {}, 0, 1, 0, {}});
+            return;
+        }
+        const auto output = (std::filesystem::path(request.destination) / request.newName).wstring();
+        NewFileWriteResult result;
+        if (request.kind == FileOperationKind::CreateFolder) {
+            if (!CreateDirectoryW(ExtendedLengthPath(output).c_str(), nullptr)) {
+                result.error = HRESULT_FROM_WIN32(GetLastError());
+            }
+        } else {
+            // Reuse handle-bound CREATE_NEW and cleanup; an empty stream
+            // creates exactly an empty file, never a Shell keep-both sibling
+            // or an existing item falsely returned for inline rename.
+            Microsoft::WRL::ComPtr<IStream> empty;
+            result.error = CreateStreamOnHGlobal(nullptr, TRUE, &empty);
+            if (SUCCEEDED(result.error)) result = WriteNewFile(output, empty.Get());
+        }
+        FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {},
+            SUCCEEDED(result.error) ? 1u : 0u, 1, SUCCEEDED(result.error) ? 100u : 0u, {}};
+        if (FAILED(result.error)) completion.failures.push_back({output, result.error, result.cleanupError});
+        else {
+            completion.affectedPaths = {request.destination, output};
+            completion.createdPaths = {output};
+        }
+        PostEvent(std::move(completion));
+        return;
     }
     if (request.kind == FileOperationKind::Link) {
         std::vector<FileOperationFailure> failures;
         unsigned int completed = 0;
         std::vector<std::wstring> affected;
         for (size_t index = 0; index < request.sources.size(); ++index) {
+            if (cancelRequested_.load()) break;
+            // final-product-consolidation review lane A P2: Link destination
+            // names come exclusively from the transfer plan; a missing/empty
+            // plan entry means keep-both generation exhausted during planning
+            // (BuildLinkPlan truncates). Fail the item explicitly instead of
+            // silently bypassing the reservation scheme with a raw name.
+            const auto total = static_cast<unsigned int>(request.sources.size());
+            if (index >= request.transferPlan.size() || request.transferPlan[index].destinationName.empty()) {
+                failures.push_back({request.sources[index], HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE), S_OK});
+                PostEvent({FileOperationEventKind::Progress, request.kind, request.sources[index], completed, total,
+                           total == 0 ? 0u : static_cast<unsigned int>((100ull * (index + 1)) / total), {}});
+                continue;
+            }
             Microsoft::WRL::ComPtr<IShellLinkW> link;
             HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link));
-            std::wstring name = std::filesystem::path(request.sources[index]).filename().wstring() + L".lnk";
-            if (index < request.transferPlan.size() && !request.transferPlan[index].destinationName.empty()) {
-                name = request.transferPlan[index].destinationName;
-            }
+            std::wstring name = request.transferPlan[index].destinationName;
             const auto output = std::filesystem::path(request.destination) / name;
             if (SUCCEEDED(result)) result = link->SetPath(request.sources[index].c_str());
-            Microsoft::WRL::ComPtr<IPersistFile> persistence;
+            Microsoft::WRL::ComPtr<IPersistStream> persistence;
+            Microsoft::WRL::ComPtr<IStream> stream;
             if (SUCCEEDED(result)) result = link.As(&persistence);
-            if (SUCCEEDED(result)) result = persistence->Save(output.c_str(), TRUE);
-            if (FAILED(result)) failures.push_back({request.sources[index], result});
+            if (SUCCEEDED(result)) result = CreateStreamOnHGlobal(nullptr, TRUE, &stream);
+            if (SUCCEEDED(result)) result = persistence->Save(stream.Get(), TRUE);
+            NewFileWriteResult writeResult{result};
+            if (SUCCEEDED(result)) writeResult = WriteNewFile(output.wstring(), stream.Get());
+            result = writeResult.error;
+            if (FAILED(result)) failures.push_back({output.wstring(), result, writeResult.cleanupError});
             else {
                 ++completed;
                 affected.push_back(output.wstring());
             }
+            PostEvent({FileOperationEventKind::Progress, request.kind, request.sources[index], completed, total,
+                       total == 0 ? 0u : static_cast<unsigned int>((100ull * (index + 1)) / total), {}});
         }
         const unsigned int total = static_cast<unsigned int>(request.sources.size());
-        PostEvent({FileOperationEventKind::Completed, request.kind, {}, completed, total,
+        PostEvent({cancelRequested_.load() ? FileOperationEventKind::Cancelled : FileOperationEventKind::Completed,
+                   request.kind, {}, completed, total,
                    total == 0 ? 0u : static_cast<unsigned int>((100ull * completed) / total),
                    std::move(failures), std::move(affected)});
         return;
     }
+    // preserve-execution-conflict-consent: Shell owns collision resolution at
+    // the actual write boundary. An unapproved transfer must keep both if a
+    // destination appears after preflight; an existence recheck is not atomic.
+    const bool transfer = request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move ||
+                          request.kind == FileOperationKind::Restore;
+    const bool hasReplacement = std::any_of(request.transferPlan.begin(), request.transferPlan.end(),
+        [](const TransferPlanItem& item) { return item.replacesExisting; }) ||
+        std::any_of(restorePlan.begin(), restorePlan.end(), [](const RestorePlanItem& item) { return item.replacesExisting; });
+    constexpr DWORD baseFlags = FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI;
+    Microsoft::WRL::ComPtr<IFileOperation> replacementOperation;
     Microsoft::WRL::ComPtr<IFileOperation> operation;
-    const HRESULT createResult = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&operation));
-    if (FAILED(createResult)) {
-        const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size()));
+    HRESULT setupResult = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&operation));
+    if (SUCCEEDED(setupResult)) {
+        // original-vision-journey-recovery 4.7: the shell's separate progress
+        // window can steal focus from our live cancellation palette. Progress
+        // and cancellation remain on ProgressSink and the native shell UI.
+        // FOF_SILENT suppresses only the duplicate Shell progress dialog.
+        setupResult = operation->SetOperationFlags(baseFlags | (transfer ? FOF_RENAMEONCOLLISION : 0) |
+            (request.kind == FileOperationKind::Delete && request.recycle ? FOF_ALLOWUNDO : 0));
+    }
+    if (SUCCEEDED(setupResult) && transfer && hasReplacement) {
+        setupResult = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&replacementOperation));
+        if (SUCCEEDED(setupResult)) setupResult = replacementOperation->SetOperationFlags(baseFlags);
+    }
+    if (FAILED(setupResult)) {
+        const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size() + skipped));
         std::vector<FileOperationFailure> failures;
-        if (request.sources.empty()) failures.push_back({request.destination, createResult});
-        else for (const auto& source : request.sources) failures.push_back({source, createResult});
-        PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0, total, 0, std::move(failures), request.sources});
+        if (request.sources.empty()) failures.push_back({request.destination, setupResult});
+        else for (const auto& source : request.sources) failures.push_back({source, setupResult});
+        FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {}, 0, total, 0,
+                                      std::move(failures), request.sources};
+        completion.skipped = skipped;
+        PostEvent(std::move(completion));
         return;
     }
-    operation->SetOperationFlags(FOF_NOCONFIRMATION | FOF_NOERRORUI | (request.kind == FileOperationKind::Delete && request.recycle ? FOF_ALLOWUNDO : 0));
     auto* sink = new ProgressSink(*this, request.kind, cancelRequested_);
     DWORD cookie = 0;
     const HRESULT adviseResult = operation->Advise(sink, &cookie);
+    DWORD replacementCookie = 0;
     HRESULT submitResult = adviseResult;
+    if (SUCCEEDED(submitResult) && replacementOperation) submitResult = replacementOperation->Advise(sink, &replacementCookie);
+    bool ordinarySubmitted = false;
+    size_t ordinarySubmittedCount = 0;
+    bool replacementSubmitted = false;
+    std::vector<ReplacementTarget> replacementTargets;
     std::vector<FileOperationFailure> submissionFailures;
     Microsoft::WRL::ComPtr<IShellItem> destination = MakeItem(request.destination);
     if (SUCCEEDED(submitResult) && !destination &&
-        (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move ||
-         request.kind == FileOperationKind::CreateFolder || request.kind == FileOperationKind::CreateFile)) {
+        (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move)) {
         // An unparsable destination (e.g. an unsupported long path) must not
         // reach the shell with a null target item.
         submitResult = HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
@@ -481,30 +696,32 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
                 submissionFailures.push_back({sourcePath, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)});
                 continue;
             }
+            sink->RegisterRoot(source.Get());
             HRESULT itemResult = S_OK;
             const wchar_t* destinationName = nullptr;
             if (sourceIndex < request.transferPlan.size() && !request.transferPlan[sourceIndex].destinationName.empty()) {
                 destinationName = request.transferPlan[sourceIndex].destinationName.c_str();
             }
-            if (request.kind == FileOperationKind::Copy) itemResult = operation->CopyItem(source.Get(), destination.Get(), destinationName, nullptr);
-            else if (request.kind == FileOperationKind::Move) itemResult = operation->MoveItem(source.Get(), destination.Get(), destinationName, nullptr);
+            const bool replace = transfer && sourceIndex < request.transferPlan.size() && request.transferPlan[sourceIndex].replacesExisting;
+            IFileOperation* targetOperation = replace ? replacementOperation.Get() : operation.Get();
+            if (request.kind == FileOperationKind::Copy) itemResult = targetOperation->CopyItem(source.Get(), destination.Get(), destinationName, nullptr);
+            else if (request.kind == FileOperationKind::Move) itemResult = targetOperation->MoveItem(source.Get(), destination.Get(), destinationName, nullptr);
             else itemResult = operation->DeleteItem(source.Get(), nullptr);
+            if (SUCCEEDED(itemResult)) {
+                if (replace) {
+                    replacementSubmitted = true;
+                    const std::wstring name = destinationName ? destinationName : std::filesystem::path(sourcePath).filename().wstring();
+                    replacementTargets.push_back({sourcePath, (std::filesystem::path(request.destination) / name).wstring()});
+                } else {
+                    ordinarySubmitted = true;
+                    ++ordinarySubmittedCount;
+                }
+            }
             if (FAILED(itemResult)) submissionFailures.push_back({sourcePath, itemResult});
         }
-    } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::Rename) {
-        for (const auto& sourcePath : request.sources) {
-            auto source = MakeItem(sourcePath);
-            if (!source) { submitResult = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND); continue; }
-            submitResult = operation->RenameItem(source.Get(), request.newName.c_str(), nullptr);
-            if (FAILED(submitResult)) break;
-        }
-    } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::CreateFolder) {
-        submitResult = operation->NewItem(destination.Get(), FILE_ATTRIBUTE_DIRECTORY, request.newName.c_str(), nullptr, nullptr);
-    } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::CreateFile) {
-        submitResult = operation->NewItem(destination.Get(), FILE_ATTRIBUTE_NORMAL, request.newName.c_str(), nullptr, nullptr);
     } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::Restore) {
-        bool restoreCancelled = false;
-        for (const auto& restore : request.restorePaths) {
+        for (const auto& planned : restorePlan) {
+            const auto& restore = request.restorePaths[planned.restoreIndex];
             auto recycled = MakeItem(restore.shellItemId);
             const std::wstring originalName = std::filesystem::path(restore.originalPath).filename().wstring();
             auto restoreFolder = MakeItem(std::filesystem::path(restore.originalPath).parent_path().wstring());
@@ -512,46 +729,63 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
                 submissionFailures.push_back({restore.originalPath, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)});
                 continue;
             }
-            // Restores go through the same conflict policy as ordinary
-            // moves: FOF_NOCONFIRMATION must never silently overwrite a
-            // file that appeared in the original location.
-            std::wstring name = originalName;
-            if (PathExistsWin32((std::filesystem::path(restore.originalPath).parent_path() / originalName).wstring())) {
-                const ConflictDecision decision = RequestConflictDecision(restore.originalPath, restore.originalPath);
-                if (decision.choice == ConflictChoice::Cancel) { restoreCancelled = true; break; }
-                if (decision.choice == ConflictChoice::Skip) {
-                    submissionFailures.push_back({restore.originalPath, HRESULT_FROM_WIN32(ERROR_CANCELLED)});
-                    continue;
-                }
-                if (decision.choice == ConflictChoice::KeepBoth) {
-                    name = GenerateKeepBothName(std::filesystem::path(restore.originalPath).parent_path().wstring(),
-                                                originalName,
-                                                [](const std::wstring& path) { return PathExistsWin32(path); });
-                    if (name.empty()) {
-                        submissionFailures.push_back({restore.originalPath, HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)});
-                        continue;
-                    }
-                }
-            }
-            const HRESULT itemResult = operation->MoveItem(recycled.Get(), restoreFolder.Get(), name.c_str(), nullptr);
+            const std::wstring& name = planned.destinationName.empty() ? originalName : planned.destinationName;
+            sink->RegisterRoot(recycled.Get());
+            IFileOperation* targetOperation = planned.replacesExisting ? replacementOperation.Get() : operation.Get();
+            const HRESULT itemResult = targetOperation->MoveItem(recycled.Get(), restoreFolder.Get(), name.c_str(), nullptr);
             if (FAILED(itemResult)) submissionFailures.push_back({restore.originalPath, itemResult});
+            else if (planned.replacesExisting) {
+                replacementSubmitted = true;
+                replacementTargets.push_back({restore.originalPath,
+                    (std::filesystem::path(restore.originalPath).parent_path() / name).wstring()});
+            } else {
+                ordinarySubmitted = true;
+                ++ordinarySubmittedCount;
+            }
         }
-        if (restoreCancelled) submitResult = HRESULT_FROM_WIN32(ERROR_CANCELLED);
     }
-    if (SUCCEEDED(submitResult)) submitResult = operation->PerformOperations();
-    if (cookie != 0) operation->Unadvise(cookie);
     BOOL operationsAborted = FALSE;
-    operation->GetAnyOperationsAborted(&operationsAborted);
+    if (SUCCEEDED(submitResult) && (!transfer || ordinarySubmitted)) {
+        submitResult = operation->PerformOperations();
+        operation->GetAnyOperationsAborted(&operationsAborted);
+    }
+    bool replacementRefused = false;
+    bool replacementPerformed = false;
+    if (SUCCEEDED(submitResult) && !operationsAborted && !cancelRequested_ && replacementSubmitted) {
+        // protect-generated-transfer-results 1.2: Shell may assign an ordinary
+        // result a name reserved for an approved replacement. Consent to replace
+        // the old target never permits destroying an incoming result. The queued
+        // replacement group cannot be selectively removed; fail the whole group
+        // before it mutates anything, retaining each incoming replacement source.
+        const auto ordinaryResults = sink->CompletedPaths();
+        // A failed or missing root callback can leave partial output whose
+        // identity is unknown. Do not infer safety from an incomplete list.
+        const auto safety = EvaluateReplacementSafety(ordinarySubmittedCount, sink->HasFailures(), ordinaryResults, replacementTargets);
+        if (!cancelRequested_ && safety != ReplacementSafety::Safe) {
+            replacementRefused = true;
+            for (const auto& target : replacementTargets) {
+                submissionFailures.push_back({target.source, HRESULT_FROM_WIN32(
+                    safety == ReplacementSafety::Incomplete ? ERROR_OPERATION_ABORTED : ERROR_ALREADY_EXISTS)});
+            }
+        } else if (!cancelRequested_) {
+            replacementPerformed = true;
+            submitResult = replacementOperation->PerformOperations();
+            replacementOperation->GetAnyOperationsAborted(&operationsAborted);
+        }
+    }
+    // When Shell aborts the ordinary phase due to an error, its callbacks do
+    // not describe the queued replacements that were never executed. Retain
+    // those per-source outcomes unless the user requested cancellation.
+    const bool reportUnexecuted = replacementSubmitted && !replacementPerformed && !replacementRefused && !cancelRequested_;
+    if (cookie != 0) operation->Unadvise(cookie);
+    if (replacementCookie != 0) replacementOperation->Unadvise(replacementCookie);
     const bool cancelled = cancelRequested_ || operationsAborted || submitResult == HRESULT_FROM_WIN32(ERROR_CANCELLED);
     auto failures = sink->Failures();
     failures.insert(failures.end(), submissionFailures.begin(), submissionFailures.end());
-    if (FAILED(submitResult) && !cancelled && failures.empty()) {
-        if (request.sources.empty()) {
-            failures.push_back({request.destination, submitResult});
-        } else {
-            for (const auto& source : request.sources) failures.push_back({source, submitResult});
-        }
-    }
+    const auto allCompletedPaths = sink->CompletedPaths();
+    const std::vector<ReplacementTarget> noUnexecutedReplacements;
+    CompleteOperationFailures(failures, submitResult, cancelRequested_.load(), request.sources, request.destination, allCompletedPaths,
+                              reportUnexecuted ? replacementTargets : noUnexecutedReplacements);
     failures.insert(failures.end(), rejectedSources.begin(), rejectedSources.end());
     const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size() + rejectedSources.size() + skipped));
     const unsigned int completed = sink->Completed();
@@ -566,28 +800,9 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     FileOperationEvent completion{cancelled ? FileOperationEventKind::Cancelled : FileOperationEventKind::Completed,
                                   request.kind, {}, completed, total, percent, std::move(failures), std::move(affected)};
     completion.skipped = skipped;
-    const auto allCompletedPaths = sink->CompletedPaths();
-    if (request.kind == FileOperationKind::CreateFolder || request.kind == FileOperationKind::CreateFile) {
-        for (const auto& path : allCompletedPaths) {
-            if (!path.resultingPath.empty()) completion.createdPaths.push_back(path.resultingPath);
-        }
-        // file-operations 2.4: some shell providers report a successful
-        // NewItem without returning the created IShellItem. The filesystem
-        // path is still deterministic; publish it only after verifying that
-        // the requested item exists so inline rename never loses the new row.
-        if (completion.failures.empty()) {
-            const auto expectedPath = (std::filesystem::path(request.destination) / request.newName).wstring();
-            if (GetFileAttributesW(ExtendedLengthPath(expectedPath).c_str()) != INVALID_FILE_ATTRIBUTES) {
-                completion.createdPaths.clear();
-                completion.createdPaths.push_back(expectedPath);
-            }
-        }
-    }
     if (request.recordHistory) {
         auto completedPaths = allCompletedPaths;
-        if (request.kind == FileOperationKind::Rename && completedPaths.size() == 1) {
-            completion.reversibleOperation = ReversibleOperation{ReversibleOperationKind::Rename, std::move(completedPaths)};
-        } else if (request.kind == FileOperationKind::Move) {
+        if (request.kind == FileOperationKind::Move) {
             // file-operations 6.6: a Replace destroys the previous
             // destination contents, so the entire move batch is ineligible
             // for undo even if Shell returns a callback path with different
@@ -612,6 +827,47 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
     }
     PostEvent(std::move(completion));
     sink->Release();
+}
+
+std::wstring DescribeFileOperationFailure(HRESULT error) {
+    std::wstring description;
+    switch (error) {
+        case COPYENGINE_E_SHARING_VIOLATION_SRC:
+            description = L"The source file is in use. Close the app using it, then try the operation again.";
+            break;
+        case COPYENGINE_E_SHARING_VIOLATION_DEST:
+            description = L"The destination file is in use. Close the app using it, then try the operation again.";
+            break;
+        case HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION):
+        case HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION):
+            description = L"A file is in use. Close the app using it, then try the operation again.";
+            break;
+        case E_ACCESSDENIED:
+            description = L"Access was denied. Check the file's permissions and read-only setting, or choose another destination.";
+            break;
+        case HRESULT_FROM_WIN32(ERROR_DISK_FULL):
+        case HRESULT_FROM_WIN32(ERROR_HANDLE_DISK_FULL):
+            description = L"There is not enough free space. Free space on the destination drive or choose another destination.";
+            break;
+        case HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND):
+        case HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND):
+            description = L"A file or folder is no longer available. Check its location and connected drives, then try again.";
+            break;
+        default: {
+            wchar_t message[1024]{};
+            const DWORD length = FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                nullptr, static_cast<DWORD>(error), 0, message, static_cast<DWORD>(std::size(message)), nullptr);
+            if (length > 0) {
+                description.assign(message, length);
+                while (!description.empty() && std::iswspace(description.back())) description.pop_back();
+            }
+            if (description.empty()) description = L"Windows could not complete this file operation.";
+            break;
+        }
+    }
+    wchar_t code[16]{};
+    swprintf_s(code, L"0x%08X", static_cast<unsigned int>(error));
+    return description + L" (" + code + L")";
 }
 
 void RetainLastOperationFailures(std::vector<FileOperationFailure>& retained, const FileOperationEvent& event) {

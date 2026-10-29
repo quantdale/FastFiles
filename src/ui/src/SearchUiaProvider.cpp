@@ -1,5 +1,6 @@
 #include "SearchUiaProvider.h"
 #include "UiaHostQuery.h"
+#include "ffprotocol/Diagnostics.h"
 
 #include "ffui/SearchResultMetadata.h" // indexed-search-allocated-size D9: shared Size-on-Disk wording
 #include <algorithm>
@@ -13,6 +14,26 @@ namespace ffui {
 namespace {
 
 constexpr HRESULT kElementNotAvailable = UIA_E_ELEMENTNOTAVAILABLE;
+
+// original-vision-journey-recovery 4.9: opt-in rejection metadata distinguishes
+// a retired row from an action-dispatch failure. No names, paths or content.
+void TraceResultRejection(const wchar_t* reason, size_t index, uint64_t expected,
+                          uint64_t actual, size_t count) noexcept {
+    wchar_t enabled[8]{};
+    if (GetEnvironmentVariableW(L"FASTFILES_UIA_DIAGNOSTICS", enabled, 8) != 1 || enabled[0] != L'1') return;
+    try {
+        ffprotocol::DiagnosticEvent event{};
+        event.category = ffprotocol::DiagnosticCategory::UiInteraction;
+        event.code = ffprotocol::DiagnosticCode::FFDIAG_UI_RESULT_SUPERSEDED;
+        event.state = L"uia-result=" + std::wstring(reason) + L";index=" + std::to_wstring(index) +
+            L";expected=" + std::to_wstring(expected) + L";actual=" + std::to_wstring(actual);
+        event.itemCount = count;
+        event.errorCode = static_cast<uint32_t>(UIA_E_ELEMENTNOTAVAILABLE);
+        event.outcome = L"rejected";
+        ffprotocol::AppendDiagnostic(event, ffprotocol::DiagnosticFormat::Json);
+    } catch (...) { } // Observation must never change the rejection result.
+}
+
 
 SAFEARRAY* MakeIntArray(const std::vector<int>& values) {
     if (values.empty()) return nullptr;
@@ -43,7 +64,6 @@ SAFEARRAY* MakeUnknownArray(std::vector<IRawElementProviderSimple*> items) {
     if (array == nullptr) return nullptr;
     for (LONG i = 0; i < static_cast<LONG>(items.size()); ++i) {
         if (items[static_cast<size_t>(i)] != nullptr) {
-            items[static_cast<size_t>(i)]->AddRef();
             (void)SafeArrayPutElement(array, &i, items[static_cast<size_t>(i)]);
         }
     }
@@ -150,7 +170,7 @@ size_t IndexOfResultProvider(SearchUiaProvider* owner, int column,
     // as this provider's concrete C++ object.
     std::vector<int> values;
     if (!ReadRuntimeId(startAfter, values) || values.size() < 4 ||
-        values[0] != kUiaNsSearch || values[1] != 1) {
+        owner == nullptr || values[0] != owner->RuntimeNamespace() || values[1] != 1) {
         return SIZE_MAX;
     }
     const uint64_t idHash = RuntimeIdPair(values, 2);
@@ -158,7 +178,7 @@ size_t IndexOfResultProvider(SearchUiaProvider* owner, int column,
     const size_t count = owner->Surface()->UiaSearchResultCount();
     for (size_t index = 0; index < count; ++index) {
         const UiaSearchResultInfo info = owner->Surface()->UiaSearchResultInfoOf(index);
-        if (UiaSearchIdentityHash(info.volumeId, info.id, info.folder, info.name) == idHash) {
+        if (SemanticListItemIdentity(info) == idHash) {
             return index;
         }
     }
@@ -171,8 +191,9 @@ size_t IndexOfResultProvider(SearchUiaProvider* owner, int column,
 // SearchUiaProvider
 // ---------------------------------------------------------------------------
 
-SearchUiaProvider::SearchUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND listHwnd)
-    : UiaProviderBase(std::move(state)), surface_(surface), listHwnd_(listHwnd) {
+SearchUiaProvider::SearchUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND listHwnd,
+                                     SemanticListIdentity identity)
+    : UiaProviderBase(std::move(state)), surface_(surface), listHwnd_(listHwnd), identity_(std::move(identity)) {
     // Lazy-init the HWND host in get_HostRawElementProvider. Construction
     // runs from WM_GETOBJECT; UiaHostProviderFromHwnd here re-enters the
     // subclass and overflows the stack.
@@ -223,10 +244,10 @@ STDMETHODIMP SearchUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT*
             UiaProviderBase::SetVariantInt(retVal, UIA_ListControlTypeId);
             return S_OK;
         case UIA_NamePropertyId:
-            UiaProviderBase::SetVariantString(retVal, L"Search Results");
+            UiaProviderBase::SetVariantString(retVal, identity_.name);
             return S_OK;
         case UIA_AutomationIdPropertyId:
-            UiaProviderBase::SetVariantString(retVal, L"Search.Results");
+            UiaProviderBase::SetVariantString(retVal, identity_.automationId);
             return S_OK;
         case UIA_IsKeyboardFocusablePropertyId:
             UiaProviderBase::SetVariantBool(retVal, true);
@@ -262,6 +283,12 @@ STDMETHODIMP SearchUiaProvider::Navigate(NavigateDirection direction, IRawElemen
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
     if (direction == NavigateDirection_FirstChild || direction == NavigateDirection_LastChild) {
         const size_t count = surface_->UiaSearchResultCount();
+        const size_t headerCount = surface_->UiaListHeaderCount();
+        if (headerCount > 0 && (count == 0 || direction == NavigateDirection_LastChild)) {
+            auto header = HeaderElement(direction == NavigateDirection_LastChild ? headerCount - 1 : 0);
+            if (header) *retVal = header.Detach();
+            return S_OK;
+        }
         if (count == 0) return S_OK;
         const size_t index = direction == NavigateDirection_FirstChild ? 0 : count - 1;
         auto result = ResultElement(index);
@@ -303,10 +330,7 @@ STDMETHODIMP SearchUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** retVal) noe
 
 STDMETHODIMP SearchUiaProvider::SetFocus() noexcept {
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
-    const HWND hwnd = surface_->UiaSearchHwnd();
-    if (hwnd != nullptr && IsWindow(hwnd)) {
-        ::SetFocus(hwnd);
-    }
+    surface_->UiaListSetFocus();
     return S_OK;
 }
 
@@ -331,23 +355,31 @@ STDMETHODIMP SearchUiaProvider::ElementProviderFromPoint(double x, double y,
     if (pt.x < client.left || pt.x >= client.right || pt.y < client.top || pt.y >= client.bottom) {
         return S_OK; // outside the list
     }
-    const size_t count = surface_->UiaSearchResultCount();
-    if (count == 0) return S_OK;
-    // Row height from the native list's own spacing metric (HIWORD is the
-    // vertical spacing; LOWORD is horizontal).
-    const LONG spacing = ListView_GetItemSpacing(hwnd, TRUE);
-    const LONG rowHeight = SearchRowHeightFromSpacing(spacing);
-    if (rowHeight <= 0) return S_OK;
-    const size_t row = static_cast<size_t>((pt.y - client.top) / rowHeight);
-    if (row >= count) return S_OK;
-    RECT itemRect{};
-    if (!ListView_GetItemRect(hwnd, static_cast<int>(row), &itemRect, LVIR_BOUNDS)) return S_OK;
-    if (pt.y < itemRect.top || pt.y >= itemRect.bottom) return S_OK;
-    auto result = ResultElement(row);
+    for (size_t index = 0; index < surface_->UiaListHeaderCount(); ++index) {
+        RECT headerRect{};
+        if (surface_->UiaListHeaderRect(index, headerRect) && x >= headerRect.left && x < headerRect.right &&
+            y >= headerRect.top && y < headerRect.bottom) {
+            auto header = HeaderElement(index);
+            if (header) *retVal = header.Detach();
+            return S_OK;
+        }
+    }
+    // Native hit-testing accounts for report headers and the live scroll
+    // offset; dividing by row height retargeted rows after vertical scroll.
+    LVHITTESTINFO hit{};
+    hit.pt = pt;
+    const int row = ListView_HitTest(hwnd, &hit);
+    if (row < 0 || static_cast<size_t>(row) >= surface_->UiaSearchResultCount()) return S_OK;
+    auto result = ResultElement(static_cast<size_t>(row));
     if (result != nullptr) {
         *retVal = result.Detach();
     }
     return S_OK;
+}
+
+Microsoft::WRL::ComPtr<ListHeaderUiaProvider> SearchUiaProvider::HeaderElement(size_t index) {
+    if (!Alive() || surface_ == nullptr || index >= surface_->UiaListHeaderCount()) return nullptr;
+    return Microsoft::WRL::ComPtr<ListHeaderUiaProvider>(new ListHeaderUiaProvider(this, index));
 }
 
 STDMETHODIMP SearchUiaProvider::GetFocus(IRawElementProviderFragment** retVal) noexcept {
@@ -379,12 +411,14 @@ STDMETHODIMP SearchUiaProvider::GetSelection(SAFEARRAY** retVal) noexcept {
     *retVal = nullptr;
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
     std::vector<IRawElementProviderSimple*> selected;
+    std::vector<Microsoft::WRL::ComPtr<SearchResultUiaProvider>> retained;
     const size_t count = surface_->UiaSearchResultCount();
     for (size_t index = 0; index < count; ++index) {
         if (surface_->UiaSearchResultInfoOf(index).selected) {
             const auto provider = ResultElement(index);
             if (provider != nullptr) {
                 selected.push_back(provider.Get());
+                retained.push_back(provider);
             }
         }
     }
@@ -432,11 +466,11 @@ Microsoft::WRL::ComPtr<SearchResultUiaProvider> SearchUiaProvider::ResultElement
     if (!Alive() || surface_ == nullptr) return nullptr;
     if (index >= surface_->UiaSearchResultCount()) return nullptr;
     const UiaSearchResultInfo info = surface_->UiaSearchResultInfoOf(index);
-    const uint64_t idHash = UiaSearchIdentityHash(info.volumeId, info.id, info.folder, info.name);
-    const uint64_t key = UiaCombineKey(static_cast<uint64_t>(kUiaNsSearch), idHash);
+    const uint64_t idHash = SemanticListItemIdentity(info);
+    const uint64_t key = UiaCombineKey(static_cast<uint64_t>(RuntimeNamespace()), idHash);
     std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     auto it = results_.find(key);
-    if (it != results_.end() && it->second != nullptr) {
+    if (it != results_.end() && it->second != nullptr && it->second->Index() == index) {
         return it->second;
     }
     if (cacheSize_ >= kMaxCachedResults) {
@@ -521,15 +555,20 @@ SearchResultUiaProvider::SearchResultUiaProvider(SearchUiaProvider* owner, size_
       owner_(owner), index_(index), idHash_(idHash) {}
 
 bool SearchResultUiaProvider::Resolve(UiaSearchResultInfo& info) const {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+        TraceResultRejection(L"owner-unavailable", index_, idHash_, 0, 0);
         return false;
     }
     UiaSurface* surface = owner_->Surface();
-    if (index_ >= surface->UiaSearchResultCount()) {
+    const size_t count = surface->UiaSearchResultCount();
+    if (index_ >= count) {
+        TraceResultRejection(L"outside-current-count", index_, idHash_, 0, count);
         return false;
     }
     info = surface->UiaSearchResultInfoOf(index_);
-    return UiaSearchIdentityHash(info.volumeId, info.id, info.folder, info.name) == idHash_;
+    const uint64_t actual = SemanticListItemIdentity(info);
+    if (actual != idHash_) TraceResultRejection(L"identity-mismatch", index_, idHash_, actual, count);
+    return actual == idHash_;
 }
 
 STDMETHODIMP SearchResultUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept {
@@ -565,6 +604,10 @@ STDMETHODIMP SearchResultUiaProvider::GetPropertyValue(PROPERTYID propertyId, VA
             UiaProviderBase::SetVariantString(retVal, info.displayFolder.empty() ? info.folder : info.displayFolder);
             return S_OK;
         case UIA_FullDescriptionPropertyId: {
+            if (!info.description.empty()) {
+                UiaProviderBase::SetVariantString(retVal, info.description);
+                return S_OK;
+            }
             std::wstring description = info.isDirectory ? L"Folder" : L"File";
             if (!info.isDirectory) {
                 description += L", " + UiaSearchSizeText(info.sizeBytes);
@@ -594,17 +637,17 @@ STDMETHODIMP SearchResultUiaProvider::GetPropertyValue(PROPERTYID propertyId, VA
             UiaProviderBase::SetVariantBool(retVal, true);
             return S_OK;
         case UIA_IsOffscreenPropertyId:
-            UiaProviderBase::SetVariantBool(retVal, owner_->Surface()->UiaSearchResultOffscreen(index_));
+            UiaProviderBase::SetVariantBool(retVal, owner_->Surface()->UiaListResultOffscreen(index_, idHash_));
             return S_OK;
         case UIA_BoundingRectanglePropertyId: {
             RECT rect{};
-            if (owner_->Surface()->UiaSearchResultRect(index_, rect)) {
+            if (owner_->Surface()->UiaListResultRect(index_, idHash_, rect)) {
                 SetVariantRect(retVal, rect);
             }
             return S_OK;
         }
         case UIA_RuntimeIdPropertyId:
-            UiaProviderBase::SetVariantRuntimeId(retVal, UiaSearchResultRuntimeId(idHash_));
+            UiaProviderBase::SetVariantRuntimeId(retVal, owner_->ItemRuntimeId(idHash_));
             return S_OK;
         default:
             return S_OK;
@@ -630,6 +673,9 @@ STDMETHODIMP SearchResultUiaProvider::Navigate(NavigateDirection direction, IRaw
             auto next = owner_->ResultElement(index_ + 1);
             if (next != nullptr) {
                 *retVal = next.Detach();
+            } else {
+                auto header = owner_->HeaderElement(0);
+                if (header) *retVal = header.Detach();
             }
             return S_OK;
         }
@@ -654,7 +700,7 @@ STDMETHODIMP SearchResultUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept 
     if (!Resolve(info)) {
         return kElementNotAvailable;
     }
-    *retVal = MakeIntArray(UiaSearchResultRuntimeId(idHash_));
+    *retVal = MakeIntArray(owner_->ItemRuntimeId(idHash_));
     return S_OK;
 }
 
@@ -665,7 +711,7 @@ STDMETHODIMP SearchResultUiaProvider::get_BoundingRectangle(UiaRect* retVal) noe
         return kElementNotAvailable;
     }
     RECT rect{};
-    if (!owner_->Surface()->UiaSearchResultRect(index_, rect)) {
+    if (!owner_->Surface()->UiaListResultRect(index_, idHash_, rect)) {
         return kElementNotAvailable;
     }
     retVal->left = static_cast<double>(rect.left);
@@ -686,14 +732,14 @@ STDMETHODIMP SearchResultUiaProvider::SetFocus() noexcept {
     if (!Resolve(info)) {
         return kElementNotAvailable;
     }
-    owner_->Surface()->UiaSearchSetFocusItem(index_);
+    if (!owner_->Surface()->UiaListDispatchAction(index_, idHash_, 2)) return kElementNotAvailable;
     return S_OK;
 }
 
 STDMETHODIMP SearchResultUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
@@ -702,7 +748,10 @@ STDMETHODIMP SearchResultUiaProvider::Select() noexcept {
     if (!Resolve(info)) {
         return kElementNotAvailable;
     }
-    owner_->Surface()->UiaSearchSelectItem(index_);
+    if (!owner_->Surface()->UiaListDispatchAction(index_, idHash_, 0)) {
+        TraceResultRejection(L"select-dispatch", index_, idHash_, 0, 0);
+        return kElementNotAvailable;
+    }
     return S_OK;
 }
 
@@ -712,7 +761,7 @@ STDMETHODIMP SearchResultUiaProvider::AddToSelection() noexcept {
         return kElementNotAvailable;
     }
     if (!info.selected) {
-        owner_->Surface()->UiaSearchSelectItem(index_);
+        if (!owner_->Surface()->UiaListDispatchAction(index_, idHash_, 0)) return kElementNotAvailable;
     }
     return S_OK;
 }
@@ -723,7 +772,7 @@ STDMETHODIMP SearchResultUiaProvider::RemoveFromSelection() noexcept {
         return kElementNotAvailable;
     }
     if (info.selected) {
-        owner_->Surface()->UiaSearchRemoveFromSelection(index_);
+        if (!owner_->Surface()->UiaListDispatchAction(index_, idHash_, 1)) return kElementNotAvailable;
     }
     return S_OK;
 }
@@ -742,7 +791,7 @@ STDMETHODIMP SearchResultUiaProvider::get_IsSelected(BOOL* retVal) noexcept {
 STDMETHODIMP SearchResultUiaProvider::get_SelectionContainer(IRawElementProviderSimple** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderSimple, reinterpret_cast<void**>(retVal));
 }
 
@@ -751,7 +800,7 @@ STDMETHODIMP SearchResultUiaProvider::Invoke() noexcept {
     if (!Resolve(info)) {
         return kElementNotAvailable;
     }
-    owner_->Surface()->UiaSearchActivateItem(index_);
+    if (!owner_->Surface()->UiaListDispatchAction(index_, idHash_, 4)) return kElementNotAvailable;
     UiaProviderBase::RaiseInvoked(this);
     return S_OK;
 }
@@ -761,8 +810,124 @@ STDMETHODIMP SearchResultUiaProvider::ScrollIntoView() noexcept {
     if (!Resolve(info)) {
         return kElementNotAvailable;
     }
-    owner_->Surface()->UiaSearchScrollIntoView(index_);
+    if (!owner_->Surface()->UiaListDispatchAction(index_, idHash_, 3)) return kElementNotAvailable;
     return S_OK;
 }
 
+// Optional semantic report-list headers share the native list's sort path.
+ListHeaderUiaProvider::ListHeaderUiaProvider(SearchUiaProvider* owner, size_t index)
+    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr), owner_(owner), index_(index) {
+    if (owner_) {
+        owner_->AddRef();
+        identity_ = owner_->Surface()->UiaListHeaderIdentity(index_);
+    }
+}
+
+ListHeaderUiaProvider::~ListHeaderUiaProvider() {
+    if (owner_) owner_->Release();
+}
+
+bool ListHeaderUiaProvider::Available() const {
+    return Alive() && owner_ != nullptr && owner_->SurfaceAlive() && owner_->Surface() != nullptr &&
+           owner_->Surface()->UiaSearchVisible() && index_ < owner_->Surface()->UiaListHeaderCount() &&
+           identity_ == owner_->Surface()->UiaListHeaderIdentity(index_);
+}
+
+STDMETHODIMP ListHeaderUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept {
+    if (!retVal) return E_POINTER;
+    *retVal = nullptr;
+    if (!Available()) return kElementNotAvailable;
+    return patternId == UIA_InvokePatternId
+        ? QueryInterface(IID_IInvokeProvider, reinterpret_cast<void**>(retVal)) : S_OK;
+}
+
+STDMETHODIMP ListHeaderUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept {
+    if (!retVal) return E_POINTER;
+    VariantInit(retVal);
+    if (!Available()) return kElementNotAvailable;
+    switch (propertyId) {
+    case UIA_ControlTypePropertyId: SetVariantInt(retVal, UIA_HeaderItemControlTypeId); break;
+    case UIA_NamePropertyId: SetVariantString(retVal, owner_->Surface()->UiaListHeaderName(index_)); break;
+    case UIA_IsControlElementPropertyId:
+    case UIA_IsContentElementPropertyId:
+    case UIA_IsEnabledPropertyId: SetVariantBool(retVal, true); break;
+    case UIA_IsKeyboardFocusablePropertyId: SetVariantBool(retVal, false); break;
+    case UIA_IsOffscreenPropertyId: {
+        RECT rect{};
+        SetVariantBool(retVal, !owner_->Surface()->UiaListHeaderRect(index_, rect) ||
+                       rect.right <= rect.left || rect.bottom <= rect.top);
+        break;
+    }
+    case UIA_BoundingRectanglePropertyId: {
+        RECT rect{};
+        if (owner_->Surface()->UiaListHeaderRect(index_, rect)) SetVariantRect(retVal, rect);
+        break;
+    }
+    default: break;
+    }
+    return S_OK;
+}
+
+STDMETHODIMP ListHeaderUiaProvider::Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept {
+    if (!retVal) return E_POINTER;
+    *retVal = nullptr;
+    if (!Available()) return kElementNotAvailable;
+    if (direction == NavigateDirection_Parent) return owner_->QueryInterface(IID_PPV_ARGS(retVal));
+    if (direction == NavigateDirection_NextSibling) {
+        auto next = owner_->HeaderElement(index_ + 1);
+        if (next) *retVal = next.Detach();
+    } else if (direction == NavigateDirection_PreviousSibling) {
+        if (index_ > 0) {
+            auto previous = owner_->HeaderElement(index_ - 1);
+            if (previous) *retVal = previous.Detach();
+        } else {
+            const auto count = owner_->Surface()->UiaSearchResultCount();
+            if (count > 0) {
+                auto previous = owner_->ResultElement(count - 1);
+                if (previous) *retVal = previous.Detach();
+            }
+        }
+    }
+    return S_OK;
+}
+
+STDMETHODIMP ListHeaderUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept {
+    if (!retVal) return E_POINTER;
+    *retVal = nullptr;
+    if (!Available()) return kElementNotAvailable;
+    *retVal = MakeIntArray({owner_->RuntimeNamespace(), 2, static_cast<int>(index_),
+                           UiaHashLow(identity_), UiaHashHigh(identity_)});
+    return S_OK;
+}
+
+STDMETHODIMP ListHeaderUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
+    if (!retVal) return E_POINTER;
+    if (!Available()) return kElementNotAvailable;
+    RECT rect{};
+    if (!owner_->Surface()->UiaListHeaderRect(index_, rect)) return kElementNotAvailable;
+    *retVal = {static_cast<double>(rect.left), static_cast<double>(rect.top),
+               static_cast<double>(rect.right - rect.left), static_cast<double>(rect.bottom - rect.top)};
+    return S_OK;
+}
+
+STDMETHODIMP ListHeaderUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** retVal) noexcept {
+    if (!retVal) return E_POINTER;
+    *retVal = nullptr;
+    return S_OK;
+}
+
+STDMETHODIMP ListHeaderUiaProvider::SetFocus() noexcept { return Available() ? S_OK : kElementNotAvailable; }
+
+STDMETHODIMP ListHeaderUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
+    if (!retVal) return E_POINTER;
+    *retVal = nullptr;
+    if (!Available()) return kElementNotAvailable;
+    return owner_->QueryInterface(IID_PPV_ARGS(retVal));
+}
+
+STDMETHODIMP ListHeaderUiaProvider::Invoke() noexcept {
+    if (!Available()) return kElementNotAvailable;
+    if (!owner_->Surface()->UiaListDispatchHeader(index_, identity_)) return kElementNotAvailable;
+    return S_OK;
+}
 } // namespace ffui

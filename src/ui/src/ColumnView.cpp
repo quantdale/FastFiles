@@ -366,21 +366,20 @@ void ColumnView::SelectRange(Column& column, int itemIndex) {
     ApplySelectionClick(column.selectedIndices, column.selectionAnchor, column.focusIndex, itemIndex, false, true);
 }
 
-void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool shift) {
-    const int pane = activePane_;
+bool ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool shift,
+                              const UiaBrowseActionRequest* expected) {
+    const int pane = expected ? expected->pane : activePane_;
     UiaSelectionSnapshot before;
-    {
-        std::lock_guard<std::mutex> lock(columnsMutex_);
-        before = CaptureUiaSelectionLocked(pane, columnIndex);
-    }
     std::wstring childPath;
     bool isDirectory = false;
     bool clearedEmptyArea = false;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        auto& columns = ActiveColumns();
+        if (expected && !MatchesUiaBrowseTargetLocked(*expected)) return false;
+        before = CaptureUiaSelectionLocked(pane, columnIndex);
+        auto& columns = pane == 0 ? columns_ : columns2_;
         if (columnIndex < 0 || columnIndex >= static_cast<int>(columns.size())) {
-            return;
+            return false;
         }
         Column& column = columns[columnIndex];
         if (itemIndex < 0 || itemIndex >= static_cast<int>(column.items.size())) {
@@ -394,7 +393,7 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
                 column.focusIndex = -1;
                 clearedEmptyArea = true;
             }
-            return;
+            return false;
         }
         if (shift) {
             SelectRange(column, itemIndex);
@@ -407,11 +406,13 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
         childPath = JoinPath(column.path, column.items[itemIndex].name);
     }
 
+    if (pane != activePane_) ActivatePane(pane);
+
     // selection-input-hardening: empty-area clear fires the same selection
     // transition diff as a normal click.
     if (clearedEmptyArea) {
         NotifyUiaSelectionTransition(before, pane);
-        return;
+        return true;
     }
 
     if (control || shift) {
@@ -420,7 +421,7 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
             ActiveFocusedColumnIndex() = columnIndex;
         }
         NotifyUiaSelectionTransition(before, pane);
-        return;
+        return true;
     }
 
     TruncateAfter(columnIndex);
@@ -435,6 +436,7 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
         RequestColumn(columnIndex + 1, childPath);
     }
     NotifyUiaSelectionTransition(before, pane);
+    return true;
 }
 
 void ColumnView::OnKeyDown(int virtualKey) {
@@ -1566,7 +1568,7 @@ void ColumnView::SetDarkTheme(bool dark) {
         // ui-v3 column-view: shared-painter caches re-resolve on next paint.
         textTertiaryBrush_.Reset(); focusedColumnFillBrush_.Reset();
         rowBrushes_.Reset(); stateBrushes_.Reset();
-        textFormat_.Reset(); badgeTextFormat_.Reset(); glyphFormat_.Reset();
+        textFormat_.Reset(); badgeTextFormat_.Reset(); badgeLineLayout_.Reset(); glyphFormat_.Reset();
     }
 }
 
@@ -1721,6 +1723,10 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
 }
 
 void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset, float scrollOffset2) {
+    if (!BrowseContentActive()) {
+        context->Clear(ffui::GetUiTheme(darkTheme_).background);
+        return;
+    }
     EnsureCreated(context, dwriteFactory);
 
     // quick-access-home 4.x: remember the viewport so input handlers (which
@@ -1739,10 +1745,11 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     // permanent full-width amber band over the file content.
     const EngineStatusPresentation statusPresentation =
         GetEngineStatusPresentation(engineState_.load(), privilegedPathActive_.load());
-    const std::wstring statusText = statusPresentation.text;
+    const std::wstring statusText = statusPresentation.compactText;
     if (badgeMeasureText_ != statusText) {
         badgeMeasureText_ = statusText;
         badgeTextWidth_ = 0.0f;
+        badgeLineLayout_.Reset();
         Microsoft::WRL::ComPtr<IDWriteTextLayout> measureLayout;
         if (badgeTextFormat_ != nullptr &&
             SUCCEEDED(dwriteFactory->CreateTextLayout(statusText.c_str(),
@@ -1772,9 +1779,17 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     ffui::UiFillRoundedRect(context, badgeRect, badgeBrush, ffui::UiMetrics::kRadiusSmall);
     D2D1_RECT_F badgeTextRect = D2D1::RectF(badgeRect.left + 10.0f, 4.0f,
                                             badgeRect.right - 10.0f, kBadgeHeight - 4.0f);
-    context->DrawText(statusText.c_str(), static_cast<UINT32>(statusText.size()),
-                      badgeTextFormat_.Get(), badgeTextRect,
-                      badgeTextBrush);
+    const float badgeLineWidth = badgeTextRect.right - badgeTextRect.left;
+    if (badgeLineLayout_ == nullptr || badgeLineWidth_ != badgeLineWidth) {
+        UiCreateSingleLineTextLayout(dwriteFactory, badgeTextFormat_.Get(), statusText.c_str(),
+            static_cast<UINT32>(statusText.size()), badgeLineWidth, badgeTextRect.bottom - badgeTextRect.top,
+            &badgeLineLayout_);
+        badgeLineWidth_ = badgeLineWidth;
+    }
+    if (badgeLineLayout_) {
+        context->DrawTextLayout(D2D1::Point2F(badgeTextRect.left, badgeTextRect.top),
+            badgeLineLayout_.Get(), badgeTextBrush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
 
     // High Contrast: drive every selection through the system highlight
     // (UiEnsureSolidBrush compares colors and reuses the cached brush) and
@@ -1804,6 +1819,11 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
 
     auto RenderPane = [&](const std::vector<Column>& columns, float paneX, float paneWidth, float paneScroll,
                           float verticalScrollOffset, bool isActivePane, int focusedColumnIndex) {
+        // column-uia-identity-dispatch: a partially visible column belongs
+        // only to its own pane, including its background and focus ring.
+        context->PushAxisAlignedClip(D2D1::RectF(paneX, kBadgeHeight,
+            paneX + (std::max)(0.0f, paneWidth), (std::max)(kBadgeHeight, viewportSize.height)),
+            D2D1_ANTIALIAS_MODE_ALIASED);
         // ui-v3 column-view: one density read per pane paint drives row height
         // and icon size so every column shares identical baselines.
         const float rowHeight = BrowseRowHeight();
@@ -2009,6 +2029,7 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 }
             }
         }
+        context->PopAxisAlignedClip();
     };
 
     // ui-v3 home: Home rows reuse `DrawRowLabel` above -- the bounded painter
@@ -2363,6 +2384,24 @@ void ColumnView::SetDualPane(bool enabled) {
     // boundary.
     NotifyUia({enabled ? UiaEventKind::StructureBulkAdded : UiaEventKind::StructureBulkRemoved,
                -1, -1, -1, -1, -1, /*home=*/false, /*group=*/true});
+}
+
+void ColumnView::SetBrowseContentActive(bool active) {
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        if (browseContentActive_ == active) return;
+        browseContentActive_ = active;
+    }
+    // original-vision-journey-recovery: a tool replaces the complete Browse
+    // presentation. Retire its fragment, including client-held Home items,
+    // and mint a fresh fragment when Browse is presented again.
+    NotifyUia({active ? UiaEventKind::StructureBulkAdded : UiaEventKind::StructureBulkRemoved,
+               -1, -1, -1, -1, -1, /*home=*/false, /*group=*/true});
+}
+
+bool ColumnView::BrowseContentActive() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    return browseContentActive_;
 }
 
 void ColumnView::ActivatePane(int paneIndex) {
@@ -2857,6 +2896,21 @@ void ColumnView::UiaSetHorizontalScroll(int pane, float offsetDip) {
     }
 }
 
+void ColumnView::ScrollUiaItemIntoViewLocked(int pane, Column& column, int row) {
+    // Same clamp math as EnsureFocusedItemVisible, without touching focus
+    // (including the same status-banner inset).
+    const float visibleHeight =
+        (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight - ColumnContentTopInset(column.freshness.state));
+    const float top = static_cast<float>(row) * BrowseRowHeight();
+    const float bottom = top + BrowseRowHeight();
+    float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    if (top < offset) offset = top;
+    else if (bottom > offset + visibleHeight) offset = bottom - visibleHeight;
+    const float maximum = (std::max)(0.0f,
+        static_cast<float>(column.items.size()) * BrowseRowHeight() - visibleHeight);
+    offset = std::clamp(offset, 0.0f, maximum);
+}
+
 void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
     bool scrolled = false;
     {
@@ -2866,18 +2920,7 @@ void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
         if (col < 0 || col >= static_cast<int>(columns.size())) return;
         Column& column = columns[static_cast<size_t>(col)];
         if (row < 0 || row >= static_cast<int>(column.items.size())) return;
-        // Same clamp math as EnsureFocusedItemVisible, without touching focus
-        // (including the same status-banner inset).
-        const float visibleHeight =
-            (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight - ColumnContentTopInset(column.freshness.state));
-        const float top = static_cast<float>(row) * BrowseRowHeight();
-        const float bottom = top + BrowseRowHeight();
-        float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
-        if (top < offset) offset = top;
-        else if (bottom > offset + visibleHeight) offset = bottom - visibleHeight;
-        const float maximum = (std::max)(0.0f,
-            static_cast<float>(column.items.size()) * BrowseRowHeight() - visibleHeight);
-        offset = std::clamp(offset, 0.0f, maximum);
+        ScrollUiaItemIntoViewLocked(pane, column, row);
         scrolled = true;
     }
     // Providers query the vertical offset live (UiaVerticalScroll), but the
@@ -2891,6 +2934,138 @@ void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
 void ColumnView::UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) {
     if (pane != 0 && pane != 1) return;
     ActivateHomeItem(pane, globalIndex, openInNewTab);
+}
+
+bool ColumnView::MatchesUiaBrowseTargetLocked(const UiaBrowseActionRequest& request) const {
+    if (!request.ownerLifetime || !request.ownerLifetime->alive ||
+        !request.fragmentLifetime || !request.fragmentLifetime->alive || !browseContentActive_ ||
+        request.pane < 0 || request.pane >= (dualPane_ ? 2 : 1) || homePane_[static_cast<size_t>(request.pane)]) return false;
+    const auto& columns = request.pane == 0 ? columns_ : columns2_;
+    if (request.column < 0 || request.column >= static_cast<int>(columns.size())) return false;
+    const auto& column = columns[static_cast<size_t>(request.column)];
+    if (UiaHashWide(column.path) != request.pathHash) return false;
+    if (request.kind == UiaBrowseActionKind::FocusColumn) return true;
+    if (request.row < 0 || request.row >= static_cast<int>(column.items.size())) return false;
+    const auto& item = column.items[static_cast<size_t>(request.row)];
+    return UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh,
+                               JoinPath(column.path, item.name)) == request.itemHash;
+}
+
+bool ColumnView::UiaDispatchBrowseAction(const UiaBrowseActionRequest& request) {
+    const HWND owner = UiaGeometry().hwnd;
+    if (owner == nullptr || !IsWindow(owner)) return false;
+    const DWORD thread = GetWindowThreadProcessId(owner, nullptr);
+    if (thread == 0) return false;
+    // Route even same-thread callers through the shell's canonical post-action
+    // reconciliation. No model lock is held across this synchronous dispatch.
+    return SendMessageW(owner, WM_APP_COLUMNVIEW_BROWSE_ACTION, 0,
+                        reinterpret_cast<LPARAM>(&request)) != 0;
+}
+
+bool ColumnView::HandleUiaBrowseAction(const UiaBrowseActionRequest& request) {
+    const HWND owner = UiaGeometry().hwnd;
+    if (owner == nullptr || GetWindowThreadProcessId(owner, nullptr) != GetCurrentThreadId() ||
+        uiaProvider_ == nullptr || request.ownerLifetime != uiaState_ || !uiaState_->alive) return false;
+    const auto* provider = static_cast<ColumnViewUiaProvider*>(uiaProvider_.Get());
+    if (request.kind == UiaBrowseActionKind::FocusRoot) {
+        if (request.fragmentLifetime && (request.fragmentLifetime != provider->FragmentState() ||
+            !request.fragmentLifetime->alive || !UiaBrowseContentActive())) return false;
+        ::SetFocus(owner);
+        return GetFocus() == owner;
+    }
+    if (request.fragmentLifetime != provider->FragmentState()) return false;
+    if (request.kind == UiaBrowseActionKind::FocusPane) {
+        {
+            std::lock_guard<std::mutex> lock(columnsMutex_);
+            if (!request.fragmentLifetime || !request.fragmentLifetime->alive || !browseContentActive_ ||
+                request.pane < 0 || request.pane >= (dualPane_ ? 2 : 1)) return false;
+        }
+        ActivatePane(request.pane);
+        ::SetFocus(owner);
+        return GetFocus() == owner;
+    }
+    if (request.kind == UiaBrowseActionKind::Invoke) {
+        return ActivateItem(request.column, request.row, false, false, &request);
+    }
+    UiaSelectionSnapshot before;
+    bool notifySelection = false;
+    bool notifyFocus = false;
+    bool scrolled = false;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        if (!MatchesUiaBrowseTargetLocked(request)) return false;
+        auto& column = (request.pane == 0 ? columns_ : columns2_)[static_cast<size_t>(request.column)];
+        int& focus = request.pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+        before = CaptureUiaSelectionLocked(request.pane, request.column);
+        switch (request.kind) {
+        case UiaBrowseActionKind::Select:
+            SelectSingle(column, request.row);
+            focus = request.column;
+            notifySelection = true;
+            break;
+        case UiaBrowseActionKind::AddSelection:
+        case UiaBrowseActionKind::RemoveSelection: {
+            const bool selected = column.selectedIndices.contains(request.row);
+            const bool wanted = request.kind == UiaBrowseActionKind::AddSelection;
+            if (selected != wanted) {
+                ToggleSelection(column, request.row);
+                focus = request.column;
+                notifySelection = true;
+            }
+            break;
+        }
+        case UiaBrowseActionKind::FocusColumn:
+            notifyFocus = focus != request.column;
+            focus = request.column;
+            break;
+        case UiaBrowseActionKind::FocusItem:
+            notifyFocus = focus != request.column || column.focusIndex != request.row;
+            focus = request.column;
+            column.focusIndex = request.row;
+            break;
+        case UiaBrowseActionKind::ScrollItem: {
+            ScrollUiaItemIntoViewLocked(request.pane, column, request.row);
+            scrolled = true;
+            break;
+        }
+        default: return false;
+        }
+    }
+    if (notifySelection) {
+        ActivatePane(request.pane);
+        NotifyUiaSelectionTransition(before, request.pane);
+    }
+    if (request.kind == UiaBrowseActionKind::FocusItem || request.kind == UiaBrowseActionKind::FocusColumn) {
+        ActivatePane(request.pane);
+        ::SetFocus(owner);
+        if (notifyFocus) NotifyUiaFocus();
+        return GetFocus() == owner;
+    }
+    if (scrolled && repaint_) repaint_();
+    return true;
+}
+
+bool ColumnView::UiaDispatchHomeAction(const UiaHomeActionRequest& request) {
+    const HWND owner = UiaGeometry().hwnd;
+    if (owner == nullptr || !IsWindow(owner)) return false;
+    const DWORD ownerThread = GetWindowThreadProcessId(owner, nullptr);
+    if (ownerThread == 0) return false;
+    if (ownerThread == GetCurrentThreadId()) return HandleUiaHomeAction(request);
+    // Synchronous dispatch keeps this closed-data request alive until the
+    // owner has validated it. Never execute shell callbacks on failure.
+    return SendMessageW(owner, WM_APP_COLUMNVIEW_HOME_ACTION, 0,
+                        reinterpret_cast<LPARAM>(&request)) != 0;
+}
+
+bool ColumnView::HandleUiaHomeAction(const UiaHomeActionRequest& request) {
+    const HWND owner = UiaGeometry().hwnd;
+    if (owner == nullptr || GetWindowThreadProcessId(owner, nullptr) != GetCurrentThreadId() ||
+        uiaProvider_ == nullptr || request.ownerLifetime != uiaState_) return false;
+    const auto* provider = static_cast<ColumnViewUiaProvider*>(uiaProvider_.Get());
+    if (request.fragmentLifetime != provider->FragmentState()) return false;
+    // Validation and the canonical activation now share the UI thread. A
+    // changed item, retired fragment, or hidden workspace cannot retarget.
+    return UiaSurface::UiaDispatchHomeAction(request);
 }
 
 void ColumnView::UiaActivateHomeClear(int pane, int clearKind) {

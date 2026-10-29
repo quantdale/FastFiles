@@ -70,12 +70,25 @@ inline void ResolveDegradedTreemapTotals(TreemapNode& node, const SnapshotAggreg
         return;
     }
     node.totalSizeBytes = aggregate.totalSizeBytes;
+    node.aggregateLeaf = true;
     node.totalAllocatedSizeBytes = aggregate.totalAllocatedSizeBytes;
     node.allocatedKnownCount = aggregate.allocatedBytesKnownCount;
     node.allocatedTotalCount = aggregate.allocatedBytesTotalCount;
     node.calculating = false;
     node.aggregateResolved = aggregate.complete;
     node.aggregateFailed = !aggregate.complete;
+    node.allocatedAggregateIncomplete = !aggregate.allocatedComplete;
+}
+
+inline std::wstring TreemapLogicalSizeText(const TreemapNode& node) {
+    if (!node.isDirectory && !node.synthetic) return TreemapFormatSize(node.sizeBytes);
+    if (node.calculating) {
+        return node.totalSizeBytes > 0 ? L"At least " + TreemapFormatSize(node.totalSizeBytes) + L" (Calculating…)" : L"Calculating…";
+    }
+    if (node.aggregateFailed) {
+        return node.totalSizeBytes > 0 ? L"At least " + TreemapFormatSize(node.totalSizeBytes) + L" · Partial" : L"Partial";
+    }
+    return TreemapFormatSize(node.totalSizeBytes);
 }
 
 // A degraded subtree with no known bytes is terminal, not pending: there is
@@ -203,11 +216,12 @@ inline TreemapUiaItemInfo BuildTreemapItemMetadata(const TreemapNode& node,
         info.allocatedSizeBytes = node.totalAllocatedSizeBytes;
         info.allocatedKnownCount = node.allocatedKnownCount;
         info.allocatedTotalCount = node.allocatedTotalCount;
-        info.allocatedSizeKnown = node.allocatedTotalCount > 0 &&
+        info.allocatedSizeKnown = !node.calculating && !node.aggregateFailed && !node.allocatedAggregateIncomplete && node.allocatedTotalCount > 0 &&
                                   node.allocatedKnownCount == node.allocatedTotalCount;
         info.allocatedPartial = node.allocatedTotalCount > 0 &&
                                 node.allocatedKnownCount > 0 &&
-                                node.allocatedKnownCount < node.allocatedTotalCount;
+                                (node.allocatedKnownCount < node.allocatedTotalCount || node.calculating ||
+                                 node.aggregateFailed || node.allocatedAggregateIncomplete);
     } else {
         info.allocatedSizeBytes = node.allocatedSizeBytes;
         info.allocatedSizeKnown = node.allocatedSizeKnown;
@@ -231,32 +245,27 @@ inline TreemapUiaItemInfo BuildTreemapItemMetadata(const TreemapNode& node,
     }
 
     // --- shared text lines ---
-    const std::wstring sizeLine = [&]() -> std::wstring {
-        if (!aggregate) return L"Size: " + TreemapFormatSize(node.sizeBytes);
-        if (node.calculating) {
-            return node.totalSizeBytes > 0
-                       ? L"Size: ≥ " + TreemapFormatSize(node.totalSizeBytes) + L" (Calculating…)"
-                       : L"Size: Calculating…";
-        }
-        if (node.aggregateFailed) return L"Size: Partial";
-        return L"Size: " + TreemapFormatSize(node.totalSizeBytes);
-    }();
+    const std::wstring sizeLine = L"Size: " + TreemapLogicalSizeText(node);
 
     const bool divergenceCandidate = info.logicalSizeKnown && info.allocatedSizeKnown;
     std::wstring diskLine;
     if (aggregate) {
         if (node.calculating && node.allocatedTotalCount == 0) {
             diskLine = L"Size on disk: Calculating…";
+        } else if ((node.aggregateFailed || node.allocatedAggregateIncomplete) && node.allocatedKnownCount == 0) {
+            diskLine = L"Size on disk: Unknown";
         } else if (node.allocatedTotalCount == 0) {
             diskLine = L"Size on disk: 0 B"; // exactly zero: empty subtree
-        } else if (node.allocatedKnownCount == node.allocatedTotalCount) {
+        } else if (info.allocatedSizeKnown) {
             diskLine = L"Size on disk: " + TreemapFormatSize(node.totalAllocatedSizeBytes);
         } else if (node.allocatedKnownCount == 0) {
             diskLine = L"Size on disk: Unknown";
         } else {
             diskLine = L"Size on disk: ≥ " + TreemapFormatSize(node.totalAllocatedSizeBytes) +
                        L" (" + std::to_wstring(node.allocatedKnownCount) + L"/" +
-                       std::to_wstring(node.allocatedTotalCount) + L")";
+                       std::to_wstring(node.allocatedTotalCount) +
+                       (node.calculating ? L", Calculating…)" :
+                        (node.aggregateFailed || node.allocatedAggregateIncomplete ? L", Partial)" : L")"));
         }
     } else {
         diskLine = node.allocatedSizeKnown

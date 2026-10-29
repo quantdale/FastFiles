@@ -75,8 +75,8 @@ void TestModeMatrix() {
               !ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::List) &&
               !ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::OverviewList) &&
               !ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::CategoryFilter) &&
-              !ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::Status),
-          "Treemap owns the Direct2D surface and hides other mode-owned surfaces");
+              ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::Status),
+          "Treemap owns its canvas and retains explicit shared coverage feedback");
 }
 
 void TestTransitions() {
@@ -126,12 +126,17 @@ void TestIdempotence() {
 }
 
 void TestStatusText() {
+    Check(std::wstring(ffui::StorageTreemapStatusText()).find(L"coverage may be partial") != std::wstring::npos,
+          "Treemap coverage remains visible without hover or assumed completeness");
     Check(ffui::StorageOverviewStatusText(2, true) == L"2 fixed volumes",
           "indexed overview status reports the volume count");
     Check(ffui::StorageOverviewStatusText(2, false).find(L"degraded mode") != std::wstring::npos,
           "degraded overview status identifies OS-only capacity and partial coverage");
-    Check(ffui::StorageItemsStatusText(7, true) == L"7 items",
-          "indexed list status reports the item count");
+    Check(ffui::StorageItemsStatusText(7, true) == L"7 items in this folder",
+          "storage ranking identifies its immediate-folder scope");
+    Check(std::wstring(ffui::StorageCoverageText(true)).find(L"completeness unverified") != std::wstring::npos &&
+          std::wstring(ffui::StorageCoverageText(false)).find(L"unverified") != std::wstring::npos,
+          "root availability never claims recursively complete volume coverage");
     Check(ffui::StorageItemsStatusText(7, false).find(L"degraded mode") != std::wstring::npos,
           "degraded list status identifies partial coverage");
     Check(std::wstring(ffui::StorageWaitingStatusText(false)).find(L"Degraded mode") == 0,
@@ -147,6 +152,14 @@ void TestStatusText() {
 } // namespace
 
 int main() {
+    Check(!ffui::StorageRowsAreFiles(ffui::StorageViewMode::ByCategory) &&
+          !ffui::StorageRowsAreFiles(ffui::StorageViewMode::Overview) &&
+          !ffui::StorageRowsAreFiles(ffui::StorageViewMode::Treemap),
+          "summary/overview/treemap do not reuse a hidden filesystem list selection");
+    Check(ffui::StorageRowsAreFiles(ffui::StorageViewMode::DrillDown) &&
+          ffui::StorageRowsAreFiles(ffui::StorageViewMode::LargestFiles) &&
+          ffui::StorageRowsAreFiles(ffui::StorageViewMode::LargestFolders),
+          "real storage listings preserve filesystem actions");
     TestModeMatrix();
     TestTransitions();
     TestResizeStability();

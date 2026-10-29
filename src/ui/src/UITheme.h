@@ -151,6 +151,13 @@ constexpr float kColumnWidth = 240.0f;
 constexpr float kRowHeight = 38.0f;
 constexpr float kBadgeHeight = 28.0f;
 constexpr float kControlHeight = 32.0f;
+// fit-native-command-palette-to-results: maximum envelope; sparse lists shrink
+// inside it while the query keeps the same anchor.
+constexpr float kPaletteWidth = 560.0f;
+constexpr float kPaletteMaxHeight = 360.0f;
+constexpr float kPaletteMargin = 20.0f;
+constexpr float kPaletteVerticalClearance = 80.0f;
+constexpr float kPaletteQueryExtraHeight = 6.0f;
 // Corner radii: small geometry keeps a desktop-tool character; pills are
 // reserved for semantically pill-shaped chips.
 constexpr float kRadiusSmall = 6.0f;

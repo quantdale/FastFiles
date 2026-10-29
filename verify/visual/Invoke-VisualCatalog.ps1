@@ -44,7 +44,7 @@ Import-Module (Join-Path $repo 'verify\core\Provenance.psm1') -Force -DisableNam
 $coreScenarioIds = @(
     'home-default', 'browse-column-view', 'browse-keyboard-focus', 'browse-empty-state',
     'home-wide', 'details-closed', 'dual-pane', 'home-from-command', 'fast-search-idle',
-    'search-filters-expanded', 'search-no-results', 'storage-overview', 'settings-general',
+    'search-filters-expanded', 'search-results', 'search-no-results', 'storage-overview', 'settings-general',
     'command-palette', 'home-narrow', 'home-dark'
 )
 $galleryScenarioIds = @('gallery-light', 'gallery-dark', 'gallery-narrow', 'gallery-wide')
@@ -396,7 +396,7 @@ function Invoke-CatalogCapture {
     param(
         $Run, $Driver, $Main, [int] $ProcessId,
         [string] $ScenarioId, [string] $ExpectedState, [string] $Theme, [int] $Width,
-        [string] $PaneMode, $Assertion, $CaptureElement
+        [string] $PaneMode, $Assertion, $CaptureElement, $RequiredVisibleElement
     )
     $element = if ($CaptureElement) { $CaptureElement } else { $Main }
     if ($PaneMode -eq 'dialog') {
@@ -412,6 +412,14 @@ function Invoke-CatalogCapture {
         }
     }
     $null = Wait-UiaStableGeometry -Driver $Driver -Element $element -TimeoutMs 4000
+    if ($RequiredVisibleElement) {
+        $requiredBounds = Get-UiaElementProperty -Driver $Driver -Element $RequiredVisibleElement -Name 'BoundingRectangle'
+        $requiredOffscreen = Get-UiaElementProperty -Driver $Driver -Element $RequiredVisibleElement -Name 'IsOffscreen'
+        if (-not $requiredBounds -or $requiredBounds.width -le 0 -or $requiredBounds.height -le 0 -or
+            $null -eq $requiredOffscreen -or [bool]$requiredOffscreen) {
+            $Assertion = [pscustomobject]@{ Pass = $false; Detail = 'Required surface disappeared during capture preparation' }
+        }
+    }
     $privacy = Get-CatalogRedactions -Driver $Driver -Main $Main -ProcessId $ProcessId
     if (-not $Assertion.Pass) {
         $null = Add-VisualScenarioResult -Run $Run -ScenarioId $ScenarioId -ExpectedState $ExpectedState `
@@ -426,12 +434,12 @@ function Invoke-CatalogCapture {
         # Never fabricate DPI: an unobserved value stays 0 so the scenario
         # guard records a truthful failure instead of a bogus 96-DPI PASS.
         $observedDpi = if ($shot.Bounds -and $shot.Bounds.Dpi) { [int]$shot.Bounds.Dpi } else { 0 }
-        $dpiCheck = Test-VisualDpiMatch -RequestedPercent 100 -ObservedDpi $observedDpi
-        if ($dpiCheck.Known -and -not $dpiCheck.Match) {
-            Write-CatalogLog ("DPI_MISMATCH: scenario '$ScenarioId' requested 100% (~$($dpiCheck.ExpectedDpi) DPI) but observed $($dpiCheck.ObservedDpi) DPI")
-        }
+        if ($observedDpi -le 0) { throw 'CATALOG_DPI_UNOBSERVED: capture has no measured window DPI' }
+        # This catalog observes the current desktop; it does not request an
+        # OS scale transition. Report the measured scale, never a 100% label.
+        $observedPercent = [int][Math]::Round($observedDpi * 100.0 / 96.0)
         $null = Add-VisualScenarioResult -Run $Run -ScenarioId $ScenarioId -ExpectedState $ExpectedState `
-            -FixtureId 'sandbox-home' -Theme $Theme -Width $Width -PaneMode $PaneMode -DpiScalePercent 100 -ObservedDpi $observedDpi `
+            -FixtureId 'sandbox-home' -Theme $Theme -Width $Width -PaneMode $PaneMode -DpiScalePercent $observedPercent -ObservedDpi $observedDpi `
             -Status 'PASS' -AssertionPass $true -AssertionEvidence $Assertion `
             -ScreenshotPath $shot.Path -ImageHash $shot.Hash -PrivacyRedactions $shot.PrivacyRedactions
     } catch {
@@ -612,66 +620,32 @@ try {
         -ScenarioId 'search-filters-expanded' -ExpectedState 'Fast Search with the Filters disclosure expanded' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' `
         -Assertion ([pscustomobject]@{ Pass = $filtersExpanded; Detail = "ExpandCollapse state='$filterState'" })
+    $resultQuery = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query 'readme'
+    $resultsReady = Wait-UiaCondition -Driver $driver -TimeoutMs 10000 -PollIntervalMs 200 `
+        -Description 'fixture readme search result' -ScriptBlock {
+            $names = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 600 |
+                ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' })
+            return $names -contains 'readme.txt'
+        }
+    Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
+        -ScenarioId 'search-results' -ExpectedState 'Actual filename, location and size/time context in virtual search results' `
+        -Theme 'Light' -Width 1280 -PaneMode 'single' `
+        -Assertion ([pscustomobject]@{ Pass = [bool]$resultQuery.Pass -and [bool]$resultsReady; Query = $resultQuery })
     # Query with no matching results to capture empty search state. The search
     # workspace must still be open here: the earlier ordering closed it first,
     # which made the query edit undiscoverable and skipped this scenario in
     # every catalog run.
-    $searchEdit = $null
-    try { $searchEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 2000 } catch { }
-    if ($searchEdit) {
-        $sentinel = 'zzzz_no_matching_files_query_9999'
-        $null = Set-UiaElementValue -Driver $driver -Element $searchEdit -Value $sentinel
-        $queryNow = $null
-        $queryReady = Wait-UiaCondition -Driver $driver -TimeoutMs 2000 -PollIntervalMs 200 -Description "search query='$sentinel'" -ScriptBlock {
-            try {
-                $liveEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 500
-                if (-not $liveEdit) { return $false }
-                $liveText = [string](Get-UiaElementTextValue -Driver $driver -Element $liveEdit)
-                $script:visualCatalogQueryNow = $liveText
-                return ($liveText -eq $sentinel)
-            } catch { return $false }
+    $sentinel = 'zzzz_no_matching_files_query_9999'
+    $noMatchQuery = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query $sentinel
+    $noMatchReady = Wait-UiaCondition -Driver $driver -TimeoutMs 10000 -PollIntervalMs 200 `
+        -Description 'sentinel query has no result rows' -ScriptBlock {
+            $surface = Get-UiaSearchQuerySurface -Driver $driver -Main $main -ProcessId $appPid
+            return ([string]$surface.queryText -eq $sentinel) -and (@($surface.resultNames).Count -eq 0)
         }
-        if (-not $queryReady) {
-            # A ValuePattern write can report success while the live provider is
-            # replaced. Reacquire the edit and use real input as the fallback.
-            $liveEdit = $null
-            try { $liveEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 1000 } catch { }
-            if ($liveEdit) {
-                try { $liveEdit.SetFocus() } catch { }
-                $null = Send-UiaText -Driver $driver -Text $sentinel
-                Start-Sleep -Milliseconds 400
-                try { $queryNow = Get-UiaElementTextValue -Driver $driver -Element $liveEdit } catch { }
-            }
-        } else {
-            $queryNow = $script:visualCatalogQueryNow
-        }
-        if ($null -eq $queryNow) {
-            try {
-                $liveEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 1000
-                if ($liveEdit) { $queryNow = Get-UiaElementTextValue -Driver $driver -Element $liveEdit }
-            } catch { }
-        }
-        $resultsEl = $null
-        try { $resultsEl = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -FromElement $main -TimeoutMs 2000 } catch { }
-        $resultChildren = 0
-        if ($resultsEl) { $resultChildren = @(Get-UiaChildren -Driver $driver -Element $resultsEl).Count }
-        # Honest scope: the query holds the sentinel and the result set is
-        # empty. Degraded-mode search has zero candidates in this disposable
-        # sandbox, so "a non-empty query produced zero rows" is the strongest
-        # semantic contract available without product-side status exposure.
-        Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
-            -ScenarioId 'search-no-results' -ExpectedState 'Fast Search with zero results and empty search state' `
-            -Theme 'Light' -Width 1280 -PaneMode 'single' `
-            -Assertion ([pscustomobject]@{ Pass = (([string]$queryNow -eq $sentinel) -and $null -ne $resultsEl -and $resultChildren -eq 0)
-                                           Detail = "query='$queryNow' resultsElement=$($null -ne $resultsEl) children=$resultChildren" })
-    } else {
-        # Never silently drop a scenario: a missing search edit is an
-        # explicit SKIPPED record, not an invisible coverage hole.
-        $null = Add-VisualScenarioResult -Run $run -ScenarioId 'search-no-results' `
-            -ExpectedState 'Fast Search with zero results and empty search state' `
-            -FixtureId 'sandbox-home' -Theme 'Light' -Width 1280 -PaneMode 'single' `
-            -Status 'SKIPPED' -Reason 'search query edit 7101 was not discoverable' -AssertionPass $false
-    }
+    Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
+        -ScenarioId 'search-no-results' -ExpectedState 'Fast Search with zero results and empty search state' `
+        -Theme 'Light' -Width 1280 -PaneMode 'single' `
+        -Assertion ([pscustomobject]@{ Pass = [bool]$noMatchQuery.Pass -and [bool]$noMatchReady; Query = $noMatchQuery })
     $null = Close-UiaSearchPanelIfOpen -Driver $driver -Main $main -ProcessId $appPid
     $storage = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' `
         -ExpectedNames @('Overview') -ExpectedCommandName 'Analyze Storage' -ExpectedCommandId 'storage.analyze'
@@ -684,6 +658,23 @@ try {
     $settingsEl = $null
     try { $settingsEl = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $appPid -TimeoutMs 2000 } catch { }
     $settingsAssert = [pscustomobject]@{ Pass = [bool]$settings.Pass -and $null -ne $settingsEl; Detail = $settings.Detail }
+    if ($settingsAssert.Pass) {
+        try {
+            $dialogBounds = Get-VisualWindowBounds -Element $settingsEl
+            foreach ($footerId in @('1', '2')) {
+                $footer = Find-UiaElement -Driver $driver -AutomationId $footerId -FromElement $settingsEl -TimeoutMs 1000
+                $footerBounds = Get-UiaElementProperty -Driver $driver -Element $footer -Name 'BoundingRectangle'
+                if (-not $footerBounds -or $footerBounds.width -le 0 -or $footerBounds.height -le 0 -or
+                    $footerBounds.x -lt $dialogBounds.X -or $footerBounds.y -lt $dialogBounds.Y -or
+                    ($footerBounds.x + $footerBounds.width) -gt ($dialogBounds.X + $dialogBounds.Width) -or
+                    ($footerBounds.y + $footerBounds.height) -gt ($dialogBounds.Y + $dialogBounds.Height)) {
+                    throw "Settings footer $footerId is clipped by the dialog frame"
+                }
+            }
+        } catch {
+            $settingsAssert = [pscustomobject]@{ Pass = $false; Detail = $_.Exception.Message }
+        }
+    }
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'settings-general' -ExpectedState 'Settings dialog on the General page' `
         -Theme 'Light' -Width 620 -PaneMode 'dialog' -Assertion $settingsAssert -CaptureElement $settingsEl
@@ -697,6 +688,7 @@ try {
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'command-palette' -ExpectedState 'Command palette edit 6301 is visible over the shell' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' `
+        -RequiredVisibleElement $paletteEdit `
         -Assertion ([pscustomobject]@{ Pass = $null -ne $paletteEdit; Detail = $(if ($paletteEdit) { 'palette edit present' } else { 'palette edit missing' }) })
     $null = Send-UiaInput -Driver $driver -Keys '{ESC}'
     Start-Sleep -Milliseconds 400
@@ -838,7 +830,8 @@ try {
     if (-not $Gallery) {
         Write-CatalogLog 'COVERAGE SUPPORTED_NOT_SELECTED: gallery-light, gallery-dark, gallery-narrow, gallery-wide (re-run with -Gallery)'
     }
-    Write-CatalogLog 'COVERAGE REQUIRED_BUT_UNAVAILABLE: dpi-100/150/200 live (this host is 125% / 120 DPI), engine-backed rows/previews/file-operations (require engine-served snapshot data)'
+    $observedCatalogDpi = @($run.Records | Where-Object { $_.observedDpi } | ForEach-Object { $_.observedDpi } | Select-Object -Unique)
+    Write-CatalogLog ("COVERAGE OBSERVED_DPI: $($observedCatalogDpi -join ', '); other physical display scales remain unqualified")
     Write-CatalogLog 'COVERAGE NOT_APPLICABLE: ACL-mutation access-denied, destructive confirmations, settings reset (never run by policy: no user-system mutation)'
     $exit = 0
 } catch {

@@ -66,12 +66,26 @@ public static class FfNativeInput
     public static bool ThreadHasCapture(IntPtr hWnd)
     {
         if (hWnd == IntPtr.Zero) return false;
-        uint tid;
-        GetWindowThreadProcessId(hWnd, out tid);
+        // repair-native-ui-verification-fidelity 2.1: the return value is
+        // the owner thread ID; the out parameter receives its process ID.
+        uint processId;
+        uint tid = GetWindowThreadProcessId(hWnd, out processId);
         if (tid == 0) return false;
         var info = new GUITHREADINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(GUITHREADINFO)) };
         if (!GetGUIThreadInfo(tid, ref info)) return false;
         return info.hwndCapture != IntPtr.Zero;
+    }
+
+    public static bool ThreadHasActiveMenu(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero) return false;
+        uint pid;
+        uint tid = GetWindowThreadProcessId(hWnd, out pid);
+        if (tid == 0) return false;
+        var info = new GUITHREADINFO { cbSize = Marshal.SizeOf(typeof(GUITHREADINFO)) };
+        if (!GetGUIThreadInfo(tid, ref info)) return false;
+        const int GUI_INMENUMODE = 0x0004;
+        return (info.flags & GUI_INMENUMODE) != 0 && info.hwndMenuOwner != IntPtr.Zero;
     }
 
     [DllImport("user32.dll")]
@@ -259,24 +273,30 @@ function Set-UiaForeground {
     try {
         $hwnd = [IntPtr]$Element.Current.NativeWindowHandle
         if ($hwnd -eq [IntPtr]::Zero) { return $false }
+        # original-vision-journey-recovery: foreground acquisition must not
+        # inject Escape into an already active Search, palette, or dialog.
+        if ([FfNativeInput]::GetForegroundWindow() -eq $hwnd) { return $true }
         # Windows foreground-lock rules let a background process lose the fight for
         # foreground ownership, which makes SendInput-based input land in the wrong
-        # window (flaky). Robust sequence: restore minimized windows, set foreground,
-        # tap ALT once (releases the foreground lock per user32 docs), retry, and
-        # poll-verify GetForegroundWindow == target before returning. The ALT tap
-        # activates the window's menu bar on menu-bearing windows, which swallows
-        # the next chord; ESC dismisses it.
+        # window. Try ordinary activation first; ALT remains a bounded fallback.
+        # Its menu dismissal is allowed only for an observed target-owned menu,
+        # because a general Escape closes ordinary application workspaces.
         for ($i = 0; $i -lt 5; $i++) {
             $null = [FfNativeInput]::ForceForeground($hwnd)
             $null = [FfNativeInput]::ShowWindow($hwnd, 9)      # SW_RESTORE (unminimize)
             $null = [FfNativeInput]::SetForegroundWindow($hwnd)
+            if ([FfNativeInput]::GetForegroundWindow() -eq $hwnd) { return $true }
             $null = [FfNativeInput]::KeyDown(0x12)             # ALT down/up releases the lock
             $null = [FfNativeInput]::KeyUp(0x12)
-            $null = [FfNativeInput]::KeyDown(0x1B)             # ESC dismisses an activated menu
-            $null = [FfNativeInput]::KeyUp(0x1B)
             $null = [FfNativeInput]::SetForegroundWindow($hwnd)
             Start-Sleep -Milliseconds 200
-            if ([FfNativeInput]::GetForegroundWindow() -eq $hwnd) { return $true }
+            if ([FfNativeInput]::GetForegroundWindow() -eq $hwnd) {
+                if ([FfNativeInput]::ThreadHasActiveMenu($hwnd)) {
+                    $null = [FfNativeInput]::KeyDown(0x1B)
+                    $null = [FfNativeInput]::KeyUp(0x1B)
+                }
+                return [FfNativeInput]::GetForegroundWindow() -eq $hwnd
+            }
         }
         return $false
     } catch {

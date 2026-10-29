@@ -1,0 +1,8 @@
+Cold-first initialization failure observed before RootElement ordering fix, 2026-10-27.
+Fresh client command: Import-Module ./verify/uia-driver/UiaDriver.psm1 -Force; & (Get-Module UiaDriver) { Initialize-UiaManagedApi }
+Actual captured tool output:
+UiaDriverUnavailableException: Installed standard UIA proxy initialization failed: Exception calling "RegisterClientSideProviderAssembly" with "1" argument(s): "Object reference not set to an instance of an object."
+The preceding full recorded-tree suite passed while its separate availability probe returned uia-provider-unavailable. This was not accepted as successful live initialization.
+No fixture, HWND query, input or FastFiles launch occurred in that client. Original warm fixture had read its own AutomationElements before registration, so did not cover cold-first use.
+Fix: public AutomationElement.RootElement read before explicit proxy registration. Fresh client-only smoke then emits no output, availability=true, markerReady, exact installed provider identity/path. Explicit -ColdStart fixture qualification is separate.
+This text transcribes the retained tool result; it is not an automatically generated runtime receipt.

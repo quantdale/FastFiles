@@ -17,6 +17,12 @@ function Check {
 
 $savedMode = $env:FASTFILES_AGENT_MODE
 $hookGuard = Join-Path $repoRoot 'verify\governance\hook-guard.ps1'
+# large-index-lifecycle-and-search-scalability: embed quotes around the
+# script path -- Start-Process -ArgumentList joins elements with spaces and
+# does not quote them, so a checkout path containing a space (e.g.
+# C:\Users\Michael Roy\...) splits -File and the child exits 64 with
+# "not recognized as the name of a script file" instead of running.
+$hookGuardQuoted = '"' + $hookGuard + '"'
 $preCommit = Join-Path $repoRoot '.githooks\pre-commit'
 $prePush = Join-Path $repoRoot '.githooks\pre-push'
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-hook-guard-' + [guid]::NewGuid().ToString('N'))
@@ -29,7 +35,7 @@ function Invoke-HookGuard {
     $stderrPath = Join-Path $tempRoot 'hook-guard-stderr.txt'
     $pwshExe = (Get-Command pwsh -ErrorAction Stop).Source
     $process = Start-Process -FilePath $pwshExe `
-        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $hookGuard, '-Operation', $Operation) `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $hookGuardQuoted, '-Operation', $Operation) `
         -Wait -PassThru -NoNewWindow `
         -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
     $stdout = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { '' }
@@ -81,7 +87,7 @@ try {
     # Invalid operation is rejected by the ValidateSet (nonzero exit).
     $pwshExe = (Get-Command pwsh -ErrorAction Stop).Source
     $bad = Start-Process -FilePath $pwshExe `
-        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $hookGuard, '-Operation', 'not-an-operation') `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $hookGuardQuoted, '-Operation', 'not-an-operation') `
         -Wait -PassThru -NoNewWindow `
         -RedirectStandardOutput (Join-Path $tempRoot 'bad-out.txt') -RedirectStandardError (Join-Path $tempRoot 'bad-err.txt')
     Check ($bad.ExitCode -ne 0) 'hook-guard rejects an unknown -Operation value'

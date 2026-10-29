@@ -1,0 +1,29 @@
+{
+  "schema": "fastfiles-fresh-older-store-smoke-binding-v1",
+  "current_candidate_sha": "3a41481a78df16b44928469f932d75427fd72a9c",
+  "older_root_sha": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+  "probe_sha256": "a6f1b1ae5cdfba774ada6f15d29329371f69e4a89664a43986e198b120252010",
+  "input_sha256": {
+    "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\v2-probe\\main.cpp": "80807932b0785328a8b082b435acd189710ad22113a6e993efe75856506a8266",
+    "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\v2-probe\\CMakeLists.txt": "4a8a91bd8c5b6cf843578baab86b38f0ae55ed04b95edd80d1d6af7d063479d8",
+    "C:\\Users\\Michael Roy\\Documents\\FastFiles\\src\\indexstore\\src\\Store.cpp": "76a75f29c180d9c4e1dc68fa33f00867a1490b3f16b0d72477b8202872dd827b",
+    "C:\\Users\\Michael Roy\\Documents\\FastFiles\\src\\indexstore\\include\\ffindexstore\\Store.h": "dd5165f92012d25daeeb0f073c92ab3c9c9676221b3bb0ca782d7d08a55937db",
+    "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\release-test\\third_party\\sqlite\\sqlite3.lib": "16d3aee66fc960b163159284c406c3764f8ffd7133df0abb7e7d77ad90f7a707"
+  },
+  "fixture_rows": 20000,
+  "scope": "fresh disposable small smoke; does not retroactively bind historical5M probe output or constitute an installed-app downgrade",
+  "results": [
+    {
+      "expected_open": 0,
+      "exit_code": 0,
+      "output": "opened=0 integrity_failed=0"
+    },
+    {
+      "expected_open": 1,
+      "exit_code": 0,
+      "output": "opened=1 integrity_failed=0 entries=20000"
+    }
+  ],
+  "full_entry_tuples_equal": true,
+  "integrity": "ok"
+}

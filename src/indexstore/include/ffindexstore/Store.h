@@ -25,11 +25,23 @@ enum class ReadSessionFaultPoint : uint8_t {
     Stream,
     FindEntry,
     Aggregate,
+    // durable-cold-search-index-and-hybrid-residency 5.4: deterministic
+    // mid-candidate-stream SQLite-error injection (step failure AFTER some
+    // candidate rows were read) so the partial-stream fallback semantics are
+    // testable without corrupting a database.
+    CandidateStreamError,
 };
 using ReadSessionFaultInjector = std::function<bool(ReadSessionFaultPoint)>;
 
+// durable-cold-search-index-and-hybrid-residency 5.3 testing seam
+// (multi-volume admission observability; production callers leave it empty):
+// reports the candidate planner's admission decision and the counted
+// candidate workload for the requested volume.
+using CandidatePlannerProbe = std::function<void(bool candidateRouteUsed, size_t countedCandidates)>;
+
 struct StoreReadSessionOptions {
     ReadSessionFaultInjector faultInjector;
+    CandidatePlannerProbe candidatePlannerProbe;
 };
 
 class StoreReadSession;
@@ -60,6 +72,42 @@ struct VolumeMetadata {
 // "concurrent readers not blocked by an in-progress write"); callers that
 // need cross-call atomicity (e.g. read-modify-write of volume metadata)
 // must serialize those calls themselves.
+// durable-cold-search-index-and-hybrid-residency 4.x testing seam (always
+// compiled, never called in production; the SetSearchTestHooks precedent):
+// deterministically fail the Nth candidate-index maintenance operation
+// inside ApplyBatch (1-based; 0 disables). With hardProcessExit the seam
+// terminates the calling process AT that point instead of returning failure,
+// so the kill-during-commit tests exercise real process death inside an
+// uncommitted transaction (never a graceful rollback).
+void SetTestingCandidateMaintenanceFault(int nthOperation, bool hardProcessExit);
+
+// Task 3.2 testing seam: shrink the candidate-fallback cap so the
+// cost-based scan fallback is unit-testable without a 16k-row fixture
+// (0 restores the production cap).
+void SetTestingCandidateCapOverride(size_t cap);
+
+// Task 4.2 measurement seam: disable candidate-index maintenance so the
+// resource A/B (ingestion overhead, disk delta, WAL delta) can measure the
+// same production code with and without the index. Production never calls
+// this; entries correctness is unaffected (maintenance is derived state).
+void SetTestingCandidateMaintenanceDisabled(bool disabled);
+
+// durable-cold-search-index-and-hybrid-residency 5.3/5.4 testing seams
+// (always compiled, never called in production; the SetSearchTestHooks
+// precedent). They reproduce the PRE-FIX planner/streaming behavior so the
+// admission and partial-stream regression tests are provably discriminating
+// (red-first both ways):
+//   - global admission reproduces the global (non-volume-scoped,
+//     exception-blind) pre-count: globally-broad/locally-selective needles
+//     fall back to the canonical scan;
+//   - staged delivery OFF reproduces deliver-as-you-go candidate streaming
+//     with fall-through on a mid-stream query failure (the duplicate-row
+//     hazard). Either way the delivered RESULT SET must stay canonical-
+//     equivalent; only the legacy delivery arm may violate that, and only
+//     under the injected fault.
+void SetTestingCandidateGlobalAdmission(bool globalOnly);
+void SetTestingCandidateStagedDelivery(bool staged);
+
 class Store {
 public:
     Store() = default;
@@ -83,7 +131,39 @@ public:
     // busy, OOM -- anything but a positive corruption report) fails the
     // open *without* setting outIntegrityFailed, because "unproven" is not
     // "corrupt" and must never qualify the database for deletion.
-    bool Open(const std::string& dbPathUtf8, bool* outIntegrityFailed = nullptr);
+    // durable-cold-search-index-and-hybrid-residency 5.1: optional
+    // per-phase open timings for startup profiling (bench/diagnostics only;
+    // production callers pass nullptr and pay ~10 clock reads per open).
+    // Every field is zero/false unless requested. Phases follow the
+    // campaign's startup decomposition: connection creation, integrity
+    // check, PRAGMA configuration, schema initialization, schema-version
+    // read, host-fold signature computation, stored-signature comparison,
+    // candidate-index consistency checks, and candidate-index rebuild.
+    struct OpenPhaseTimings {
+        double connectionOpenMs = 0.0;
+        double integrityCheckMs = 0.0;
+        double pragmaConfigMs = 0.0;
+        double schemaInitMs = 0.0;
+        double schemaVersionReadMs = 0.0;
+        double hostFoldSignatureMs = 0.0;
+        double signatureCompareMs = 0.0;
+        double consistencyCheckMs = 0.0;
+        double candidateRebuildMs = 0.0;
+        // 3.3: fine-grained rebuild/migration decomposition. The
+        // three maintenance sub-phases are interleaved per row inside
+        // CandidateIndexUpsert, so they are accumulated separately while the
+        // row loop streams.
+        double candidateMapMs = 0.0;
+        double candidateTermsMs = 0.0;
+        double candidateExceptionMs = 0.0;
+        uint64_t candidateRowsProcessed = 0;
+        double totalMs = 0.0;
+        uint64_t hostFoldSignature = 0;
+        int priorSchemaVersion = 0;
+        bool candidateIndexRebuilt = false;
+    };
+    bool Open(const std::string& dbPathUtf8, bool* outIntegrityFailed = nullptr,
+              OpenPhaseTimings* outTimings = nullptr);
     void Close();
     bool IsOpen() const noexcept { return db_ != nullptr; }
 
@@ -119,10 +199,24 @@ public:
     // task 1.6: passive checkpoint, cheap and safe to call frequently
     // (e.g. on an idle timer); does not block writers.
     bool CheckpointPassive();
+    // durable-cold-search-index-and-hybrid-residency 4.2: preserve useful
+    // checkpoint outcomes even when maintenance callers cannot undo already
+    // committed writes. PASSIVE can return OK with frames still pinned.
+    struct CheckpointDiagnostics {
+        uint64_t sqliteCalls = 0;
+        uint64_t busyResults = 0;
+        uint64_t errorResults = 0;
+        int lastResultCode = 0;
+        int logFrames = -1;
+        int checkpointedFrames = -1;
+        bool restartAttempted = false;
+    };
+    CheckpointDiagnostics GetCheckpointDiagnostics() const noexcept { return checkpointDiagnostics_; }
     // Forces a full checkpoint if the WAL file has grown past
     // thresholdBytes -- the size-triggered forced checkpoint mitigation
     // for unbounded WAL growth under sustained write bursts (design.md
-    // "Risks"). Returns false only on an I/O/database error; a WAL file
+    // "Risks"). Returns false on SQLite errors, including BUSY when pinned
+    // readers prevent RESTART; a WAL file
     // under the threshold is a normal, successful no-op.
     bool CheckpointIfWalExceeds(uint64_t thresholdBytes);
     // address-engineering-audit-findings 5.1: refresh SQLite query-planner
@@ -199,7 +293,9 @@ public:
     // task 8.1/8.4: full identity set for a volume, used by reconciliation
     // to anti-join against fresh ground truth without re-streaming every
     // field for entries that haven't changed.
-    std::vector<FileId> ListEntryIds(VolumeRowId volumeRowId);
+    // outSuccess distinguishes complete enumeration from a partial/empty
+    // result after SQLite failure; reconciliation must not finalize on error.
+    std::vector<FileId> ListEntryIds(VolumeRowId volumeRowId, bool* outSuccess = nullptr);
 
     uint64_t CountEntries(VolumeRowId volumeRowId);
 
@@ -224,12 +320,14 @@ public:
 private:
     friend class StoreReadSession;
     std::vector<VolumeMetadata> GetAllVolumesImpl(bool includeEntryCounts);
+    bool RunCheckpoint(int mode);
 
     sqlite3* db_ = nullptr;
     std::string dbPathUtf8_;
     uint64_t lastVacuumTimeSeconds_ = 0;
     uint64_t lastVacuumSizeBytes_ = 0;
     mutable int cachedPageSize_ = 0;
+    CheckpointDiagnostics checkpointDiagnostics_;
 };
 
 // A durable read snapshot owned by one query. Store itself deliberately stays
@@ -251,6 +349,45 @@ public:
     void Close() noexcept;
 
     bool ForEachEntryUntil(VolumeRowId volumeRowId, const Store::EntryVisitorUntil& visitor);
+    // large-index-lifecycle-and-search-scalability review-remediation 18.x:
+    // conservative SQL name prefilter for a pure-ASCII literal needle
+    // (already ASCII-case-folded). The returned rows are a SUPERSET of every
+    // row whose name could match the needle under the canonical ordinal
+    // ignore-case matcher: an all-ASCII match span is found by SQLite's
+    // ASCII-only case-insensitive LIKE, while a span containing any non-ASCII
+    // UTF-16 unit implies the name carries non-ASCII UTF-8 bytes, which the
+    // GLOB disjunct admits unconditionally. False positives reach the
+    // canonical C++ matcher unchanged; false negatives are impossible for any
+    // host ordinal table. Callers must pass ASCII needles only (non-ASCII
+    // needles cannot be conservatively folded by SQLite LIKE).
+    //
+    // durable-cold-search 4.x (reviewer-A contract narrowing): the superset
+    // guarantee is scoped to ASCII needles. A non-ASCII needle is OUT OF
+    // CONTRACT for this API: on hosts where a non-ASCII unit folds to ASCII,
+    // such a needle can canonically match pure-ASCII names that neither the
+    // candidate rung nor the prefilter fallback streams. The production
+    // caller (IndexPipeline) routes non-ASCII needles to the full canonical
+    // stream (ForEachEntryUntil). The rung folds defensively and treats any
+    // non-ASCII byte as ineligible.
+    //
+    // durable-cold-search 5.6 (review lane B): the candidate rung is only
+    // used when the derived structures are READY in this session's snapshot
+    // (meta state=1 AND the host fold signature matches). Readiness is
+    // validated once per session against the fixed snapshot and cached; a
+    // window where a concurrent rebuild has cleared or partially rebuilt the
+    // derived structures -- or a host-semantic mismatch -- can therefore
+    // never silently truncate results: the call degrades to the canonical
+    // stream. Fail-closed on any readiness-query failure as well.
+    //
+    // Latency contract (review lane B P3): on the candidate route the rows
+    // are staged (fully read from SQLite) before the first visitor call, so
+    // an early visitor stop cannot abort SQLite work mid-fetch as
+    // ForEachEntryUntil can. The staged set is bounded by the admission cap
+    // (16,384 rows by default), so the extra work per cancelled query is
+    // bounded; return semantics (early stop => true, exactly the accepted
+    // rows delivered) are unchanged.
+    bool ForEachEntryWithAsciiNameUntil(VolumeRowId volumeRowId, std::string_view asciiFoldedNeedle,
+                                        const Store::EntryVisitorUntil& visitor);
     std::optional<EntryRecord> FindEntry(VolumeRowId volumeRowId, FileId frn);
     Store::FolderAggregate GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn);
 
@@ -259,12 +396,17 @@ private:
     StoreReadSession(std::string dbPathUtf8, StoreReadSessionOptions options);
     bool Open();
     bool ShouldFail(ReadSessionFaultPoint point) const;
+    // 5.6 (review lane B): one-shot query-time readiness validation for the
+    // candidate rung (see ForEachEntryWithAsciiNameUntil).
+    bool CandidateIndexUsable();
 
     sqlite3* db_ = nullptr;
     std::string dbPathUtf8_;
     StoreReadSessionOptions options_;
     bool transactionActive_ = false;
     bool failed_ = false;
+    bool candidateReadinessChecked_ = false;
+    bool candidateIndexUsable_ = false;
 };
 
 } // namespace ffindexstore

@@ -1,0 +1,18 @@
+[visual-catalog] pid=39644; waiting for main window
+[visual-catalog] main=True ready=True (engine-connected)
+GALLERY: launching FastFiles with --gallery for real visual capture
+[visual-gallery] pid=33204; waiting for main window
+[visual-gallery] main=True ready=True (engine-connected)
+[visual-gallery] lifecycle teardown complete; cleanupPass=True; residue=
+=== VISUAL SCENARIO COVERAGE MATRIX ===
+Total scenarios recorded: 20 (Passed: 17, Failed: 3, Skipped/Blocked: 0)
+Themes: Light, Dark | Viewport widths: 1280, 1600, 620, 800
+Surfaces covered: Home, ColumnView, DualPane, Details, Search, Storage, Settings, Palette, Gallery
+COVERAGE TESTED (17): home-default, browse-column-view, browse-keyboard-focus, browse-empty-state, home-wide, details-closed, dual-pane, home-from-command, fast-search-idle, search-filters-expanded, search-no-results, storage-overview, settings-general, command-palette, home-narrow, home-dark, gallery-light
+COVERAGE FAILED (3): gallery-dark, gallery-narrow, gallery-wide
+COVERAGE REQUIRED_BUT_UNAVAILABLE: dpi-100/150/200 live (this host is 125% / 120 DPI), engine-backed rows/previews/file-operations (require engine-served snapshot data)
+COVERAGE NOT_APPLICABLE: ACL-mutation access-denied, destructive confirmations, settings reset (never run by policy: no user-system mutation)
+[visual-catalog] lifecycle teardown complete; cleanupPass=True; residue=
+VISUAL_CATALOG_COVERAGE_FAIL: missing=; duplicate=; unexpected=
+catalog manifest: C:\Users\Michael Roy\Documents\FastFiles\build\worktrees\durable-cold-search\build\campaign\recovery-20261024\current-pr15-visual\manifest.json
+catalog summary: C:\Users\Michael Roy\Documents\FastFiles\build\worktrees\durable-cold-search\build\campaign\recovery-20261024\current-pr15-visual\summary.md

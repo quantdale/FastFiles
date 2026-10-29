@@ -1,0 +1,22 @@
+{
+  "source_sha": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+  "implementation_sha": "4c1c4501e5b1f0579a2d34f4f7afea5f83708979",
+  "executable_sha256": "52fe83b9aaecfd113ec68af134c8e826e86ffc52d549e8bcfc4bbe61453f997d",
+  "free_bytes": 966193152,
+  "status": "NOT_EXECUTED",
+  "reason": "preflight resource refusal; zero ingestion rows; no system-drive exhaustion attempted",
+  "exit_code": 3,
+  "command": [
+    "build\\release-test\\tests\\engine\\ffengine_bench_ingestion_uninstrumented.exe",
+    "--scales",
+    "5000000",
+    "--output",
+    "build\\campaign\\recovery-20261024\\current-5m-ingestion-preflight-incomplete.json",
+    "--source-sha",
+    "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+    "--source-state",
+    "clean",
+    "--preset",
+    "release-test"
+  ]
+}

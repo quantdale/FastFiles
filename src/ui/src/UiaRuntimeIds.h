@@ -25,6 +25,7 @@ inline constexpr int kUiaNsColumnView = 0;
 inline constexpr int kUiaNsHome = 1;
 inline constexpr int kUiaNsSearch = 2;
 inline constexpr int kUiaNsTreemap = 3;
+inline constexpr int kUiaNsStorageList = 4;
 
 // Builders. Each returns the deterministic runtime-ID array for the element.
 

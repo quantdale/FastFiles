@@ -1,0 +1,37 @@
+{
+  "implementation": "eda462a481181c6cc16596810799fd7d62a3709f",
+  "combined": "b868b4e81636475368d7074b0f7a1d4f03f120f3",
+  "scope": "Component and Link body equality only; not whole executable equality.",
+  "entries": [
+    {
+      "path": "src/ui/src/NewFileWriter.cpp",
+      "equal": true,
+      "sha256": "910fee3229b9f716f4d00cefd021b3c9d5f95a8697a531b07fc927d7eb965e98"
+    },
+    {
+      "path": "src/ui/src/NewFileWriter.h",
+      "equal": true,
+      "sha256": "2da09ca3cacb62b62fa9c10c8bcc9003f726c6bd53c6771a19d452caf052429a"
+    },
+    {
+      "path": "src/ui/src/FileOperations.h",
+      "equal": true,
+      "sha256": "2f7cf2404eac48e9572a5820972055bf54f220ed0f496e7d2185a547fe970114"
+    },
+    {
+      "path": "tests/fileoperations/test_file_operations_e2e.cpp",
+      "equal": true,
+      "sha256": "ffba8c916d2a467328df2db06eeb0ef0d63d76ce1c3d24c6ef974f4357129707"
+    },
+    {
+      "path": "tests/fileoperations/test_new_file_writer.cpp",
+      "equal": true,
+      "sha256": "fba773e19c3b31431555709d0334ed8818f8c3c183f1de51d07be7d0c3b14c22"
+    },
+    {
+      "path": "FileOperations.cpp Link execution body",
+      "equal": true,
+      "sha256": "d94fe9c2c54494af473a9d3b7afb3f82443a8ad34043af6758ee0c99da6273be"
+    }
+  ]
+}

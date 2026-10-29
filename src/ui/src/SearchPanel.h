@@ -18,6 +18,7 @@
 #include <wrl/client.h>
 
 #include "EngineClient.h"
+#include "CommandSystem.h"
 #include "ffui/AsyncResultGate.h"
 #include "ffui/ShellLayout.h"
 #include "ffui/UiaSurface.h" // semantic-uia-core-surfaces 4.x: UIA projection seam
@@ -31,7 +32,6 @@ namespace ffui {
 
 constexpr UINT WM_APP_SEARCH_COMPLETE = WM_APP + 6;
 constexpr UINT WM_APP_INDEXED_SEARCH_COMPLETE = WM_APP + 13;
-constexpr UINT WM_APP_SEARCH_RESULT_ACTIVATE = WM_APP + 53; // stabilize-live-uia-e2e
 
 class SearchPanel : public UiaSurface {
 public:
@@ -49,6 +49,9 @@ public:
     void Hide();
     void SetDarkTheme(bool dark);
     bool Visible() const { return visible_; }
+    std::vector<SelectionItem> ActiveSelectionItems() const;
+    bool ActiveSelectionRect(RECT& screenRect) const;
+    void ActivateSelection();
     void Reposition(const ShellLayoutRect& surfaceRect);
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     bool HandleNotify(LPARAM lParam);
@@ -174,6 +177,7 @@ private:
     // ui-v3 search: presentation-state helpers for the query-first layout.
     void EnsureResultFonts();
     void EnsureRowMetrics();
+    void FitResultViewport();
     void UpdateFilterSummary();
     void UpdateClearAffordance();
     std::wstring ScopeDisplayName() const;
@@ -318,6 +322,10 @@ private:
     void UiaSearchSetFocusItem(size_t index) override;
     void UiaSearchActivateItem(size_t index) override;
     void UiaSearchScrollIntoView(size_t index) override;
+    bool UiaListDispatchAction(size_t index, uint64_t expectedIdentity, unsigned action) override;
+    bool UiaListResultRect(size_t index, uint64_t identity, RECT& rect) const override;
+    bool UiaListResultOffscreen(size_t index, uint64_t identity) const override;
+    void UiaListSetFocus() override;
 
     // semantic-uia-core-surfaces 4.2/4.4: provider plumbing. The list HWND is
     // subclassed (SearchListProc) so WM_GETOBJECT returns the fragment root;
@@ -331,9 +339,8 @@ public:
     // foreign thread (tab buttons) can never be destroyed by the UI thread
     // (DestroyWindow fails cross-thread), leaving orphaned duplicate tabs
     // that stall UIA enumeration. UiaSearchActivateItem therefore posts
-    // WM_APP_SEARCH_RESULT_ACTIVATE to the owner when invoked off-thread and
-    // WindowShell runs ActivateResultItem on the UI thread. The inline path
-    // is unchanged when the call already arrives on the UI thread.
+    // a value-owned identity token to the list when invoked off-thread. The
+    // owner validates it atomically before running ActivateResultItem.
     static bool SearchActivationNeedsUiThreadMarshal(DWORD currentThreadId, DWORD listWindowThreadId) {
         return listWindowThreadId != 0 && currentThreadId != listWindowThreadId;
     }
@@ -357,11 +364,33 @@ public:
     // Order comes from the ffui::SearchTabOrder headless seam.
     void CycleSearchFocus(HWND from, bool forward);
     void ReleaseUiaProvider();
+    bool HandleUiaListMessage(UINT message, LPARAM payload, LRESULT& result);
 
 private:
+    struct UiaListQuery {
+        size_t index = SIZE_MAX;
+        uint64_t expectedIdentity = 0;
+        size_t count = 0;
+        UiaSearchResultInfo info;
+        RECT rect{};
+        bool valid = false;
+        bool hasRect = false;
+        bool offscreen = true;
+        bool focused = false;
+    };
+    struct UiaListAction {
+        size_t index = 0;
+        uint64_t expectedIdentity = 0;
+        unsigned action = 0;
+    };
+    UiaListQuery QueryUiaList(size_t index = SIZE_MAX, uint64_t expectedIdentity = 0) const;
+    void ReadUiaList(UiaListQuery& query) const;
+    bool ApplyUiaListAction(const UiaListAction& action);
     void NotifyUia(const UiaEventNotification& notification);
 
     UiaEventRouter uiaEvents_;
+    std::atomic<bool> uiaClosing_{false};
+    std::mutex uiaPostMutex_;
     UiaOwnerStatePtr uiaState_;
     Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> uiaProvider_;
 };

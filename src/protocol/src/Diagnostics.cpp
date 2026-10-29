@@ -166,6 +166,7 @@ const wchar_t* DiagnosticCodeName(DiagnosticCode code) {
         case DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL: return L"FFDIAG_STALE_SCAN_TERMINAL";
         case DiagnosticCode::FFDIAG_SCAN_BATCH_APPLY_FAILED: return L"FFDIAG_SCAN_BATCH_APPLY_FAILED";
         case DiagnosticCode::FFDIAG_RECONCILIATION_DEFERRED: return L"FFDIAG_RECONCILIATION_DEFERRED";
+        case DiagnosticCode::FFDIAG_UI_SHUTDOWN_PHASE: return L"FFDIAG_UI_SHUTDOWN_PHASE";
         case DiagnosticCode::FFDIAG_DB_INTEGRITY_INCONCLUSIVE: return L"FFDIAG_DB_INTEGRITY_INCONCLUSIVE";
     }
     return L"FFDIAG_UNKNOWN";

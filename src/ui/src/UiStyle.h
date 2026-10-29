@@ -23,6 +23,13 @@ HRESULT UiCreateTextFormat(
     const wchar_t* family,
     Microsoft::WRL::ComPtr<IDWriteTextFormat>* out);
 
+// original-vision-journey-recovery 2.9: create a bounded one-line layout
+// without mutating a shared wrapping format. Cache until text/size changes.
+HRESULT UiCreateSingleLineTextLayout(
+    IDWriteFactory* factory, IDWriteTextFormat* format,
+    const wchar_t* text, UINT32 length, float widthDip, float heightDip,
+    Microsoft::WRL::ComPtr<IDWriteTextLayout>* out);
+
 // Fills a rounded rectangle, clamping radius to half the smaller side so the
 // corner radii never produce a malformed geometry. Caller must be in a
 // BeginDraw target set on ctx.

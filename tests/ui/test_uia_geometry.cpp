@@ -1,3 +1,4 @@
+#include "ffui/ColumnVisibility.h"
 // semantic-uia-core-surfaces 6.4: headless geometry tests for the UIA
 // projection layer (client->physical-screen conversion, scroll offsets, DPI
 // transformation, offscreen math -- no hardcoded 96-DPI assumptions).
@@ -63,6 +64,46 @@ void TestScreenConversion() {
           "screen width scales with DPI");
 }
 
+void TestFractionalScreenBounds() {
+    ffui::UiaViewGeometry geometry;
+    geometry.dpiScale = 1.25f; // Synthetic 120-DPI geometry; runtime DPI is measured separately.
+    geometry.originXDip = 316.0f;
+    geometry.originYDip = 299.2f;
+    const float width = 701.0f / geometry.dpiScale;
+    const float height = 338.0f / geometry.dpiScale;
+    const float tinyHeight = height * 0.96f * 43.0f / (3145728.0f + 43.0f);
+    const auto parentDip = D2D1::RectF(0.0f, 0.0f, width, height);
+    const auto tileDip = D2D1::RectF(width * 0.02f, height * 0.98f - tinyHeight,
+                                    width * 0.98f, height * 0.98f);
+    const RECT parent = ffui::UiaRectToScreen(parentDip, geometry);
+    const RECT tile = ffui::UiaRectToScreen(tileDip, geometry);
+    Check(tile.bottom > tile.top && tile.right > tile.left,
+          "43-byte tile beside 3 MiB keeps a positive physical bounding box at 120 DPI");
+    Check(tile.left <= (tileDip.left + geometry.originXDip) * geometry.dpiScale &&
+              tile.top <= (tileDip.top + geometry.originYDip) * geometry.dpiScale &&
+              tile.right >= (tileDip.right + geometry.originXDip) * geometry.dpiScale &&
+              tile.bottom >= (tileDip.bottom + geometry.originYDip) * geometry.dpiScale,
+          "physical bounds enclose the entire fractional rendered tile");
+    Check(tile.left >= parent.left && tile.top >= parent.top &&
+              tile.right <= parent.right && tile.bottom <= parent.bottom,
+          "outward-rounded tiny tile remains inside its outward-rounded parent");
+
+    geometry.originXDip = 0.0f;
+    geometry.originYDip = 0.0f;
+    const RECT negative = ffui::UiaRectToScreen(D2D1::RectF(-2.2f, -1.3f, -2.1f, -1.2f), geometry);
+    Check(negative.left == -3 && negative.top == -2 && negative.right == -2 && negative.bottom == -1,
+          "negative fractional coordinates round outward rather than toward zero");
+    const RECT exact = ffui::UiaRectToScreen(D2D1::RectF(0.8f, 1.6f, 4.0f, 8.0f), geometry);
+    Check(exact.left == 1 && exact.top == 2 && exact.right == 5 && exact.bottom == 10,
+          "exact physical pixel edges are unchanged");
+    const RECT zero = ffui::UiaRectToScreen(D2D1::RectF(0.3f, -0.3f, 0.3f, -0.3f), geometry);
+    Check(zero.left == zero.right && zero.top == zero.bottom,
+          "zero-area fractional rectangles are never inflated into visible items");
+    const RECT inverted = ffui::UiaRectToScreen(D2D1::RectF(1.3f, 2.3f, 1.2f, 2.2f), geometry);
+    Check(inverted.right <= inverted.left && inverted.bottom <= inverted.top,
+          "negative extents never become positive through outward rounding");
+}
+
 void TestOffscreenMath() {
     ffui::UiaViewGeometry geometry;
     geometry.widthDip = 800.0f;
@@ -110,6 +151,21 @@ void TestComfortableDensityRowHeight() {
           "restoring Compact returns the default row height");
 }
 
+void TestColumnRevealVisibility() {
+    Check(ffui::ColumnRevealScrollOffset(3, 240.0f, 960.0f, 480.0f, 0.0f) == 480.0f,
+          "new child column is fully revealed at the right edge");
+    Check(ffui::ColumnRevealScrollOffset(1, 240.0f, 960.0f, 480.0f, 480.0f) == 240.0f,
+          "focusing a parent restores its leading edge");
+    Check(ffui::ColumnRevealScrollOffset(2, 240.0f, 960.0f, 160.0f, 0.0f) == 480.0f,
+          "narrow pane reveals filename edge rather than clipping it to show the column tail");
+    Check(ffui::ColumnRevealScrollOffset(1, 240.0f, 960.0f, 480.0f, 120.0f) == 120.0f,
+          "an already visible column does not move");
+    Check(ffui::ColumnRevealScrollOffset(0, 240.0f, 240.0f, 480.0f, 90.0f) == 0.0f,
+          "short hierarchy clamps stale scrolling to zero");
+    Check(ffui::ColumnRevealScrollOffset(3, 240.0f, 960.0f, 0.0f, 80.0f) == 80.0f,
+          "unmeasured viewport never translates the hierarchy offscreen");
+}
+
 void TestScrollClamps() {
     // 100 rows -> 2800 DIP content; viewport 600 -> max scroll 2228.
     Check(ffui::UiaMaxVerticalScrollDip(100, 600.0f) == 100 * ffui::UiMetrics::kRowHeight - (600.0f - ffui::UiMetrics::kBadgeHeight),
@@ -129,8 +185,10 @@ void TestScrollClamps() {
 int main() {
     TestItemRectMath();
     TestScreenConversion();
+    TestFractionalScreenBounds();
     TestOffscreenMath();
     TestComfortableDensityRowHeight();
+    TestColumnRevealVisibility();
     TestScrollClamps();
 
     if (FailureCount() != 0) {

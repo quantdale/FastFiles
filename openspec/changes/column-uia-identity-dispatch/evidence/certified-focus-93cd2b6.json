@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "mode": "normal",
+      "implementationSha": "93cd2b604641dc38c56940e3330ec2acb74962af",
+      "sourceClean": true,
+      "boundToHead": true,
+      "boundToTree": false,
+      "treeBindingStatus": "NOT_EMBEDDED",
+      "executableSha256": "9a149aa7b91bfb831c3ec2526db65384c2dff77537fd83e88b89825da322dcbb",
+      "status": "PASS",
+      "observations": [
+        {
+          "row": "830,370,301,48",
+          "pane": "444,288,686,503",
+          "hasKeyboardFocus": true,
+          "offscreen": false
+        }
+      ],
+      "captureSha256": "24560a6e291c6bf3368f3fbaec4def8b0569f34d7164d13baee4f460465e839c",
+      "captureBounds": {
+        "X": 168,
+        "Y": 160,
+        "Width": 1008,
+        "Height": 632,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "image": "images/focus-certified-normal-93cd2b6.png",
+      "cleanupPass": true
+    },
+    {
+      "mode": "narrow-dual",
+      "implementationSha": "93cd2b604641dc38c56940e3330ec2acb74962af",
+      "sourceClean": true,
+      "boundToHead": true,
+      "boundToTree": false,
+      "treeBindingStatus": "NOT_EMBEDDED",
+      "executableSha256": "9a149aa7b91bfb831c3ec2526db65384c2dff77537fd83e88b89825da322dcbb",
+      "status": "PASS",
+      "observations": [
+        {
+          "row": "324,242,300,48",
+          "pane": "324,160,141,643",
+          "hasKeyboardFocus": true,
+          "offscreen": false
+        },
+        {
+          "row": "465,242,301,48",
+          "pane": "465,160,141,643",
+          "hasKeyboardFocus": false,
+          "offscreen": false
+        },
+        {
+          "row": "324,242,300,48",
+          "pane": "324,160,141,643",
+          "hasKeyboardFocus": true,
+          "offscreen": false
+        }
+      ],
+      "captureSha256": "06c324f43654b52e9f15c25b895205806dc0ff266d7bc575727ca15dadb90d84",
+      "captureBounds": {
+        "X": 48,
+        "Y": 32,
+        "Width": 604,
+        "Height": 772,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "image": "images/focus-certified-narrow-dual-93cd2b6.png",
+      "cleanupPass": true
+    }
+  ]
+}

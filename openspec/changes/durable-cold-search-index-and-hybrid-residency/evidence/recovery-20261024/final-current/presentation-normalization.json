@@ -1,0 +1,23 @@
+{
+  "current-uia-core.log": {
+    "normalization": "Presentation copy only: line-end blanks removed, EOLs normalized, one EOF newline. Exact captured bytes retained in gzip.",
+    "raw_execution_archive": "current-uia-core.log.raw.gz",
+    "execution_bytes": 3891,
+    "execution_sha256": "a91a814fb4a9a10f3d4c7f479684acf6c7d6de126d2d80e2fd03ede67c750b93",
+    "presentation_sha256": "77d7a78b8408b610f0253bc7beb64991df980710f3942fd73812c681609028bf"
+  },
+  "current-uia-visual.log": {
+    "normalization": "Presentation copy only: line-end blanks removed, EOLs normalized, one EOF newline. Exact captured bytes retained in gzip.",
+    "raw_execution_archive": "current-uia-visual.log.raw.gz",
+    "execution_bytes": 4956,
+    "execution_sha256": "26c75bfd5d85ad734ad4ef0df60d4e94d3cb61130cdec28dd03e115fdf6230c1",
+    "presentation_sha256": "17741e9856a111ea8da34a6a65ddc3d954ec8991ce45acc8f7d63967c7e475f5"
+  },
+  "parity/log-hygiene-suite.txt": {
+    "normalization": "Presentation copy only: line-end blanks removed, EOLs normalized, one EOF newline. Exact captured bytes retained in gzip.",
+    "raw_execution_archive": "parity/log-hygiene-suite.txt.raw.gz",
+    "execution_bytes": 28469,
+    "execution_sha256": "7849e79a42a9e0e50eddd350c45dac73c5ad8fb41006d1a4c09c88aeeb1aff34",
+    "presentation_sha256": "4938555dea6f7b7b7896d2161a7d7b916c7e5bf8963c154a6debc3e0ab3ea4b6"
+  }
+}

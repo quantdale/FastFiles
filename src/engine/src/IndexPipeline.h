@@ -47,6 +47,11 @@ public:
     };
     struct SearchTestHooks {
         std::function<void(SearchPhase)> onPhase;
+        // durable-cold-search-index-and-hybrid-residency 4.1: independent
+        // reference arm bypasses ALL name prefilters (not just FTS), and
+        // observes actual candidate admission. Production leaves both empty.
+        bool forceCanonicalColdScan = false;
+        ffindexstore::CandidatePlannerProbe candidatePlannerProbe;
     };
 
     // Optional attribution seam for the explicit scalability benchmark. The
@@ -194,6 +199,7 @@ public:
     void SetSecondaryPruningFaultInjector(SecondaryPruningFaultInjector injector);
 #endif
     ReadPlaneDiagnostics GetReadPlaneDiagnostics() const noexcept;
+    ffindexstore::Store::CheckpointDiagnostics GetCheckpointDiagnostics() const;
 
     // task 1.6: scheduled WAL maintenance, intended to be called on a
     // low-frequency timer (the engine calls it from VolumeSessionManager's
@@ -401,6 +407,12 @@ private:
     void AdvanceQueryVisibleEpochLocked(ffindexstore::VolumeRowId volumeId,
                                         QueryMutationReason reason,
                                         bool dependencySetChanged = false);
+    // large-index-lifecycle-and-search-scalability review-lane D P1-1: bumps
+    // ProjectionResidency for every known volume after a structural
+    // projection change (memory-pressure eviction + compaction, cold reload)
+    // so in-flight searches restart instead of serving silently incomplete
+    // results.
+    void AdvanceResidencyEpochsForStructuralChangeLocked();
     void RecordMetadataOnlyUpdateLocked();
     static bool VolumeSettingsEqual(const ffprotocol::VolumeSetting& left,
                                     const ffprotocol::VolumeSetting& right);
@@ -448,11 +460,14 @@ private:
     // than risk dropping a record whose inclusion is genuinely undecided).
     bool IsEntryIncludedLocked(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId frn);
 
-    // address-engineering-audit-findings 5.1: keep planner statistics fresh
-    // without adding ANALYZE work to every small journal update. The counter
-    // is retained when ANALYZE fails so a later ingestion batch retries it.
+    // analyze-maintenance-scheduling: keep planner statistics fresh without
+    // any ANALYZE work in the ingestion path (the historical per-batch trigger
+    // made sustained bulk ingestion quadratic). Ingestion accumulates the
+    // refresh debt; RunStoreMaintenance runs ANALYZE once the threshold is
+    // reached and RETAINS the debt when ANALYZE fails so a later pass retries.
     static constexpr uint64_t kAnalyzeRecordThreshold = 10'000;
-    void MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount);
+    void NoteBulkInsertForPlannerStatsLocked(size_t recordCount);
+    void FlushPendingPlannerStatsLocked();
     void MaybeReportProjectionMemoryPressureLocked();
     uint64_t recordsSinceAnalyze_ = 0;
     bool projectionMemoryWarningIssued_ = false;

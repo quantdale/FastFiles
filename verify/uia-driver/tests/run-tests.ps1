@@ -22,9 +22,17 @@ function Check {
 }
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+& (Join-Path $PSScriptRoot 'Test-PaletteSiblingDiscovery.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Palette direct-sibling discovery regression failed' }
+& (Join-Path $PSScriptRoot 'Test-BoundCommandEvidence.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Owned command evidence regression failed' }
 $module = Join-Path $repo 'verify\uia-driver\UiaDriver.psm1'
 $treePath = Join-Path $repo 'verify\uia-driver\tests\recorded-trees\sample-files-window.json'
 Import-Module $module -Force
+
+# Metadata/cache policy runs before the optional native availability probe and
+# also works on non-Windows hosts. Native fixture is deliberately opt-in only.
+& (Join-Path $PSScriptRoot 'test-standard-proxy-metadata.ps1')
 
 Write-Host "== availability probe (2.2) =="
 $avail = Get-UiaDriverAvailability
@@ -327,6 +335,9 @@ Check ($dragDry.ok -and $dragDry.inputAccepted) 'drag dry-run records accepted-i
 $tx = Send-UiaText -Driver $mock -Text 'C:\Temp\sub dir' -NoSend
 Check ($tx.used -eq 'SendInput' -and $tx.kind -eq 'unicode-text' -and $tx.chars -eq 15 -and $tx.ok) 'unicode text dry-run records accepted-input contract'
 
+Write-Host "== original-vision-journey-recovery: foreground preserves active workspaces =="
+. (Join-Path $PSScriptRoot 'test-foreground-activation.ps1')
+
 Write-Host "== stabilize-live-uia-e2e: bounded semantic waits =="
 $onTimeoutRan = $false
 $condTimeout = Wait-UiaCondition -Driver $mock -TimeoutMs 300 -PollIntervalMs 30 -Description 'never true' -OnTimeout { $script:onTimeoutRan = $true; return $true } -ScriptBlock { return $false }
@@ -393,6 +404,9 @@ $found2Id = if ($found2) { (Get-UiaElementIdentity -Driver $expMock -Element $fo
 Check ($found2Id -eq 'Downloads - File Explorer') 'Explorer discovery matches the second window by its own address'
 $foundNone = Get-UiaExplorerWindow -Driver $expMock -ExpectedPath 'C:\Users\Test\ffui-drag-42\source' -CandidateProcessIds @(4242) -TimeoutMs 300 -PollIntervalMs 50
 Check ($null -eq $foundNone) 'Explorer discovery returns null for an unmatched path'
+
+Write-Host "== Explorer cleanup ownership =="
+. (Join-Path $PSScriptRoot 'test-scenario-cleanup.ps1')
 
 Write-Host ""
 if ($script:failures -gt 0) {

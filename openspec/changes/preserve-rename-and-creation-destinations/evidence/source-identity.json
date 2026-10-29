@@ -1,0 +1,21 @@
+{
+  "implementation": "f601998c4afc36a18e246f12f71b65c3b09216b9",
+  "validatedSource": "33a2cbe7dc1eeef13a7da58e25284bae1fec8ea9",
+  "parentCorrection": "cb23f8e674c30034a6190cabe2cb7f1c203e2b27",
+  "excludedTest": "ffverify_process_reaper_ps_tests",
+  "files": {
+    "src/ui/src/FileOperations.cpp": "87b9af70e97b0539eb99c2e7041efa79271ac876fd97644010144ebca620f3dc",
+    "src/ui/src/FileOperations.h": "2e0e2314cbe61a96d3ce95babc199421d23ef48682e32dab8913f5bc45ee7711",
+    "src/ui/src/NewFileWriter.cpp": "637d6eeaa58e1956fe11fa9e70c53b9d001c84a93b560467bd83cda4f670b64d",
+    "src/ui/src/NewFileWriter.h": "d0034e7c97333d37b7289f15559c5117a295285cb7fc2e484a2f1d52273d78ca",
+    "src/ui/src/FileOperationPolicy.cpp": "88c74aa4d4280f53743065d2737d8ac73fd2e559cc855fd65bb7638ec44627e7",
+    "src/ui/src/FileOperationPolicy.h": "e490ed791f566857844bcc5199c3b0f6ca758615e003c99a59dc0e45a3d25cd3",
+    "tests/fileoperations/CMakeLists.txt": "64db9aec768b2c43a23b7b1e57868c4fee79bdc92ef9364e9683736467a651ac",
+    "tests/fileoperations/test_creation_collisions.cpp": "416df8defd13becfce24c556394f2c2679c09aab8f3eaaa8547e0c399723162b"
+  },
+  "limits": [
+    "Worker existing-target outcomes and production-primitive late-target seam; no timed worker race injection",
+    "Interactive app input qualification not run",
+    "No source-identity/ancestor-reparse/alias or cross-volume guarantees"
+  ]
+}

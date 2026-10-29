@@ -1,0 +1,13 @@
+Test project D:/Documents/tryPython/FastFiles-worktrees/shutdown-lifetime-20261026/build/debug-diagnostic
+    Start   2: ffprotocol_diagnostics_tests
+1/4 Test   #2: ffprotocol_diagnostics_tests .....   Passed    0.08 sec
+    Start  98: ffasync_work_admission_tests
+2/4 Test  #98: ffasync_work_admission_tests .....   Passed    0.05 sec
+    Start  99: ffuia_driver_ps_tests
+3/4 Test  #99: ffuia_driver_ps_tests ............   Passed    4.98 sec
+    Start 116: ffe2e_harness_ps_tests
+4/4 Test #116: ffe2e_harness_ps_tests ...........   Passed    2.99 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =   8.22 sec

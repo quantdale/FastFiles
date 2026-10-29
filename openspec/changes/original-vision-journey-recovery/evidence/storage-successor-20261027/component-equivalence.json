@@ -1,0 +1,85 @@
+{
+  "successorImplementation": "09264aca08fb890d0d21ec57bd735ff9f2d3ec0f",
+  "combinedNativeWideSource": "8ef3b5adb52a38f05a6e54ee055815188e53dc3d",
+  "scope": "Exact Git blobs for listed components only; not whole application equivalence",
+  "files": [
+    {
+      "path": "src/ui/src/StorageAnalysis.cpp",
+      "successorBlob": "e078523bb649ec9822b3f4be502031eb7e5a18d0",
+      "combinedBlob": "e078523bb649ec9822b3f4be502031eb7e5a18d0",
+      "equal": true
+    },
+    {
+      "path": "src/ui/src/StorageAnalysis.h",
+      "successorBlob": "7aa60bed52606cb901ea8b9635b4ca457bf40e2e",
+      "combinedBlob": "7aa60bed52606cb901ea8b9635b4ca457bf40e2e",
+      "equal": true
+    },
+    {
+      "path": "src/ui/src/TreemapView.cpp",
+      "successorBlob": "6a9974a313bc5053a3cff46b2c3f6786a9cce183",
+      "combinedBlob": "6a9974a313bc5053a3cff46b2c3f6786a9cce183",
+      "equal": true
+    },
+    {
+      "path": "src/ui/src/TreemapView.h",
+      "successorBlob": "3e8d0bc08bb1e109c63f670ee6b6a658b37c920b",
+      "combinedBlob": "3e8d0bc08bb1e109c63f670ee6b6a658b37c920b",
+      "equal": true
+    },
+    {
+      "path": "src/ui/src/SearchUiaProvider.cpp",
+      "successorBlob": "6d985a4ea84adc99e96485ee589b0c52e9ce2ef6",
+      "combinedBlob": "6d985a4ea84adc99e96485ee589b0c52e9ce2ef6",
+      "equal": true
+    },
+    {
+      "path": "src/ui/include/ffui/StorageRanking.h",
+      "successorBlob": "0a8ef9fb32c310635018f151d495769e5ed76d3b",
+      "combinedBlob": "0a8ef9fb32c310635018f151d495769e5ed76d3b",
+      "equal": true
+    },
+    {
+      "path": "src/ui/include/ffui/StorageLayout.h",
+      "successorBlob": "871e2b4b41fa68b079ef050d8bc9101895d6fea5",
+      "combinedBlob": "871e2b4b41fa68b079ef050d8bc9101895d6fea5",
+      "equal": true
+    },
+    {
+      "path": "src/ui/include/ffui/StorageVisibility.h",
+      "successorBlob": "b26a5091db25bf0a39f8df000f59de68a4a1d0c1",
+      "combinedBlob": "b26a5091db25bf0a39f8df000f59de68a4a1d0c1",
+      "equal": true
+    },
+    {
+      "path": "src/ui/include/ffui/TreemapLayout.h",
+      "successorBlob": "2386aaede19aea1bd63730d84137ad4699626027",
+      "combinedBlob": "2386aaede19aea1bd63730d84137ad4699626027",
+      "equal": true
+    },
+    {
+      "path": "src/ui/include/ffui/ChromeTabTraversal.h",
+      "successorBlob": "51416926176f1e3e11a1dfe8badbeca0d9137bdb",
+      "combinedBlob": "51416926176f1e3e11a1dfe8badbeca0d9137bdb",
+      "equal": true
+    },
+    {
+      "path": "tests/ui/test_storage_ranking.cpp",
+      "successorBlob": "7fb83b8bd39759b5f0cd10442925b3225104fa85",
+      "combinedBlob": "7fb83b8bd39759b5f0cd10442925b3225104fa85",
+      "equal": true
+    },
+    {
+      "path": "tests/ui/test_shell_layout.cpp",
+      "successorBlob": "34c0f6d70e7c253098e3d5256829e60f55eb7539",
+      "combinedBlob": "34c0f6d70e7c253098e3d5256829e60f55eb7539",
+      "equal": true
+    },
+    {
+      "path": "tests/ui/test_treemap_metadata.cpp",
+      "successorBlob": "5fef34fcd3b9f4016f9557e27717009e3a57bfdf",
+      "combinedBlob": "5fef34fcd3b9f4016f9557e27717009e3a57bfdf",
+      "equal": true
+    }
+  ]
+}

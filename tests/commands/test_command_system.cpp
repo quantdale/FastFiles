@@ -258,6 +258,103 @@ void TestBaselinePaletteCoverage() {
     }
 }
 
+void TestAlternateWorkspaceTargets() {
+    // original-vision-journey-recovery 2.1: an alternate selection must never
+    // turn an empty/summary target into a hidden browsing destination.
+    int invocations = 0;
+    std::wstring lastCommand;
+    ffui::CommandRegistry registry;
+    ffui::RegisterBaselineCommands(registry, CountingHandlers(invocations, lastCommand));
+    const ffui::CommandContext emptyTool{ffui::SelectionKind::Empty, true, false};
+    for (const auto* id : {L"file.paste", L"file.new-folder", L"file.new-file", L"item.open-terminal",
+                           L"selection.select-all", L"navigation.up", L"navigation.refresh"}) {
+        Check(!registry.Invoke(id, emptyTool, {}), "alternate workspace rejects hidden browse destination/selection command");
+    }
+    Check(invocations == 0, "unavailable tool actions never reach an operation handler");
+    for (const auto* id : {L"navigation.new-tab", L"navigation.focus-path", L"navigation.home",
+                           L"app.command-palette", L"app.settings", L"file.undo"}) {
+        const auto* command = registry.Find(id);
+        Check(command != nullptr && !ffui::CommandUsesSelection(*command),
+              "global/recovery actions do not validate a disappeared selected file");
+    }
+    Check(ffui::CommandUsesSelection(*registry.Find(L"file.delete")) &&
+          ffui::CommandUsesSelection(*registry.Find(L"item.open-terminal")),
+          "filesystem item actions validate their explicit targets");
+    const auto rows = ffui::SearchCommands(registry, ffui::ShortcutMap{}, emptyTool, L"Paste");
+    Check(!rows.empty() && !rows.front().enabled, "palette agrees that tool workspace has no paste destination");
+
+    const auto root = std::filesystem::temp_directory_path() /
+        (L"FastFiles-command-targets-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::create_directories(root);
+    const auto browse = root / L"browse-sentinel.txt";
+    const auto storage = root / L"storage-target.txt";
+    { std::ofstream a(browse); a << "untouched browse sentinel"; }
+    { std::ofstream b(storage); b << "storage target"; }
+    const std::vector<std::wstring> targets{storage.wstring()};
+    const auto selection = ffui::ResolveExistingSelection(targets);
+    Check(selection && selection->size() == 1 && selection->front().path == storage &&
+          !selection->front().isDirectory, "live target resolution preserves storage identity and file type");
+    std::vector<std::wstring> received;
+    ffui::CommandRegistry captured;
+    ffui::RegisterBaselineCommands(captured, {[&](const std::wstring&) -> ffui::CommandHandler {
+        return [&](const std::vector<std::wstring>& paths) { received = paths; };
+    }});
+    if (selection) {
+        const ffui::CommandContext context{ffui::ClassifySelection(*selection), false, false};
+        for (const auto* id : {L"item.copy-path", L"file.copy", L"file.cut", L"file.delete", L"item.open"}) {
+            Check(captured.Invoke(id, context, ffui::SelectionPaths(*selection)) && received == targets,
+                  "alternate selected item reaches existing command handler with exact target");
+        }
+    }
+    Check(!ffui::ResolveExistingSelection(std::vector<std::wstring>{storage.wstring(), (root / L"missing").wstring()}),
+          "one unavailable target rejects the complete selection without partial fallback");
+    Check(!ffui::ResolveExistingSelection(std::vector<std::wstring>{L""}), "empty explicit path is invalid");
+    Check(std::filesystem::exists(browse) && std::filesystem::file_size(browse) == 25,
+          "browse sentinel remains untouched by alternate command dispatch");
+    std::filesystem::remove(storage);
+    std::filesystem::remove(browse);
+    std::filesystem::remove(root);
+}
+
+void TestCancelOperationsDiscovery() {
+    int invocations = 0;
+    std::wstring lastCommand;
+    ffui::CommandRegistry registry;
+    Check(ffui::RegisterBaselineCommands(registry, CountingHandlers(invocations, lastCommand)),
+          "cancel discovery registry initializes");
+    ffui::ShortcutMap shortcuts;
+    shortcuts.ResetDefaults(registry);
+    const auto* cancel = registry.Find(L"file.cancel-operations");
+    Check(cancel != nullptr, "cancel command resolves by stable id");
+    if (!cancel) return;
+    Check(cancel->scope == ffui::ShortcutScope::Global && !cancel->defaultShortcut &&
+          !ffui::CommandUsesSelection(*cancel), "cancel has global selection-independent policy without a shortcut");
+    Check(cancel->disabledReason == L"No file operations are running or queued",
+          "idle cancel explains its availability");
+    const auto idle = ffui::SearchCommands(registry, shortcuts, {}, L"Cancel File Operations");
+    Check(idle.size() == 1 && idle.front().command == cancel && !idle.front().enabled,
+          "idle cancel remains discoverable by its exact name and disabled");
+    Check(!registry.Invoke(cancel->commandId, {}, {}) && invocations == 0,
+          "idle cancel cannot invoke its handler");
+    for (const auto kind : {ffui::SelectionKind::Empty, ffui::SelectionKind::SingleFile,
+                           ffui::SelectionKind::SingleFolder, ffui::SelectionKind::MultipleFiles,
+                           ffui::SelectionKind::MultipleFolders, ffui::SelectionKind::Mixed}) {
+        for (const bool browse : {false, true}) {
+            const ffui::CommandContext active{kind, false, browse, true};
+            const auto matches = ffui::SearchCommands(registry, shortcuts, active, L"Cancel File Operations");
+            Check(matches.size() == 1 && matches.front().enabled && matches.front().command == cancel,
+                  "outstanding work enables cancel across selections and workspaces");
+            Check(registry.Invoke(cancel->commandId, active, {}) && lastCommand == cancel->commandId,
+                  "cancel executes without selected paths");
+            auto fresh = active;
+            fresh.fileOperationsOutstanding = false;
+            const int before = invocations;
+            Check(!registry.Invoke(cancel->commandId, fresh, {L"stale-selection"}) && invocations == before,
+                  "fresh idle context rejects a previously enabled palette command");
+        }
+    }
+}
+
 void TestQuickActions() {
     const auto launch = ffui::BuildTerminalLaunchSpec(L"C:\\folder & name", L"powershell.exe");
     Check(launch.currentDirectory == L"C:\\folder & name", "terminal target is passed as current directory");
@@ -280,7 +377,9 @@ int main() {
     TestPersistence();
     TestLegacyMigrationAndChordValidation();
     TestBaselinePaletteCoverage();
+    TestCancelOperationsDiscovery();
     TestQuickActions();
+    TestAlternateWorkspaceTargets();
     if (fftest::FailureCount() == 0) std::cout << "All command-system tests passed\n";
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

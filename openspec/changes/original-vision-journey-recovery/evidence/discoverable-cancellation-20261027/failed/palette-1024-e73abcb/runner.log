@@ -1,0 +1,16 @@
+[owned-operations] pid=129108; waiting for main window
+[owned-operations] main=True ready=True (engine-connected)
+PHASE: in-flight-copy-fixture
+PHASE: in-flight-copy-source
+PHASE: in-flight-copy-destination
+PHASE: in-flight-copy-observation
+PHASE: in-flight-copy-cancel-input
+FAIL: in-flight-copy-cancel-input: Palette cancellation failed: {"Pass":false,"Detail":"palette edit (6301) did not appear after 2 chord attempts; state={\"foregroundHwnd\":2495846,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"6301\",\"focusedControlType\":\"Edit\",\"focusedProcessId\":129108,\"popupClasses\":[]}","CommandState":null}
+[owned-operations] lifecycle teardown complete; cleanupPass=True; residue=
+Exception: D:\Documents\tryPython\FastFiles-worktrees\cancel-command-20261026\verify\e2e\Test-OwnedFileOperations.ps1:493
+Line |
+ 493 |  if($failure) { throw $failure }
+     |                 ~~~~~~~~~~~~~~
+     | in-flight-copy-cancel-input: Palette cancellation failed: {"Pass":false,"Detail":"palette edit (6301) did not
+     | appear after 2 chord attempts;
+     | state={\"foregroundHwnd\":2495846,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"6301\",\"focusedControlType\":\"Edit\",\"focusedProcessId\":129108,\"popupClasses\":[]}","CommandState":null}

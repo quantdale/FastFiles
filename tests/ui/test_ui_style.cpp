@@ -3,8 +3,8 @@
 //   - IconCache keying (FolderKey / IconKeyForExtension normalization)
 //   - FloatAnimation easing, snap-when-disabled, re-target
 //   - ToColorRef / ToD2DColor / UiLerpColor color conversions
-// All production logic exercised here is header-inline or pure; only
-// UiAnimation.cpp (SystemParametersInfo + easing math) is compiled in.
+// UiAnimation.cpp and UiStyle.cpp provide native animation/text seams;
+// DirectWrite is exercised without creating a live window.
 
 #include "IconCache.h"
 #include "NativeChromePaint.h"
@@ -301,6 +301,38 @@ void TestNativePrecisionTypeAndDensityRamp() {
     Check(UiTypeSemibold(UiTypeRole::Subtitle) && !UiTypeSemibold(UiTypeRole::Caption),
           "hierarchy uses weight in addition to size");
 }
+void TestBoundedStatusTextLayout() {
+    Microsoft::WRL::ComPtr<IDWriteFactory> factory;
+    const HRESULT factoryHr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown**>(factory.GetAddressOf()));
+    Check(SUCCEEDED(factoryHr), "DirectWrite factory supports real status layout qualification");
+    if (FAILED(factoryHr)) return;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
+    Check(SUCCEEDED(ffui::UiCreateTextFormat(factory.Get(), 14.0f, DWRITE_FONT_WEIGHT_NORMAL, L"Segoe UI", &format)),
+          "shared details format created");
+    if (!format) return;
+    format->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    const std::wstring text = L"C:\\Documents\\日本語文件\\long-path.txt\r\nUnavailable — click to retry";
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    const HRESULT hr = ffui::UiCreateSingleLineTextLayout(factory.Get(), format.Get(), text.c_str(),
+        static_cast<UINT32>(text.size()), 100.0f, 24.0f, &layout);
+    Check(SUCCEEDED(hr) && layout != nullptr, "long Unicode/error status creates a bounded layout");
+    if (!layout) return;
+    DWRITE_TEXT_METRICS metrics{};
+    Check(SUCCEEDED(layout->GetMetrics(&metrics)), "DirectWrite returns actual layout metrics");
+    Check(metrics.lineCount == 1, "hard line breaks cannot create a clipped second status line");
+    DWRITE_LINE_METRICS lines[4]{};
+    UINT32 count = 0;
+    const HRESULT lineHr = layout->GetLineMetrics(lines, 4, &count);
+    Check(SUCCEEDED(lineHr) && count >= 1 && lines[0].isTrimmed,
+          "real DirectWrite layout trims overflowing Unicode status");
+    Check(format->GetWordWrapping() == DWRITE_WORD_WRAPPING_WRAP,
+          "bounded status layout leaves shared multi-line details/recovery format unchanged");
+    Check(ffui::UiCreateSingleLineTextLayout(factory.Get(), format.Get(), text.c_str(),
+        static_cast<UINT32>(text.size()), 0.0f, 24.0f, &layout) == E_INVALIDARG && layout == nullptr,
+          "zero-width resize clears the prior layout instead of reusing stale geometry");
+}
+
 } // namespace
 
 int main() {
@@ -315,5 +347,6 @@ int main() {
     TestNativeHeaderAndTabPalettes();
     TestThemeContrast();
     TestNativePrecisionTypeAndDensityRamp();
+    TestBoundedStatusTextLayout();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

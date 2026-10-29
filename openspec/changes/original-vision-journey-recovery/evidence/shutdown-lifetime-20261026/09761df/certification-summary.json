@@ -1,0 +1,36 @@
+{
+  "excludedTest": "ffverify_process_reaper_ps_tests",
+  "source": "09761df11761e209f43d31e302b167ba343c3486",
+  "stages": [
+    {
+      "exitCode": 0,
+      "id": "debug-build",
+      "elapsedSeconds": 84.803161
+    },
+    {
+      "exitCode": 0,
+      "id": "debug-selected",
+      "elapsedSeconds": 256.5036324
+    },
+    {
+      "exitCode": 0,
+      "id": "release-test-build",
+      "elapsedSeconds": 161.4011009
+    },
+    {
+      "exitCode": 0,
+      "id": "release-test-selected",
+      "elapsedSeconds": 235.6874762
+    },
+    {
+      "exitCode": 0,
+      "id": "analyze-ui",
+      "elapsedSeconds": 71.5154532
+    },
+    {
+      "exitCode": 0,
+      "id": "strict-openspec",
+      "elapsedSeconds": 3.3018269
+    }
+  ]
+}

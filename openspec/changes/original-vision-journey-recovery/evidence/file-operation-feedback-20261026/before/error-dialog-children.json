@@ -1,0 +1,23 @@
+[
+  {
+    "Name": "OK",
+    "AutomationId": "2",
+    "ControlType": "Pane",
+    "ClassName": "Button",
+    "ProcessId": 119100
+  },
+  {
+    "Name": "",
+    "AutomationId": "20",
+    "ControlType": "Pane",
+    "ClassName": "Static",
+    "ProcessId": 119100
+  },
+  {
+    "Name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-83469b6e067943878c58acbac3a9c7fa\\Fixtures\\FastFilesE2E\\Source\\locked-source.txt — 0x80270027",
+    "AutomationId": "65535",
+    "ControlType": "Pane",
+    "ClassName": "Static",
+    "ProcessId": 119100
+  }
+]

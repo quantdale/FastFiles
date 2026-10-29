@@ -1,0 +1,27 @@
+Test project D:/Documents/tryPython/FastFiles-worktrees/restore-conflicts-20261027/build/debug
+    Start 48: ffrestore_plan_tests
+1/1 Test #48: ffrestore_plan_tests .............***Failed    0.08 sec
+FAIL: restore apply-to-all spans all collisions in the request
+FAIL: restore apply-to-all spans all collisions in the request
+FAIL: restore apply-to-all spans all collisions in the request
+ok: skip omits only collisions, not the noncollision
+ok: noncolliding source identity retained
+ok: restore apply-to-all never leaks into the next request
+ok: skip omits only collisions, not the noncollision
+ok: noncolliding source identity retained
+ok: restore apply-to-all never leaks into the next request
+ok: skip omits only collisions, not the noncollision
+ok: noncolliding source identity retained
+ok: restore keep-both respects real suffixes and each original folder
+ok: restore apply-to-all never leaks into the next request
+ok: unchecked choice prompts again and later Cancel discards the whole plan
+ok: replace never overwrites an earlier restore in the same plan
+
+
+0% tests passed, 1 tests failed out of 1
+
+Total Test time (real) =   0.38 sec
+
+The following tests FAILED:
+	 48 - ffrestore_plan_tests (Failed)
+Errors while running CTest

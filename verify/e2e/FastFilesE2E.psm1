@@ -7,6 +7,21 @@ $script:ValidationModule = Join-Path $script:E2ERoot 'capabilities\windows-ui-au
 Import-Module (Resolve-Path -LiteralPath $script:DriverModule).Path -Force -Global -DisableNameChecking
 Import-Module (Resolve-Path -LiteralPath $script:ValidationModule).Path -Force -Global -DisableNameChecking
 
+# preserve-e2e-failure-evidence follow-up: the single scenario-filter
+# vocabulary shared by the CLI boundary and this module, so selector
+# validation cannot drift and every selector error fails closed before
+# evidence-directory creation or any UIA work.
+function Resolve-E2EFilterSelection {
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Filter)
+    $tokens = @($Filter -split '[,;\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() })
+    $valid = @('all', 'launch', 'navigation', 'restore', 'search', 'storage', 'preview', 'fileops', 'lifecycle')
+    if ($tokens.Count -eq 0) { throw 'E2E filter must select at least one scenario.' }
+    foreach ($token in $tokens) {
+        if ($valid -notcontains $token) { throw "Unknown E2E filter '$token'. Valid filters: $($valid -join ', ')" }
+    }
+    return ,$tokens
+}
+
 function New-E2EResult {
     param(
         [Parameter(Mandatory)] [string] $Id,
@@ -64,6 +79,7 @@ function New-E2EFixture {
         'Browse\Nested',
         'Browse\Search',
         'Browse\Storage',
+        'Browse\Storage\Document',
         'Browse\Operations',
         'Browse\Operations\Destination'
     )
@@ -75,6 +91,7 @@ function New-E2EFixture {
     Set-Content -LiteralPath (Join-Path $root 'Browse\Search\exact-file.txt') -Value 'exact search needle' -Encoding utf8
     Set-Content -LiteralPath (Join-Path $root 'Browse\Search\partial-alpha.txt') -Value 'partial search alpha' -Encoding utf8
     Set-Content -LiteralPath (Join-Path $root 'Browse\Search\partial-beta.txt') -Value 'partial search beta' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $root 'Browse\Storage\Document\category-collision-proof.txt') -Value 'category labels are not filesystem targets' -Encoding utf8
     $storageNote = Join-Path $root 'Browse\Storage\storage-note.txt'
     $noteStream = [IO.FileStream]::new($storageNote, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
     try { $noteStream.SetLength(1MB) } finally { $noteStream.Dispose() }
@@ -132,6 +149,56 @@ function Wait-E2ECondition {
         Description = $Description
         LastError = $lastError
     }
+}
+
+function Get-E2EClipboardFiles {
+    # Read only the standard shell CF_HDROP format. This avoids apartment
+    # assumptions in WinForms Clipboard and never changes the clipboard.
+    if (-not ('FastFilesE2EClipboardReader' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class FastFilesE2EClipboardReader {
+    [DllImport("user32.dll")] static extern bool OpenClipboard(IntPtr owner);
+    [DllImport("user32.dll")] static extern bool CloseClipboard();
+    [DllImport("user32.dll")] static extern IntPtr GetClipboardData(uint format);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern uint DragQueryFileW(IntPtr drop, uint index, StringBuilder path, uint length);
+    public static string[] ReadFiles() {
+        if (!OpenClipboard(IntPtr.Zero)) return new string[0];
+        try {
+            IntPtr drop = GetClipboardData(15);
+            if (drop == IntPtr.Zero) return new string[0];
+            uint count = DragQueryFileW(drop, UInt32.MaxValue, null, 0);
+            if (count > 1024) return new string[0];
+            string[] files = new string[count];
+            for (uint index = 0; index < count; ++index) {
+                uint length = DragQueryFileW(drop, index, null, 0);
+                if (length > 32768) return new string[0];
+                StringBuilder path = new StringBuilder((int)length + 1);
+                DragQueryFileW(drop, index, path, length + 1);
+                files[index] = path.ToString();
+            }
+            return files;
+        } finally { CloseClipboard(); }
+    }
+}
+'@
+    }
+    return [FastFilesE2EClipboardReader]::ReadFiles()
+}
+
+function Get-E2EStorageRow {
+    param([Parameter(Mandatory)] $Context, [Parameter(Mandatory)] [string] $Name)
+    $list = Find-UiaElement -Driver $Context.Driver -AutomationId '7201' -ClassName 'SysListView32' `
+        -FromElement (Get-E2EMain -Context $Context) -TimeoutMs 700
+    foreach ($row in @(Get-UiaChildren -Driver $Context.Driver -Element $list)) {
+        $identity = Get-UiaElementIdentity -Driver $Context.Driver -Element $row
+        if ($identity.Name -like "$Name*" -and
+            (Test-UiaPatternAvailable -Driver $Context.Driver -Element $row -PatternName 'SelectionItem')) { return $row }
+    }
+    return $null
 }
 
 function Get-E2EMain {
@@ -398,6 +465,8 @@ function Write-E2EFailureEvidence {
         $diag = Join-Path $Context.Environment.LOCALAPPDATA 'FastFiles\logs\diagnostics.log'
         if (Test-Path -LiteralPath $diag -PathType Leaf) {
             Get-Content -LiteralPath $diag -Tail 250 | Set-Content -LiteralPath (Join-Path $ArtifactDir 'diagnostics-tail.log') -Encoding utf8
+            Get-Content -LiteralPath $diag | Where-Object { $_ -match 'FFDIAG_UI_COMMAND_DISPATCHED' } |
+                Select-Object -Last 30 | Set-Content -LiteralPath (Join-Path $ArtifactDir 'commands-tail.log') -Encoding utf8
         }
     } catch { }
     try {
@@ -417,7 +486,8 @@ function Write-E2EFailureEnvelope {
         [Parameter(Mandatory)] [string] $Expected,
         [string] $Observed = '',
         [string] $ErrorMessage = '',
-        [double] $ElapsedMs = 0
+        [double] $ElapsedMs = 0,
+        [ValidatePattern('^failure(?:-outer(?:-[0-9a-f]{32})?)?$')] [string] $Name = 'failure'
     )
     New-Item -ItemType Directory -Path $ArtifactDir -Force | Out-Null
     $processes = @(Get-Process -Name FastFiles, FastFilesEngine -ErrorAction SilentlyContinue |
@@ -432,9 +502,16 @@ function Write-E2EFailureEnvelope {
         generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         observation = $null
         processes = $processes
-        note = 'UIA window was unavailable at the outer scenario boundary; no screenshot/tree could be captured.'
-    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $ArtifactDir 'failure.json') -Encoding utf8
+        note = 'The outer scenario boundary did not capture an additional screenshot or UIA tree.'
+    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $ArtifactDir ($Name + '.json')) -Encoding utf8
     return $ArtifactDir
+}
+
+function Get-E2EOuterFailureName {
+    param([string] $ArtifactDir, [bool] $HasInnerEvidence)
+    if (-not $HasInnerEvidence) { return 'failure' }
+    if (-not (Test-Path -LiteralPath (Join-Path $ArtifactDir 'failure-outer.json'))) { return 'failure-outer' }
+    return 'failure-outer-' + [guid]::NewGuid().ToString('N')
 }
 
 function Write-E2ESuccessEvidence {
@@ -456,10 +533,62 @@ function Invoke-E2EScenarioSafely {
     )
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $artifactDir = Join-Path $ArtifactRoot $Id
+    # Each invocation must own its scenario directory. A path left by an
+    # earlier run cannot be treated as current evidence or overwritten.
+    if (Test-Path -LiteralPath $artifactDir) {
+        return New-E2EResult -Id $Id -Status 'FAIL' -Stage 'artifact-directory-not-fresh' `
+            -Detail "Refusing existing scenario evidence directory: $artifactDir" -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    try {
+        $null = New-Item -ItemType Directory -Path $artifactDir -ErrorAction Stop
+    } catch {
+        $stage = if (Test-Path -LiteralPath $artifactDir) { 'artifact-directory-not-fresh' } else { 'artifact-directory-unavailable' }
+        return New-E2EResult -Id $Id -Status 'FAIL' -Stage $stage `
+            -Detail "Cannot create fresh scenario evidence directory: $($_.Exception.Message)" -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     try {
         $result = & $Body
-        if ($result -and $result.status) {
-            if ($result.status -eq 'FAIL' -and $Context) {
+        # Every scenario returns a single New-E2EResult. Treat absent,
+        # malformed, mismatched or unknown-status output as a failure rather
+        # than allowing it to contribute an accidental PASS to the summary.
+        $validResult = $null -ne $result -and $result -isnot [array]
+        if ($validResult) {
+            foreach ($property in @('id', 'status', 'stage', 'detail', 'durationMs', 'data', 'artifactDir')) {
+                if (-not $result.PSObject.Properties[$property]) { $validResult = $false; break }
+            }
+        }
+        if ($validResult) {
+            $numericDuration = $result.durationMs -is [double] -or $result.durationMs -is [single] -or
+                $result.durationMs -is [decimal] -or $result.durationMs -is [int] -or $result.durationMs -is [long]
+            $validResult = $result.id -is [string] -and $result.status -is [string] -and $result.stage -is [string] -and
+                $result.detail -is [string] -and $result.artifactDir -is [string] -and $numericDuration -and
+                [string]::Equals($result.id, $Id, [StringComparison]::Ordinal) -and
+                @('PASS', 'FAIL', 'SKIPPED') -contains $result.status -and
+                -not [string]::IsNullOrWhiteSpace($result.stage)
+            if ($validResult) {
+                $duration = [double]$result.durationMs
+                $validResult = -not [double]::IsNaN($duration) -and -not [double]::IsInfinity($duration) -and $duration -ge 0
+            }
+        }
+        if (-not $validResult) {
+            $detail = 'Scenario did not return exactly one E2E result with the expected id and an explicit PASS, FAIL, or SKIPPED status.'
+            $hasInnerEvidence = Test-Path -LiteralPath (Join-Path $artifactDir 'failure.json') -PathType Leaf
+            if ($Context -and -not $hasInnerEvidence) {
+                Write-E2EFailureEvidence -Context $Context -ArtifactDir $artifactDir -ScenarioId $Id `
+                    -Stage 'invalid-result' -Expected 'a valid explicit scenario result' -ErrorMessage $detail `
+                    -ElapsedMs $watch.Elapsed.TotalMilliseconds | Out-Null
+            } else {
+                $outerName = Get-E2EOuterFailureName -ArtifactDir $artifactDir -HasInnerEvidence $hasInnerEvidence
+                Write-E2EFailureEnvelope -ArtifactDir $artifactDir -ScenarioId $Id -Stage 'invalid-result' `
+                    -Expected 'a valid explicit scenario result' -ErrorMessage $detail `
+                    -ElapsedMs $watch.Elapsed.TotalMilliseconds -Name $outerName | Out-Null
+            }
+            return New-E2EResult -Id $Id -Status 'FAIL' -Stage 'invalid-result' -Detail $detail `
+                -DurationMs $watch.Elapsed.TotalMilliseconds -ArtifactDir $artifactDir
+        }
+        if ($result.status) {
+            $hasInnerEvidence = Test-Path -LiteralPath (Join-Path $artifactDir 'failure.json') -PathType Leaf
+            if ($result.status -eq 'FAIL' -and $Context -and -not $hasInnerEvidence) {
                 Write-E2EFailureEvidence -Context $Context -ArtifactDir $artifactDir -ScenarioId $Id `
                     -Stage ([string]$result.stage) -Expected ([string]$result.detail) -Observed '' `
                     -ElapsedMs ([double]$result.durationMs) | Out-Null
@@ -469,9 +598,10 @@ function Invoke-E2EScenarioSafely {
                 if ($null -ne $result.data) {
                     try { $observed = $result.data | ConvertTo-Json -Compress -Depth 10 } catch { $observed = [string]$result.data }
                 }
+                $outerName = Get-E2EOuterFailureName -ArtifactDir $artifactDir -HasInnerEvidence $hasInnerEvidence
                 Write-E2EFailureEnvelope -ArtifactDir $artifactDir -ScenarioId $Id `
                     -Stage ([string]$result.stage) -Expected ([string]$result.detail) -Observed $observed `
-                    -ElapsedMs ([double]$result.durationMs) | Out-Null
+                    -ElapsedMs ([double]$result.durationMs) -Name $outerName | Out-Null
                 $result.artifactDir = $artifactDir
             } elseif ($result.status -eq 'PASS' -and $Context) {
                 Write-E2ESuccessEvidence -Context $Context -ArtifactDir $artifactDir -Name $Id
@@ -479,17 +609,18 @@ function Invoke-E2EScenarioSafely {
             }
             return $result
         }
-        return New-E2EResult -Id $Id -Status 'PASS' -DurationMs $watch.Elapsed.TotalMilliseconds -Data $result -ArtifactDir $artifactDir
     } catch {
         $errorMessage = $_.Exception.Message
-        if ($Context) {
+        $hasInnerEvidence = Test-Path -LiteralPath (Join-Path $artifactDir 'failure.json') -PathType Leaf
+        if ($Context -and -not $hasInnerEvidence) {
             Write-E2EFailureEvidence -Context $Context -ArtifactDir $artifactDir -ScenarioId $Id `
                 -Stage 'exception' -Expected 'scenario completes without exception' -Observed '' `
                 -ErrorMessage $errorMessage -ElapsedMs $watch.Elapsed.TotalMilliseconds | Out-Null
         } else {
-            New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
-            @{ scenario = $Id; stage = 'exception'; error = $errorMessage } |
-                ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $artifactDir 'failure.json') -Encoding utf8
+            $outerName = Get-E2EOuterFailureName -ArtifactDir $artifactDir -HasInnerEvidence $hasInnerEvidence
+            Write-E2EFailureEnvelope -ArtifactDir $artifactDir -ScenarioId $Id -Stage 'exception' `
+                -Expected 'scenario completes without exception' -ErrorMessage $errorMessage `
+                -ElapsedMs $watch.Elapsed.TotalMilliseconds -Name $outerName | Out-Null
         }
         return New-E2EResult -Id $Id -Status 'FAIL' -Stage 'exception' -Detail $errorMessage `
             -DurationMs $watch.Elapsed.TotalMilliseconds -ArtifactDir $artifactDir
@@ -526,6 +657,23 @@ function Invoke-E2ELaunchScenario {
     return New-E2EResult -Id 'launch-ready' -Status 'PASS' -Stage 'complete' `
         -Detail "main window and engine handshake ready; pid=$($Context.Launched.Id); ready=$($Context.ReadyReason)" `
         -DurationMs $watch.Elapsed.TotalMilliseconds -Data (Get-E2EVisibleObservation -Context $Context)
+}
+
+function Wait-E2EVisibleBrowseFocus {
+    param([Parameter(Mandatory)] $Item)
+    return Wait-E2ECondition -TimeoutMs 5000 -Description 'focused row visibly inside its pane' -Condition {
+        $state = $Item.Current
+        $pane = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent(
+            [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($Item))
+        $rowRect = $state.BoundingRectangle
+        $paneRect = $pane.Current.BoundingRectangle
+        return $state.HasKeyboardFocus -and -not $state.IsOffscreen -and
+            $rowRect.Width -gt 0 -and $rowRect.Height -gt 0 -and
+            $rowRect.Left -ge $paneRect.Left - 1 -and $rowRect.Left -lt $paneRect.Right -and
+            $rowRect.Top -ge $paneRect.Top - 1 -and $rowRect.Bottom -le $paneRect.Bottom + 1 -and
+            (($rowRect.Width -gt $paneRect.Width -and [Math]::Abs($rowRect.Left - $paneRect.Left) -le 1) -or
+             ($rowRect.Width -le $paneRect.Width -and $rowRect.Right -le $paneRect.Right + 1))
+    }
 }
 
 function Invoke-E2ENavigationScenario {
@@ -571,13 +719,42 @@ function Invoke-E2ENavigationScenario {
     if (-not (Wait-E2EItem -Context $Context -Name 'root-note.txt' -TimeoutMs 12000).Pass) {
         return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'browse-visible-items' -Detail 'root-note.txt did not appear in the terminal column' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
+    # column-uia-identity-dispatch: public COM focus must reach the owning
+    # HWND and original row without selecting a different file.
+    try {
+        $focusMain = Get-E2EMain -Context $Context
+        $focusMain.SetFocus()
+        $focusItem = (Wait-E2EItem -Context $Context -Name 'root-note.txt' -TimeoutMs 2000).Value
+        $selectionPattern = $focusItem.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+        $selectedBeforeFocus = $selectionPattern.Current.IsSelected
+        $focusColumn = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($focusItem)
+        $focusPane = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($focusColumn)
+        $focusPane.SetFocus()
+        $focusColumn.SetFocus()
+        $focusItem.SetFocus()
+        $focusWait = Wait-E2EVisibleBrowseFocus -Item $focusItem
+        if (-not $focusWait.Pass -or $selectionPattern.Current.IsSelected -ne $selectedBeforeFocus) {
+            throw 'Public row focus did not reach the row or changed selection membership'
+        }
+    } catch {
+        return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'native-focus' -Detail $_.Exception.Message -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     $nested = Wait-E2EItem -Context $Context -Name 'Nested' -TimeoutMs 12000
     if (-not $nested.Pass) {
         return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'nested-visible' -Detail 'Nested folder did not appear in the terminal column' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     Invoke-E2EItem -Context $Context -Item $nested.Value
-    if (-not (Wait-E2EItem -Context $Context -Name 'restore-proof.txt' -TimeoutMs 12000).Pass) {
+    $childFile = Wait-E2EItem -Context $Context -Name 'restore-proof.txt' -TimeoutMs 12000
+    if (-not $childFile.Pass) {
         return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'nested-open' -Detail 'nested directory opened without its expected file becoming visible' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    try {
+        $childFile.Value.SetFocus()
+        if (-not (Wait-E2EVisibleBrowseFocus -Item $childFile.Value).Pass) {
+            throw 'Focused child row remained outside the pane after public folder Invoke'
+        }
+    } catch {
+        return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'child-focus-visibility' -Detail $_.Exception.Message -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     if ((Get-E2EItem -Context $Context -Name 'root-note.txt' -TimeoutMs 1000)) {
         return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'stale-column-content' -Detail 'root-note.txt remained in the terminal column after opening Nested' -DurationMs $watch.Elapsed.TotalMilliseconds
@@ -610,6 +787,20 @@ function Invoke-E2ESearchScenario {
         -ProcessId ([int]$Context.Launched.Id) -Path $Fixture.Search -ExpectedLeaf 'Search'
     if (-not $nav.Pass) {
         return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'scope-navigation' -Detail $nav.Detail -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    # original-vision-journey-recovery 3.2: browse the fixture first so the
+    # degraded snapshot contains it, then start the actual search from Home.
+    # Closing Search alone used to pass while Home still covered the result.
+    $home = Invoke-E2ENavigationCommand -Context $Context -Query 'home' -Name 'Home' -CommandId 'navigation.home'
+    if (-not $home.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'home-before-search' -Detail $home.Detail -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $homeReady = Wait-E2ECondition -TimeoutMs 6000 -Description 'Home before search' -Condition {
+        $null = Find-UiaElement -Driver $Context.Driver -AutomationId 'Pane.0.Home' -FromElement (Get-E2EMain -Context $Context) -TimeoutMs 700
+        return $true
+    }
+    if (-not $homeReady.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'home-before-search' -Detail 'Home surface did not become available' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     $panel = Open-UiaSearchPanel -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id)
     if (-not $panel.Pass) {
@@ -655,6 +846,34 @@ function Invoke-E2ESearchScenario {
     if (-not $noResult.Pass) {
         return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'no-result-terminal' -Detail 'no-result query did not settle to an empty Search.Results list' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
+    # original-vision-journey-recovery 3.2: an accepted replacement must not
+    # transfer a native ListView selection to a different file at the same
+    # virtual row index. Start with one selected result at index zero.
+    $selectedQuery = Set-UiaSearchQuery -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -Query 'partial-alpha'
+    $alphaReady = Wait-E2ECondition -TimeoutMs 12000 -Description 'alpha result before selected replacement' -Condition {
+        $rows = @(Get-UiaSearchResultItems -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -TimeoutMs 800)
+        if ($rows.Count -eq 1 -and (Get-UiaElementProperty -Driver $Context.Driver -Element $rows[0] -Name 'Name') -eq 'partial-alpha.txt') { return $rows[0] }
+        return $false
+    }
+    if (-not $selectedQuery.Pass -or -not $alphaReady.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'selected-replacement-source' -Detail 'the single alpha result was not ready for selection' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    Invoke-UiaPattern -Driver $Context.Driver -Element $alphaReady.Value -PatternName 'SelectionItem' -Method 'Select' | Out-Null
+    if (-not [bool](Invoke-UiaPattern -Driver $Context.Driver -Element $alphaReady.Value -PatternName 'SelectionItem' -Method 'GetSelection')) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'selected-replacement-source' -Detail 'alpha selection was not semantically established' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $replacementQuery = Set-UiaSearchQuery -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -Query 'partial-beta'
+    $betaReady = Wait-E2ECondition -TimeoutMs 12000 -Description 'beta replaces the selected alpha result' -Condition {
+        $rows = @(Get-UiaSearchResultItems -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -TimeoutMs 800)
+        if ($rows.Count -eq 1 -and (Get-UiaElementProperty -Driver $Context.Driver -Element $rows[0] -Name 'Name') -eq 'partial-beta.txt') { return $rows[0] }
+        return $false
+    }
+    if (-not $replacementQuery.Pass -or -not $betaReady.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'selected-replacement-target' -Detail "the single beta replacement did not settle: $($replacementQuery.Detail); lastError=$($betaReady.LastError)" -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    if ([bool](Invoke-UiaPattern -Driver $Context.Driver -Element $betaReady.Value -PatternName 'SelectionItem' -Method 'GetSelection')) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'selected-replacement-retarget' -Detail 'beta inherited the selection of alpha at the same native row index' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     $setAlpha = Set-UiaSearchQuery -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -Query 'partial-alpha'
     $setBeta = Set-UiaSearchQuery -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) -ProcessId ([int]$Context.Launched.Id) -Query 'partial-beta'
     if (-not $setAlpha.Pass -or -not $setBeta.Pass) {
@@ -678,7 +897,38 @@ function Invoke-E2ESearchScenario {
     if (-not $closed) {
         return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'result-open' -Detail 'invoking a real search result did not close the Search.Results surface' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
-    return New-E2EResult -Id 'search-user-flow' -Status 'PASS' -Detail 'exact, partial, no-result, superseded-query, selection, and result-open checks passed' `
+    $expectedPaths = [Collections.Generic.List[string]]::new()
+    for ($directory = [IO.DirectoryInfo]::new($Fixture.Search); $null -ne $directory; $directory = $directory.Parent) {
+        $expectedPaths.Add($directory.FullName)
+    }
+    $expectedPaths.Reverse()
+    $expectedResult = Join-Path $Fixture.Search 'partial-beta.txt'
+    $revealed = Wait-E2ECondition -TimeoutMs 12000 -Description 'Home search reveals selected file in full hierarchy' -Condition {
+        $main = Get-E2EMain -Context $Context
+        $pane = Find-UiaElement -Driver $Context.Driver -AutomationId 'Pane.0' -FromElement $main -TimeoutMs 700
+        $columns = @(Get-UiaChildren -Driver $Context.Driver -Element $pane | Where-Object {
+            (Get-UiaElementIdentity -Driver $Context.Driver -Element $_).ControlType -eq 'List'
+        })
+        if ($columns.Count -ne $expectedPaths.Count) { return $false }
+        for ($columnIndex = 0; $columnIndex -lt $columns.Count; $columnIndex++) {
+            $actualPath = [string](Get-UiaElementProperty -Driver $Context.Driver -Element $columns[$columnIndex] -Name 'Name')
+            if (-not $actualPath.Equals($expectedPaths[$columnIndex], [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        }
+        $item = Find-UiaTerminalColumnItem -Driver $Context.Driver -Main $main -ProcessId ([int]$Context.Launched.Id) `
+            -Name 'partial-beta.txt' -PaneId 'Pane.0' -TimeoutMs 700
+        if (-not $item) { return $false }
+        $actualResult = [string](Get-UiaElementProperty -Driver $Context.Driver -Element $item -Name 'HelpText')
+        $selected = [bool](Invoke-UiaPattern -Driver $Context.Driver -Element $item -PatternName 'SelectionItem' -Method 'GetSelection')
+        $offscreen = Get-UiaElementProperty -Driver $Context.Driver -Element $item -Name 'IsOffscreen'
+        $bounds = Get-UiaElementProperty -Driver $Context.Driver -Element $item -Name 'BoundingRectangle'
+        return $actualResult.Equals($expectedResult, [StringComparison]::OrdinalIgnoreCase) -and $selected -and
+            ($offscreen -eq $false) -and $bounds.width -gt 0 -and $bounds.height -gt 0
+    }
+    if (-not $revealed.Pass) {
+        return New-E2EResult -Id 'search-user-flow' -Status 'FAIL' -Stage 'result-hierarchy-selection' `
+            -Detail "Search closed but did not reveal the exact selected file '$expectedResult' in its complete visible hierarchy; lastError=$($revealed.LastError)" -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    return New-E2EResult -Id 'search-user-flow' -Status 'PASS' -Detail 'Home search, exact, partial, no-result, superseded-query, full hierarchy, exact selected path, and visible result checks passed' `
         -DurationMs $watch.Elapsed.TotalMilliseconds -Data (Get-E2EVisibleObservation -Context $Context)
 }
 
@@ -689,6 +939,13 @@ function Invoke-E2EStorageScenario {
         -ProcessId ([int]$Context.Launched.Id) -Path $Fixture.Storage -ExpectedLeaf 'Storage'
     if (-not $nav.Pass) {
         return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'scope-navigation' -Detail $nav.Detail -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $browseSentinel = Join-Path $Fixture.Storage 'storage-note.txt'
+    $storageTarget = Join-Path $Fixture.Storage 'small.bin'
+    $sentinelHash = (Get-FileHash -LiteralPath $browseSentinel -Algorithm SHA256).Hash
+    $browseSelection = Select-E2EItem -Context $Context -Name 'storage-note.txt' -TimeoutMs 10000
+    if (-not $browseSelection.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'browse-sentinel-selection' -Detail 'the independent browsing sentinel could not be selected' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     $open = Invoke-E2ENavigationCommand -Context $Context -Query 'analyze' -Name 'Analyze Storage' -CommandId 'storage.analyze'
     if (-not $open.Pass) {
@@ -703,6 +960,110 @@ function Invoke-E2EStorageScenario {
     }
     if (-not $treemap.Pass) {
         return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'analysis-ready' -Detail 'Storage Analysis did not expose its view controls' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    # original-vision-journey-recovery: actions belong to the visible
+    # Storage selection, even while a different browse row remains selected.
+    $main = Get-E2EMain -Context $Context
+    if (-not (Test-UiaForegroundWindow -Driver $Context.Driver -Element $main)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'palette-dismiss-foreground' -Detail 'foreground unavailable for the palette dismissal interaction' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $null = Send-UiaInput -Driver $Context.Driver -Keys '{CTRL}{SHIFT}p'
+    $paletteEdit = Wait-UiaElement -Driver $Context.Driver -AutomationId '6301' -FromElement $main -TimeoutMs 3000
+    $sidebar = Find-UiaElement -Driver $Context.Driver -ClassName 'FastFilesNavigationSidebar' -FromElement $main -TimeoutMs 1500
+    $sidebarBounds = Get-UiaElementProperty -Driver $Context.Driver -Element $sidebar -Name 'BoundingRectangle'
+    $outsideX = [int]($sidebarBounds.x + $sidebarBounds.width * 0.1)
+    $outsideY = [int]($sidebarBounds.y + $sidebarBounds.height * 0.5)
+    if (-not $paletteEdit -or -not (Test-UiaPointInWindow -Driver $Context.Driver -Element $main -X $outsideX -Y $outsideY)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'palette-dismiss-target' -Detail 'palette or safe app-owned outside click target was unavailable' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $null = Send-UiaMouseInput -Driver $Context.Driver -X $outsideX -Y $outsideY -Action 'Click'
+    $paletteGone = Wait-UiaElementGone -Driver $Context.Driver -AutomationId '6301' -FromElement $main -TimeoutMs 3000
+    $overviewStillVisible = Find-UiaElement -Driver $Context.Driver -Name 'Overview' -FromElement $main -TimeoutMs 1000
+    if (-not $paletteGone -or -not $overviewStillVisible) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'palette-dismiss-consumption' -Detail 'outside click failed to dismiss the palette or activated the background workspace' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $drillDownButton = Find-UiaElement -Driver $Context.Driver -Name 'Drill Down' -FromElement $main -TimeoutMs 1500
+    if (-not (Invoke-E2EButton -Context $Context -Element $drillDownButton)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-command-list' -Detail 'Drill Down was not activatable' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $storageRow = Wait-E2ECondition -TimeoutMs 12000 -Description 'Storage command target row' -Condition {
+        $row = Get-E2EStorageRow -Context $Context -Name 'small.bin'
+        if ($row) { return $row }
+        return $false
+    }
+    if (-not $storageRow.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-command-target' -Detail 'small.bin was absent from the native storage list' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    Invoke-UiaPattern -Driver $Context.Driver -Element $storageRow.Value -PatternName 'SelectionItem' -Method 'Select' | Out-Null
+    if (-not [bool](Invoke-UiaPattern -Driver $Context.Driver -Element $storageRow.Value -PatternName 'SelectionItem' -Method 'GetSelection')) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-command-selection' -Detail 'small.bin did not become the semantic storage selection' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $beforeSort = Get-UiaElementProperty -Driver $Context.Driver -Element $storageRow.Value -Name 'BoundingRectangle'
+    $storageList = Find-UiaElement -Driver $Context.Driver -AutomationId '7201' -ClassName 'SysListView32' -FromElement $main -TimeoutMs 1000
+    $sizeHeader = Find-UiaElement -Driver $Context.Driver -Name 'Size' -ControlType 'HeaderItem' -FromElement $storageList -TimeoutMs 1500
+    if (-not (Invoke-E2EButton -Context $Context -Element $sizeHeader)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-sort-action' -Detail 'Size column header was not activatable' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $sortedSelection = Wait-E2ECondition -TimeoutMs 6000 -Description 'storage sort preserves selected file identity' -Condition {
+        $row = Get-E2EStorageRow -Context $Context -Name 'small.bin'
+        if (-not $row) { return $false }
+        $bounds = Get-UiaElementProperty -Driver $Context.Driver -Element $row -Name 'BoundingRectangle'
+        return ([bool](Invoke-UiaPattern -Driver $Context.Driver -Element $row -PatternName 'SelectionItem' -Method 'GetSelection')) -and
+            $bounds -and $beforeSort -and $bounds.y -gt ($beforeSort.y + 1)
+    }
+    if (-not $sortedSelection.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-sort-selection' -Detail 'sorting did not move small.bin while preserving its selected identity' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $copyPath = Invoke-E2ENavigationCommand -Context $Context -Query 'copy path' -Name 'Copy Path' -CommandId 'item.copy-path'
+    $pathCopied = Wait-E2ECondition -TimeoutMs 4000 -Description 'Storage Copy Path clipboard target' -Condition {
+        return ([string](Get-Clipboard -Raw)).TrimEnd([char[]]"`r`n").Equals($storageTarget, [StringComparison]::OrdinalIgnoreCase)
+    }
+    if (-not $copyPath.Pass -or -not $pathCopied.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-copy-path-target' -Detail 'Copy Path did not copy the visible Storage target small.bin' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $cut = Invoke-E2ENavigationCommand -Context $Context -Query 'cut' -Name 'Cut' -CommandId 'file.cut'
+    $cutTarget = Wait-E2ECondition -TimeoutMs 4000 -Description 'Storage Cut clipboard target' -Condition {
+        $files = @(Get-E2EClipboardFiles)
+        return $files.Count -eq 1 -and $files[0].Equals($storageTarget, [StringComparison]::OrdinalIgnoreCase)
+    }
+    if (-not $cut.Pass -or -not $cutTarget.Pass -or
+        -not (Test-Path -LiteralPath $browseSentinel -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $browseSentinel -Algorithm SHA256).Hash -ne $sentinelHash) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-cut-target' -Detail 'Cut targeted a different file or changed the independent browsing sentinel' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    # A synthetic category has a real sibling folder with the same name.
+    # Activating the category must filter files rather than enter that folder.
+    $categoryButton = Find-UiaElement -Driver $Context.Driver -Name 'By Category' -FromElement (Get-E2EMain -Context $Context) -TimeoutMs 1500
+    if (-not (Invoke-E2EButton -Context $Context -Element $categoryButton)) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-category-mode' -Detail 'By Category was not activatable' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $category = Wait-E2ECondition -TimeoutMs 6000 -Description 'Document category row' -Condition {
+        $row = Get-E2EStorageRow -Context $Context -Name 'Document'
+        if ($row) { return $row }
+        return $false
+    }
+    if (-not $category.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-category-row' -Detail 'the Document category row was absent' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $null = Set-UiaForeground -Driver $Context.Driver -Element (Get-E2EMain -Context $Context)
+    $categoryBounds = Get-UiaElementProperty -Driver $Context.Driver -Element $category.Value -Name 'BoundingRectangle'
+    if (-not $categoryBounds -or $categoryBounds.width -le 0 -or $categoryBounds.height -le 0) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-category-activation' -Detail 'Document category had no usable live bounds' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    # Click the name cell within the row's live bounds, so a horizontal
+    # scrollbar cannot place the middle of a wide native row outside the view.
+    $categoryX = [int]($categoryBounds.x + [Math]::Min(40, $categoryBounds.width / 2))
+    $categoryY = [int]($categoryBounds.y + $categoryBounds.height / 2)
+    $null = Send-UiaMouseInput -Driver $Context.Driver -X $categoryX -Y $categoryY -Action 'Click'
+    $null = Send-UiaMouseInput -Driver $Context.Driver -X $categoryX -Y $categoryY -Action 'Click'
+    $categoryFiltered = Wait-E2ECondition -TimeoutMs 6000 -Description 'category activation filters real files' -Condition {
+        $document = Get-E2EStorageRow -Context $Context -Name 'storage-note.txt'
+        if (-not $document) { return $false }
+        return -not (Get-E2EStorageRow -Context $Context -Name 'small.bin') -and
+            -not (Get-E2EStorageRow -Context $Context -Name 'category-collision-proof.txt')
+    }
+    if (-not $categoryFiltered.Pass) {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'storage-category-target' -Detail 'category activation failed to filter documents in place or entered the category-named sibling folder' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     $main = Get-E2EMain -Context $Context
     $treemapButton = $null
@@ -769,10 +1130,21 @@ function Invoke-E2EStorageScenario {
             $rect.x -lt ($groupRect.x - $geometryTolerance) -or $rect.y -lt ($groupRect.y - $geometryTolerance) -or
             ($rect.x + $rect.width) -gt ($groupRect.x + $groupRect.width + $geometryTolerance) -or
             ($rect.y + $rect.height) -gt ($groupRect.y + $groupRect.height + $geometryTolerance)) {
+            $nativeDetail = ''
+            if (-not $rect) {
+                try { $nativeDetail = [string]$tile.Current.BoundingRectangle }
+                catch { $nativeDetail = $_.Exception.ToString() }
+            }
             return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'tile-geometry' `
-                -Detail "a live treemap tile bounding rectangle escaped the treemap content rectangle beyond ${geometryTolerance}px: tile=$($rect | ConvertTo-Json -Compress); group=$($groupRect | ConvertTo-Json -Compress)" `
+                -Detail "a live treemap tile bounding rectangle escaped the treemap content rectangle beyond ${geometryTolerance}px: tile=$($rect | ConvertTo-Json -Compress); group=$($groupRect | ConvertTo-Json -Compress); native=$nativeDetail" `
                 -DurationMs $watch.Elapsed.TotalMilliseconds
         }
+    }
+    $tileNames = @($tiles | ForEach-Object { Get-UiaElementProperty -Driver $Context.Driver -Element $_ -Name 'Name' })
+    if ($tileNames.Count -ne 1 -or $tileNames[0] -ne 'storage-note.txt') {
+        return New-E2EResult -Id 'storage-terminal-geometry' -Status 'FAIL' -Stage 'category-treemap-continuity' `
+            -Detail "Document category refinement was lost on entering Treemap: tiles=$($tileNames -join ', ')" `
+            -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     $firstTile = $tiles | Select-Object -First 1
     try { Invoke-UiaPattern -Driver $Context.Driver -Element $firstTile -PatternName 'Invoke' -Method 'Invoke' | Out-Null } catch {
@@ -1031,17 +1403,35 @@ function Invoke-E2EFileOperationsScenario {
 function Close-E2EContextWindow {
     param([Parameter(Mandatory)] $Context)
     if (-not $Context -or -not $Context.Main) { return $false }
+    $close = [pscustomobject][ordered]@{
+        processId = [int]$Context.Launched.Id
+        uiaCloseReturned = $false
+        uiaError = ''
+        fallbackAttempted = $false
+        fallbackKeys = ''
+        fallbackInput = @()
+        fallbackError = ''
+        deadlineMs = 10000
+        exitObserved = $false
+    }
+    $Context | Add-Member -NotePropertyName LastCloseObservation -NotePropertyValue $close -Force
     try {
         Invoke-UiaPattern -Driver $Context.Driver -Element (Get-E2EMain -Context $Context) -PatternName 'Window' -Method 'Close' | Out-Null
+        $close.uiaCloseReturned = $true
     } catch {
+        $close.uiaError = $_.Exception.Message
+        $close.fallbackAttempted = $true
+        $close.fallbackKeys = '{ALT}{F4}'
         try {
             Invoke-UiaActivateAppWindow -Driver $Context.Driver -Main (Get-E2EMain -Context $Context) | Out-Null
-            Send-UiaInput -Driver $Context.Driver -Keys '%{F4}' | Out-Null
-        } catch { }
+            $sent = Send-UiaInput -Driver $Context.Driver -Keys $close.fallbackKeys
+            $close.fallbackInput = @($sent.sequence)
+        } catch { $close.fallbackError = $_.Exception.Message }
     }
     $wait = Wait-E2ECondition -TimeoutMs 10000 -Description 'FastFiles process exits after close' -Condition {
         try { Get-Process -Id ([int]$Context.Launched.Id) -ErrorAction Stop | Out-Null; return $false } catch { return $true }
     }
+    $close.exitObserved = [bool]$wait.Pass
     return $wait.Pass
 }
 
@@ -1050,6 +1440,7 @@ function Invoke-E2ERestoreScenario {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $first = $null
     $second = $null
+    $third = $null
     $fixture = $null
     $result = $null
     try {
@@ -1066,7 +1457,8 @@ function Invoke-E2ERestoreScenario {
         }
         $sessionRoot = $first.SessionRoot
         if (-not (Close-E2EContextWindow -Context $first)) {
-            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'first-close' -Detail 'first FastFiles process did not exit within the close deadline' -DurationMs $watch.Elapsed.TotalMilliseconds
+            $close = if ($first.PSObject.Properties['LastCloseObservation']) { $first.LastCloseObservation } else { $null }
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'first-close' -Detail 'first FastFiles process did not exit within the close deadline' -DurationMs $watch.Elapsed.TotalMilliseconds -Data $close
             return $result
         }
         $firstCleanup = Remove-UiaScenarioContext -Context $first -LogFn { param($m) } -ArtifactsDir (Join-Path $ArtifactRoot 'cold-restore-first') -KeepSessionRoot
@@ -1087,15 +1479,49 @@ function Invoke-E2ERestoreScenario {
                 -DurationMs $watch.Elapsed.TotalMilliseconds
             return $result
         }
-        $result = New-E2EResult -Id 'cold-restore' -Status 'PASS' -Detail 'Nested directory restored after a real close/relaunch in the same isolated state directory' `
-            -DurationMs $watch.Elapsed.TotalMilliseconds -Data (Get-E2EVisibleObservation -Context $second)
+        $homeCommand = Invoke-E2ENavigationCommand -Context $second -Query 'home' -Name 'Home' -CommandId 'navigation.home'
+        if (-not $homeCommand.Pass -or -not (Close-E2EContextWindow -Context $second)) {
+            $close = if ($second.PSObject.Properties['LastCloseObservation']) { $second.LastCloseObservation } else { $null }
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'home-close' -Detail "Home navigation/close failed: $($homeCommand.Detail)" -DurationMs $watch.Elapsed.TotalMilliseconds -Data $close
+            return $result
+        }
+        $secondCleanup = Remove-UiaScenarioContext -Context $second -LogFn { param($m) } -ArtifactsDir (Join-Path $ArtifactRoot 'cold-restore-second') -KeepSessionRoot
+        if (-not $secondCleanup.Pass) {
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'home-cleanup' -Detail 'Home lifecycle cleanup left residue' -DurationMs $watch.Elapsed.TotalMilliseconds
+            return $result
+        }
+        $third = New-UiaScenarioContext -Exe $Exe -RepoRoot $RepoRoot -ScenarioId 'e2e-restore-home' -InvocationId ([guid]::NewGuid().ToString('N')) -LogFn { param($m) } -SessionRoot $sessionRoot
+        $restoredHome = Wait-E2ECondition -TimeoutMs 8000 -Description 'Home restored without navigation input' -Condition {
+            Find-UiaElement -Driver $third.Driver -AutomationId 'Pane.0.Home' -FromElement (Get-E2EMain -Context $third) -TimeoutMs 500
+        }
+        if (-not $restoredHome.Pass) {
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'restored-home' -Detail 'Home did not restore its real pane after close/relaunch' -DurationMs $watch.Elapsed.TotalMilliseconds
+            return $result
+        }
+        $visible = Get-E2EVisibleObservation -Context $third
+        # original-vision-journey-recovery 4.8: restored Home must close
+        # normally too; forced fixture teardown cannot qualify that lifecycle.
+        if (-not (Close-E2EContextWindow -Context $third)) {
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'restored-home-close' -Detail 'restored Home did not exit within the unchanged close deadline' -DurationMs $watch.Elapsed.TotalMilliseconds -Data $third.LastCloseObservation
+            return $result
+        }
+        $thirdCleanup = Remove-UiaScenarioContext -Context $third -LogFn { param($m) } -ArtifactsDir (Join-Path $ArtifactRoot 'cold-restore-home')
+        if (-not $thirdCleanup.Pass) {
+            $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'restored-home-cleanup' -Detail 'final restored Home lifecycle cleanup left residue' -DurationMs $watch.Elapsed.TotalMilliseconds -Data $thirdCleanup
+            return $result
+        }
+        # OrderedDictionary serialization includes keys, not ETS note properties.
+        $visible['closeObservations'] = @($first.LastCloseObservation, $second.LastCloseObservation, $third.LastCloseObservation)
+        $visible['cleanupObservations'] = @($firstCleanup, $secondCleanup, $thirdCleanup)
+        $result = New-E2EResult -Id 'cold-restore' -Status 'PASS' -Detail 'Nested directory and typed Home restored and all three app lifecycles closed normally in the same isolated state directory' `
+            -DurationMs $watch.Elapsed.TotalMilliseconds -Data $visible
         return $result
     } catch {
         $result = New-E2EResult -Id 'cold-restore' -Status 'FAIL' -Stage 'exception' -Detail $_.Exception.Message -DurationMs $watch.Elapsed.TotalMilliseconds
         return $result
     } finally {
         if ($result -and $result.status -eq 'FAIL') {
-            $context = if ($second -and -not $second.Cleanup) { $second } elseif ($first -and -not $first.Cleanup) { $first } else { $null }
+            $context = if ($third -and -not $third.Cleanup) { $third } elseif ($second -and -not $second.Cleanup) { $second } elseif ($first -and -not $first.Cleanup) { $first } else { $null }
             if ($context) {
                 try {
                     Write-E2EFailureEvidence -Context $context -ArtifactDir (Join-Path $ArtifactRoot 'cold-restore') `
@@ -1103,6 +1529,9 @@ function Invoke-E2ERestoreScenario {
                         -ElapsedMs ([double]$result.durationMs) | Out-Null
                 } catch { }
             }
+        }
+        if ($third -and -not $third.Cleanup) {
+            try { Remove-UiaScenarioContext -Context $third -LogFn { param($m) } -ArtifactsDir (Join-Path $ArtifactRoot 'cold-restore-home') | Out-Null } catch { }
         }
         if ($second -and -not $second.Cleanup) {
             if ($fixture -and $second.Fixtures.Count -eq 0) { [void]$second.Fixtures.Add($fixture.Root) }
@@ -1115,7 +1544,7 @@ function Invoke-E2ERestoreScenario {
 }
 
 function Invoke-E2ELifecycleScenario {
-    param([Parameter(Mandatory)] [string] $Exe, [Parameter(Mandatory)] [string] $RepoRoot, [Parameter(Mandatory)] [string] $ArtifactRoot, [int] $Iterations = 2)
+    param([Parameter(Mandatory)] [string] $Exe, [Parameter(Mandatory)] [string] $RepoRoot, [Parameter(Mandatory)] [string] $ArtifactRoot, [ValidateRange(1, 2147483647)] [int] $Iterations = 2)
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $observations = [System.Collections.Generic.List[object]]::new()
     for ($iteration = 1; $iteration -le $Iterations; $iteration++) {
@@ -1181,13 +1610,16 @@ function Invoke-FastFilesE2E {
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $ArtifactsDir,
         [string] $Filter = 'all',
-        [int] $LifecycleIterations = 2
+        [ValidateRange(1, 2147483647)] [int] $LifecycleIterations = 2
     )
-    New-Item -ItemType Directory -Path $ArtifactsDir -Force | Out-Null
-    $tokens = @($Filter -split '[,; ]+' | Where-Object { $_ }) | ForEach-Object { $_.ToLowerInvariant() }
-    $valid = @('all', 'launch', 'navigation', 'restore', 'search', 'storage', 'preview', 'fileops', 'lifecycle')
-    foreach ($token in $tokens) {
-        if ($valid -notcontains $token) { throw "Unknown E2E filter '$token'. Valid filters: $($valid -join ', ')" }
+    $tokens = Resolve-E2EFilterSelection -Filter $Filter
+    if (Test-Path -LiteralPath $ArtifactsDir) {
+        if (-not (Test-Path -LiteralPath $ArtifactsDir -PathType Container) -or
+            @(Get-ChildItem -LiteralPath $ArtifactsDir -Force).Count -gt 0) {
+            throw "Refusing non-empty or non-directory E2E artifact root: $ArtifactsDir"
+        }
+    } else {
+        New-Item -ItemType Directory -Path $ArtifactsDir -ErrorAction Stop | Out-Null
     }
     $runAll = $tokens -contains 'all'
     $shouldRun = { param($name) $runAll -or $tokens -contains $name }
@@ -1266,4 +1698,4 @@ function Invoke-FastFilesE2E {
     return $summary
 }
 
-Export-ModuleMember -Function Assert-E2EPathWithinRoot, Test-E2EPathWithinRoot, New-E2EFixture, New-E2EResult, Wait-E2ECondition, Write-E2EFailureEvidence, Invoke-FastFilesE2E
+Export-ModuleMember -Function Assert-E2EPathWithinRoot, Test-E2EPathWithinRoot, New-E2EFixture, New-E2EResult, Wait-E2ECondition, Write-E2EFailureEvidence, Resolve-E2EFilterSelection, Invoke-FastFilesE2E

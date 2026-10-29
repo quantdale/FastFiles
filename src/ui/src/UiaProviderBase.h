@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "ffui/UiaLifetime.h"
 
 #include <windows.h>
 #include <ole2.h>          // IUnknown / MIDL_INTERFACE (WIN32_LEAN_AND_MEAN skips these)
@@ -32,14 +33,6 @@ namespace ffui {
 // pointer and never dereference the surface when the token is dead, so a
 // UIA client that keeps an element past window destruction gets clean
 // failures instead of use-after-free.
-struct UiaOwnerState {
-    std::atomic<bool> alive{true};
-    UiaOwnerState() = default;
-    UiaOwnerState(const UiaOwnerState&) = delete;
-    UiaOwnerState& operator=(const UiaOwnerState&) = delete;
-};
-using UiaOwnerStatePtr = std::shared_ptr<UiaOwnerState>;
-
 // Emit a concrete QueryInterface implementation. `type_` is the interface
 // to expose; AddRef always runs through the canonical
 // IRawElementProviderSimple subobject (the first base of UiaProviderBase),

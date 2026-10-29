@@ -1,0 +1,55 @@
+FastFiles large-index scalability benchmark (2 dataset scales)
+Building 200000 synthetic entries...
+  selective          median 0.62 ms, results 1
+  moderate           median 97.74 ms, results 4096
+  broad              median 115.60 ms, results 4096
+  no_match           median 0.52 ms, results 0
+  prefix             median 99.92 ms, results 4096
+  extension          median 96.80 ms, results 4096
+  worst_substring    median 96.46 ms, results 4096
+  exact_name         median 0.67 ms, results 1
+  short_prefix       median 116.05 ms, results 4096
+  mixed_case         median 136.28 ms, results 4096
+  unicode            median 108.75 ms, results 4096
+  high_limit_broad   median 116.14 ms, results 4096
+  forced eviction: estimated 94969238 -> 845976 bytes
+  selective          COLD 1.94 ms, results 1, coldRows 1, stream 1.22 ms
+  moderate           COLD 791.33 ms, results 4096, coldRows 39375, stream 786.29 ms
+  broad              COLD 2134.66 ms, results 4096, coldRows 78749, stream 2129.97 ms
+  no_match           COLD 0.86 ms, results 0, coldRows 0, stream 0.28 ms
+  prefix             COLD 796.89 ms, results 4096, coldRows 39375, stream 791.93 ms
+  extension          COLD 2742.51 ms, results 4096, coldRows 200000, stream 2738.80 ms
+  worst_substring    COLD 1466.61 ms, results 4096, coldRows 59063, stream 1462.94 ms
+  exact_name         COLD 2.14 ms, results 1, coldRows 1, stream 1.49 ms
+  short_prefix       COLD 2157.80 ms, results 4096, coldRows 200000, stream 2153.08 ms
+  mixed_case         COLD 1499.94 ms, results 4096, coldRows 59062, stream 1495.36 ms
+  unicode            COLD 846.72 ms, results 4096, coldRows 200000, stream 841.80 ms
+  high_limit_broad   COLD 2151.24 ms, results 4096, coldRows 78749, stream 2145.07 ms
+  sustained-write broad fallback 10739.97 ms, results 4096, restarts 4, rows 78749
+Completed 200000; database 38.4 MB, generation 3.1 s, rebuild 0.6 s
+Building 1000000 synthetic entries...
+  selective          median 2.37 ms, results 1
+  moderate           median 4543.55 ms, results 4096
+  broad              median 12450.26 ms, results 4096
+  no_match           median 0.90 ms, results 0
+  prefix             median 4521.67 ms, results 4096
+  extension          median 16104.89 ms, results 4096
+  worst_substring    median 8404.01 ms, results 4096
+  exact_name         median 2.91 ms, results 1
+  short_prefix       median 12325.34 ms, results 4096
+  mixed_case         median 8694.56 ms, results 4096
+  unicode            median 4737.64 ms, results 4096
+  high_limit_broad   median 12403.30 ms, results 4096
+  forced eviction: estimated 128 -> 128 bytes
+  selective          COLD 2.52 ms, results 1, coldRows 1, stream 1.86 ms
+  moderate           COLD 4749.69 ms, results 4096, coldRows 196875, stream 4745.51 ms
+  broad              COLD 12402.66 ms, results 4096, coldRows 393749, stream 12398.27 ms
+  no_match           COLD 0.90 ms, results 0, coldRows 0, stream 0.28 ms
+  prefix             COLD 4554.84 ms, results 4096, coldRows 196875, stream 4550.64 ms
+  extension          COLD 16343.34 ms, results 4096, coldRows 1000000, stream 16340.22 ms
+  worst_substring    COLD 8467.69 ms, results 4096, coldRows 295313, stream 8464.58 ms
+  exact_name         COLD 3.54 ms, results 1, coldRows 1, stream 2.06 ms
+  short_prefix       COLD 12341.98 ms, results 4096, coldRows 1000000, stream 12337.84 ms
+  mixed_case         COLD 8772.52 ms, results 4096, coldRows 295312, stream 8768.41 ms
+  unicode            COLD 4789.28 ms, results 4096, coldRows 1000000, stream 4784.97 ms
+  high_limit_broad   COLD 12365.75 ms, results 4096, coldRows 393749, stream 12361.55 ms

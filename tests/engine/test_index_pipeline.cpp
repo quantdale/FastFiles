@@ -138,16 +138,23 @@ ffprotocol::IndexedSearchResponse SearchForName(IndexPipeline& pipeline, uint64_
     return pipeline.SearchIndexed(request);
 }
 
-void TestBulkInsertTriggersAnalyzeAtTenThousandRecords() {
+// analyze-maintenance-scheduling: sustained bulk ingestion must NOT run a
+// full-database ANALYZE per batch (the historical 10k-threshold remainder
+// bookkeeping ran ANALYZE on ~6 of every 7 batches with 8,192-row wire
+// batches -- O(n^2) over a large ingest; the 5M collapse). Planner
+// statistics are refreshed at maintenance cadence instead, gated by the
+// same threshold (no stats before 10,000 records -- preserved).
+void TestBulkIngestionDefersAnalyzeToMaintenance() {
     const std::string dbPath = FreshDbPath("engine_test_analyze_threshold.db");
     IndexPipeline pipeline;
-    Check(pipeline.Open(dbPath), "the pipeline opens for ANALYZE threshold validation");
+    Check(pipeline.Open(dbPath), "the pipeline opens for ANALYZE scheduling validation");
     VolumeKey key;
     key.serialNumber = 1;
     const auto volume = pipeline.ResolveVolume(key);
 
-    const auto applyBatches = [&](ffindexstore::VolumeRowId targetVolume, uint64_t firstId, size_t batchCount,
-                                  size_t recordsPerBatch, const std::u16string& name) {
+    const auto applyBatches = [](IndexPipeline& targetPipeline, ffindexstore::VolumeRowId targetVolume,
+                                  uint64_t firstId, size_t batchCount, size_t recordsPerBatch,
+                                  const std::u16string& name) {
         for (size_t batchIndex = 0; batchIndex < batchCount; ++batchIndex) {
             std::vector<ffprotocol::MftRecordV1> batch;
             batch.reserve(recordsPerBatch);
@@ -156,24 +163,44 @@ void TestBulkInsertTriggersAnalyzeAtTenThousandRecords() {
                 const uint64_t id = firstId;
                 batch.push_back(MakeMftRecord(id, id, name, 0, offset));
             }
-            if (!pipeline.ApplyMftBatch(targetVolume, batch)) {
+            if (!targetPipeline.ApplyMftBatch(targetVolume, batch)) {
                 return false;
             }
         }
         return true;
     };
 
-    Check(applyBatches(volume, 1'000, 1, 9'999, u"entry"),
-          "9,999 records apply in one ingestion batch");
+    // 4 batches x 5,000 rows = 20,000 records: the threshold is crossed
+    // three times over, yet no ANALYZE may run inside the ingestion path.
+    Check(applyBatches(pipeline, volume, 1'000, 4, 5'000, u"entry"),
+          "20,000 records apply across four ingestion batches");
     pipeline.Close();
-    Check(!HasSqlitePlannerStats(dbPath), "ANALYZE is not triggered before 10,000 inserted records");
+    Check(!HasSqlitePlannerStats(dbPath),
+          "sustained bulk ingestion does not run per-batch ANALYZE (deferred to maintenance)");
 
-    Check(pipeline.Open(dbPath), "the pipeline reopens for the threshold-crossing batches");
+    // Fresh ingest crossing the threshold, then the maintenance pass the
+    // scheduler would run (same process -- the production cadence).
+    Check(pipeline.Open(dbPath), "the pipeline reopens for the deferred refresh");
     const auto reopenedVolume = pipeline.ResolveVolume(key);
-    Check(applyBatches(reopenedVolume, 20'000, 1, 10'000, u"threshold"),
-          "10,000 records apply in one ingestion batch");
+    Check(applyBatches(pipeline, reopenedVolume, 30'000, 4, 5'000, u"entry"),
+          "a further 20,000 records apply across four ingestion batches");
+    pipeline.RunStoreMaintenance();
     pipeline.Close();
-    Check(HasSqlitePlannerStats(dbPath), "ANALYZE creates planner statistics at 10,000 inserted records");
+    Check(HasSqlitePlannerStats(dbPath),
+          "maintenance refreshes planner statistics once the threshold accumulated");
+
+    // Threshold semantics preserved: below-threshold ingestion still does not
+    // create planner statistics, even across maintenance.
+    const std::string smallDbPath = FreshDbPath("engine_test_analyze_threshold_small.db");
+    IndexPipeline smallPipeline;
+    Check(smallPipeline.Open(smallDbPath), "the pipeline opens for the below-threshold case");
+    const auto smallVolume = smallPipeline.ResolveVolume(key);
+    Check(applyBatches(smallPipeline, smallVolume, 1'000, 1, 9'999, u"entry"),
+          "9,999 records apply in one ingestion batch");
+    smallPipeline.RunStoreMaintenance();
+    smallPipeline.Close();
+    Check(!HasSqlitePlannerStats(smallDbPath),
+          "ANALYZE is not triggered before 10,000 inserted records");
 }
 
 void TestVolumeResolutionIsStable() {
@@ -1273,6 +1300,89 @@ std::u16string U16FromWide(const std::wstring& text) {
 }
 } // namespace
 
+void TestRootChildFoldersRemainAbsoluteAcrossResidency() {
+    // durable-cold-search-index-and-hybrid-residency 4.1: a bare C: is
+    // drive-relative; root children must retain the separator when evicted.
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_root_child_folders.db")),
+          "root-child path fixture opens");
+    VolumeKey key;
+    key.serialNumber = 9401;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    pipeline.SetVolumeRules(volume, setting);
+    Check(pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(5, 5, u".", 0x10, 0),
+        MakeMftRecord(10, 5, u"boundary-file.txt", 0, 123),
+        MakeMftRecord(11, 5, u"boundary-dir", 0x10, 0),
+        MakeMftRecord(12, 11, u"boundary-nested.txt", 0, 456),
+    }), "root-child path fixture persists");
+    const auto signature = [](const ffprotocol::IndexedSearchResponse& response) {
+        std::vector<std::tuple<int64_t, uint64_t, uint64_t, std::wstring, std::wstring,
+                              uint64_t, uint64_t, uint64_t, bool, bool, uint64_t, bool>> result;
+        for (const auto& item : response.candidates) {
+            result.emplace_back(item.volumeId, item.id, item.parentId, item.name, item.folder,
+                                item.sizeBytes, item.createdTime, item.modifiedTime,
+                                item.isDirectory, item.persistentIndexed,
+                                item.allocatedSizeBytes, item.allocatedSizeKnown);
+        }
+        return result;
+    };
+    const auto checkFolders = [](const ffprotocol::IndexedSearchResponse& response) {
+        for (const auto& item : response.candidates) {
+            if (item.id == 5) {
+                Check(item.folder.empty() && item.name == L"C:\\",
+                      "volume-root candidate retains its intentional display name and empty folder");
+            } else {
+                const auto expected = item.id == 12 ? L"C:\\boundary-dir" : L"C:\\";
+                Check(item.folder == expected, "root and nested child folders are canonical and absolute");
+                Check((std::filesystem::path(item.folder) / item.name).is_absolute(),
+                      "joining a search result produces an absolute Windows path");
+            }
+        }
+    };
+    for (const auto* query : {L"boundary", L"kind:folder"}) {
+        pipeline.RebuildAll({});
+        Check(pipeline.MarkScanComplete(volume), "root-child fixture is search-ready after rebuild");
+        ffprotocol::IndexedSearchRequest request;
+        request.requestId = 9401;
+        request.scope = 3;
+        request.maxResults = 4096;
+        request.query = query;
+        IndexPipeline::SearchTimings hotTimings;
+        const auto hot = pipeline.SearchIndexed(request, &hotTimings);
+        Check(!pipeline.IsVolumeEvicted(volume) && hotTimings.hotRowsExamined != 0 &&
+                  hotTimings.coldRowsExamined == 0,
+              "root-child hot reference actually reads the resident projection");
+        pipeline.UnloadVolumeFromProjection(volume);
+        Check(pipeline.IsVolumeEvicted(volume), "root-child cold routes are explicitly evicted");
+        IndexPipeline::SearchTimings coldTimings;
+        const auto cold = pipeline.SearchIndexed(request, &coldTimings);
+        IndexPipeline::SearchTestHooks hooks;
+        hooks.forceCanonicalColdScan = true;
+        pipeline.SetSearchTestHooks(hooks);
+        IndexPipeline::SearchTimings canonicalTimings;
+        const auto canonical = pipeline.SearchIndexed(request, &canonicalTimings);
+        pipeline.SetSearchTestHooks({});
+        Check(hot.status == ffprotocol::IndexedSearchStatus::Completed &&
+                  cold.status == hot.status && canonical.status == hot.status,
+              "root-child searches complete on all residency routes");
+        Check(hot.candidates.size() == (request.query == L"boundary" ? 3u : 2u),
+              "root-child and root candidate checks are nonvacuous");
+        Check(signature(hot) == signature(cold) && signature(hot) == signature(canonical) &&
+                  hot.truncated == cold.truncated && hot.truncated == canonical.truncated,
+              "resident, indexed cold and canonical cold results match in order and every field");
+        Check(coldTimings.coldRowsExamined != 0 && canonicalTimings.coldRowsExamined == 4 &&
+                  coldTimings.hotRowsExamined == 0 && canonicalTimings.hotRowsExamined == 0,
+              "cold routes actually enumerate durable records");
+        checkFolders(hot);
+        checkFolders(cold);
+        checkFolders(canonical);
+    }
+}
+
 void TestForcedEvictionSearchEquivalence() {
     IndexPipeline pipeline;
     const std::string dbPath = FreshDbPath("engine_test_eviction_equivalence.db");
@@ -1286,6 +1396,10 @@ void TestForcedEvictionSearchEquivalence() {
     pipeline.SetVolumeRules(coldVolume, coldSetting);
     // Ingest the cold volume FIRST so its LRU timestamps are the oldest;
     // shrinking the budget then deterministically evicts its subtrees.
+    std::u16string emojiName = u"emoji-";
+    emojiName.push_back(static_cast<char16_t>(0xD83D)); // U+1F600 pair
+    emojiName.push_back(static_cast<char16_t>(0xDE00));
+    emojiName += u"tailfrag.txt";
     Check(pipeline.ApplyMftBatch(coldVolume, {
         MakeMftRecord(1, 1, u".", 0x10, 0),
         MakeMftRecord(10, 1, u"ColdRoot", 0x10, 0),
@@ -1298,7 +1412,31 @@ void TestForcedEvictionSearchEquivalence() {
         MakeMftRecord(110, 12, u"dup.txt", 0, 77),
         MakeMftRecord(111, 12, u"beta.txt", 0, 500),
         MakeMftRecord(120, 10, u"top.jpg", 0, 64),
+        // large-index-lifecycle-and-search-scalability review-remediation 18.x:
+        // cold-prefilter adversarial corpus -- LIKE metacharacters in names,
+        // non-ASCII and surrogate names with ASCII tails, and the long-s
+        // host-fold case (soaked by the hot/cold signature comparison).
+        MakeMftRecord(121, 11, u"100%_done.txt", 0, 5),
+        MakeMftRecord(122, 11, u"a_b.txt", 0, 6),
+        MakeMftRecord(123, 11, u"axb.txt", 0, 7),
+        MakeMftRecord(124, 11, u"\u017Foo.txt", 0, 8),
+        MakeMftRecord(125, 11, emojiName, 0, 9),
+        // Differential-matrix cells that had no named coverage: NFC vs NFD
+        // forms of the same visible name (ordinal compare does NOT normalize,
+        // so these are distinct rows) with an ASCII tail.
+        MakeMftRecord(126, 11, u"o\u0308verlay.txt", 0, 10),
+        MakeMftRecord(127, 11, u"\u00F6verlay.txt", 0, 11),
     }), "the cold volume fixture persists through normal ingestion");
+    {
+        // Repeated-prefix posting pressure: 20 rows sharing one long prefix.
+        std::vector<ffprotocol::MftRecordV1> repeated;
+        for (uint64_t rep = 1; rep <= 20; ++rep) {
+            repeated.push_back(MakeMftRecord(200 + rep, 12,
+                std::u16string(u"repeat-common-") + U16FromWide(std::to_wstring(rep)) + u".txt", 0, 1));
+        }
+        Check(pipeline.ApplyMftBatch(coldVolume, repeated),
+              "the repeated-prefix rows persist through normal ingestion");
+    }
     const auto diagnosticsColdOnly = pipeline.GetProjectionMemoryDiagnostics();
     (void)diagnosticsColdOnly;
 
@@ -1345,6 +1483,19 @@ void TestForcedEvictionSearchEquivalence() {
         {"duplicate basenames path sort", makeQuery(L"dup.txt", 3, L"", 2), false},
         {"path-scoped subtree", makeQuery(L"report", 1, L"D:\\ColdRoot\\SubA"), false},
         {"broad capped", makeQuery(L"txt", 3, L"", 0, 3), false},
+        // large-index-lifecycle-and-search-scalability review-remediation 18.x:
+        // cold prefilter adversarial needles (LIKE metacharacters, ASCII case
+        // variants, ASCII tails of non-ASCII names, long-s host-fold case).
+        {"percent needle", makeQuery(L"100%"), false},
+        {"underscore needle", makeQuery(L"a_b"), false},
+        {"emoji tail needle", makeQuery(L"tailfrag"), false},
+        {"long-s host-fold needle", makeQuery(L"soo"), false},
+        {"upper-case selective", makeQuery(L"ALPHA"), true},
+        // Differential-matrix cells that had no named coverage.
+        {"empty query rejection parity", makeQuery(L""), false},
+        {"repeated prefix needle", makeQuery(L"repeat-common"), false},
+        {"NFD name ascii tail", makeQuery(L"verlay"), false},
+        {"NFC name needle overlay", makeQuery(L"overlay"), false},
     };
 
     // Reference pass: everything fully resident.
@@ -1357,8 +1508,14 @@ void TestForcedEvictionSearchEquivalence() {
             Check(timings.filenameIndexUsed,
                   "fully-resident eligible searches use the trigram accelerator");
         }
-        Check(response.status == ffprotocol::IndexedSearchStatus::Completed,
-              "reference-pass indexed searches complete");
+        // An empty query string is rejected by contract (InvalidRequest);
+        // every other case must complete. Either way the same verdict must
+        // hold after eviction (the equivalence loop re-checks).
+        const bool expectRejected = testCase.request.query.empty();
+        Check(response.status == (expectRejected
+                                      ? ffprotocol::IndexedSearchStatus::InvalidRequest
+                                      : ffprotocol::IndexedSearchStatus::Completed),
+              "reference-pass indexed searches complete or reject consistently");
         reference.push_back(std::move(response));
     }
     Check(reference[2].candidates.size() >= reference[0].candidates.size(),
@@ -1396,8 +1553,13 @@ void TestForcedEvictionSearchEquivalence() {
     for (size_t index = 0; index < cases.size(); ++index) {
         IndexPipeline::SearchTimings timings;
         auto response = pipeline.SearchIndexed(cases[index].request, &timings);
-        Check(response.status == ffprotocol::IndexedSearchStatus::Completed,
-              "forced-eviction indexed searches complete");
+        const bool expectRejected = cases[index].request.query.empty();
+        Check(response.status == (expectRejected
+                                      ? ffprotocol::IndexedSearchStatus::InvalidRequest
+                                      : ffprotocol::IndexedSearchStatus::Completed),
+              "forced-eviction indexed searches complete or reject consistently");
+        Check(response.status == reference[index].status,
+              cases[index].label);
         Check(signatures(response) == signatures(reference[index]),
               cases[index].label);
         Check(timings.truncated == reference[index].truncated,
@@ -1762,19 +1924,39 @@ void TestCancellationDuringColdStream() {
     request.scope = 3;
     request.maxResults = 4096;
     request.query = L"bulk";
-    std::atomic<size_t> cancellationChecks{0};
-    IndexPipeline::SearchTimings timings;
-    const auto response = pipeline.SearchIndexed(request, &timings, [&cancellationChecks] {
-        return cancellationChecks.fetch_add(1, std::memory_order_relaxed) >= 4;
+    // durable-cold-search-index-and-hybrid-residency 4.1: establish actual
+    // candidate path work before cancelling, rather than counting setup polls.
+    std::atomic<size_t> durableLookups{0};
+    pipeline.SetReadSessionFaultInjector([&durableLookups](const auto point) {
+        if (point == ReadSessionFaultPoint::FindEntry) {
+            durableLookups.fetch_add(1, std::memory_order_relaxed);
+        }
+        return false;
     });
+    IndexPipeline::SearchTestHooks hooks;
+    hooks.forceCanonicalColdScan = true;
+    pipeline.SetSearchTestHooks(hooks);
+    IndexPipeline::SearchTimings timings;
+    const auto response = pipeline.SearchIndexed(request, &timings, [&durableLookups] {
+        return durableLookups.load(std::memory_order_relaxed) >= 32;
+    });
+    pipeline.SetReadSessionFaultInjector({});
+    pipeline.SetSearchTestHooks({});
     Check(response.status == ffprotocol::IndexedSearchStatus::Cancelled,
           "cancelling during cold streaming reports Cancelled");
-    Check(timings.cancelled && response.candidates.empty(),
+    Check(timings.cancelled && response.candidates.empty() && !response.truncated &&
+              response.requestId == request.requestId,
           "a cancelled cold search discards partial results");
-    Check(timings.coldRowsExamined < records.size(),
-          "cold streaming stops before exhausting the volume when superseded");
+    Check(durableLookups.load() >= 32 && durableLookups.load() < records.size(),
+          "cold cancellation follows actual candidate materialization before corpus exhaustion");
+    Check(pipeline.GetReadPlaneDiagnostics().activeDurableReaders == 0,
+          "cancellation after candidate materialization releases its durable reader");
     Check(pipeline.IsVolumeEvicted(volume),
           "a cancelled cold search does not silently hydrate the volume");
+    const auto recovered = pipeline.SearchIndexed(request);
+    Check(recovered.status == ffprotocol::IndexedSearchStatus::Completed &&
+              recovered.candidates.size() == 4000 && !recovered.truncated,
+          "cold search completes normally after cancellation during materialization");
 }
 
 // rule-pruning-durability-and-reconciliation-failure-closure: MFT secondary
@@ -1794,7 +1976,7 @@ void TestMftSecondaryFailureIsFailClosedAndRetryable() {
     Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
           "MFT rule-pruning fixture seeds its root");
 
-    SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1};
+    SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1, false, 0, {}};
     InstallSecondaryFailurePlan(pipeline, plan);
     const uint64_t epochBeforeFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
     const FileId target{2, 0};
@@ -1886,7 +2068,7 @@ void TestUsnSecondaryFailureIsBoundarySpecificAndRetryable() {
     Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
           "USN rule-pruning fixture seeds its root");
 
-    SecondaryFailurePlan plan{SecondaryBoundary::UsnRulePrune, 1};
+    SecondaryFailurePlan plan{SecondaryBoundary::UsnRulePrune, 1, false, 0, {}};
     InstallSecondaryFailurePlan(pipeline, plan);
     const auto mftOther = std::vector<ffprotocol::MftRecordV1>{
         MakeMftRecord(2, 1, u"blocked-mft.txt", 0, 10)};
@@ -1993,7 +2175,7 @@ void TestRebuildSecondaryFailureDoesNotPublishSuccess() {
     setting.enabled = true;
     setting.rules.push_back({L"C:\\blocked-rebuild.txt", false});
     pipeline.SetVolumeRules(volume, setting);
-    SecondaryFailurePlan plan{SecondaryBoundary::RebuildRulePrune, 1};
+    SecondaryFailurePlan plan{SecondaryBoundary::RebuildRulePrune, 1, false, 0, {}};
     InstallSecondaryFailurePlan(pipeline, plan);
     const uint64_t epochBeforeFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
     int callbackCount = 0;
@@ -2110,7 +2292,7 @@ void TestReconciliationRetentionOnSecondaryFailure() {
     Check(preFinishDurable.opened && preFinishDurable.hasTarget && preFinishDurable.entryCount == 3,
           "the reconciliation target exists before Finish computes removals");
 
-    SecondaryFailurePlan plan{SecondaryBoundary::ReconciliationRemoval, 1};
+    SecondaryFailurePlan plan{SecondaryBoundary::ReconciliationRemoval, 1, false, 0, {}};
     InstallSecondaryFailurePlan(pipeline, plan);
     const uint64_t epochBeforeFinish = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
     pipeline.FinishReconciliationPass(volume);
@@ -2207,6 +2389,75 @@ void TestRepeatedSecondaryFailure() {
     std::filesystem::remove(dbPath + "-shm");
 }
 
+// wal-lifecycle: reconciliation mass removal applies in 5,000-row committed
+// chunks (bounded-WAL transactions). Characterization guard for the chunk
+// loop: a multi-chunk removal converges exactly like the historical
+// single-transaction path (obligation cleared, durable + projection agree,
+// idempotent re-run). The WAL-bounding property itself is evidenced by the
+// lifecycle bench WAL matrix (evidence/wal-lifecycle.md).
+void TestReconciliationMassRemovalConvergesAcrossChunks() {
+    const std::string dbPath = FreshDbPath("engine_test_reconcile_chunks.db");
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "chunked-removal fixture opens");
+    VolumeKey key;
+    key.serialNumber = 71;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    pipeline.SetVolumeRules(volume, setting);
+
+    std::vector<ffprotocol::MftRecordV1> seed;
+    seed.push_back(MakeMftRecord(1, 1, u".", 0x10, 0));
+    for (uint64_t id = 1000; id < 13'000; ++id) {
+        seed.push_back(MakeMftRecord(id, 1, u"chunk_row.txt", 0, static_cast<uint64_t>(id)));
+    }
+    Check(pipeline.ApplyMftBatch(volume, seed), "12,000 seeded rows apply");
+
+    pipeline.BeginReconciliationPass(volume);
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u".", 0x10, 0)}),
+          "reconciliation observes only the root");
+    const uint64_t epochBeforePartial = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    // Fail 501 operations into chunk two. Chunk one must remain committed,
+    // chunk two must roll back atomically, and retry must owe the remainder.
+    ffindexstore::SetTestingCandidateMaintenanceFault(5'501, false);
+    pipeline.FinishReconciliationPass(volume);
+    ffindexstore::SetTestingCandidateMaintenanceFault(0, false);
+    Check(pipeline.IsReconciliationPassActive(volume),
+          "partial chunk failure retains the reconciliation obligation");
+    const auto partial = ReadDurableEntryState(dbPath, volume, FileId{1, 0});
+    Check(partial.opened && partial.entryCount == 7'001,
+          "only the first 5,000-row chunk commits; the faulted second chunk rolls back");
+    const auto partialAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(partialAggregate.has_value() && partialAggregate->itemCount == 7'000,
+          "projection mirrors exactly the committed removal prefix on failure");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epochBeforePartial,
+          "a partially committed removal advances the searchable epoch");
+    pipeline.FinishReconciliationPass(volume);
+    Check(!pipeline.IsReconciliationPassActive(volume),
+          "retry finishes the remaining chunks and clears the obligation");
+    const auto durable = ReadDurableEntryState(dbPath, volume, FileId{1, 0});
+    Check(durable.opened && durable.entryCount == 1,
+          "durable state converges to the root across all removal chunks");
+    const auto snapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    Check(!SnapshotHasName(snapshot, L"chunk_row.txt"),
+          "the projection mirrors every committed removal chunk");
+
+    // Idempotence: re-running the pass after convergence is a no-op.
+    pipeline.BeginReconciliationPass(volume);
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u".", 0x10, 0)}),
+          "second reconciliation observes the root");
+    pipeline.FinishReconciliationPass(volume);
+    Check(!pipeline.IsReconciliationPassActive(volume), "the second pass converges immediately");
+    const auto durableAfter = ReadDurableEntryState(dbPath, volume, FileId{1, 0});
+    Check(durableAfter.opened && durableAfter.entryCount == 1,
+          "durable state stays converged after the idempotent re-run");
+    pipeline.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
+}
+
 void TestRulePruningFailureRecoversAfterCloseAndOpen() {
     const std::string dbPath = FreshDbPath("engine_test_rule_pruning_restart.db");
     VolumeKey key;
@@ -2224,7 +2475,7 @@ void TestRulePruningFailureRecoversAfterCloseAndOpen() {
         pipeline.SetVolumeRules(volume, setting);
         Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
               "restart rule-pruning fixture seeds its root");
-        SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1};
+        SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1, false, 0, {}};
         InstallSecondaryFailurePlan(pipeline, plan);
         Check(!pipeline.ApplyMftBatch(volume, {
                   MakeMftRecord(target.low, 1, u"blocked-restart.txt", 0, 10)}),
@@ -2389,9 +2640,69 @@ void TestAbortReconciliationPassDropsWithoutRemovals() {
     std::filesystem::remove(dbPath + "-shm");
 }
 
+// large-index-lifecycle-and-search-scalability review-lane D P1-1 / lane C
+// Finding 1: memory-pressure enforcement triggered by an UNRELATED batch can
+// evict and compact any volume. That structural change must surface as a
+// query-visible residency change (the same ProjectionResidency epoch
+// mechanism UnloadVolumeFromProjection uses), so in-flight and future
+// searches re-capture or cold-stream instead of silently serving incomplete
+// results as Completed.
+void TestEnforcementEvictionAdvancesQueryVisibleEpochs() {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_enforcement_epochs.db")),
+          "enforcement-epoch pipeline opens");
+    VolumeKey firstKey;
+    firstKey.serialNumber = 313;
+    const auto firstVolume = pipeline.ResolveVolume(firstKey);
+    ffprotocol::VolumeSetting firstSetting;
+    firstSetting.key = L"P:";
+    pipeline.SetVolumeRules(firstVolume, firstSetting);
+    VolumeKey secondKey;
+    secondKey.serialNumber = 314;
+    const auto secondVolume = pipeline.ResolveVolume(secondKey);
+    ffprotocol::VolumeSetting secondSetting;
+    secondSetting.key = L"Q:";
+    pipeline.SetVolumeRules(secondVolume, secondSetting);
+    Check(pipeline.ApplyMftBatch(firstVolume, {
+        MakeMftRecord(5, 5, u".", 0x10, 0),
+        MakeMftRecord(10, 5, u"first-victim.txt", 0, 10),
+    }), "first volume commits (oldest LRU timestamps)");
+    Check(pipeline.ApplyMftBatch(secondVolume, {
+        MakeMftRecord(5, 5, u".", 0x10, 0),
+        MakeMftRecord(20, 5, u"second-live.txt", 0, 10),
+    }), "second volume commits");
+    // A tiny budget forces enforcement during the NEXT batch to evict the
+    // oldest victim (first volume's subtree).
+    pipeline.SetProjectionMemoryBudget(512);
+    const uint64_t before = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    Check(pipeline.ApplyMftBatch(secondVolume, {
+        MakeMftRecord(21, 5, u"second-live-two.txt", 0, 10),
+    }), "the unrelated batch commits");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > before,
+          "enforcement-triggered eviction advances query-visible epochs "
+          "(in-flight searches must re-capture, never truncate silently)");
+    Check(pipeline.IsVolumeEvicted(firstVolume),
+          "the LRU victim's volume is cold-marked by the enforcement pass");
+    // The evicted volume's rows must still be findable through the cold
+    // stream -- completeness preserved across the residency change.
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 991;
+    request.scope = 3;
+    request.maxResults = 64;
+    request.query = L"first-victim";
+    IndexPipeline::SearchTimings timings;
+    const auto response = pipeline.SearchIndexed(request, &timings);
+    Check(response.status == ffprotocol::IndexedSearchStatus::Completed,
+          "search over the evicted volume completes through the cold stream");
+    Check(response.candidates.size() == 1 &&
+              response.candidates.front().name == L"first-victim.txt",
+          "the evicted volume's rows remain complete in results");
+    pipeline.Close();
+}
+
 int main() {
 
-    TestBulkInsertTriggersAnalyzeAtTenThousandRecords();
+    TestBulkIngestionDefersAnalyzeToMaintenance();
     TestVolumeResolutionIsStable();
     TestApplyMftBatchAndExportSnapshot();
     TestMftV2BatchIngestsAllocatedSizeAndExportsToSnapshot();
@@ -2408,7 +2719,9 @@ int main() {
     TestIndexedSearchCancellationStopsProjectionWork();
         TestIndexedSearchPropagatesAllocatedSize();
         TestIndexedSearchOndiskFilter();
+    TestRootChildFoldersRemainAbsoluteAcrossResidency();
         TestForcedEvictionSearchEquivalence();
+        TestEnforcementEvictionAdvancesQueryVisibleEpochs();
     TestCappedRootSearchMatchesColdAndRetainsTopN();
         TestRepeatedColdSearchesDoNotThrashMemory();
         TestColdMutationsAndRestartEquivalence();
@@ -2419,6 +2732,7 @@ int main() {
     TestRebuildSecondaryFailureDoesNotPublishSuccess();
     TestReconciliationRetentionOnSecondaryFailure();
     TestRepeatedSecondaryFailure();
+    TestReconciliationMassRemovalConvergesAcrossChunks();
     TestRulePruningFailureRecoversAfterCloseAndOpen();
     TestUsnUpsertDuringReconciliationPassSurvivesFinish();
     TestRuleExcludedUsnUpsertStaysOutOfSeenSet();

@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "kind": "fastfiles-local-ci-parity",
+  "label": "LOCAL-PARITY-NOT-HOSTED-CI",
+  "generatedAtUtc": "2026-10-24T12:16:32.9617253Z",
+  "source": {
+    "headSha": "3a41481a78df16b44928469f932d75427fd72a9c",
+    "branch": "feat/durable-cold-search-and-hybrid-residency",
+    "dirty": false
+  },
+  "workflowJobs": [
+    "build",
+    "asan",
+    "hygiene",
+    "release-qualification"
+  ],
+  "steps": [
+    {
+      "id": "preflight",
+      "hostedRef": "ci.yml:37-45 toolchain discovery",
+      "command": "step-preflight.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-preflight.txt",
+      "durationMs": 3211.0,
+      "reason": null
+    },
+    {
+      "id": "policy",
+      "hostedRef": "ci.yml:26-32,75-81,126-132 markers + diagnostic policy + drift + diff-check",
+      "command": "step-policy.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-policy.txt",
+      "durationMs": 2623.0,
+      "reason": null
+    },
+    {
+      "id": "openspec",
+      "hostedRef": "ci.yml:134-136 openspec validate --all --strict",
+      "command": "step-openspec.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-openspec.txt",
+      "durationMs": 5904.0,
+      "reason": null
+    },
+    {
+      "id": "build-debug",
+      "hostedRef": "ci.yml:9-63 build[debug]",
+      "command": "step-build-debug.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-build-debug.txt",
+      "durationMs": 4717.0,
+      "reason": null
+    },
+    {
+      "id": "build-release-test",
+      "hostedRef": "ci.yml:9-63 build[release-test]",
+      "command": "step-build-release-test.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-build-release-test.txt",
+      "durationMs": 4707.0,
+      "reason": null
+    },
+    {
+      "id": "build-analyze",
+      "hostedRef": "ci.yml:9-63 build[analyze]",
+      "command": "step-build-analyze.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-build-analyze.txt",
+      "durationMs": 4618.0,
+      "reason": null
+    },
+    {
+      "id": "ctest-debug",
+      "hostedRef": "ci.yml:51-63 ctest --preset debug",
+      "command": "step-ctest-debug.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-ctest-debug.txt",
+      "durationMs": 254144.0,
+      "reason": null
+    },
+    {
+      "id": "ctest-release-test",
+      "hostedRef": "ci.yml:51-63 ctest --preset release-test",
+      "command": "step-ctest-release-test.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-ctest-release-test.txt",
+      "durationMs": 223192.0,
+      "reason": null
+    },
+    {
+      "id": "asan-slice",
+      "hostedRef": "ci.yml:83-114 asan 4 targets + 4 tests",
+      "command": "step-asan-slice.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-asan-slice.txt",
+      "durationMs": 73311.0,
+      "reason": null
+    },
+    {
+      "id": "hygiene-suite",
+      "hostedRef": "ci.yml:116-181 status + contracts + visual + exact-tree",
+      "command": "step-hygiene-suite.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-hygiene-suite.txt",
+      "durationMs": 91758.0,
+      "reason": null
+    },
+    {
+      "id": "release-candidate",
+      "hostedRef": "ci.yml:183-224 unsigned release qualification",
+      "command": "step-release-candidate.ps1",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "log-release-candidate.txt",
+      "durationMs": 49707.0,
+      "reason": null
+    }
+  ],
+  "summary": {
+    "pass": 11,
+    "fail": 0,
+    "skipped": 0,
+    "total": 11
+  },
+  "overall": "PASS"
+}

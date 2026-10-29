@@ -1,7 +1,10 @@
+#include <windows.h>
+
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <limits>
@@ -1040,7 +1043,405 @@ void TestFindEntryPointLookup() {
           "a removed row is no longer found");
 }
 
-int main() {
+// large-index-lifecycle-and-search-scalability review-lane C Finding 4: a
+// partial upsert of a MISSING row must create it with zero/default values for
+// absent fields (matching Projection::UpsertPartial's contract), never the
+// wire values carried in the change.
+void TestPartialUpsertOfMissingRowZeroesAbsentFields() {
+    Store store;
+    const std::string path = FreshDbPath("ffindexstore_partial_insert_mask.db");
+    Check(store.Open(path), "partial-insert store opens");
+    const auto volume = store.GetOrCreateVolume({{}, 606});
+    Check(volume.has_value(), "partial-insert volume is created");
+    EntryRecord partial = MakeEntry(50, 5, u"partial.bin");
+    partial.sizeBytes = 42;           // carried in the wire record but ABSENT
+    partial.lastModifiedTime = 999;   // from the field mask
+    partial.attributes = 0x20;
+    EntryChange change{EntryChangeKind::Upsert, partial};
+    change.fields = kEntryFieldName | kEntryFieldParentId;
+    Check(store.ApplyBatch(*volume, {change}), "partial insert commits");
+    EntryRecord stored;
+    bool found = false;
+    store.ForEachEntry(*volume, [&](const EntryRecord& entry) {
+        if (entry.id.low == 50) {
+            stored = entry;
+            found = true;
+        }
+        return true;
+    });
+    Check(found, "the partial insert created the missing row");
+    Check(stored.name == u"partial.bin" && stored.parentId.low == 5,
+          "present fields persist exactly");
+    Check(stored.sizeBytes == 0,
+          "an absent size field is created as zero, not the wire value");
+    Check(stored.lastModifiedTime == 0,
+          "an absent timestamp is created as zero, not the wire value");
+    Check(stored.attributes == 0,
+          "an absent attribute field is created as zero, not the wire value");
+}
+
+VolumeKey TestVolumeKey(uint32_t serial) {
+    VolumeKey key;
+    key.volumeGuid = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    key.serialNumber = serial;
+    return key;
+}
+
+// durable-cold-search-index-and-hybrid-residency 4.x: the additive v3
+// candidate structures must be rebuilt for a database that predates them
+// (the v2 -> v3 migration), without touching the entries table.
+void TestCandidateIndexMigratesFromV2Database() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_migrate_v2.db");
+    {
+        Store store;
+        Check(store.Open(dbPath), "v2-simulation: store opens");
+        const VolumeRowId vol = *store.GetOrCreateVolume(TestVolumeKey(1));
+        std::vector<EntryChange> batch;
+        batch.push_back({EntryChangeKind::Upsert, MakeEntry(100, 5, u"migrate_alpha.txt")});
+        batch.push_back({EntryChangeKind::Upsert, MakeEntry(101, 5, u"migrate_beta.txt")});
+        Check(store.ApplyBatch(vol, batch), "v2-simulation: seed rows commit");
+        store.Close();
+    }
+    // Simulate a genuine v2 database: the v3 derived structures never
+    // existed and the version marker says so.
+    {
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite opens the fixture");
+        char* error = nullptr;
+        const bool dropped = sqlite3_exec(raw,
+            "DROP TABLE IF EXISTS entry_name_exceptions;"
+            "DROP TABLE IF EXISTS entry_name_index_map;"
+            "DROP TABLE IF EXISTS entry_name_index_meta;"
+            "DROP TABLE IF EXISTS entry_name_terms;"
+            "PRAGMA user_version=2;",
+            nullptr, nullptr, &error) == SQLITE_OK;
+        Check(dropped, (std::string("v3 structures dropped for the v2 simulation: ") + (error ? error : "")).c_str());
+        sqlite3_close(raw);
+    }
+    Store store;
+    bool integrityFailed = false;
+    Check(store.Open(dbPath, &integrityFailed), "a v2 database opens and migrates to v3");
+    Check(!integrityFailed, "v2 -> v3 migration does not report integrity failure");
+    Check(store.CountEntries(1) == 2, "migration preserves all entries");
+    auto reader = store.OpenReadSession();
+    std::vector<std::u16string> streamed;
+    Check(reader->ForEachEntryWithAsciiNameUntil(1, "migrate_", [&](const EntryRecord& entry) {
+        streamed.push_back(entry.name);
+        return true;
+    }), "post-migration candidate rung streams");
+    Check(streamed.size() == 2, "the rebuilt candidate index finds both canonical matches");
+    {
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite reopens");
+        sqlite3_stmt* stmt = nullptr;
+        Check(sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &stmt, nullptr) == SQLITE_OK,
+              "user_version query prepares");
+        Check(sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 3,
+              "migration bumps the schema version marker to 3");
+        sqlite3_finalize(stmt);
+        sqlite3_close(raw);
+    }
+}
+
+// durable-cold-search-index-and-hybrid-residency 3.3c downgrade-policy
+// evidence: a schema version the binary does not understand is REFUSED
+// fail-closed (the exact guard a v2-era binary hits against a v3 database:
+// `existingVersion != kCurrentSchemaVersion`), with no integrity failure
+// recorded and zero deletion, and the entries stay readable once the
+// understood version is restored. This backs the FAIL_CLOSED_DOWNGRADE
+// policy in specs/index-engine/spec.md.
+void TestUnknownSchemaVersionFailsClosedWithoutDataLoss() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_downgrade_refuse.db");
+    {
+        Store store;
+        Check(store.Open(dbPath), "downgrade test: store opens at v3");
+        const VolumeRowId vol = *store.GetOrCreateVolume(TestVolumeKey(7));
+        std::vector<EntryChange> batch;
+        for (int index = 0; index < 25; ++index) {
+            batch.push_back({EntryChangeKind::Upsert,
+                             MakeEntry(500 + static_cast<uint32_t>(index), 5, u"keep_me.txt")});
+        }
+        Check(store.ApplyBatch(vol, batch), "downgrade test: seed commits");
+        store.Close();
+    }
+    // Advance the version marker past the understood schema. This is the same
+    // refusal branch a v2-era application reaches when it meets user_version=3.
+    {
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite opens for the version bump");
+        Check(sqlite3_exec(raw, "PRAGMA user_version=4;", nullptr, nullptr, nullptr) == SQLITE_OK,
+              "schema marker advanced past the understood version");
+        sqlite3_close(raw);
+    }
+    {
+        Store refused;
+        bool integrityFailed = false;
+        Check(!refused.Open(dbPath, &integrityFailed),
+              "an unknown schema version is refused (fail-closed downgrade policy)");
+        Check(!integrityFailed,
+              "the refusal records no integrity failure (it is a policy refusal, not corruption)");
+        Check(refused.CountEntries(1) == 0, "the refused handle exposes no data");
+    }
+    // No deletion happened: every entry is still in the file.
+    {
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite verifies preservation");
+        sqlite3_stmt* stmt = nullptr;
+        Check(sqlite3_prepare_v2(raw, "SELECT COUNT(*) FROM entries;", -1, &stmt, nullptr) == SQLITE_OK,
+              "entries count query prepares");
+        Check(sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 25,
+              "FAIL_CLOSED_DOWNGRADE preserves every entry (nothing deleted on refusal)");
+        sqlite3_finalize(stmt);
+        Check(sqlite3_exec(raw, "PRAGMA user_version=3;", nullptr, nullptr, nullptr) == SQLITE_OK,
+              "schema marker restored to the understood version");
+        sqlite3_close(raw);
+    }
+    {
+        Store restored;
+        Check(restored.Open(dbPath), "the database reopens once the understood version is restored");
+        Check(restored.CountEntries(1) == 25, "all entries read back after restoration");
+    }
+}
+
+// 3.3c: the documented OPERATOR ROLLBACK procedure (drop only the derived
+// candidate structures; reset user_version; never rewrite entries) must be
+// lossless and must let the previous release's schema open the database --
+// and re-upgrading must rebuild the candidate index. This is the exact SQL
+// recorded in evidence/downgrade-policy.md (mirrors the in-tree simulation
+// at tests/indexstore/bench_store_open.cpp).
+void TestOperatorRollbackToV2IsLosslessAndRebuilds() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_operator_rollback.db");
+    {
+        Store store;
+        Check(store.Open(dbPath), "rollback test: store opens at v3");
+        const VolumeRowId vol = *store.GetOrCreateVolume(TestVolumeKey(8));
+        std::vector<EntryChange> batch;
+        for (int index = 0; index < 12; ++index) {
+            batch.push_back({EntryChangeKind::Upsert,
+                             MakeEntry(700 + static_cast<uint32_t>(index), 5, u"rollback_row.txt")});
+        }
+        Check(store.ApplyBatch(vol, batch), "rollback test: seed commits");
+        store.Close();
+    }
+    // Operator rollback to the previous schema version (documented procedure).
+    {
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite opens for rollback");
+        char* error = nullptr;
+        const bool rolledBack = sqlite3_exec(raw,
+            "BEGIN IMMEDIATE;"
+            "DROP TABLE IF EXISTS entry_name_exceptions;"
+            "DROP TABLE IF EXISTS entry_name_index_meta;"
+            "DROP TABLE IF EXISTS entry_name_index_map;"
+            "DROP TABLE IF EXISTS entry_name_terms;"
+            "PRAGMA user_version=2;"
+            "COMMIT;",
+            nullptr, nullptr, &error) == SQLITE_OK;
+        Check(rolledBack,
+              (std::string("operator rollback SQL applies: ") + (error ? error : "")).c_str());
+        sqlite3_stmt* stmt = nullptr;
+        Check(sqlite3_prepare_v2(raw, "SELECT COUNT(*) FROM entries;", -1, &stmt, nullptr) == SQLITE_OK,
+              "entries count query prepares after rollback");
+        Check(sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 12,
+              "operator rollback preserves every entry (derived structures only)");
+        sqlite3_finalize(stmt);
+        sqlite3_close(raw);
+    }
+    // Re-opening with the current binary migrates back and rebuilds the index.
+    {
+        Store store;
+        bool integrityFailed = false;
+        Check(store.Open(dbPath, &integrityFailed), "the rolled-back database reopens and re-migrates");
+        Check(!integrityFailed, "rollback + re-migration records no integrity failure");
+        Check(store.CountEntries(1) == 12, "every entry survives rollback and re-migration");
+        auto reader = store.OpenReadSession();
+        size_t streamed = 0;
+        Check(reader->ForEachEntryWithAsciiNameUntil(1, "rollback_row", [&](const EntryRecord&) {
+            ++streamed;
+            return true;
+        }), "the rebuilt candidate index streams after rollback + re-migration");
+        Check(streamed == 12, "the rebuilt candidate index finds every canonical match");
+    }
+}
+
+// 4.x: a candidate-maintenance failure inside ApplyBatch must roll back the
+// ENTIRE batch (entries and candidate structures together) -- the two must
+// never disagree after a committed (or aborted) transaction.
+void TestCandidateMaintenanceFaultRollsBackWholeBatch() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_candidate_fault.db");
+    Store store;
+    Check(store.Open(dbPath), "fault test: store opens");
+    const VolumeRowId vol = *store.GetOrCreateVolume(TestVolumeKey(1));
+    std::vector<EntryChange> seed;
+    for (int index = 0; index < 10; ++index) {
+        seed.push_back({EntryChangeKind::Upsert,
+                        MakeEntry(100 + static_cast<uint32_t>(index), 5, u"seed_row.txt")});
+    }
+    Check(store.ApplyBatch(vol, seed), "fault test: seed commits");
+
+    std::vector<EntryChange> batch;
+    for (int index = 0; index < 100; ++index) {
+        batch.push_back({EntryChangeKind::Upsert,
+                         MakeEntry(1000 + static_cast<uint32_t>(index), 5, u"fault_batch.txt")});
+    }
+    ffindexstore::SetTestingCandidateMaintenanceFault(5, false);
+    Check(!store.ApplyBatch(vol, batch), "the faulted batch fails");
+    ffindexstore::SetTestingCandidateMaintenanceFault(0, false);
+    Check(store.CountEntries(1) == 10, "no row of the faulted batch commits (all-or-nothing)");
+    store.Close();
+
+    Store reopened;
+    Check(reopened.Open(dbPath), "the database reopens after the faulted batch");
+    Check(reopened.CountEntries(1) == 10, "reopen sees only the committed seed rows");
+    auto reader = reopened.OpenReadSession();
+    size_t streamed = 0;
+    Check(reader->ForEachEntryWithAsciiNameUntil(1, "seed_row", [&](const EntryRecord&) {
+        ++streamed;
+        return true;
+    }), "the candidate index is consistent after the aborted batch");
+    Check(streamed == 10, "the aborted batch left no phantom candidates");
+}
+
+// 4.x: REAL kill-during-commit evidence. The child process dies via
+// ExitProcess inside an uncommitted ApplyBatch (no rollback path runs); the
+// parent reopens and verifies WAL recovery left entries and the candidate
+// index consistent. This is process-termination evidence, distinct from the
+// graceful fault test above.
+void TestCandidateMaintenanceHardExitRecoversOnReopen() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_candidate_kill.db");
+    {
+        Store store;
+        Check(store.Open(dbPath), "kill test: store opens");
+        const VolumeRowId vol = *store.GetOrCreateVolume(TestVolumeKey(1));
+        std::vector<EntryChange> seed;
+        for (int index = 0; index < 10; ++index) {
+            seed.push_back({EntryChangeKind::Upsert,
+                            MakeEntry(100 + static_cast<uint32_t>(index), 5, u"seed_row.txt")});
+        }
+        Check(store.ApplyBatch(vol, seed), "kill test: seed commits");
+    }
+
+    wchar_t modulePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+    std::wstring command = std::wstring(L"\"") + modulePath + L"\" --hard-exit-child \"" +
+        std::wstring(dbPath.begin(), dbPath.end()) + L"\"";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    Check(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                         &startup, &process) != 0,
+          "the crash child process launches");
+    const DWORD waitResult = WaitForSingleObject(process.hProcess, 60000);
+    DWORD exitCode = 0;
+    GetExitCodeProcess(process.hProcess, &exitCode);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    Check(waitResult == WAIT_OBJECT_0, "the crash child terminates within the bound");
+    Check(exitCode == 0xDEAD, "the child died inside the transaction (ExitProcess 0xDEAD)");
+
+    Store reopened;
+    bool integrityFailed = false;
+    Check(reopened.Open(dbPath, &integrityFailed), "the database reopens after the kill");
+    Check(!integrityFailed, "WAL recovery does not classify the kill as corruption");
+    Check(reopened.CountEntries(1) == 10, "the uncommitted batch is gone after the kill (atomicity)");
+    auto reader = reopened.OpenReadSession();
+    size_t streamed = 0;
+    Check(reader->ForEachEntryWithAsciiNameUntil(1, "seed_row", [&](const EntryRecord&) {
+        ++streamed;
+        return true;
+    }), "the candidate index survives the kill consistently");
+    Check(streamed == 10, "no phantom or missing candidates after kill-during-commit");
+}
+
+// 4.x: index-validity markers. If the derived structures are tampered with
+// (simulating partial external damage), the open-time cross-check must
+// rebuild them before any query can consult them.
+void TestCandidateIndexRebuildsAfterTamper() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_candidate_tamper.db");
+    Store store;
+    Check(store.Open(dbPath), "tamper test: store opens");
+    const VolumeRowId vol = *store.GetOrCreateVolume(TestVolumeKey(1));
+    std::vector<EntryChange> batch;
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(100, 5, u"tamper_alpha.txt")});
+    batch.push_back({EntryChangeKind::Upsert, MakeEntry(101, 5, u"tamper_beta.txt")});
+    Check(store.ApplyBatch(vol, batch), "tamper test: rows commit");
+    store.Close();
+
+    {
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "raw sqlite opens for tampering");
+        char* error = nullptr;
+        const bool ok = sqlite3_exec(raw,
+            "DELETE FROM entry_name_index_map WHERE frn_low=101;"
+            "UPDATE entry_name_index_meta SET state=0;",
+            nullptr, nullptr, &error) == SQLITE_OK;
+        Check(ok, (std::string("derived structures tampered: ") + (error ? error : "")).c_str());
+        sqlite3_close(raw);
+    }
+
+    Store reopened;
+    Check(reopened.Open(dbPath), "the store reopens after tampering");
+    auto reader = reopened.OpenReadSession();
+    size_t streamed = 0;
+    Check(reader->ForEachEntryWithAsciiNameUntil(1, "tamper_", [&](const EntryRecord&) {
+        ++streamed;
+        return true;
+    }), "the rebuilt candidate rung streams");
+    Check(streamed == 2, "the open-time rebuild restores full candidate coverage");
+}
+
+// --- durable-cold-search-index-and-hybrid-residency 4.x crash-consistency
+// child mode: opens the given database and applies a 100-row batch with the
+// hard-exit candidate-maintenance fault armed at operation 5. The process
+// DIES inside the uncommitted transaction (ExitProcess, no rollback, no
+// close) so the parent can verify real kill-during-commit recovery.
+int RunHardExitChild(const std::string& dbPath) {
+    Store store;
+    if (!store.Open(dbPath)) return 3;
+    const VolumeRowId vol = *store.GetOrCreateVolume(TestVolumeKey(1));
+    std::vector<EntryChange> batch;
+    for (int index = 0; index < 100; ++index) {
+        batch.push_back({EntryChangeKind::Upsert,
+                         MakeEntry(1000 + static_cast<uint32_t>(index), 5, u"crash_batch.txt")});
+    }
+    ffindexstore::SetTestingCandidateMaintenanceFault(5, true);
+    const bool applied = store.ApplyBatch(vol, batch);
+    ffindexstore::SetTestingCandidateMaintenanceFault(0, false);
+    // Unreachable when the seam works; a return means the kill never fired.
+    return applied ? 2 : 4;
+}
+
+// durable-cold-search reviewer-B P1: a version-1 database whose ALTER
+// already ran (crash/failure between the ALTER and the version bump) must
+// still open and migrate. Before the idempotence guard this state bricked
+// every subsequent open with a duplicate-column ALTER failure.
+void TestSchemaV1MigrationIsIdempotentAfterPartialRun() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_migrate_v1_partial.db");
+    Check(CreateVersion1Fixture(dbPath), "v1-partial: fixture database is created");
+    {
+        // Simulate the interrupted migration: column added, marker NOT bumped.
+        sqlite3* raw = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &raw) == SQLITE_OK, "v1-partial: raw sqlite opens");
+        char* error = nullptr;
+        const bool ok = sqlite3_exec(raw, "ALTER TABLE entries ADD COLUMN allocated_size_bytes INTEGER;",
+                                     nullptr, nullptr, &error) == SQLITE_OK;
+        Check(ok, (std::string("v1-partial: pre-run ALTER applied: ") + (error ? error : "")).c_str());
+        sqlite3_close(raw);
+    }
+    Store store;
+    bool integrityFailed = false;
+    Check(store.Open(dbPath, &integrityFailed), "v1-partial: open survives the pre-run ALTER (no duplicate-column brick)");
+    Check(store.CountEntries(1) == 1, "v1-partial: entries preserved through the idempotent migration");
+    store.Close();
+    Store reopened;
+    Check(reopened.Open(dbPath, &integrityFailed), "v1-partial: database reopens after full migration");
+    Check(reopened.CountEntries(1) == 1, "v1-partial: entries preserved across reopen");
+}
+
+int main(int argc, char** argv) {
+    if (argc >= 3 && std::strcmp(argv[1], "--hard-exit-child") == 0) {
+        return RunHardExitChild(argv[2]);
+    }
     TestOpenCreatesSchemaAndIsReopenable();
     TestVolumeIdentityIsStableAndDeduplicated();
     TestEntryIdentityIsKeyedByVolumeAndFrnNotPath();
@@ -1059,9 +1460,17 @@ int main() {
     TestAllocatedSizeUnknownVsZeroAndPreservation();
     TestConcurrentReaderWriterWalContract();
     TestFindEntryPointLookup();
+    TestPartialUpsertOfMissingRowZeroesAbsentFields();
     TestIntegrityVerdictClassifier();
     TestLockedDatabaseFailsOpenWithoutIntegrityFlag();
     TestCorruptDatabaseSetsIntegrityFailedFlag();
+    TestSchemaV1MigrationIsIdempotentAfterPartialRun();
+    TestCandidateIndexMigratesFromV2Database();
+    TestUnknownSchemaVersionFailsClosedWithoutDataLoss();
+    TestOperatorRollbackToV2IsLosslessAndRebuilds();
+    TestCandidateMaintenanceFaultRollsBackWholeBatch();
+    TestCandidateMaintenanceHardExitRecoversOnReopen();
+    TestCandidateIndexRebuildsAfterTamper();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

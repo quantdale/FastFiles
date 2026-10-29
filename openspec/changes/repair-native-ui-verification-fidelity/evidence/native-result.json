@@ -1,0 +1,113 @@
+{
+  "StartedUtc": "2026-10-27T11:52:46.5049353Z",
+  "ClientPid": 128420,
+  "PowerShell": "7.6.9",
+  "Status": "PASS",
+  "Before": [
+    {
+      "Label": "checkbox",
+      "Hwnd": 4986770,
+      "Pid": 128420,
+      "ThreadId": 147436,
+      "Class": "Button",
+      "ControlType": "ControlType.Pane",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": false,
+      "Patterns": []
+    },
+    {
+      "Label": "combo",
+      "Hwnd": 3805630,
+      "Pid": 128420,
+      "ThreadId": 147436,
+      "Class": "ComboBox",
+      "ControlType": "ControlType.Pane",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": false,
+      "Patterns": []
+    }
+  ],
+  "NameBefore": "count=0;latest=;current=Owned fixture title before bootstrap",
+  "AfterSame": [
+    {
+      "Label": "checkbox",
+      "Hwnd": 4986770,
+      "Pid": 128420,
+      "ThreadId": 147436,
+      "Class": "Button",
+      "ControlType": "ControlType.CheckBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "TogglePatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "Label": "combo",
+      "Hwnd": 3805630,
+      "Pid": 128420,
+      "ThreadId": 147436,
+      "Class": "ComboBox",
+      "ControlType": "ControlType.ComboBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "SelectionPatternIdentifiers.Pattern",
+        "ExpandCollapsePatternIdentifiers.Pattern"
+      ]
+    }
+  ],
+  "AfterFresh": [
+    {
+      "Label": "freshCheckbox",
+      "Hwnd": 4526930,
+      "Pid": 128420,
+      "ThreadId": 147436,
+      "Class": "Button",
+      "ControlType": "ControlType.CheckBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "TogglePatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "Label": "freshCombo",
+      "Hwnd": 4395854,
+      "Pid": 128420,
+      "ThreadId": 147436,
+      "Class": "ComboBox",
+      "ControlType": "ControlType.ComboBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "SelectionPatternIdentifiers.Pattern",
+        "ExpandCollapsePatternIdentifiers.Pattern"
+      ]
+    }
+  ],
+  "NameAfter": "count=1;latest=30005:Owned fixture title after bootstrap;current=Owned fixture title after bootstrap",
+  "Bootstrap": {
+    "ProviderMvid": "872718a0-4c24-4648-bce6-f935adc9acd5",
+    "Status": "Ready",
+    "RequestedIdentity": "UIAutomationClientsideProviders, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+    "Error": "Standard UIA proxy initialization is already in progress.",
+    "ProviderPath": "C:\\Program Files\\PowerShell\\7\\UIAutomationClientSideProviders.dll",
+    "RegisteredByBootstrap": true
+  },
+  "ReloadReusedMarker": true,
+  "Capture": {
+    "ActualCaptureHwnd": 4986770,
+    "LegacyPidLookupSucceeded": false,
+    "OwnerTid": 147436,
+    "ReleasedObserved": false,
+    "LegacyObservedCapture": false,
+    "ParentObserved": true,
+    "OwnerPid": 128420,
+    "SiblingObserved": true
+  },
+  "ClosedNormally": true,
+  "WindowStillExists": false,
+  "DestroyedHandleCapture": false,
+  "EndedUtc": "2026-10-27T11:52:48.7704696Z"
+}

@@ -1,0 +1,400 @@
+{
+  "scope": "Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks",
+  "terminalObservations": [],
+  "filter": "cancellation",
+  "copyObservation": {
+    "polls": 344,
+    "last": {
+      "elapsedMs": 10812,
+      "copied": 1,
+      "title": "FastFiles — 0% — speed/ETA estimating…"
+    }
+  },
+  "cancelInput": {
+    "foreground": true,
+    "afterInputMs": 9259,
+    "beforeTitle": "FastFiles — C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-2f0a37a98fb54241bdb1d568b094d7eb\\Fixtures\\FastFilesE2E\\BulkSource\\item-00046.bin — 1% — 80 units/s — ETA 101 s",
+    "route": "Palette",
+    "terminalMs": null,
+    "beforeUtc": "2026-10-26T17:10:29.7067578Z",
+    "result": {
+      "Pass": false,
+      "Detail": "palette 'Cancel File Operations' semantic selection failed: palette-result-list-unavailable: palette result list was missing, hidden, or empty; state={\"editPresent\":false,\"editHasKeyboardFocus\":false,\"editTextPresent\":false,\"listPresent\":false,\"listEnabled\":false,\"listNativeHandle\":null,\"listVisible\":false,\"listItems\":[],\"selectedIndex\":-1,\"selectedName\":null,\"expectedMatches\":[],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":14358166,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"6301\",\"focusedControlType\":\"Edit\",\"focusedProcessId\":117464,\"popupClasses\":[]}}",
+      "CommandState": {
+        "editPresent": false,
+        "editHasKeyboardFocus": false,
+        "editTextPresent": false,
+        "listPresent": false,
+        "listEnabled": false,
+        "listNativeHandle": null,
+        "listVisible": false,
+        "listItems": [],
+        "selectedIndex": -1,
+        "selectedName": null,
+        "expectedMatches": [],
+        "expectedNameLikeMatches": [],
+        "interactive": {
+          "foregroundHwnd": 14358166,
+          "foregroundEvidenceAvailable": true,
+          "foregroundTitle": "FastFiles",
+          "focusedAutomationId": "6301",
+          "focusedControlType": "Edit",
+          "focusedProcessId": 117464,
+          "popupClasses": []
+        }
+      }
+    },
+    "focusedElement": {
+      "Name": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-owned-operations-unbound-2f0a37a98fb54241bdb1d568b094d7eb\\Fixtures\\FastFilesE2E\\BulkTarget",
+      "AutomationId": "Pane.0.Column.9",
+      "ControlType": "List",
+      "ClassName": "",
+      "ProcessId": 117464
+    },
+    "activationReturned": true
+  },
+  "copySamples": [
+    {
+      "elapsedMs": 8,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 52,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 83,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 129,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 161,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 194,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 225,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 256,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 287,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 318,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 349,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 381,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 412,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 443,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 474,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 505,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 535,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 567,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 598,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 630,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 661,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 692,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 738,
+      "copied": 0,
+      "title": ""
+    },
+    {
+      "elapsedMs": 786,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 819,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 851,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 882,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 914,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 945,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 976,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 1007,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 1038,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 1070,
+      "copied": 0,
+      "title": "FastFiles — operation queued"
+    },
+    {
+      "elapsedMs": 1102,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1135,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1164,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1197,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1229,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1259,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1290,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1320,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1356,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1384,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1415,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1447,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1479,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1512,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1544,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1575,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1606,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1637,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1669,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1701,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1731,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1764,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1794,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1825,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1856,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1886,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1917,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1948,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 1979,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 2013,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    },
+    {
+      "elapsedMs": 2041,
+      "copied": 0,
+      "title": "FastFiles — operation in progress"
+    }
+  ],
+  "failure": "in-flight-copy-cancel-input: Palette cancellation failed: {\"Pass\":false,\"Detail\":\"palette 'Cancel File Operations' semantic selection failed: palette-result-list-unavailable: palette result list was missing, hidden, or empty; state={\\\"editPresent\\\":false,\\\"editHasKeyboardFocus\\\":false,\\\"editTextPresent\\\":false,\\\"listPresent\\\":false,\\\"listEnabled\\\":false,\\\"listNativeHandle\\\":null,\\\"listVisible\\\":false,\\\"listItems\\\":[],\\\"selectedIndex\\\":-1,\\\"selectedName\\\":null,\\\"expectedMatches\\\":[],\\\"expectedNameLikeMatches\\\":[],\\\"interactive\\\":{\\\"foregroundHwnd\\\":14358166,\\\"foregroundEvidenceAvailable\\\":true,\\\"foregroundTitle\\\":\\\"FastFiles\\\",\\\"focusedAutomationId\\\":\\\"6301\\\",\\\"focusedControlType\\\":\\\"Edit\\\",\\\"focusedProcessId\\\":117464,\\\"popupClasses\\\":[]}}\",\"CommandState\":{\"editPresent\":false,\"editHasKeyboardFocus\":false,\"editTextPresent\":false,\"listPresent\":false,\"listEnabled\":false,\"listNativeHandle\":null,\"listVisible\":false,\"listItems\":[],\"selectedIndex\":-1,\"selectedName\":null,\"expectedMatches\":[],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":14358166,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"6301\",\"focusedControlType\":\"Edit\",\"focusedProcessId\":117464,\"popupClasses\":[]}}}",
+  "cleanup": {
+    "Pass": true,
+    "OwnedPids": [
+      117464,
+      124664
+    ],
+    "Residue": [],
+    "PipePresentBefore": false,
+    "PipePresentAfter": false,
+    "PipeCleanup": {
+      "Pass": true,
+      "State": "absent"
+    },
+    "DiagnosticsPreserved": true,
+    "DiagnosticsCopyError": null,
+    "SessionRootRetained": false
+  },
+  "cancellationRoute": "Palette",
+  "idleCancelInput": null,
+  "cases": [],
+  "captures": []
+}

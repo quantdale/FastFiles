@@ -1,0 +1,355 @@
+{
+  "terminalObservations": [],
+  "failure": "in-flight-copy-observation: No terminal operation title.",
+  "copyObservation": {
+    "polls": 307,
+    "last": {
+      "copied": 2,
+      "title": "FastFiles — 0% — speed/ETA estimating…",
+      "elapsedMs": 9669
+    }
+  },
+  "captures": [],
+  "filter": "cancellation",
+  "cases": [],
+  "copySamples": [
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 24
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 68
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 100
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 131
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 163
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 194
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 224
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 256
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 288
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 319
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 350
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 381
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 412
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 442
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 474
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 505
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 536
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 568
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 599
+    },
+    {
+      "copied": 0,
+      "title": "",
+      "elapsedMs": 629
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 660
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 691
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 722
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 753
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 784
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 816
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 848
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 879
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 910
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation queued",
+      "elapsedMs": 941
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 972
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1003
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1035
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1066
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1098
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1129
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1161
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1193
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1224
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1256
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1287
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1319
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1351
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1382
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1413
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1446
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1477
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1508
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1540
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1571
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1603
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1633
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1665
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1696
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1727
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1757
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1788
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1820
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1850
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1881
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1912
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1943
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 1974
+    },
+    {
+      "copied": 0,
+      "title": "FastFiles — operation in progress",
+      "elapsedMs": 2007
+    }
+  ],
+  "cleanup": {
+    "Pass": true,
+    "OwnedPids": [
+      121160,
+      124976
+    ],
+    "Residue": [],
+    "PipePresentBefore": false,
+    "PipePresentAfter": false,
+    "PipeCleanup": {
+      "Pass": true,
+      "State": "absent"
+    },
+    "DiagnosticsPreserved": true,
+    "DiagnosticsCopyError": null,
+    "SessionRootRetained": false
+  },
+  "scope": "Only requested cases are certified; actual owned filesystem operations with public input/UIA and exact content/identity checks"
+}

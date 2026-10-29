@@ -1,0 +1,169 @@
+{
+  "captured_before_evidence_commit": "f8208ebbf0931dec29d96d78408ccdc81f5806ca",
+  "origin_main": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+  "origin_acceptance": "d4f0cbe1a58c1d1fbc163ebfab4e25af8558989f",
+  "origin_pr14": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+  "origin_pr15": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+  "origin_pr16": "e75a230db9ac89f6a638754cb6ad672735e4d644",
+  "pr_states": [
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "fix/accessible-conflict-actions-20261026",
+      "headRefOid": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "isDraft": true,
+      "number": 21,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/21"
+    },
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "fix/native-single-line-status-20261026",
+      "headRefOid": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "isDraft": true,
+      "number": 20,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/20"
+    },
+    {
+      "baseRefName": "feat/original-vision-product-20261025",
+      "headRefName": "fix/column-uia-identity-dispatch-20261025",
+      "headRefOid": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "isDraft": true,
+      "number": 19,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/19"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "feat/original-vision-product-20261025",
+      "headRefOid": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "isDraft": true,
+      "number": 18,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/18"
+    },
+    {
+      "baseRefName": "feat/durable-cold-search-and-hybrid-residency",
+      "headRefName": "fix/acceptance-frontier-20261025",
+      "headRefOid": "d4f0cbe1a58c1d1fbc163ebfab4e25af8558989f",
+      "isDraft": true,
+      "number": 17,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/17"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "fix/f9-theme-toggle-follow-system",
+      "headRefOid": "e75a230db9ac89f6a638754cb6ad672735e4d644",
+      "isDraft": true,
+      "number": 16,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/16"
+    },
+    {
+      "baseRefName": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "headRefName": "feat/durable-cold-search-and-hybrid-residency",
+      "headRefOid": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+      "isDraft": true,
+      "number": 15,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/15"
+    },
+    {
+      "baseRefName": "main",
+      "headRefName": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "headRefOid": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+      "isDraft": false,
+      "number": 14,
+      "state": "OPEN",
+      "url": "https://github.com/quantdale/FastFiles/pull/14"
+    }
+  ],
+  "worktrees": [
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles",
+      "HEAD": "b77d61e7ad21b549be1b2c29bda35a85ce4a97e9",
+      "branch": "refs/heads/feat/large-index-lifecycle-and-search-scalability-20261008",
+      "dirty_paths": [
+        "M docs/agent/WORKSTATE.md",
+        " M openspec/changes/large-index-lifecycle-and-search-scalability/evidence/rebuild/rebuild-root-cause-and-reachability.md",
+        " M tests/indexstore/test_projection.cpp"
+      ]
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles/.kilo/worktrees/scythe-cloud",
+      "HEAD": "0dc33562ad6380c8b505ab221769acb189cd83b1",
+      "detached": "",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/acceptance-20261025",
+      "HEAD": "f8208ebbf0931dec29d96d78408ccdc81f5806ca",
+      "branch": "refs/heads/fix/acceptance-frontier-20261025",
+      "dirty_paths": [
+        "?? openspec/changes/durable-cold-search-index-and-hybrid-residency/evidence/final-closure/artifacts/final-selected-20261026/"
+      ]
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/column-uia-20261025",
+      "HEAD": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "branch": "refs/heads/fix/column-uia-identity-dispatch-20261025",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/conflict-actions-20261026",
+      "HEAD": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "branch": "refs/heads/fix/accessible-conflict-actions-20261026",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/integration-20261025",
+      "HEAD": "63ffa59532d8c874bc3e0dbe7a9eece95a06d54b",
+      "branch": "refs/heads/test/original-vision-integration-20261025",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/main-sync",
+      "HEAD": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "branch": "refs/heads/main",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/native-text-20261026",
+      "HEAD": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "branch": "refs/heads/fix/native-single-line-status-20261026",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/oracle-mixed-20261026",
+      "HEAD": "51736309391d1a9081fae38efc3a82ebb0b6af16",
+      "branch": "refs/heads/test/mixed-residency-oracle-20261026",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/product-20261025",
+      "HEAD": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "branch": "refs/heads/feat/original-vision-product-20261025",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/search-20261025",
+      "HEAD": "8a4f58830238203ce622da8fc25a7ea708c91d8a",
+      "branch": "refs/heads/fix/search-result-home-handoff-20261025",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/storage-uia-20261025",
+      "HEAD": "090f7e2f231a6c31f0bad356e982d83b65839cb9",
+      "branch": "refs/heads/feat/storage-semantic-list-20261025",
+      "dirty_paths": []
+    },
+    {
+      "worktree": "D:/Documents/tryPython/FastFiles-worktrees/visible-uia-20261025",
+      "HEAD": "5456f1ec109b5fa9a6b24bdcdbf4ffa4b951c3e7",
+      "branch": "refs/heads/fix/visible-uia-workspace-20261025",
+      "dirty_paths": []
+    }
+  ],
+  "publication_policy": "normal successor branch push only; all shared PRs/main unmerged; derive live refs again at resume"
+}

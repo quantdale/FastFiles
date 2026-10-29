@@ -1,0 +1,12 @@
+{
+  "scenario": "cold-restore",
+  "stage": "restored-home-close",
+  "expected": "restored Home did not exit within the unchanged close deadline",
+  "observed": "{\"processId\":146740,\"uiaCloseReturned\":true,\"uiaError\":\"\",\"fallbackAttempted\":false,\"fallbackKeys\":\"\",\"fallbackInput\":[],\"fallbackError\":\"\",\"deadlineMs\":10000,\"exitObserved\":false}",
+  "error": "",
+  "elapsedMs": 19753.4,
+  "generatedAtUtc": "2026-10-27T12:10:20.9369734Z",
+  "observation": null,
+  "processes": [],
+  "note": "UIA window was unavailable at the outer scenario boundary; no screenshot/tree could be captured."
+}

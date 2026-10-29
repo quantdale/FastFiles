@@ -37,7 +37,7 @@
         },
         "explorer-drag-source-unavailable": {
             "primaryClass": "AUTOMATION_LIMITATION",
-            "notes": "Synthetic input cannot arm the host Explorer OLE drag source: semantic SelectionItemPattern.Select succeeds but a synthetic down+move never arms; bounded foreground/select retries are exhausted at the emitter."
+            "notes": "PR #14 closure (2026-10-22): the historical 'synthetic input cannot arm the host Explorer OLE drag source' mechanism is DISPROVEN — probe2 delivered Explorer->Explorer with the exact harness drag primitive. The observed blocked boundary is drop DELIVERY into the FastFiles window from an external (Explorer) source: source selection and input arming succeed 100%, the FastFiles drop handler never executes, and the failing pair (external source -> FastFiles window) is not further separable on this host. Reason code retained for contract stability; see evidence/uia-explorer-drag-in-investigation.md."
         },
         "interactive-drop-target-obstructed": {
             "primaryClass": "ENVIRONMENT_UNSUPPORTED",

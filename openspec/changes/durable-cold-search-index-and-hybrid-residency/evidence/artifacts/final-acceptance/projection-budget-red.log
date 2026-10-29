@@ -1,0 +1,275 @@
+FAIL: enforcement reaches the budget instead of repeating eight tiny compactions per batch
+ok: tiny-victim fixture exceeds the budget
+ok: tiny-victim enforcement evicts resident data
+ok: whole-volume fallback marks the durable volume cold
+ok: all inserted entries are present
+ok: identical names under different parents share one interned NameId
+ok: the name pool holds one entry per distinct name (C:, a, b, config.json)
+ok: path reconstruction reaches the volume root
+ok: reconstructed path matches the expected ancestor chain
+ok: all three children are found under their parent
+ok: old parent no longer lists the moved entry as a child
+ok: new parent lists the moved entry as a child
+ok: partial projection update keeps the entry addressable
+ok: present rename fields update the projection
+ok: absent authoritative projection metadata is retained
+ok: a full MFT-scan upsert sets logical and allocated size
+ok: a present logical-size field updates
+ok: an absent allocated-size bit preserves the previously known value
+ok: reconciliation corrects stale allocated size
+ok: a new entry from a partial update has unknown allocated size
+ok: a known zero-byte file is distinct from unknown
+ok: root aggregate is present
+ok: root aggregate counts every descendant
+ok: root logical total sums all descendants
+ok: every descendant counts toward the total
+ok: known count covers only known descendants
+ok: allocated subtotal covers only known descendants
+ok: an aggregate with unknown descendants is not claimed complete
+ok: a subtree with an unknown descendant reports the partial allocated subtotal
+ok: overflow aggregate is present
+ok: overflowing sums saturate at UINT64_MAX
+ok: a saturated aggregate is explicitly incomplete
+ok: removed entry is no longer found
+ok: sibling entry is unaffected
+ok: entry count reflects the removal
+ok: a cyclic parent chain is detected and the walk stops rather than looping forever
+ok: identical FRNs on different volumes are distinct projection entries
+ok: each volume's entry resolves to its own identity
+ok: rebuild loads every persisted row
+ok: rebuilt projection matches durable store contents
+ok: root aggregate is present
+ok: root aggregate counts all descendants
+ok: no entries carry non-zero size in this test
+ok: Users aggregate is present
+ok: Users subtree has three descendants
+ok: Users subtree size is zero
+ok: unknown root returns nullopt
+ok: all entries present past the old 8-bucket stall point
+ok: first directory still lists exactly its own children
+ok: eligible filename terms use the trigram candidate index
+ok: matching ASCII filename is a candidate
+ok: uppercase ASCII filename is a candidate
+ok: non-ASCII filename is conservatively retained
+ok: non-matching filename is rejected by postings
+ok: two-character terms use the canonical fallback
+ok: Unicode terms use the canonical fallback
+ok: deleting an entry removes its trigram candidates
+ok: renaming an entry adds its new trigram candidates
+ok: projection reports owned memory before eviction
+ok: LRU fixture entry is present before touch
+ok: eviction records that durable volume data needs reload
+ok: recently touched entry survives LRU eviction
+ok: least-recently-used entry is evicted first
+ok: eviction reload fixture store opens
+ok: eviction reload fixture volume is created
+ok: eviction reload fixture rows are durable
+ok: reloaded projection records its eviction
+ok: evicted volume reload succeeds from SQLite
+ok: successful SQLite reload clears the eviction marker
+ok: SQLite reload restores the evicted directory data
+ok: rebuild failure fixture store opens
+ok: rebuild failure fixture volume is created
+ok: rebuild failure fixture rows are durable
+ok: initial rebuild succeeds before the failure is introduced
+ok: initial rebuild exposes the durable fixture row
+ok: rebuild reports a closed durable store instead of succeeding with a partial result
+ok: failed rebuild retains a cold retry marker
+ok: failed rebuild removes any partial or stale resident rows
+ok: rebuild failure fixture store reopens
+ok: cold rebuild retries successfully after the durable store reopens
+ok: successful retry restores the durable row and clears the cold marker
+ok: projection exposes a high-memory pressure signal near its limit
+ok: diagnostics fixture store opens
+ok: diagnostics fixture rows are durable
+ok: diagnostics report the default configured ceiling
+ok: diagnostics estimated bytes match the projection estimate
+ok: counters start at zero with no eviction or reload
+ok: diagnostics report the overridden ceiling
+ok: the eviction counter increments with enforcement passes
+ok: eviction records bytes before and after reclaiming
+ok: estimated memory respects the overridden ceiling
+ok: fixture reload succeeds once the ceiling allows it
+ok: the reload counter increments per cold reload
+ok: a successful reload is not counted failed
+ok: reload clears residency need
+ok: fixture volume marked unavailable
+ok: fixture volume forgotten
+ok: evicting a resident volume marks it cold
+ok: reloading a forgotten volume fails honestly
+ok: a failed reload increments the failure counter
+ok: an individual projection upsert does not compact the whole index
+ok: bulk scan mode defers eviction compaction while ingesting
+ok: bulk scan mode invalidates only the optional filename accelerator
+ok: the post-scan batch boundary enforces the bounded LRU policy
+ok: initial view is valid before growth
+ok: initial view content matches
+ok: NameId remains valid and content is preserved after growth
+ok: length preserved after reallocation
+ok: arena reallocation demonstrates borrowed-view invalidation hazard (pointer stability not guaranteed)
+ok: NameId is stable across growth, only the view address moves
+ok: pre-replacement view correct
+ok: post-replacement view content preserved
+ok: whole-pool replacement invalidates borrowed views (hazard demonstrated without UB)
+ok: NameId for same name is stable when pool is rebuilt from same insertion order
+ok: breakdown reports every live row
+ok: row live bytes are row count * measured entry layout
+ok: row bytes are the live vector capacity * measured entry layout
+ok: row slack is capacity minus live rows
+ok: free-list bytes are its live capacity
+ok: identifier-map bytes sum the three flat-table arrays
+ok: identifier map reports elements and buckets
+ok: parent/child map bytes sum keys, flat child array, states, offsets, counts
+ok: parent/child map reports distinct parents and used child links
+ok: name bytes sum arena, offset table, and hash index
+ok: one interned entry per distinct name
+ok: arena holds the six distinct name strings once
+ok: arena slack is capacity minus used chars
+ok: the optional accelerator is live after ordinary upserts
+ok: trigram postings are reported
+ok: posting capacity is never below its payload
+ok: CJK names are not fold-exceptional (this host's ordinal table has no cross-ASCII fold classes) and stay out of the exceptional list
+ok: filename-index bytes sum postings, node headers, buckets, exceptional list
+ok: LRU bytes are the dense per-slot timestamp capacity
+ok: tracked LRU slots never exceed the dense slot count
+ok: no stored normalized-name category exists (folds are computed on demand)
+ok: no stored path category exists (paths are reconstructed per call)
+ok: the modeled category sum equals the estimator the memory policy uses
+ok: the reported total adds the concretely measured unmodeled allocations
+ok: a bulk scan disables the optional accelerator
+ok: a disabled accelerator retains no posting entries or fold-exceptional entries (vector capacity is retained, not entry data)
+ok: the modeled sum still matches the estimator with the accelerator disabled
+ok: dense LRU fixture row a is present
+ok: dense LRU fixture row c is present
+ok: every live row carries a dense timestamp
+ok: removing a row clears its dense timestamp
+ok: a reused slot is tracked again with a fresh timestamp
+ok: the eviction records the cold-volume marker
+ok: the cold-volume marker set reports its bucket array
+ok: the untouched row is the least-recently-used eviction victim
+ok: a recently touched row survives dense-LRU eviction
+ok: a reused slot is evictable last, not first
+ok: LRU compaction fixture store opens
+ok: LRU compaction fixture rows are durable
+ok: bulk rebuild permutes dense slots into probe order
+ok: probe order does not start with the first-streamed row, so the eviction assertion discriminates
+ok: the last fixture row is present and touched
+ok: the oldest streamed row is the eviction victim after slot permutation
+ok: the most recently touched row survives after slot permutation
+ok: shrink fixture store opens
+ok: shrink fixture rows are durable
+ok: bulk rebuild succeeds
+ok: every durable row is resident
+ok: name arena capacity collapses to its used chars after a bulk rebuild
+ok: name offset table capacity collapses to its used slots after a bulk rebuild
+ok: trigram posting capacity collapses to its payload after a bulk rebuild
+ok: flat child-index capacity collapses to its live links after a bulk rebuild
+ok: the root row survives the shrink
+ok: every child link survives the shrink
+ok: the first file row and its interned name survive the shrink
+ok: the identifier map keeps its designed <=75% occupancy sizing
+ok: the shrink keeps the breakdown and estimator in agreement
+ok: bulk removal leaves the same entry count as per-entry removal
+ok: bulk removal leaves the same rows, parents, and names
+ok: bulk removal unlinks every child exactly like per-entry removal
+ok: folder aggregates agree after bulk removal
+ok: the rebuilt accelerator returns the same candidate count as the per-entry path
+ok: bulk-path accelerator candidates reference only surviving rows
+ok: a small batch keeps the accelerator current via per-entry maintenance
+ok: only the surviving volume's rows remain
+ok: removed volume rows are gone
+ok: RemoveVolume keeps the filename accelerator current by default
+ok: the rebuilt accelerator serves the surviving volume's rows
+ok: accelerator candidates reference only surviving rows
+ok: caller-rebuild mode removes rows exactly like the default mode
+ok: RemoveVolume(keepFilenameIndexCurrent=false) leaves the accelerator invalidated
+ok: an invalidated accelerator yields no candidates and search falls back to the canonical scan
+ok: accelerator candidates are a conservative superset of every fold-matching row
+ok: accelerator candidates are a conservative superset of every fold-matching row
+ok: accelerator candidates are a conservative superset of every fold-matching row
+ok: accelerator candidates are a conservative superset of every fold-matching row
+ok: accelerator candidates are a conservative superset of every fold-matching row
+ok: accelerator candidates are a conservative superset of every fold-matching row
+ok: accelerator candidates are a conservative superset of every fold-matching row
+ok: needles shorter than three folded units remain ineligible
+ok: non-ASCII folded needles remain ineligible for the ASCII trigram accelerator
+ok: a selective pure-ASCII needle yields candidates regardless of the Unicode row count
+ok: the candidate set is exactly the three fold-matching rows
+ok: a no-match pure-ASCII needle yields an empty candidate set, not every Unicode row
+ok: ASCII sanity: ordinal ignore-case folds A/a
+ok: ordinal ignore-case DOES fold non-ASCII case pairs (E-acute): folding is not ASCII-only
+ok: campaign host: LONG S is NOT equal to s/S under ordinal ignore-case (review example disproven here)
+ok: campaign host: KELVIN SIGN is NOT equal to k/K under ordinal ignore-case
+ok: campaign host: dotless i is NOT equal to i/I under ordinal ignore-case
+ok: campaign host: dotted I is NOT equal to i/I under ordinal ignore-case
+ok: campaign host: sharp s is NOT equal to s under ordinal ignore-case
+ok: campaign host: fi ligature is NOT equal to f under ordinal ignore-case
+ok: eligible ASCII query still uses the accelerator
+ok: a host-fold-exceptional long-s name is retained for the ASCII needle (no false negative)
+ok: the ordinary matching row is retained
+ok: the non-matching non-exceptional row is still excluded
+ok: renaming away the exceptional unit removes the row from the exceptional merge
+ok: deleting a row removes it from candidates
+ok: eligible ASCII query returns a candidate set
+ok: surrogate-bearing names are conservatively retained in every ASCII candidate set
+ok: non-exceptional rows are still served by the posting intersection alone
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: a canonical match is always present in the accelerator candidate set
+ok: a capped candidate set still contains every canonical match
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: a canonical match is always present in the accelerator candidate set
+ok: a capped candidate set still contains every canonical match
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: a canonical match is always present in the accelerator candidate set
+ok: a capped candidate set still contains every canonical match
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: a canonical match is always present in the accelerator candidate set
+ok: a capped candidate set still contains every canonical match
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: a canonical match is always present in the accelerator candidate set
+ok: a capped candidate set still contains every canonical match
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: a canonical match is always present in the accelerator candidate set
+ok: a capped candidate set still contains every canonical match
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: a canonical match is always present in the accelerator candidate set
+ok: a capped candidate set still contains every canonical match
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: a canonical match is always present in the accelerator candidate set
+ok: a capped candidate set still contains every canonical match
+ok: an eligible ASCII needle always yields an uncapped candidate set
+ok: a canonical match is always present in the accelerator candidate set
+ok: a capped candidate set still contains every canonical match
+ok: the surrogate-pair fixture canonically matches its ASCII tail
+ok: surrogate-pair rows are retained when their ASCII tail canonically matches
+ok: accelerator is live before the bulk scan
+ok: bulk scan keeps the accelerator disabled while active
+ok: ending the bulk scan revives the filename accelerator
+ok: the revived accelerator serves every matching row ingested during the scan
+ok: a fresh cursor is not stale
+ok: a fresh cursor advances
+ok: layout growth under a held cursor marks it stale (no silent truncation)
+ok: a stale cursor stops iterating
+ok: oversized-reload store opens
+ok: oversized-reload volume is created
+ok: oversized-reload rows persist
+ok: the volume starts cold
+ok: an over-watermark volume reload fails (fast) instead of thrashing
+ok: the failed reload leaves the volume cold
+ok: the failed reload is counted for diagnostics

@@ -1,28 +1,36 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
 #include <windows.h>
 
 #include "CategoryEngine.h"
+#include "CommandSystem.h"
 #include "EngineClient.h"
 #include "ffui/ShellLayout.h"
 #include "ffui/StorageVisibility.h"
 #include "ffui/StoragePercentage.h"
+#include "ffui/StorageRanking.h"
 #include "ffui/TreemapSemantics.h"
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
 #include "TreemapView.h"
 #include "UiaProviderBase.h"
+#include "SearchUiaProvider.h"
 #include "Util.h"
 
 namespace ffui {
 
 constexpr UINT WM_APP_STORAGE_AGGREGATE = WM_APP + 10;
+constexpr UINT WM_APP_STORAGE_RANKING = WM_APP + 55;
 
 // semantic-treemap-uia 11.x: value-only payload for marshaling a UIA Invoke to
 // the owning UI thread. Never carries pointers: the UI thread re-resolves the
@@ -37,7 +45,7 @@ struct TreemapNavigatePayload {
     bool isDirectory = false;
 };
 
-class StorageAnalysis : public TreemapUiaSurface {
+class StorageAnalysis : public TreemapUiaSurface, public UiaSurface {
 public:
     StorageAnalysis() = default;
     ~StorageAnalysis();
@@ -52,12 +60,15 @@ public:
                       const ShellLayoutRect& surfaceRect);
     void Hide();
     bool Visible() const { return visible_; }
+    std::vector<SelectionItem> ActiveSelectionItems() const;
     void Reposition(const ShellLayoutRect& surfaceRect);
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     bool HandleDrawItem(LPARAM lParam);
     bool HandleNotify(LPARAM lParam);
     bool HandleContextMenu(WPARAM wParam, LPARAM lParam);
     bool HandleCompletion(LPARAM lParam);
+    bool HandleRankingCompletion(LPARAM lParam);
+    void StopRanking();
     bool HandleTreemapCompletion(LPARAM lParam);
     bool HandleTreemapUiaNavigate(LPARAM lParam);
     bool HandleMouseMove(WPARAM wParam, LPARAM lParam);
@@ -96,11 +107,54 @@ public:
     void TreemapActivateItem(const TreemapUiaItemInfo& item) override;
     UiaEventRouter* TreemapEvents() override { return &uiaEvents_; }
 
+    // The real owner-data report list uses the same bounded semantic list
+    // provider as Search; this is its native model/interaction adapter.
+    size_t UiaSearchResultCount() const override;
+    UiaSearchResultInfo UiaSearchResultInfoOf(size_t index) const override;
+    bool UiaSearchResultRect(size_t index, RECT& outScreen) const override;
+    bool UiaSearchResultOffscreen(size_t index) const override;
+    bool UiaSearchVisible() const override;
+    bool UiaSearchHasKeyboardFocus() const override;
+    HWND UiaSearchHwnd() const override { return list_; }
+    void UiaListSetFocus() override;
+    void UiaSearchSelectItem(size_t index) override;
+    void UiaSearchAddToSelection(size_t index) override { UiaSearchSelectItem(index); }
+    void UiaSearchRemoveFromSelection(size_t index) override;
+    void UiaSearchSetFocusItem(size_t index) override;
+    void UiaSearchActivateItem(size_t index) override;
+    void UiaSearchScrollIntoView(size_t index) override;
+    bool UiaListDispatchAction(size_t index, uint64_t expectedIdentity, unsigned action) override;
+    bool UiaListResultRect(size_t index, uint64_t identity, RECT& rect) const override;
+    bool UiaListResultOffscreen(size_t index, uint64_t identity) const override;
+    size_t UiaListHeaderCount() const override;
+    std::wstring UiaListHeaderName(size_t index) const override;
+    bool UiaListHeaderRect(size_t index, RECT& outScreen) const override;
+    void UiaListInvokeHeader(size_t index) override;
+    uint64_t UiaListHeaderIdentity(size_t index) const override;
+    bool UiaListDispatchHeader(size_t index, uint64_t identity) override;
+
 private:
     friend class StorageRadioProvider;
+    struct ListQuery;
+    struct ListAction;
+    static LRESULT CALLBACK ListSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                             UINT_PTR subclassId, DWORD_PTR refData);
+    void ReadListQuery(ListQuery& query) const;
+    bool DispatchListAction(size_t index, unsigned action, uint64_t expectedIdentity);
+    bool ApplyListAction(const ListAction& action);
+    void ActivateListItem(size_t index);
+    void NotifyListChanged();
+    Microsoft::WRL::ComPtr<SearchUiaProvider> listProvider_;
+    UiaOwnerStatePtr listUiaState_;
+    UiaEventRouter listEvents_;
+    bool listNotificationPending_ = false;
 
+    static LRESULT CALLBACK TabSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                            UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK StorageButtonSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                                       UINT_PTR subclassId, DWORD_PTR refData);
+    static LRESULT CALLBACK InactiveSelectionSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                         UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK RadioSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                               UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK StatusSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
@@ -110,6 +164,8 @@ private:
 
     struct DrillItem {
         std::wstring name;
+        std::wstring folder; // original source folder, including recursive descendants
+        std::wstring categoryId; // nonempty only for synthetic category summaries
         bool isDirectory = false;
         uint64_t sizeBytes = 0;
         uint64_t totalSizeBytes = 0; // subtree aggregate when known
@@ -138,7 +194,7 @@ private:
     struct VolumeItem {
         std::wstring rootPath;   // "C:\"
         bool unavailable = false; // volume vanished; figures below are stale
-        bool fullyIndexed = false;
+        bool rootAvailable = false;
         uint64_t totalBytes = 0;
         uint64_t freeBytes = 0;
         uint64_t usedBytes = 0;
@@ -149,7 +205,38 @@ private:
         size_t itemIndex = 0;
     };
 
-    void RefreshData();
+    void RefreshData(bool snapshotRefresh = false);
+    bool RecursiveRanking() const { return viewMode_ == ViewMode::LargestFiles && activeCategoryId_.empty(); }
+    void RefreshRanking(bool retainDisplay);
+    void CancelRanking();
+    void QueueSnapshotRanking(uint64_t generation, StorageRankingScope scope);
+    void RankingWorkerMain();
+    void ConfigureListColumns();
+    struct RankingCallbackState {
+        std::mutex mutex;
+        bool alive = true;
+        HWND owner = nullptr;
+    };
+    struct RankingWork {
+        uint64_t generation = 0;
+        StorageRankingScope scope;
+    };
+    struct RankingCompletion {
+        uint64_t generation = 0;
+        StorageRankingScope scope;
+        bool indexed = false;
+        bool available = false;
+        bool truncated = false;
+        std::vector<ffsearch::Candidate> candidates;
+    };
+    std::shared_ptr<RankingCallbackState> rankingCallbackState_;
+    std::atomic<uint64_t> rankingGeneration_{0};
+    uint64_t indexedRankingRequestId_ = 0;
+    std::atomic<bool> rankingStopping_{false};
+    std::mutex rankingWorkMutex_;
+    std::condition_variable rankingWorkCv_;
+    std::optional<RankingWork> pendingRanking_;
+    std::thread rankingWorker_;
     void RefreshOverview();
     void ApplyModeVisibility();
     void RequestAggregateForItem(size_t index);
@@ -161,6 +248,8 @@ private:
                                uint64_t allocatedBytesKnownCount,
                                uint64_t allocatedBytesTotalCount);
     void SortItems(int column, bool ascending);
+    std::optional<DrillItem> CaptureSelectedItem() const;
+    void RestoreSelectedItem(const std::optional<DrillItem>& selected);
     void PopulateCategoryFilter();
     void UpdateCategoryFilterFromControl();
     void ApplyCategoryFilter();
@@ -175,6 +264,9 @@ private:
     HWND overview_ = nullptr;
     HWND categoryFilter_ = nullptr; // storage-analysis 5.4: category filter combo
     HWND status_ = nullptr;
+    HWND modeLabel_ = nullptr;
+    HWND modeSelector_ = nullptr;
+    bool compactModes_ = false;
     HWND back_ = nullptr;
     HWND up_ = nullptr;
     HWND overviewButton_ = nullptr;
@@ -194,9 +286,18 @@ private:
     std::wstring activeCategoryId_; // empty means All categories
 
     std::vector<DrillItem> items_;
+    std::optional<DrillItem> rankingSelected_;
+    std::optional<StorageRankingDisplayIdentity> rankingDisplay_;
+    uint64_t rankingSourceEpoch_ = 1;
+    std::wstring rankingSelectionScope_;
+    std::optional<bool> recursiveColumns_;
+    float columnsDpi_ = 0;
+    int columnsViewportWidth_ = 0;
     std::vector<VolumeItem> volumes_;    // storage-overview rows
     std::wstring currentPath_;
+    std::wstring displayedPath_;
     bool visible_ = false;
+    ShellLayoutRect lastSurfaceRect_;
     bool engineActive_ = false;
     bool darkTheme_ = false;
     ViewMode viewMode_ = ViewMode::Overview;

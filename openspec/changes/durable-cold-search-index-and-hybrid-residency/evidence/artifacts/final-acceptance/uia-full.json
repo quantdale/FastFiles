@@ -1,0 +1,1114 @@
+{
+  "Status": "PASS",
+  "Reason": null,
+  "Summary": "23 passed, 5 skipped with recorded reasons; 0 failed",
+  "Artifacts": [
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.1-launch.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.1-launch.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.1-launch.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.2-keyboard-navigation.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.2-keyboard-navigation.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.2-keyboard-navigation.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.2-column-items.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.2-column-items.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.2-column-items.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.2-mouse-tab.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.2-mouse-tab.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.2-mouse-tab.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.3-selection-scroll.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.3-selection-scroll.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.3-selection-scroll.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.x-home-surface.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.x-home-surface.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.x-home-surface.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.10-storage-analysis.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.10-storage-analysis.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.10-storage-analysis.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.11-search-panel.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.11-search-panel.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.11-search-panel.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.11-structured-filter.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.11-structured-filter.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\3.11-structured-filter.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-between-panes\\attempt-01\\drag-between-panes-attempt-01.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-between-panes\\attempt-01\\drag-between-panes-attempt-01.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-between-panes\\attempt-01\\drag-between-panes-attempt-01.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-between-panes\\attempt-01\\attempt-diagnostic.json",
+      "type": "uia-attempt-diagnostic"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-in-from-explorer.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-in-from-explorer.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-in-from-explorer.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-out-to-explorer.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-out-to-explorer.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\drag-out-to-explorer.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\in-column-error-state-late.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\in-column-error-state-late.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\in-column-error-state-late.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\search-allocated-size.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\search-allocated-size.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\search-allocated-size.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\search-deep-result-navigation.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\search-deep-result-navigation.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\search-deep-result-navigation.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\selection-model-interactions\\attempt-01\\selection-model-interactions-attempt-01.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\selection-model-interactions\\attempt-01\\selection-model-interactions-attempt-01.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\selection-model-interactions\\attempt-01\\selection-model-interactions-attempt-01.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\selection-model-interactions\\attempt-01\\attempt-diagnostic.json",
+      "type": "uia-attempt-diagnostic"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\treemap-readability-click-precision\\attempt-01\\treemap-readability-click-precision-attempt-01.tree.txt",
+      "type": "uia-tree-text"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\treemap-readability-click-precision\\attempt-01\\treemap-readability-click-precision-attempt-01.tree.json",
+      "type": "uia-tree-json"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\treemap-readability-click-precision\\attempt-01\\treemap-readability-click-precision-attempt-01.png",
+      "type": "screenshot",
+      "virtualScreen": "0,0,1920,1080"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\treemap-readability-click-precision\\attempt-01\\attempt-diagnostic.json",
+      "type": "uia-attempt-diagnostic"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full\\run.log",
+      "type": "run-log"
+    },
+    {
+      "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\final-acceptance\\uia-full",
+      "type": "run-artifacts"
+    }
+  ],
+  "SubResults": [
+    {
+      "id": "launch-main-window",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 46.0,
+      "detail": "title='FastFiles'; chrome present; evidence 3.1-launch.*",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "settings-dialog-structure",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 3513.0,
+      "detail": "dialog present; tab=True OK=True Cancel=True",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "settings-dialog-close",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 1716.0,
+      "detail": "closed via ButtonDefaultAction(BM_CLICK) (fallback=True)",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "settings-dialog-keyboard-navigation",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 6723.0,
+      "detail": "Tab cycled inside dialog (6 cycles); ESC closed dialog; palette home answered after close",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "keyboard-address-bar-navigation",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 4067.0,
+      "detail": "tab label reflects 'ffui-e2e-18657566' (used SendInput-fallback)",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "column-populated-and-selected-item-in-tree",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 71.0,
+      "detail": "column item 'SubFolder' discoverable (ControlType=ListItem)",
+      "diagnostics": [
+        "3.2-column-items.tree.txt"
+      ],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "mouse-tab-operation",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 184.0,
+      "detail": "mouse click on + created tab (1 -> 2)",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "selection-and-scroll-patterns",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 4996.0,
+      "detail": "SelectionItem.IsSelected=True; multi-select via Ctrl+click count=2 (pane Scroll=True column Selection=True)",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "scroll-pattern-real-viewport",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 0.0,
+      "detail": "Scroll pattern: scrollable=True percent-after-100%=100",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "home-surface-structure",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 0.0,
+      "detail": "Home surface exposed: Home | Recent folders | Common locations | Quick actions",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "storage-analysis-open",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 1251.0,
+      "detail": "palette 'analyze' activated commandId='storage.analyze'; selected='Analyze Storage'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze\",\"state\":\"{\\\"timestamp\\\":1792764853,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":34036,\\\"tid\\\":15896,\\\"epochMs\\\":1792764853954}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":55249154,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"7211\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":34036,\"popupClasses\":[]}; radio semantics: Overview=RadioButton, Drill Down=RadioButton, Largest Folders=RadioButton, Largest Files=RadioButton, By Category=RadioButton, Treemap=RadioButton, selection=Overview:True/Treemap:False",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "connection-badge-degraded",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 0.0,
+      "detail": "Connection badge observed: degradedVisible=True; engineConnected=False (degraded text visible via UIA iff the engine did not connect to the running service)",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "storage-mid-scan-calculating",
+      "tier": 2,
+      "status": "SKIPPED",
+      "reason": "privileged-scan-unavailable",
+      "requiredContext": null,
+      "durationMs": 0.0,
+      "detail": "SKIP\nreason=PRIVILEGED_SCAN_CAPABILITY_UNAVAILABLE\nevidence=absence=signer-pins-unavailable,elevation-unavailable,clean-host-requirement,host-contamination;service=Running;group=member;pins=absent;elevated=False",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "search-panel-open",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 2482.0,
+      "detail": "palette 'search' opened with filters row expanded",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "search-results-discoverable",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 0.0,
+      "detail": "Search.Results exposes result 'alpha.txt'",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "search-structured-filter-query",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 0.0,
+      "detail": "structured ext:txt returned 83 results, all .txt",
+      "diagnostics": [
+        "3.11-structured-filter.tree.txt"
+      ],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "search-toggle-service-while-open",
+      "tier": 2,
+      "status": "SKIPPED",
+      "reason": "privileged-scan-unavailable",
+      "requiredContext": null,
+      "durationMs": 0.0,
+      "detail": "SKIP\nreason=PRIVILEGED_SCAN_CAPABILITY_UNAVAILABLE\nevidence=absence=signer-pins-unavailable,elevation-unavailable,clean-host-requirement,host-contamination;service=Running;group=member;pins=absent;elevated=False",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "ui-responsive",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 1219.0,
+      "detail": "After opening/closing dialogs and panels, palette shortcut still dispatches and executes a command (responsive message loop)",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "rendering-geometry-click-precision",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 23.0,
+      "detail": "UIA-exposed BoundingRectangle for chrome controls is in-window and non-zero",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "drag-between-panes",
+      "tier": 2,
+      "status": "SKIPPED",
+      "reason": "interactive-foreground-unavailable",
+      "requiredContext": null,
+      "durationMs": 20262.0,
+      "detail": "BLOCKED_ENVIRONMENT: Pane.1 activation did not establish HasKeyboardFocus; foreground='<foreign>'; hwnd=67394; focused=/Group/pid=13748; popups=; no input or downstream assertion was attempted while another interactive window owned the foreground",
+      "diagnostics": [],
+      "lifecycleMode": "isolated",
+      "cleanup": null
+    },
+    {
+      "id": "drag-in-from-explorer",
+      "tier": 2,
+      "status": "SKIPPED",
+      "reason": "explorer-drag-source-unavailable",
+      "requiredContext": null,
+      "durationMs": 47841.0,
+      "detail": "BLOCKED_ENVIRONMENT: three fresh Explorer-source attempts selected the item and every native input stage was accepted, but no destination file appeared; boundary=drop-delivery-into-FastFiles (source interaction proven available — see evidence/uia-explorer-drag-in-investigation.md); armObserved=false (cross-process capture was not observable); attempt=1 acceptedInput=true armObserved=False source='explorer-in.txt' | attempt=2 acceptedInput=true armObserved=False source='explorer-in.txt' | attempt=3 acceptedInput=true armObserved=False source='explorer-in.txt'",
+      "diagnostics": [],
+      "lifecycleMode": "isolated",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          53644,
+          32360
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "drag-out-to-explorer",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 15074.0,
+      "detail": "source 'draggable.txt' [] -> Explorer 'C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-drag-out-to-explorer-pr15-final-acceptance-46172f13e1eb42c4a49355a54cde3f5c\\Fixtures\\ffui-drag-2042047964\\target'; destination\\draggable.txt exists (operation=move)",
+      "diagnostics": [
+        "drag-out-to-explorer.tree.txt"
+      ],
+      "lifecycleMode": "isolated",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          20580,
+          61404
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "in-column-error-state-late",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 4461.0,
+      "detail": "missing-path deterministic: status='Path not available. This folder is no longer available.' ControlType=Text bounds=[224x40] sentinel-provider-stale pre-delete-sentinel-absent recovery-new-sentinel='after-recreate.txt' old-provider-retarget-blocked recovery-ms=22.8589",
+      "diagnostics": [],
+      "lifecycleMode": "isolated",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          40120,
+          67632
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "search-allocated-size",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 23672.0,
+      "detail": "Search.Results discoverable; each degraded result exposes logical size + 'Size on disk unknown' (no fabrication, no 0 B on disk echo); query replacement sound; sort control default='Relevance', Size on Disk -> alphabetical (allocA.txt,allocB.txt,allocC.txt,allocD.txt,allocE.txt), Size -> logical (allocB.txt,allocD.txt,allocA.txt,allocE.txt,allocC.txt), back to Size on Disk -> alphabetical (allocA.txt,allocB.txt,allocC.txt,allocD.txt,allocE.txt); displayed selection agrees (sel1='Size on Disk', sel2='Size')",
+      "diagnostics": [
+        "search-allocated-size.tree.txt"
+      ],
+      "lifecycleMode": "isolated",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          39028,
+          59320
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "search-deep-result-navigation",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 9440.0,
+      "detail": "result 'alpha.txt' invoked via InvokePattern (identity: alpha.txt []); activation navigated to the containing folder; terminal column item found (identity: alpha.txt [ListItem])",
+      "diagnostics": [
+        "search-deep-result-navigation.tree.txt"
+      ],
+      "lifecycleMode": "isolated",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          58244,
+          32736
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    },
+    {
+      "id": "selection-model-interactions",
+      "tier": 2,
+      "status": "SKIPPED",
+      "reason": "interactive-foreground-unavailable",
+      "requiredContext": null,
+      "durationMs": 29065.0,
+      "detail": "BLOCKED_ENVIRONMENT: Pane.1 activation did not establish HasKeyboardFocus; foreground='<foreign>'; hwnd=67394; focused=/Group/pid=13748; popups=; no input or downstream assertion was attempted while another interactive window owned the foreground",
+      "diagnostics": [],
+      "lifecycleMode": "isolated",
+      "cleanup": null
+    },
+    {
+      "id": "treemap-readability-click-precision",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 30757.0,
+      "detail": "treemap exposed 5 tiles (large.bin, medium.bin, small.bin, tiny.bin, Other small items); proportionality within tolerance; click precision verified; folder invoke worked; no filesystem mutation",
+      "diagnostics": [
+        "treemap-readability.tree.txt"
+      ],
+      "lifecycleMode": "isolated",
+      "cleanup": null
+    },
+    {
+      "id": "collect-evidence",
+      "tier": 2,
+      "status": "PASS",
+      "reason": "",
+      "requiredContext": null,
+      "durationMs": 0.0,
+      "detail": "Evidence written: uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-attempt-diagnostic, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-tree-text, uia-tree-json, screenshot, uia-attempt-diagnostic, uia-tree-text, uia-tree-json, screenshot, uia-attempt-diagnostic, run-log",
+      "diagnostics": [],
+      "lifecycleMode": "shared",
+      "cleanup": {
+        "Pass": true,
+        "OwnedPids": [
+          34036,
+          63016
+        ],
+        "Residue": [],
+        "PipePresentBefore": false,
+        "PipePresentAfter": false,
+        "PipeCleanup": {
+          "Pass": true,
+          "State": "absent"
+        },
+        "DiagnosticsPreserved": true,
+        "DiagnosticsCopyError": null,
+        "SessionRootRetained": false
+      }
+    }
+  ],
+  "Classification": "PASS",
+  "Metadata": {
+    "selectionExpression": null,
+    "seed": 0,
+    "resolvedScenarioIds": [
+      "collect-evidence",
+      "column-populated-and-selected-item-in-tree",
+      "connection-badge-degraded",
+      "drag-between-panes",
+      "drag-in-from-explorer",
+      "drag-out-to-explorer",
+      "home-surface-structure",
+      "in-column-error-state-late",
+      "keyboard-address-bar-navigation",
+      "launch-main-window",
+      "mouse-tab-operation",
+      "rendering-geometry-click-precision",
+      "scroll-pattern-real-viewport",
+      "search-allocated-size",
+      "search-deep-result-navigation",
+      "search-panel-open",
+      "search-results-discoverable",
+      "search-structured-filter-query",
+      "search-toggle-service-while-open",
+      "selection-and-scroll-patterns",
+      "selection-model-interactions",
+      "settings-dialog-close",
+      "settings-dialog-keyboard-navigation",
+      "settings-dialog-structure",
+      "storage-analysis-open",
+      "storage-mid-scan-calculating",
+      "treemap-readability-click-precision",
+      "ui-responsive"
+    ],
+    "selectionOrder": [
+      "collect-evidence",
+      "column-populated-and-selected-item-in-tree",
+      "connection-badge-degraded",
+      "drag-between-panes",
+      "drag-in-from-explorer",
+      "drag-out-to-explorer",
+      "home-surface-structure",
+      "in-column-error-state-late",
+      "keyboard-address-bar-navigation",
+      "launch-main-window",
+      "mouse-tab-operation",
+      "rendering-geometry-click-precision",
+      "scroll-pattern-real-viewport",
+      "search-allocated-size",
+      "search-deep-result-navigation",
+      "search-panel-open",
+      "search-results-discoverable",
+      "search-structured-filter-query",
+      "search-toggle-service-while-open",
+      "selection-and-scroll-patterns",
+      "selection-model-interactions",
+      "settings-dialog-close",
+      "settings-dialog-keyboard-navigation",
+      "settings-dialog-structure",
+      "storage-analysis-open",
+      "storage-mid-scan-calculating",
+      "treemap-readability-click-precision",
+      "ui-responsive"
+    ],
+    "executionOrder": [
+      "launch-main-window",
+      "settings-dialog-structure",
+      "settings-dialog-keyboard-navigation",
+      "settings-dialog-close",
+      "keyboard-address-bar-navigation",
+      "column-populated-and-selected-item-in-tree",
+      "mouse-tab-operation",
+      "selection-and-scroll-patterns",
+      "scroll-pattern-real-viewport",
+      "home-surface-structure",
+      "storage-analysis-open",
+      "connection-badge-degraded",
+      "storage-mid-scan-calculating",
+      "search-panel-open",
+      "search-results-discoverable",
+      "search-structured-filter-query",
+      "search-toggle-service-while-open",
+      "ui-responsive",
+      "rendering-geometry-click-precision",
+      "drag-between-panes",
+      "drag-in-from-explorer",
+      "drag-out-to-explorer",
+      "in-column-error-state-late",
+      "search-allocated-size",
+      "search-deep-result-navigation",
+      "selection-model-interactions",
+      "treemap-readability-click-precision",
+      "collect-evidence"
+    ],
+    "executable": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+    "driverModule": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\verify\\uia-driver\\UiaDriver.psm1"
+  },
+  "Lifecycle": {
+    "scenarioCleanup": {
+      "Pass": true,
+      "OwnedPids": [
+        34036,
+        63016
+      ],
+      "Residue": [],
+      "PipePresentBefore": false,
+      "PipePresentAfter": false,
+      "PipeCleanup": {
+        "Pass": true,
+        "State": "absent"
+      },
+      "DiagnosticsPreserved": true,
+      "DiagnosticsCopyError": null,
+      "SessionRootRetained": false
+    }
+  }
+}

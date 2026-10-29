@@ -1,0 +1,6 @@
+{
+  "expected": "fail closed when migration would require writes",
+  "exit_code": 3,
+  "before": "d7e087a1435d8e025439ec67cea60304f8bc69739c068d24c4a028f45ac0d8b1",
+  "after": "d7e087a1435d8e025439ec67cea60304f8bc69739c068d24c4a028f45ac0d8b1"
+}

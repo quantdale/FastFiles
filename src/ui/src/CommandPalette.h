@@ -16,6 +16,7 @@ public:
                     std::function<void(const std::wstring&)> execute);
     void Show(CommandContext context);
     void Hide();
+    void UpdateContext(CommandContext context);
     bool Visible() const { return visible_; }
     // final-local-certification-closure FC-001: verified focus acquisition.
     // Show() calls EnsureEditFocus() best-effort; text entry (product or
@@ -39,11 +40,8 @@ private:
     void RefreshResults();
     void ExecuteSelected();
     void ApplyDensityMetrics();
-    static LRESULT CALLBACK DimmerSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
-                                               UINT_PTR subclassId, DWORD_PTR refData);
 
     HWND owner_ = nullptr;
-    HWND dimmer_ = nullptr;
     HWND edit_ = nullptr;
     HWND list_ = nullptr;
     const CommandRegistry* registry_ = nullptr;

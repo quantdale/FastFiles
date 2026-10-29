@@ -6,6 +6,7 @@
 #include "UiaTestSurface.h"
 
 #include <algorithm>
+#include <functional>
 #include <string>
 
 #include "../TestSupport.h"
@@ -297,6 +298,99 @@ void TestHomeStaleAfterRefresh() {
     Check(GetName(fresh.Get()) == L"C:\\Other", "new occupant is exposed under its own identity");
 }
 
+class DispatchBoundaryHomeSurface : public fftest::FakeUiaSurface {
+public:
+    std::function<void(const ffui::UiaHomeActionRequest&)> beforeDispatch;
+
+    bool UiaDispatchHomeAction(const ffui::UiaHomeActionRequest& request) override {
+        if (beforeDispatch) beforeDispatch(request);
+        return ffui::UiaSurface::UiaDispatchHomeAction(request);
+    }
+};
+
+void TestHomeDispatchRevalidatesOriginalIdentity() {
+    DispatchBoundaryHomeSurface surface;
+    static_cast<fftest::FakeUiaSurface&>(surface) = MakeHomeSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane = FirstChild(group.Get());
+    auto home = FirstChild(pane.Get());
+    auto section = FirstChild(home.Get());
+    auto item = FirstChild(section.Get());
+    Microsoft::WRL::ComPtr<IInvokeProvider> invoke;
+    Check(SUCCEEDED(item.As(&invoke)), "dispatch-boundary Home item exposes Invoke");
+    surface.beforeDispatch = [&](const ffui::UiaHomeActionRequest&) {
+        surface.homeItems[0].value = L"C:\\Replacement";
+    };
+    Check(invoke->Invoke() == UIA_E_ELEMENTNOTAVAILABLE && surface.actions.empty(),
+          "Home replacement between Resolve and owner dispatch never invokes replacement row");
+
+    // A new provider can resolve the replacement; retiring its fragment while
+    // the action waits must still reject even when that row's identity survives.
+    item = FirstChild(section.Get());
+    Check(SUCCEEDED(item.As(&invoke)), "replacement Home item exposes a fresh Invoke");
+    surface.beforeDispatch = [](const ffui::UiaHomeActionRequest& request) {
+        request.fragmentLifetime->alive = false;
+    };
+    Check(invoke->Invoke() == UIA_E_ELEMENTNOTAVAILABLE && surface.actions.empty(),
+          "Home action rejects a fragment retired after Resolve before dispatch");
+}
+
+void TestHomeClearDispatchRevalidatesSection() {
+    DispatchBoundaryHomeSurface surface;
+    static_cast<fftest::FakeUiaSurface&>(surface) = MakeHomeSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane = FirstChild(group.Get());
+    auto home = FirstChild(pane.Get());
+    auto recent = NextSibling(FirstChild(home.Get()).Get());
+    auto clear = FirstChild(recent.Get());
+    Microsoft::WRL::ComPtr<IInvokeProvider> invoke;
+    Check(SUCCEEDED(clear.As(&invoke)), "dispatch-boundary Clear exposes Invoke");
+    surface.beforeDispatch = [&](const ffui::UiaHomeActionRequest&) {
+        surface.homeSections[1].clearAffordance = false;
+    };
+    Check(invoke->Invoke() == UIA_E_ELEMENTNOTAVAILABLE && surface.actions.empty(),
+          "Clear removed between Resolve and owner dispatch does not clear history");
+    surface.homeSections[1].clearAffordance = true;
+    surface.beforeDispatch = [&](const ffui::UiaHomeActionRequest&) {
+        surface.browseContentActive = false;
+    };
+    Check(invoke->Invoke() == UIA_E_ELEMENTNOTAVAILABLE && surface.actions.empty(),
+          "Clear queued before tool presentation cannot act on hidden Home");
+}
+
+void TestToolWorkspaceRetiresHome() {
+    auto surface = MakeHomeSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane = FirstChild(group.Get());
+    auto home = FirstChild(pane.Get());
+    auto section = FirstChild(home.Get());
+    auto item = FirstChild(section.Get());
+    Microsoft::WRL::ComPtr<IInvokeProvider> invoke;
+    Check(SUCCEEDED(item.As(&invoke)), "Home item exposes Invoke before workspace replacement");
+    const ffui::UiaEventNotification replacement{
+        ffui::UiaEventKind::StructureChanged, -1, -1, -1, -1, -1, false, true};
+    surface.browseContentActive = false;
+    ffui::ColumnViewUiaProvider::SinkThunk(replacement, &root);
+    Check(FirstChild(static_cast<IRawElementProviderFragment*>(&root)) == nullptr,
+          "tool workspace exposes no hidden Home fragment");
+    UiaRect rect{};
+    Check(item->get_BoundingRectangle(&rect) == UIA_E_ELEMENTNOTAVAILABLE &&
+              invoke->Invoke() == UIA_E_ELEMENTNOTAVAILABLE && surface.actions.empty(),
+          "hidden Home item has no bounds and cannot navigate");
+    surface.browseContentActive = true;
+    ffui::ColumnViewUiaProvider::SinkThunk(replacement, &root);
+    auto restored = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    Check(restored != nullptr && restored.Get() != group.Get() &&
+              invoke->Invoke() == UIA_E_ELEMENTNOTAVAILABLE,
+          "returning Home creates a fresh fragment without reviving old items");
+}
+
 } // namespace
 
 int main() {
@@ -305,6 +399,9 @@ int main() {
     TestHomeFocusParity();
     TestHomeClearInvoke();
     TestHomeStaleAfterRefresh();
+    TestToolWorkspaceRetiresHome();
+    TestHomeDispatchRevalidatesOriginalIdentity();
+    TestHomeClearDispatchRevalidatesSection();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "ffhome_uia_tests: %d check(s) failed\n", FailureCount());

@@ -1,8 +1,10 @@
 #include "ffindexstore/Projection.h"
 
 #include <algorithm>
+#include <atomic>
 #include <iterator>
 #include <limits>
+#include <windows.h>
 
 #include "ffindexstore/Store.h"
 
@@ -32,6 +34,63 @@ std::u16string FoldAscii(std::u16string_view name) {
     return folded;
 }
 
+// large-index-lifecycle-and-search-scalability review-remediation (P2-A):
+// the canonical matcher equates two UTF-16 units case-insensitively through
+// the HOST's ordinal table (CompareStringOrdinal(..., TRUE)), which the
+// ASCII-folded trigram accelerator must never contradict. The accelerator is
+// a conservative superset of canonical matches exactly when every name that
+// could match an ASCII needle THROUGH a non-ASCII code unit is retained
+// separately from the posting intersection. That exceptional set is derived
+// from the actual host comparison function -- never from Unicode casefold
+// tables or assumed equivalences: a unit is fold-exceptional iff the host
+// equates it with any ASCII unit. Surrogate units (astral pairs and unpaired
+// surrogates) are always treated as exceptional, because pair semantics
+// cannot be probed unit-wise and false negatives are forbidden.
+// Measured on the campaign host: NO BMP unit is fold-exceptional (U+017F
+// LONG S is NOT equal to 's'/'S', U+212A KELVIN is not 'k'/'K', U+0131 is
+// not 'i'/'I', and the exhaustive 65,280 x 128 scan found zero cross-ASCII
+// fold classes), so ordinary corpora pay nothing for this guarantee and a
+// host whose table ever changed is handled automatically at run time.
+enum class FoldProbe : uint8_t { Unknown = 0, Ordinary = 1, Exceptional = 2 };
+std::atomic<uint8_t> gFoldProbe[65536]; // FoldProbe per UTF-16 unit; idempotent lazy fill
+#ifdef FF_INDEXSTORE_TESTING
+// Review-remediation P2-A testing seam: force-mark units fold-exceptional to
+// simulate a host ordinal table that equates them with ASCII. Never set in
+// production code (see header seam).
+std::atomic<uint8_t> gTestingForceFoldExceptional[65536];
+#endif
+
+bool UnitMayFoldToAscii(const char16_t unit) {
+    const uint16_t raw = static_cast<uint16_t>(unit);
+    if (raw <= 0x7f) return false;
+    if (raw >= 0xd800 && raw <= 0xdfff) return true; // conservative: surrogates
+#ifdef FF_INDEXSTORE_TESTING
+    if (gTestingForceFoldExceptional[raw].load(std::memory_order_relaxed) != 0) return true;
+#endif
+    uint8_t state = gFoldProbe[raw].load(std::memory_order_acquire);
+    if (state == static_cast<uint8_t>(FoldProbe::Unknown)) {
+        bool exceptional = false;
+        const wchar_t wide = static_cast<wchar_t>(unit);
+        for (int ascii = 0; ascii < 0x80 && !exceptional; ++ascii) {
+            const wchar_t other = static_cast<wchar_t>(ascii);
+            const int verdict = CompareStringOrdinal(&wide, 1, &other, 1, TRUE);
+            // A failed comparison is classified exceptional: fail closed, so
+            // a transient API failure can only cost candidates, never a miss.
+            exceptional = verdict == CSTR_EQUAL || verdict == 0;
+        }
+        state = static_cast<uint8_t>(exceptional ? FoldProbe::Exceptional : FoldProbe::Ordinary);
+        gFoldProbe[raw].store(state, std::memory_order_release);
+    }
+    return state == static_cast<uint8_t>(FoldProbe::Exceptional);
+}
+
+bool NameNeedsExceptionalFallback(const std::u16string_view name) {
+    for (const char16_t ch : name) {
+        if (static_cast<uint16_t>(ch) > 0x7f && UnitMayFoldToAscii(ch)) return true;
+    }
+    return false;
+}
+
 uint64_t PackTrigram(std::u16string_view value, size_t offset) {
     return static_cast<uint64_t>(value[offset]) |
            (static_cast<uint64_t>(value[offset + 1]) << 16) |
@@ -59,6 +118,13 @@ void EraseSorted(std::vector<uint32_t>& values, uint32_t value) {
     const auto it = std::lower_bound(values.begin(), values.end(), value);
     if (it != values.end() && *it == value) values.erase(it);
 }
+
+// large-index-lifecycle-and-search-scalability 4.4: batches above this size
+// drop the filename accelerator wholesale and rebuild it once instead of
+// paying per-entry sorted-vector posting erases (quadratic in index size).
+// Small batches keep the per-entry path so the accelerator stays hot without
+// a full O(N) rebuild; both paths leave identical observable state.
+constexpr size_t kPerEntryFilenameRemovalThreshold = 256;
 } // namespace
 
 void Projection::SetMaximumMemoryBytes(const size_t maximumBytes) {
@@ -73,8 +139,8 @@ void Projection::SetMaximumMemoryBytes(const size_t maximumBytes) {
     enforcingMemoryLimit_ = wasEnforcing;
 }
 
-void Projection::EnforceMemoryLimitNow() {
-    EnforceMemoryLimit();
+bool Projection::EnforceMemoryLimitNow() {
+    return EnforceMemoryLimit();
 }
 
 void Projection::SetBulkScanActive(const bool active) noexcept {
@@ -83,8 +149,27 @@ void Projection::SetBulkScanActive(const bool active) noexcept {
         enforcingMemoryLimit_ = false;
     } else {
         enforcingMemoryLimit_ = true;
+        // large-index-lifecycle-and-search-scalability review-lane C
+        // Finding 3: ending the scan must revive the accelerator, otherwise
+        // it stays dead after every bulk scan (nothing else rebuilds it) and
+        // every selective query silently falls back to the canonical scan.
+        try {
+            RebuildFilenameIndex();
+        } catch (...) {
+            InvalidateFilenameIndex();
+        }
     }
+    bulkScanActive_ = active;
 }
+
+#ifdef FF_INDEXSTORE_TESTING
+void Projection::SetTestingFoldExceptionalUnit(const char16_t unit, const bool exceptional) {
+    // large-index-lifecycle-and-search-scalability review-remediation (P2-A):
+    // testing-only fold-exceptional override; process-wide and idempotent.
+    gTestingForceFoldExceptional[static_cast<uint16_t>(unit)].store(
+        exceptional ? 1 : 0, std::memory_order_release);
+}
+#endif
 
 size_t Projection::EstimatedMemoryBytes() const noexcept {
     size_t result = entries_.capacity() * sizeof(ProjectionEntry)
@@ -92,7 +177,7 @@ size_t Projection::EstimatedMemoryBytes() const noexcept {
         + idToIndex_.MemoryUsageBytes()
         + parentToChildren_.MemoryUsageBytes()
         + namePool_.MemoryUsageBytes()
-        + filenameNonAsciiEntries_.capacity() * sizeof(uint32_t)
+        + filenameExceptionalEntries_.capacity() * sizeof(uint32_t)
         + lastAccessTimes_.capacity() * sizeof(uint64_t);
     for (const auto& [trigram, posting] : filenameTrigramPostings_) {
         (void)trigram;
@@ -163,7 +248,9 @@ Projection::MemoryBreakdown Projection::GetMemoryBreakdown() const noexcept {
     result.nameBytes = namePool_.MemoryUsageBytes();
 
     // Secondary filename accelerator: trigram -> sorted posting vectors plus
-    // a sorted non-ASCII entry list. Posting vector capacity (not only the
+    // a sorted fold-exceptional entry list (names that could match an ASCII
+    // needle through a non-ASCII unit under the host ordinal table, plus all
+    // surrogate-bearing names). Posting vector capacity (not only the
     // payload size) is reported, because the vectors are push_back-built and
     // never shrunk to fit.
     result.filenameIndexValid = filenameIndexValid_;
@@ -182,14 +269,14 @@ Projection::MemoryBreakdown Projection::GetMemoryBreakdown() const noexcept {
     result.filenameIndexApproxNodeBytes =
         result.filenameIndexDistinctTrigrams * sizeof(uint64_t)
         + result.filenameIndexPostingHeaderBytes;
-    result.filenameIndexNonAsciiCount = filenameNonAsciiEntries_.size();
-    result.filenameIndexNonAsciiSlots = filenameNonAsciiEntries_.capacity();
-    result.filenameIndexNonAsciiBytes =
-        result.filenameIndexNonAsciiSlots * sizeof(uint32_t);
+    result.filenameIndexExceptionalCount = filenameExceptionalEntries_.size();
+    result.filenameIndexExceptionalSlots = filenameExceptionalEntries_.capacity();
+    result.filenameIndexExceptionalBytes =
+        result.filenameIndexExceptionalSlots * sizeof(uint32_t);
     result.filenameIndexBytes = result.filenameIndexPostingBytes
         + result.filenameIndexApproxNodeBytes
         + result.filenameIndexBucketBytes
-        + result.filenameIndexNonAsciiBytes;
+        + result.filenameIndexExceptionalBytes;
 
     // LRU eviction metadata: one dense uint64 timestamp per entry slot.
     result.lruSlotCapacity = lastAccessTimes_.capacity();
@@ -313,28 +400,43 @@ void Projection::EvictSubtree(const EntryKey& rootKey) {
         }
     }
 
-    // Remove descendants before the selected directory so every child-index
-    // slice is still valid when Remove() unlinks the child.
-    for (auto it = removalOrder.rbegin(); it != removalOrder.rend(); ++it) {
-        Remove(it->volumeRowId, it->frn);
+    // durable-cold-search-index-and-hybrid-residency final review: every
+    // caller immediately compacts surviving identities. Large subtrees must
+    // therefore skip doomed sibling slices as well as filename postings;
+    // per-child unlinking is quadratic for a flat directory. The traversal
+    // above finishes before any erasure, including cycle detection.
+    if (removalOrder.size() > kPerEntryFilenameRemovalThreshold) {
+        InvalidateFilenameIndex();
+        denseIterationOrderValid_ = false;
+        for (const EntryKey& key : removalOrder) {
+            idToIndex_.erase(key);
+        }
+    } else {
+        // Without a following bulk erasure, unlink descendants first so
+        // each parent's child-index slice remains valid during removal.
+        for (auto it = removalOrder.rbegin(); it != removalOrder.rend(); ++it) {
+            Remove(it->volumeRowId, it->frn);
+        }
     }
     evictedVolumes_.insert(rootKey.volumeRowId);
     ++subtreeEvictionCount_;
 }
 
 void Projection::EvictVolume(const VolumeRowId volumeRowId) {
-    // memory-bounded-indexed-scale 5.x: whole-volume unload. A flat key
-    // snapshot first, then individual removals (Remove unlinks each row's
-    // child-index slice), then a single compaction -- never per-row
-    // compaction, matching the batch-boundary policy.
+    // durable-cold-search-index-and-hybrid-residency final review: every
+    // row of this volume is doomed. Erase its identities without searching
+    // sibling slices (linear search per unlink was quadratic for flat
+    // directories). CompactStorage rebuilds all surviving child links once.
     std::vector<EntryKey> keys;
     keys.reserve(idToIndex_.size());
     idToIndex_.ForEach([&](const EntryKey& key, const uint32_t) {
         if (key.volumeRowId == volumeRowId) keys.push_back(key);
     });
     if (keys.empty()) return;
+    InvalidateFilenameIndex();
+    denseIterationOrderValid_ = false;
     for (const EntryKey& key : keys) {
-        Remove(key.volumeRowId, key.frn);
+        idToIndex_.erase(key);
     }
     evictedVolumes_.insert(volumeRowId);
     ++subtreeEvictionCount_;
@@ -371,41 +473,81 @@ void Projection::CompactStorage() {
 
     entries_ = std::move(compacted);
     lastAccessTimes_ = std::move(compactedAccessTimes);
-    freeList_.clear();
+    // All slots were repacked: retained free-list capacity is unused and
+    // can itself exceed a small budget after full-volume eviction.
+    std::vector<uint32_t>().swap(freeList_);
     idToIndex_ = std::move(compactedIds);
     parentToChildren_ = std::move(compactedChildren);
     namePool_ = std::move(compactedNames);
     denseIterationOrderValid_ = true;
 }
 
-void Projection::EnforceMemoryLimit() {
-    if (!enforcingMemoryLimit_) return;
+bool Projection::EnforceMemoryLimit() {
+    if (!enforcingMemoryLimit_) return false;
     // Leave headroom after a compaction so the next ingestion batches do not
     // immediately re-enter the full-index rebuild path.
     const size_t lowWatermark = maximumMemoryBytes_ - maximumMemoryBytes_ / 5;
-    EnforceMemoryLimitOnceTo(lowWatermark);
+    // large-index-lifecycle-and-search-scalability review-lane D P2-1:
+    // bounded multi-pass enforcement. One pass can free a single small victim
+    // (flat corpora fall back to one-file victims), which never converges
+    // under sustained ingestion; loop while above the watermark and passes
+    // keep making progress, with a hard pass bound to keep batch latency
+    // predictable (each pass is one subtree eviction + one O(N) compaction).
+    constexpr size_t kMaxEnforcementPasses = 8;
+    bool evictedAny = false;
+    for (size_t pass = 0; pass < kMaxEnforcementPasses; ++pass) {
+        if (EstimatedMemoryBytes() <= lowWatermark) break;
+        const size_t before = EstimatedMemoryBytes();
+        if (!EnforceMemoryLimitOnceTo(lowWatermark)) break;
+        evictedAny = true;
+        if (EstimatedMemoryBytes() >= before) break; // no progress guard
+    }
+    // durable-cold-search-index-and-hybrid-residency: many tiny directories
+    // can consume all eight passes while ingestion adds more rows than those
+    // victims release. Repeating eight whole-projection compactions per batch
+    // caused the measured 3.1M-row cliff (12-13 seconds enforcement versus
+    // ~0.17 seconds durable write per 8,192 rows), and did NOT bound memory.
+    // Fall back to cold residency for the LRU victim's entire volume. Every
+    // iteration removes a whole volume, rather than one small subtree; the
+    // durable store and existing cold search remain authoritative. This
+    // sacrifices hot residency only after the fine-grained policy fails to
+    // reach its watermark; no memory-budget increase or data loss is needed.
+    while (EstimatedMemoryBytes() > lowWatermark) {
+        const auto victim = LeastRecentlyUsedEntry();
+        if (!victim.has_value()) break;
+        const size_t before = EstimatedMemoryBytes();
+        EvictVolume(victim->volumeRowId);
+        evictedAny = true;
+        lastEvictionBytesBefore_ = before;
+        lastEvictionBytesAfter_ = EstimatedMemoryBytes();
+        if (lastEvictionBytesAfter_ >= before) break;
+    }
+    return evictedAny;
 }
 
-void Projection::EnforceMemoryLimitTo(const size_t targetBytes) {
-    if (!enforcingMemoryLimit_) return;
+bool Projection::EnforceMemoryLimitTo(const size_t targetBytes) {
+    if (!enforcingMemoryLimit_) return false;
+    bool evictedAny = false;
     while (EstimatedMemoryBytes() > targetBytes) {
         const auto victim = LeastRecentlyUsedEntry();
         if (!victim.has_value()) break;
         const size_t before = EstimatedMemoryBytes();
         EvictSubtree(*victim);
         CompactStorage();
+        evictedAny = true;
         // memory-bounded-indexed-scale 3.1: the multi-pass shrink path records
         // each pass exactly like the single-shot watermark path.
         lastEvictionBytesBefore_ = before;
         lastEvictionBytesAfter_ = EstimatedMemoryBytes();
         if (EstimatedMemoryBytes() >= before && idToIndex_.empty()) break;
     }
+    return evictedAny;
 }
 
-void Projection::EnforceMemoryLimitOnceTo(const size_t targetBytes) {
-    if (!enforcingMemoryLimit_ || EstimatedMemoryBytes() <= targetBytes) return;
+bool Projection::EnforceMemoryLimitOnceTo(const size_t targetBytes) {
+    if (!enforcingMemoryLimit_ || EstimatedMemoryBytes() <= targetBytes) return false;
     const auto victim = LeastRecentlyUsedEntry();
-    if (!victim.has_value()) return;
+    if (!victim.has_value()) return false;
     const size_t bytesBefore = EstimatedMemoryBytes();
     EvictSubtree(*victim);
     CompactStorage();
@@ -413,6 +555,7 @@ void Projection::EnforceMemoryLimitOnceTo(const size_t targetBytes) {
     // tests can distinguish "eviction ran" from "eviction changed nothing".
     lastEvictionBytesBefore_ = bytesBefore;
     lastEvictionBytesAfter_ = EstimatedMemoryBytes();
+    return true;
 }
 
 bool Projection::ReloadEvictedVolume(Store& store, const VolumeRowId volumeRowId) {
@@ -483,16 +626,16 @@ void Projection::CompactEntriesForIterationOrder() {
 void Projection::InvalidateFilenameIndex() noexcept {
     filenameIndexValid_ = false;
     filenameTrigramPostings_.clear();
-    filenameNonAsciiEntries_.clear();
+    filenameExceptionalEntries_.clear();
 }
 
 void Projection::AddFilenameIndexEntry(const uint32_t index) {
     if (!filenameIndexValid_) return;
     try {
         const std::u16string_view name = namePool_.Get(entries_[index].nameId);
-        if (!IsAscii(name)) {
-            if (filenameIndexBuilding_) filenameNonAsciiEntries_.push_back(index);
-            else InsertSorted(filenameNonAsciiEntries_, index);
+        if (NameNeedsExceptionalFallback(name)) {
+            if (filenameIndexBuilding_) filenameExceptionalEntries_.push_back(index);
+            else InsertSorted(filenameExceptionalEntries_, index);
         }
         const std::u16string folded = FoldAscii(name);
         for (const uint64_t trigram : UniqueTrigrams(folded)) {
@@ -508,7 +651,9 @@ void Projection::AddFilenameIndexEntry(const uint32_t index) {
 void Projection::RemoveFilenameIndexEntry(const uint32_t index, const std::u16string_view name) {
     if (!filenameIndexValid_) return;
     try {
-        if (!IsAscii(name)) EraseSorted(filenameNonAsciiEntries_, index);
+        // Must use the exact predicate AddFilenameIndexEntry used, or stale
+        // exceptional entries would linger (or real ones get dropped).
+        if (NameNeedsExceptionalFallback(name)) EraseSorted(filenameExceptionalEntries_, index);
         for (const uint64_t trigram : UniqueTrigrams(FoldAscii(name))) {
             const auto it = filenameTrigramPostings_.find(trigram);
             if (it == filenameTrigramPostings_.end()) continue;
@@ -522,7 +667,7 @@ void Projection::RemoveFilenameIndexEntry(const uint32_t index, const std::u16st
 
 void Projection::RebuildFilenameIndex() {
     filenameTrigramPostings_.clear();
-    filenameNonAsciiEntries_.clear();
+    filenameExceptionalEntries_.clear();
     filenameIndexValid_ = true;
     filenameIndexBuilding_ = true;
     try {
@@ -532,10 +677,10 @@ void Projection::RebuildFilenameIndex() {
             std::sort(posting.begin(), posting.end());
             posting.erase(std::unique(posting.begin(), posting.end()), posting.end());
         }
-        std::sort(filenameNonAsciiEntries_.begin(), filenameNonAsciiEntries_.end());
-        filenameNonAsciiEntries_.erase(
-            std::unique(filenameNonAsciiEntries_.begin(), filenameNonAsciiEntries_.end()),
-            filenameNonAsciiEntries_.end());
+        std::sort(filenameExceptionalEntries_.begin(), filenameExceptionalEntries_.end());
+        filenameExceptionalEntries_.erase(
+            std::unique(filenameExceptionalEntries_.begin(), filenameExceptionalEntries_.end()),
+            filenameExceptionalEntries_.end());
     } catch (...) {
         InvalidateFilenameIndex();
     }
@@ -702,10 +847,28 @@ void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     if (pIndex == nullptr) {
         return;
     }
+#ifdef FF_INDEXSTORE_TESTING
+    // large-index-lifecycle-and-search-scalability 4.2: isolation-matrix
+    // modes skip exactly one kind of per-entry maintenance; production
+    // builds compile both checks to constant false (see header seam).
+    const bool skipFilenameMaintenance =
+        removalMaintenanceMode_ == RemovalMaintenanceMode::SkipFilenameMaintenance ||
+        removalMaintenanceMode_ == RemovalMaintenanceMode::SkipBoth;
+    const bool skipChildUnlink =
+        removalMaintenanceMode_ == RemovalMaintenanceMode::SkipChildUnlink ||
+        removalMaintenanceMode_ == RemovalMaintenanceMode::SkipBoth;
+#else
+    constexpr bool skipFilenameMaintenance = false;
+    constexpr bool skipChildUnlink = false;
+#endif
     denseIterationOrderValid_ = false;
     const uint32_t index = *pIndex;
-    RemoveFilenameIndexEntry(index, namePool_.Get(entries_[index].nameId));
-    RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
+    if (!skipFilenameMaintenance) {
+        RemoveFilenameIndexEntry(index, namePool_.Get(entries_[index].nameId));
+    }
+    if (!skipChildUnlink) {
+        RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
+    }
     idToIndex_.erase(key);
     if (index < lastAccessTimes_.size()) lastAccessTimes_[index] = 0;
     freeList_.push_back(index);
@@ -715,7 +878,7 @@ void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     // out in Upsert.
 }
 
-void Projection::RemoveVolume(VolumeRowId volumeRowId) {
+void Projection::RemoveVolume(VolumeRowId volumeRowId, bool keepFilenameIndexCurrent) {
     // Collect first, then remove: Remove() mutates idToIndex_, so it can't
     // run while iterating it.
     std::vector<FileId> frns;
@@ -724,8 +887,39 @@ void Projection::RemoveVolume(VolumeRowId volumeRowId) {
             frns.push_back(pair.first.frn);
         }
     }
+    RemoveBatch(volumeRowId, frns, keepFilenameIndexCurrent);
+}
+
+void Projection::RemoveBatch(VolumeRowId volumeRowId, const std::vector<FileId>& frns,
+                             bool keepFilenameIndexCurrent) {
+    if (frns.empty()) return;
+    // large-index-lifecycle-and-search-scalability 4.4: per-entry trigram
+    // removal is an O(posting-length) sorted-vector erase, so removing a
+    // large batch entry-by-entry is quadratic in the accelerator's posting
+    // sizes (measured: 12,983 ms to remove 200k shared-name rows vs 44.8 ms
+    // with the per-entry accelerator work skipped -- 99.7% of removal cost).
+    // For large batches drop the accelerator wholesale (O(1)) and let the
+    // caller either rebuild it once here (keepFilenameIndexCurrent, O(N)) or
+    // rebuild it as part of an enclosing bulk operation. Child unlink, id-map
+    // erase and free-list maintenance stay per entry: they are O(1) each
+    // (measured residual below 0.7 us/row) and preserve exact removal semantics.
+    const bool wasValid = filenameIndexValid_;
+    const bool bulk = frns.size() > kPerEntryFilenameRemovalThreshold;
+    if (bulk && wasValid) {
+        InvalidateFilenameIndex();
+    }
     for (const FileId& frn : frns) {
         Remove(volumeRowId, frn);
+    }
+    if (bulk && wasValid && keepFilenameIndexCurrent) {
+        RebuildFilenameIndex();
+    }
+    // large-index-lifecycle-and-search-scalability review-lane C Finding 5:
+    // keep=false must leave the accelerator invalidated regardless of batch
+    // size (the small per-entry path kept it valid, contradicting the
+    // contract).
+    if (!keepFilenameIndexCurrent) {
+        InvalidateFilenameIndex();
     }
 }
 
@@ -738,11 +932,24 @@ const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) con
 
 ProjectionEntryCursor::ProjectionEntryCursor(const Projection& projection)
     : projection_(&projection), dense_(projection.denseIterationOrderValid_),
-      iterator_(dense_ ? EntryMap::Iterator{} : projection.idToIndex_.begin()) {}
+      iterator_(dense_ ? EntryMap::Iterator{} : projection.idToIndex_.begin()),
+      entriesData_(projection.entries_.data()),
+      mapBuckets_(projection.idToIndex_.bucket_count()) {}
+
+bool ProjectionEntryCursor::Stale() const noexcept {
+    if (projection_ == nullptr) return false;
+    // large-index-lifecycle-and-search-scalability review-lane C Finding 2:
+    // entries_ reallocation/reorder or flat-table growth re-places row slots
+    // under the iterator, which would silently skip rows. In-place updates
+    // and appends within reserved capacity leave these markers untouched.
+    return projection_->entries_.data() != entriesData_ ||
+           projection_->idToIndex_.bucket_count() != mapBuckets_;
+}
 
 bool ProjectionEntryCursor::Next(const ProjectionEntry*& entry) {
     entry = nullptr;
     if (projection_ == nullptr) return false;
+    if (Stale()) return false;
     if (dense_) {
         if (denseIndex_ >= projection_->entries_.size()) return false;
         entry = &projection_->entries_[denseIndex_++];
@@ -770,15 +977,22 @@ std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
         const std::vector<uint64_t> trigrams = UniqueTrigrams(foldedNeedle);
         std::vector<const std::vector<uint32_t>*> postings;
         postings.reserve(trigrams.size());
+        bool anyTrigramMissing = false;
         for (const uint64_t trigram : trigrams) {
             const auto it = filenameTrigramPostings_.find(trigram);
             if (it == filenameTrigramPostings_.end()) {
-                result.clear();
+                // large-index-lifecycle-and-search-scalability review-lane C
+                // Finding 7: one missing needle trigram proves no row can
+                // match through its ASCII fold -- the candidate set is then
+                // exactly the exceptional merge of an empty intersection,
+                // not a re-intersection over the postings that happened to
+                // exist.
+                anyTrigramMissing = true;
                 break;
             }
             postings.push_back(&it->second);
         }
-        if (!postings.empty()) {
+        if (!anyTrigramMissing && !postings.empty()) {
             std::sort(postings.begin(), postings.end(), [](const auto* left, const auto* right) {
                 return left->size() < right->size();
             });
@@ -797,25 +1011,43 @@ std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
                 result.swap(scratch);
             }
         }
-        std::vector<uint32_t> merged;
         if (maximumCandidates != 0 && result.size() > maximumCandidates) {
             return std::nullopt;
         }
-        const size_t maximumSize = (std::numeric_limits<size_t>::max)();
-        const size_t nonAsciiCount = filenameNonAsciiEntries_.size();
-        const size_t combinedSize = nonAsciiCount > maximumSize - result.size()
-            ? maximumSize : result.size() + nonAsciiCount;
-        const size_t reserveSize = maximumCandidates == 0
-            ? combinedSize
-            : (std::min)(maximumCandidates == maximumSize ? maximumSize : maximumCandidates + 1,
-                         combinedSize);
-        merged.reserve(reserveSize);
-        std::set_union(result.begin(), result.end(), filenameNonAsciiEntries_.begin(),
-                       filenameNonAsciiEntries_.end(), std::back_inserter(merged));
-        if (maximumCandidates != 0 && merged.size() > maximumCandidates) {
-            return std::nullopt;
+        // large-index-lifecycle-and-search-scalability 6.3 + review-
+        // remediation (P2-A): the candidate set is the posting intersection
+        // MERGED with the fold-exceptional rows. For a name that contains no
+        // exceptional unit, a canonical match keeps its aligned span entirely
+        // ASCII (a non-ASCII unit there would have to fold to the aligned
+        // ASCII needle unit -- which is exactly what makes it exceptional),
+        // so the span's ASCII-folded trigrams are in the name's folded
+        // multiset and the posting intersection already retains the row.
+        // Every remaining canonical match goes through a non-ASCII unit the
+        // HOST ordinal table equates with ASCII (or a surrogate), i.e. an
+        // exceptional name -- retained by this merge. The pre-6.3 code unioned
+        // ALL non-ASCII rows, which added non-exceptional false positives and
+        // at any Unicode population above the caller's cap forced every lookup
+        // to nullopt (the accelerator was unusable at 200k+ rows).
+        // CanonicalMatches(query) is therefore a subset of this candidate set
+        // for every host ordinal table; false positives here are verified away
+        // by the authoritative canonical matcher.
+        if (!filenameExceptionalEntries_.empty()) {
+            const size_t maximumSize = (std::numeric_limits<size_t>::max)();
+            const size_t exceptionalCount = filenameExceptionalEntries_.size();
+            const size_t combinedSize = exceptionalCount > maximumSize - result.size()
+                ? maximumSize : result.size() + exceptionalCount;
+            std::vector<uint32_t> merged;
+            merged.reserve(maximumCandidates == 0 ? combinedSize
+                : (std::min)(maximumCandidates == maximumSize ? maximumSize : maximumCandidates + 1,
+                             combinedSize));
+            std::set_union(result.begin(), result.end(), filenameExceptionalEntries_.begin(),
+                           filenameExceptionalEntries_.end(), std::back_inserter(merged));
+            if (maximumCandidates != 0 && merged.size() > maximumCandidates) {
+                return std::nullopt;
+            }
+            return merged;
         }
-        return merged;
+        return result;
     } catch (...) {
         // The index is an accelerator only. A transient allocation failure in
         // candidate materialization must leave the canonical scan available.
@@ -938,22 +1170,72 @@ bool Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, u
         if (key.volumeRowId == volumeRowId) volumePresent = true;
     });
     if (volumePresent || NeedsReload(volumeRowId)) {
-        RemoveVolume(volumeRowId);
+        // large-index-lifecycle-and-search-scalability 4.4: the rebuild
+        // discards and re-streams every row and rebuilds the accelerator
+        // once at the end, so per-entry accelerator maintenance during the
+        // removal is pure waste (the measured 40x replacement-rebuild
+        // pathology). keepFilenameIndexCurrent=false skips the double rebuild.
+        RemoveVolume(volumeRowId, false);
         CompactStorage();
     }
     evictedVolumes_.erase(volumeRowId);
     denseIterationOrderValid_ = false;
     filenameIndexValid_ = false;
-    Reserve(EntryCount() + expectedEntryCount);
-    const bool streamed = store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) {
-        Upsert(volumeRowId, record);
-    });
-    if (!streamed) {
+    // large-index-lifecycle-and-search-scalability review-lane D P1-2,
+    // corrected by the 2026-10-29 post-completion audit: bound the reload
+    // transient on MEASURED growth instead of predicting it with a row-cost
+    // prior. The original pre-check used a flat 512 bytes/row guess whenever
+    // the projection was empty, so at the default budget it rejected every
+    // volume above lowWatermark/512 = 819,200 rows -- including 1M-row
+    // volumes whose measured size (~338 MB) fits under the 400 MiB
+    // watermark. That silently left warm startup hydration (RebuildAll) and
+    // cold reload permanently cold for such volumes while every search fell
+    // back to the durable cold stream. No prior is sound here: modeled row
+    // cost ranges from tens of bytes to several kilobytes with name length,
+    // so the P1-2 guard is enforced DURING the stream on the estimate. A
+    // volume that fits loads exactly; a genuinely oversized volume is
+    // aborted at the early-enforcement watermark (bounded transient and
+    // bounded work per attempt -- never streamed in full above the
+    // watermark) and stays cold, preserving the P1-2 outcome (no eviction
+    // thrash, no empty export loop) without the false positives.
+    const size_t lowWatermark = maximumMemoryBytes_ - maximumMemoryBytes_ / 5;
+    // Entry records alone must never be pre-allocated beyond what the
+    // watermark could hold; geometric growth covers the fitting path and an
+    // oversized volume cannot claim its full entry array up front.
+    const size_t reserveCapRows = (lowWatermark / 2) / sizeof(ProjectionEntry);
+    Reserve(EntryCount() + (std::min)(expectedEntryCount, reserveCapRows));
+    // large-index-lifecycle-and-search-scalability review-lane D P2-2:
+    // allocation failure mid-stream must fall into the same cleanup as a
+    // failed durable read -- a partial stream left the volume looking hot and
+    // complete, silently missing rows forever. Store::ForEachEntry does not
+    // catch visitor exceptions.
+    bool streamed = false;
+    bool fitViolation = false;
+    try {
+        constexpr size_t kFitCheckIntervalRows = 4096;
+        size_t streamedRows = 0;
+        streamed = store.ForEachEntryUntil(volumeRowId, [&](const EntryRecord& record) {
+            Upsert(volumeRowId, record);
+            ++streamedRows;
+            if (streamedRows % kFitCheckIntervalRows == 0 && EstimatedMemoryBytes() > lowWatermark) {
+                fitViolation = true;
+                return false; // bounded early stop: abort at the watermark
+            }
+            return true;
+        });
+    } catch (...) {
+        streamed = false;
+    }
+    if (streamed && !fitViolation && EstimatedMemoryBytes() > lowWatermark) {
+        fitViolation = true; // volumes below the interval check land here
+    }
+    if (!streamed || fitViolation) {
         // completion-integrity-hardening-and-release-certification 4.1.2:
-        // a failed durable read may have delivered a prefix of the rows. Do
-        // not expose that prefix as a resident volume; retain the cold marker
-        // so a later rebuild can retry from the durable source.
-        RemoveVolume(volumeRowId);
+        // a failed durable read may have delivered a prefix of the rows, and
+        // a fit abort stops mid-stream by design. Do not expose either
+        // prefix as a resident volume; retain the cold marker so a later
+        // rebuild can retry from the durable source.
+        RemoveVolume(volumeRowId, false);
         CompactStorage();
         evictedVolumes_.insert(volumeRowId);
         enforcingMemoryLimit_ = wasEnforcingMemoryLimit;
@@ -961,7 +1243,13 @@ bool Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, u
         return false;
     }
     CompactEntriesForIterationOrder();
-    RebuildFilenameIndex();
+    // large-index-lifecycle-and-search-scalability review-lane C Finding 6:
+    // do not resurrect the accelerator while a bulk scan deliberately keeps
+    // it disabled (the incremental Upsert path would then pay quadratic
+    // posting inserts for the rest of the scan).
+    if (!bulkScanActive_) {
+        RebuildFilenameIndex();
+    }
     // performance-closure-and-multisurface-acceleration 8.3: a bulk rebuild
     // grows the name arena, the offset table, the flat child-index array, and
     // the trigram posting vectors by geometric reallocation, so each holds
@@ -988,8 +1276,8 @@ void Projection::ShrinkBulkRebuildCapacity() {
     // quantity and would overstate the slack when stale copies are present.
     slackBytes += parentToChildren_.ChildCapacityBytes()
         - parentToChildren_.ChildLinkCount() * sizeof(uint32_t);
-    slackBytes += filenameNonAsciiEntries_.capacity() * sizeof(uint32_t)
-        - filenameNonAsciiEntries_.size() * sizeof(uint32_t);
+    slackBytes += filenameExceptionalEntries_.capacity() * sizeof(uint32_t)
+        - filenameExceptionalEntries_.size() * sizeof(uint32_t);
     for (const auto& [trigram, posting] : filenameTrigramPostings_) {
         (void)trigram;
         slackBytes += (posting.capacity() - posting.size()) * sizeof(uint32_t);
@@ -998,7 +1286,7 @@ void Projection::ShrinkBulkRebuildCapacity() {
 
     namePool_.ShrinkToFit();
     parentToChildren_.ShrinkToFit();
-    filenameNonAsciiEntries_.shrink_to_fit();
+    filenameExceptionalEntries_.shrink_to_fit();
     for (auto& [trigram, posting] : filenameTrigramPostings_) {
         (void)trigram;
         posting.shrink_to_fit();

@@ -1,0 +1,144 @@
+WARNING: The names of some imported commands from the module 'UiaDriver' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
+WARNING: The names of some imported commands from the module 'UiaDriver' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
+WARNING: The names of some imported commands from the module 'UiaDriver' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
+PASS: standard proxy metadata/cache policy (18 checks)
+== availability probe (2.2) ==
+  ok: availability probe returns an envelope
+  ok: envelope has Available
+  ok: interactive desktop session reports available
+== driver construction ==
+  ok: default TimeoutMs
+  ok: default provider is managed
+  ok: mock driver honors parameters
+== interactive-ui-runtime-determinism: exact process ownership (9.1) ==
+  ok: repo-build process identity records exact PID and executable path
+  ok: process identity rejects same-name executable outside repository build tree
+  ok: same PID/path/start-time identity compares equal
+  ok: PID reuse with a different start time is rejected
+  ok: new-process adoption is based on exact identity rather than name alone
+== interactive-ui-runtime-determinism: semantic palette outcomes (4.1/4.2) ==
+  ok: palette helper accepts one visible enabled selected command
+  ok: palette helper classifies missing/dismissed result list
+  ok: palette helper classifies ambiguous command results
+  ok: palette helper classifies wrong selected command
+  ok: palette helper classifies disabled result surface
+== recorded tree import + identity (2.1) ==
+  ok: root identity name, got 'FastFiles'
+  ok: root AutomationId
+  ok: root ControlType
+  ok: root ProcessId
+== find by identity (2.1) ==
+  ok: find Nav1 by AutomationId
+  ok: Nav1 resolves to Pictures
+  ok: find by Name
+  ok: multi-criteria find (AutomationId + ControlType)
+  ok: find by NameLike wildcard
+  ok: find -All ListItems returns 3, got 3
+  ok: find -FromElement returns subtree-only matches, got 3
+  ok: find -FromElement finds the anchor itself
+  ok: find -FromElement excludes elements outside the subtree
+== direct-child lifecycle discovery (interactive-ui-runtime-determinism 5.1) ==
+  ok: direct child finds ColumnView group
+  ok: direct child finds exactly one Pane.1, got 1
+  ok: direct Pane.1 identity is exact
+  ok: Pane.0/Pane.1 RuntimeIds are captured and distinct
+  ok: recursive search still sees the same recorded Pane.1
+  ok: direct-child wait reacquires parent and returns Pane.1
+  ok: direct-child all-results exposes ambiguity for generic Pane identity, got 2
+== traversal + parent (2.1) ==
+  ok: root children count, got 5
+  ok: EntryList children count, got 3
+  ok: parent of Nav0 is EntryList
+  ok: Raw view traversal parity on mock tree
+== properties + patterns (2.1) ==
+  ok: property read Name
+  ok: SearchBox exposes Value pattern
+  ok: button exposes Invoke
+  ok: item exposes SelectionItem
+  ok: item does not expose Invoke
+  ok: scrollbar exposes Scroll
+== pattern invocation + action selection (2.1) ==
+  ok: action uses Invoke pattern, no fallback
+  ok: mock records the Invoke call
+  ok: action uses SelectionItem pattern
+  ok: SendInput fallback recorded only when no pattern exposed
+  ok: unsupported pattern throws UiaPatternNotSupportedException, got UiaPatternNotSupportedException
+  ok: exception carries pattern name
+== ExpandCollapse + Filters disclosure (completion-integrity 4.5.2) ==
+  ok: Search.Filters is discoverable by AutomationId
+  ok: Filters overlay exposes ExpandCollapse
+  ok: recorded Filters disclosure starts Collapsed
+  ok: ExpandCollapse.Expand is idempotent state, not a toggle
+  ok: second Expand leaves an expanded disclosure expanded
+  ok: Expand was recorded twice and never inverted the state
+  ok: Filters Expand path does not fall back to Invoke toggle
+  ok: Expand-UiaSearchFilters passes on ExpandCollapse; detail=filters row expanded (135 ms)
+  ok: capability Expand-UiaSearchFilters posts Expand once
+  ok: capability Expand-UiaSearchFilters does not toggle via Invoke
+  ok: already-expanded Filters disclosure is a no-op success
+  ok: already-expanded rerun does not post a second Expand
+  ok: Start-UiaFastFiles forces WindowStyle Normal so hidden workers cannot launch FastFiles hidden
+  ok: Set-UiaSearchQuery targets AutomationId 7101; detail=query='alloc'
+  ok: Set-UiaSearchQuery ValuePattern write is the query combo, not the scope combo
+== timeout + fail-clearly contract (2.2/2.4) ==
+  ok: timeout throws UiaOperationTimeoutException, got UiaOperationTimeoutException
+  ok: timeout exception carries criteria
+  ok: timeout exception message names the failure
+  ok: timeout exception carries timeoutMs
+  ok: missing semantic target times out with structured failure
+  ok: target-not-found error has type
+  ok: target-not-found error wrote a tree dump
+== tree dumps (2.4) ==
+  ok: dump JSON root has automationId
+  ok: dump nodeCount, got 11
+  ok: dump not truncated for small tree
+  ok: dump text starts with root line
+  ok: dump text has one line per node
+  ok: export writes json + text files
+== events (2.1) ==
+  ok: mock Invoked event delivered to Wait-UiaEvent
+  ok: mock SelectionChanged event delivered
+  ok: never-fired event times out cleanly
+  ok: unregister removes a subscription
+== Wait-UiaCondition + input dry-run (2.1) ==
+  ok: condition not met returns false
+  ok: condition met returns true
+  ok: keyboard dry-run records accepted-input contract
+  ok: modifier chord applies ctrl+shift to bare key, got 17,16,80,80,16,17
+  ok: single-char token after CTRL receives the modifier
+  ok: plain text has no stray modifier keys, got 6
+  ok: mouse dry-run records accepted-input contract
+  ok: drag dry-run records accepted-input contract
+  ok: unicode text dry-run records accepted-input contract
+== stabilize-live-uia-e2e: bounded semantic waits ==
+  ok: bounded wait times out returning false
+  ok: timeout diagnostics scriptblock runs on timeout
+  ok: Wait-UiaElement finds an existing element
+  ok: Wait-UiaElement returns null for a missing element
+  ok: Wait-UiaElementGone returns true when element is absent
+  ok: Wait-UiaElementGone returns false while element exists
+== stabilize-live-uia-e2e: ValuePattern assignment ==
+  ok: ValuePattern assignment ok (used=ValuePattern)
+  ok: Value read-back matches, got 'C:\Users\Test\Documents'
+  ok: mock records the SetValue call with the argument
+  ok: element without ValuePattern fails cleanly as unavailable
+  ok: text value falls back to element Name, got 'C:\Users\Test\Documents'
+  ok: text value reads the element Name when no Value pattern exists
+  ok: ItemContainer FindItemByProperty records on mock
+  ok: ItemContainer call recorded with property name and value
+== stabilize-live-uia-e2e: modifier reset + interactive state ==
+  ok: modifier reset lists ctrl and win key-up vks
+  ok: interactive state envelope is safe on mock drivers
+  ok: tooltips do not block search-close / address-bar navigation
+  ok: SysShadow does not block search-close / address-bar navigation
+  ok: combo dropdowns still block keyboard input
+  ok: foreground ownership probe is safe on mock drivers
+  ok: topmost-window probe returns null on mock drivers
+  ok: point-in-window probe is safe on mock drivers
+  ok: rect-stability wait is safe on mock drivers
+== stabilize-live-uia-e2e: Explorer window discovery ==
+  ok: Explorer discovery binds the window with the matching address value, got 'ffui-drag-42-target'
+  ok: Explorer discovery matches the second window by its own address
+  ok: Explorer discovery returns null for an unmatched path
+
+RESULT: all uia-driver headless tests passed
