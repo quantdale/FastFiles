@@ -650,6 +650,34 @@ void CheckShortcutCreationSafety(ffui::FileOperations& operations, const std::fi
     if (!retryName.empty()) CheckShortcutTarget(late / retryName, source);
 }
 
+// final-product-consolidation review lane A P2: a Link request's destination
+// names come exclusively from its transfer plan. A short plan means keep-both
+// name generation exhausted during planning (BuildLinkPlan truncates); the
+// tail items must fail explicitly instead of silently bypassing the
+// reservation scheme with a raw `name + ".lnk"` fallback.
+void CheckLinkPlanTailFailsWithoutReservation(ffui::FileOperations& operations, const std::filesystem::path& root) {
+    const auto scope = root / L"link-plan-tail";
+    const auto source = scope / L"source";
+    const auto destination = scope / L"destination";
+    std::filesystem::create_directories(source);
+    std::filesystem::create_directories(destination);
+    WriteText(source / L"first.txt", "first source");
+    WriteText(source / L"second.txt", "second source");
+    ffui::FileOperationRequest request{ffui::FileOperationKind::Link,
+        {(source / L"first.txt").wstring(), (source / L"second.txt").wstring()}, destination.wstring(), {}, true};
+    // Deliberately truncated plan: only the head item owns a reserved name.
+    request.transferPlan = {{request.sources.front(), L"reserved shortcut.lnk", false}};
+    auto event = Run(operations, request);
+    Check(event && event->completed == 1, "planned head shortcut completes");
+    Check(std::filesystem::exists(destination / L"reserved shortcut.lnk"), "planned head uses its reserved name");
+    Check(event && event->failures.size() == 1, "unplanned tail item reports exactly one failure");
+    Check(event && !event->failures.empty() && event->failures.front().error == HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE),
+          "unplanned tail item fails with ERROR_FILENAME_EXCED_RANGE");
+    Check(!std::filesystem::exists(destination / L"second.txt.lnk"),
+          "unplanned tail item never writes an unreserved raw name");
+    Check(ReadText(source / L"second.txt") == "second source", "tail source untouched");
+}
+
 void CheckShortcutCancellation(ffui::FileOperations& operations, const std::filesystem::path& root) {
     const auto scope = root / L"shortcut-cancel";
     const auto source = scope / L"source";
@@ -825,6 +853,7 @@ int main(int argc, char** argv) {
             CheckUnreportedPhaseFailure();
         } else if (filter == "--shortcut-safety") {
             CheckShortcutCreationSafety(operations, root);
+            CheckLinkPlanTailFailsWithoutReservation(operations, root);
             CheckShortcutCancellation(operations, root);
         } else {
             for (const auto kind : {ffui::FileOperationKind::Copy, ffui::FileOperationKind::Move, ffui::FileOperationKind::Restore}) {

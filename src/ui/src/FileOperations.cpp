@@ -593,12 +593,21 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
         std::vector<std::wstring> affected;
         for (size_t index = 0; index < request.sources.size(); ++index) {
             if (cancelRequested_.load()) break;
+            // final-product-consolidation review lane A P2: Link destination
+            // names come exclusively from the transfer plan; a missing/empty
+            // plan entry means keep-both generation exhausted during planning
+            // (BuildLinkPlan truncates). Fail the item explicitly instead of
+            // silently bypassing the reservation scheme with a raw name.
+            const auto total = static_cast<unsigned int>(request.sources.size());
+            if (index >= request.transferPlan.size() || request.transferPlan[index].destinationName.empty()) {
+                failures.push_back({request.sources[index], HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE), S_OK});
+                PostEvent({FileOperationEventKind::Progress, request.kind, request.sources[index], completed, total,
+                           total == 0 ? 0u : static_cast<unsigned int>((100ull * (index + 1)) / total), {}});
+                continue;
+            }
             Microsoft::WRL::ComPtr<IShellLinkW> link;
             HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link));
-            std::wstring name = std::filesystem::path(request.sources[index]).filename().wstring() + L".lnk";
-            if (index < request.transferPlan.size() && !request.transferPlan[index].destinationName.empty()) {
-                name = request.transferPlan[index].destinationName;
-            }
+            std::wstring name = request.transferPlan[index].destinationName;
             const auto output = std::filesystem::path(request.destination) / name;
             if (SUCCEEDED(result)) result = link->SetPath(request.sources[index].c_str());
             Microsoft::WRL::ComPtr<IPersistStream> persistence;
@@ -614,7 +623,6 @@ void FileOperations::Execute(const FileOperationRequest& input, bool cancelBefor
                 ++completed;
                 affected.push_back(output.wstring());
             }
-            const auto total = static_cast<unsigned int>(request.sources.size());
             PostEvent({FileOperationEventKind::Progress, request.kind, request.sources[index], completed, total,
                        total == 0 ? 0u : static_cast<unsigned int>((100ull * (index + 1)) / total), {}});
         }
