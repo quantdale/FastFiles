@@ -176,6 +176,9 @@ private:
     // pane carries a real hierarchy (title > values > labels/path).
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsSecondaryBrush_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTextFormat_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> statusLineLayout_;
+    std::wstring statusLineText_;
+    float statusLineWidth_ = 0.0f;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTitleFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> previewTextFormat_;
     // ui-v3 details: caption format + shared brush cache for the deliberate

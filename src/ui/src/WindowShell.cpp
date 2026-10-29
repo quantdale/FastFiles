@@ -1431,6 +1431,7 @@ void WindowShell::MarkDeviceDirty() {
     detailsTextBrush_.Reset();
     detailsSecondaryBrush_.Reset();
     detailsTextFormat_.Reset();
+    statusLineLayout_.Reset();
     detailsTitleFormat_.Reset();
     previewTextFormat_.Reset();
     // ui-v3 details: the caption format and state-panel brush cache follow the
@@ -2207,10 +2208,22 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
     // rides the status line until it expires.
     std::wstring statusText = status;
     if (!statusNotice_.empty() && GetTickCount64() < statusNoticeUntilMs_) {
-        statusText += L"  \u2022  " + statusNotice_;
+        // Keep recovery/completion feedback ahead of a potentially long path.
+        statusText = statusNotice_ + L"  \u2022  " + status;
     }
-    context->DrawText(statusText.c_str(), static_cast<UINT32>(statusText.size()), detailsTextFormat_.Get(),
-        D2D1::RectF(8, statusTop, sceneWidth - 8, sceneHeight), detailsTextBrush_.Get());
+    const D2D1_RECT_F statusRect = D2D1::RectF(8, statusTop, sceneWidth - 8, sceneHeight);
+    const float statusWidth = statusRect.right - statusRect.left;
+    if (statusLineLayout_ == nullptr || statusLineText_ != statusText || statusLineWidth_ != statusWidth) {
+        UiCreateSingleLineTextLayout(renderer_.DWriteFactory(), detailsTextFormat_.Get(), statusText.c_str(),
+            static_cast<UINT32>(statusText.size()), statusWidth, statusRect.bottom - statusRect.top,
+            &statusLineLayout_);
+        statusLineText_ = statusText;
+        statusLineWidth_ = statusWidth;
+    }
+    if (statusLineLayout_) {
+        context->DrawTextLayout(D2D1::Point2F(statusRect.left, statusRect.top), statusLineLayout_.Get(),
+            detailsTextBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
 }
 
 

@@ -14,6 +14,8 @@
 - [x] 2.7 Paint the real command palette above native workspaces with sibling clipping, preserve surrounding context and consume outside dismissal clicks without invoking background controls. Compiled fc2fab7 full E2E8/8 and catalog21/21; actual palette image reviewed, outside dismissal preserves Storage.
 - [x] 2.8 Reserve Settings client geometry independently from caption/frame so OK/Cancel remain fully visible. Native120DPI red fails both bounds; repaired bounds and actual Cancel pointer dismissal pass. Catalog now rejects clipped footer controls.
 
+- [x] 2.9 Keep bounded engine/status text on one legible line with ellipsis, preserve full model descriptions and truthful compact degraded/retry feedback, and inspect actual narrow screenshots.
+
 ## 3. Search-to-navigation continuity
 
 - [x] 3.1 Repair Home-aware hierarchy reveal, active pane, focus, scroll and chrome synchronization. Native search-native-focus passed; final combined-source rerun remains in4.1.

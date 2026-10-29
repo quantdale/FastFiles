@@ -43,3 +43,11 @@ Filesystem targets may disappear after validation; ordinary operation handlers s
 ## Validation
 
 Focused command/selection and geometry regressions, Home search E2E with destination identity, storage summary/action tests, native visual catalog and broader Debug/release-test suites. Avoid restricted termination tests and expensive unchanged PR15 benchmarks.
+
+### Bounded status text follow-up — 2026-10-26
+
+Actual120DPI narrow captures show the engine badge and footer wrapping into clipped second lines. Preserve the existing Things/Native Precision target and native UITheme roles. Live Refero style retrieval reaffirms native typography/quiet secondary hierarchy; screen f4eced6d separates file metadata from primary names and screen1a805882 separates indexing status from its detailed explanation. Neither is evidence of Windows truncation behavior. The native decision is a cached DirectWrite single-line layout, with character ellipsis and clipping, rebuilt only for text/width changes. Do not change shared wrapping formats used by details/loading/error panels. A compact badge keeps degraded/retry meaning visible while the existing full description remains available to semantic status consumers. New code does not alter connection/privilege state, data coverage or search semantics. This isolated sibling successor starts from verified PR18; PR19's unrelated action/paint work remains separately stacked.
+
+A real DirectWrite red regression confirms NO_WRAP alone still lays out explicit CR/LF as a second line. The cached layout creator flattens CR/LF/Unicode line separators only in its display copy, preserving the original model/path and the shared wrapping format. The regression uses long Unicode/error text, actual line/trimming metrics and zero-width stale-layout rejection. Caption copy explicitly distinguishes degraded/unavailable/retry states even with a stale privileged flag.
+
+Transient recovery/completion notices take precedence over selection/path metadata in the one-line footer, so truncation cannot hide feedback behind a long folder path. The original status/model text remains available; only displayed composition changes.

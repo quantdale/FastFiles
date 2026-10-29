@@ -1,0 +1,51 @@
+{
+  "source": {
+    "headSha": "cd1f429bd6159da2615aa452bdcf97fef950c909",
+    "treeSha": "1f2f77009851a360ba1a9c782fc0c1b84d089262",
+    "treeSemantic": "HEAD^{tree}",
+    "sourceClean": true,
+    "stateDigest": "db9077de8044fa5f944c228260a4dad30693e19db077c9ba20ce880f6698b1bf",
+    "reasonCodes": []
+  },
+  "binding": "clean-source SHA; embedded tree hash absent",
+  "captures": [
+    {
+      "bounds": {
+        "Hwnd": {
+          "value": 9114522
+        },
+        "X": 48,
+        "Y": 32,
+        "Width": 604,
+        "Height": 772,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "brightness": 231.1720628356637,
+      "requestedWidth": 620,
+      "hash": "8c768a1c8015199247c18d290ecd79fde642d15d887c2f71ac284922e584f8f9",
+      "theme": "Light",
+      "image": "certified-status-light-620.png"
+    },
+    {
+      "bounds": {
+        "Hwnd": {
+          "value": 9114522
+        },
+        "X": 48,
+        "Y": 32,
+        "Width": 604,
+        "Height": 772,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "brightness": 30.950907626207663,
+      "requestedWidth": 620,
+      "hash": "09a90474a44f19d7d9fa7017a6194d14f3f8fc013561b5af0efbedf98017dc74",
+      "theme": "Dark",
+      "image": "certified-status-dark-620.png"
+    }
+  ],
+  "fourFrameMatrixPassed": true,
+  "cleanupPassed": true
+}

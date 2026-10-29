@@ -8,6 +8,7 @@ The original Find/Navigate/Understand/Act vision is undermined by composition de
 - Keep storage category summaries separate from filesystem operations.
 - Make search reveal leave Home, preserve active-pane ownership, expose the destination hierarchy and synchronize navigation chrome.
 - Bound search location and metadata independently at real DPI.
+- Keep narrow engine/status feedback legible through bounded one-line presentation without changing full status or connection semantics.
 - Record the five-pillar audit and validate actual native journeys with stronger destination assertions.
 
 ## Capabilities

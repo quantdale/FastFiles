@@ -1568,7 +1568,7 @@ void ColumnView::SetDarkTheme(bool dark) {
         // ui-v3 column-view: shared-painter caches re-resolve on next paint.
         textTertiaryBrush_.Reset(); focusedColumnFillBrush_.Reset();
         rowBrushes_.Reset(); stateBrushes_.Reset();
-        textFormat_.Reset(); badgeTextFormat_.Reset(); glyphFormat_.Reset();
+        textFormat_.Reset(); badgeTextFormat_.Reset(); badgeLineLayout_.Reset(); glyphFormat_.Reset();
     }
 }
 
@@ -1745,10 +1745,11 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     // permanent full-width amber band over the file content.
     const EngineStatusPresentation statusPresentation =
         GetEngineStatusPresentation(engineState_.load(), privilegedPathActive_.load());
-    const std::wstring statusText = statusPresentation.text;
+    const std::wstring statusText = statusPresentation.compactText;
     if (badgeMeasureText_ != statusText) {
         badgeMeasureText_ = statusText;
         badgeTextWidth_ = 0.0f;
+        badgeLineLayout_.Reset();
         Microsoft::WRL::ComPtr<IDWriteTextLayout> measureLayout;
         if (badgeTextFormat_ != nullptr &&
             SUCCEEDED(dwriteFactory->CreateTextLayout(statusText.c_str(),
@@ -1778,9 +1779,17 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     ffui::UiFillRoundedRect(context, badgeRect, badgeBrush, ffui::UiMetrics::kRadiusSmall);
     D2D1_RECT_F badgeTextRect = D2D1::RectF(badgeRect.left + 10.0f, 4.0f,
                                             badgeRect.right - 10.0f, kBadgeHeight - 4.0f);
-    context->DrawText(statusText.c_str(), static_cast<UINT32>(statusText.size()),
-                      badgeTextFormat_.Get(), badgeTextRect,
-                      badgeTextBrush);
+    const float badgeLineWidth = badgeTextRect.right - badgeTextRect.left;
+    if (badgeLineLayout_ == nullptr || badgeLineWidth_ != badgeLineWidth) {
+        UiCreateSingleLineTextLayout(dwriteFactory, badgeTextFormat_.Get(), statusText.c_str(),
+            static_cast<UINT32>(statusText.size()), badgeLineWidth, badgeTextRect.bottom - badgeTextRect.top,
+            &badgeLineLayout_);
+        badgeLineWidth_ = badgeLineWidth;
+    }
+    if (badgeLineLayout_) {
+        context->DrawTextLayout(D2D1::Point2F(badgeTextRect.left, badgeTextRect.top),
+            badgeLineLayout_.Get(), badgeTextBrush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
 
     // High Contrast: drive every selection through the system highlight
     // (UiEnsureSolidBrush compares colors and reuses the cached brush) and
