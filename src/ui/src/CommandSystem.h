@@ -69,6 +69,7 @@ struct SelectionItem {
 struct CommandContext {
     SelectionKind selectionKind = SelectionKind::Empty;
     bool clipboardCompatible = false;
+    bool browseWorkspace = true;
 };
 
 // Handlers deliberately receive only filesystem paths. This caller-agnostic
@@ -96,6 +97,13 @@ struct CommandDescriptor {
     // row under a display name a newer id already owns.
     bool paletteHidden = false;
 };
+
+// original-vision-journey-recovery 2.1: one availability policy for the
+// palette and execution. Alternate workspaces never borrow hidden browse
+// destinations, editors or selection mutations.
+bool CommandEnabled(const CommandDescriptor& command, const CommandContext& context);
+bool CommandUsesSelection(const CommandDescriptor& command);
+std::optional<std::vector<SelectionItem>> ResolveExistingSelection(std::span<const std::wstring> paths);
 
 class CommandRegistry {
 public:

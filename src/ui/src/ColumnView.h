@@ -41,6 +41,8 @@
 #include "UiaProviderBase.h"  // semantic-uia-core-surfaces 1.1: owner-lifetime token
 
 namespace ffui {
+inline constexpr UINT WM_APP_COLUMNVIEW_HOME_ACTION = WM_APP + 45;
+inline constexpr UINT WM_APP_COLUMNVIEW_BROWSE_ACTION = WM_APP + 46;
 
 // semantic-treemap-uia 10.x: forward declaration -- ColumnView only stores
 // the pointer to the Storage Analysis treemap surface.
@@ -234,7 +236,8 @@ public:
     // Task 5.3/5.4/5.5: selecting an item in a column. Folders truncate
     // and (re)populate the next column; files never create a new column.
     // This is the "full" selection used by mouse clicks and Enter.
-    void ActivateItem(int columnIndex, int itemIndex, bool control = false, bool shift = false);
+    bool ActivateItem(int columnIndex, int itemIndex, bool control = false, bool shift = false,
+                      const UiaBrowseActionRequest* expected = nullptr);
 
     // Task 5.10: keyboard navigation. Up/Down move the visual selection
     // within the focused column only (no column population); Left/Right
@@ -270,6 +273,9 @@ public:
     // Dual-pane (task 6.1/6.4): enable/disable the second navigation
     // surface and switch active pane. When disabled, only pane 0 is used.
     void SetDualPane(bool enabled);
+    void SetBrowseContentActive(bool active);
+    bool BrowseContentActive() const;
+    bool UiaBrowseContentActive() const override { return BrowseContentActive(); }
     bool IsDualPane() const { return dualPane_; }
     void ActivatePane(int paneIndex);
     int ActivePane() const { return activePane_; }
@@ -311,8 +317,8 @@ public:
     // status chip in the Unavailable state.
     void SetRetryEngineCallback(std::function<void()> retryEngine);
     void SetDarkTheme(bool dark);
-    void SetScrollOffset2(float offset) { scrollOffset2_ = offset; }
-    float ScrollOffset2() const { return scrollOffset2_; }
+    void SetScrollOffset2(float offset) { std::lock_guard<std::mutex> lock(columnsMutex_); scrollOffset2_ = offset; }
+    float ScrollOffset2() const { std::lock_guard<std::mutex> lock(columnsMutex_); return scrollOffset2_; }
     void ScrollVertical(float delta, float viewportHeight);
     void EnsureFocusedItemVisible(float viewportHeight);
     float VerticalScrollOffset() const { return verticalScrollOffset_; }
@@ -399,6 +405,12 @@ public:
     void UiaScrollItemIntoView(int pane, int col, int row) override;
     void UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) override;
     void UiaActivateHomeClear(int pane, int clearKind) override;
+    bool UiaDispatchBrowseAction(const UiaBrowseActionRequest& request) override;
+    bool HandleUiaBrowseAction(const UiaBrowseActionRequest& request);
+    void ScrollUiaItemIntoViewLocked(int pane, Column& column, int row);
+    bool MatchesUiaBrowseTargetLocked(const UiaBrowseActionRequest& request) const;
+    bool UiaDispatchHomeAction(const UiaHomeActionRequest& request) override;
+    bool HandleUiaHomeAction(const UiaHomeActionRequest& request);
     void UiaSetHomeFocusItem(int pane, int globalIndex) override;
     void UiaSetHomeFocusClear(int pane, int clearKind) override;
     void UiaScrollHomeItemIntoView(int pane, int globalIndex) override;
@@ -473,6 +485,7 @@ private:
     int focusedColumnIndex2_ = 0;
     int activePane_ = 0;
     bool dualPane_ = false;
+    bool browseContentActive_ = true;
     // Written from EngineClient's background callback, read by Render on the
     // UI thread (recovery-degraded-browsing D3).
     std::atomic<EngineConnectionState> engineState_{EngineConnectionState::Starting};

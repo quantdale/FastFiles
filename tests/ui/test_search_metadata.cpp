@@ -3,6 +3,7 @@
 // compiles standalone like fftreemap_metadata_tests.
 
 #include "ffui/SearchResultMetadata.h"
+#include "ffui/SearchRowLayout.h"
 
 #include <cstdint>
 #include <string>
@@ -20,6 +21,24 @@ std::wstring PlainBytes(uint64_t bytes) {
 }
 
 void TestSearchAllocatedSizeText() {
+    for (const int dpi : {96, 120, 192}) {
+        for (const int widthDip : {120, 320, 800}) {
+            const auto scale = [dpi](int dip) { return dip * dpi / 96; };
+            const auto layout = ffui::ComputeSearchContextLayout(scale(32), scale(widthDip),
+                scale(8), scale(8), scale(460));
+            Check(layout.locationLeft <= layout.locationRight &&
+                  layout.locationRight <= layout.metadataLeft &&
+                  layout.metadataLeft <= layout.metadataRight &&
+                  layout.metadataRight <= scale(widthDip),
+                  "location and long metadata never overlap at narrow/normal widths and real DPI");
+            Check(layout.metadataRight - layout.metadataLeft <=
+                  (layout.metadataRight - layout.locationLeft) * 45 / 100,
+                  "metadata cannot displace the primary location at high DPI");
+        }
+    }
+    const auto empty = ffui::ComputeSearchContextLayout(40, 20, 8, 8, 900);
+    Check(empty.locationLeft == empty.locationRight && empty.metadataLeft == empty.metadataRight,
+          "fully clipped row has empty valid bounds");
     // Unknown: explicit wording, never echoes a fabricated byte count.
     Check(ffui::SearchAllocatedSizeText(0, false, PlainBytes) == L"Size on disk unknown",
           "unknown (even when bytes are 0) reads as explicit unknown");

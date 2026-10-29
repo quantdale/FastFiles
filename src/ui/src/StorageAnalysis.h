@@ -3,12 +3,14 @@
 #include <algorithm>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
 #include <windows.h>
 
 #include "CategoryEngine.h"
+#include "CommandSystem.h"
 #include "EngineClient.h"
 #include "ffui/ShellLayout.h"
 #include "ffui/StorageVisibility.h"
@@ -18,6 +20,7 @@
 #include "ffprotocol/UiProtocol.h"
 #include "TreemapView.h"
 #include "UiaProviderBase.h"
+#include "SearchUiaProvider.h"
 #include "Util.h"
 
 namespace ffui {
@@ -37,7 +40,7 @@ struct TreemapNavigatePayload {
     bool isDirectory = false;
 };
 
-class StorageAnalysis : public TreemapUiaSurface {
+class StorageAnalysis : public TreemapUiaSurface, public UiaSurface {
 public:
     StorageAnalysis() = default;
     ~StorageAnalysis();
@@ -52,6 +55,7 @@ public:
                       const ShellLayoutRect& surfaceRect);
     void Hide();
     bool Visible() const { return visible_; }
+    std::vector<SelectionItem> ActiveSelectionItems() const;
     void Reposition(const ShellLayoutRect& surfaceRect);
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     bool HandleDrawItem(LPARAM lParam);
@@ -96,8 +100,47 @@ public:
     void TreemapActivateItem(const TreemapUiaItemInfo& item) override;
     UiaEventRouter* TreemapEvents() override { return &uiaEvents_; }
 
+    // The real owner-data report list uses the same bounded semantic list
+    // provider as Search; this is its native model/interaction adapter.
+    size_t UiaSearchResultCount() const override;
+    UiaSearchResultInfo UiaSearchResultInfoOf(size_t index) const override;
+    bool UiaSearchResultRect(size_t index, RECT& outScreen) const override;
+    bool UiaSearchResultOffscreen(size_t index) const override;
+    bool UiaSearchVisible() const override;
+    bool UiaSearchHasKeyboardFocus() const override;
+    HWND UiaSearchHwnd() const override { return list_; }
+    void UiaListSetFocus() override;
+    void UiaSearchSelectItem(size_t index) override;
+    void UiaSearchAddToSelection(size_t index) override { UiaSearchSelectItem(index); }
+    void UiaSearchRemoveFromSelection(size_t index) override;
+    void UiaSearchSetFocusItem(size_t index) override;
+    void UiaSearchActivateItem(size_t index) override;
+    void UiaSearchScrollIntoView(size_t index) override;
+    bool UiaListDispatchAction(size_t index, uint64_t expectedIdentity, unsigned action) override;
+    bool UiaListResultRect(size_t index, uint64_t identity, RECT& rect) const override;
+    bool UiaListResultOffscreen(size_t index, uint64_t identity) const override;
+    size_t UiaListHeaderCount() const override;
+    std::wstring UiaListHeaderName(size_t index) const override;
+    bool UiaListHeaderRect(size_t index, RECT& outScreen) const override;
+    void UiaListInvokeHeader(size_t index) override;
+    uint64_t UiaListHeaderIdentity(size_t index) const override;
+    bool UiaListDispatchHeader(size_t index, uint64_t identity) override;
+
 private:
     friend class StorageRadioProvider;
+    struct ListQuery;
+    struct ListAction;
+    static LRESULT CALLBACK ListSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                             UINT_PTR subclassId, DWORD_PTR refData);
+    void ReadListQuery(ListQuery& query) const;
+    bool DispatchListAction(size_t index, unsigned action, uint64_t expectedIdentity);
+    bool ApplyListAction(const ListAction& action);
+    void ActivateListItem(size_t index);
+    void NotifyListChanged();
+    Microsoft::WRL::ComPtr<SearchUiaProvider> listProvider_;
+    UiaOwnerStatePtr listUiaState_;
+    UiaEventRouter listEvents_;
+    bool listNotificationPending_ = false;
 
     static LRESULT CALLBACK StorageButtonSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                                       UINT_PTR subclassId, DWORD_PTR refData);
@@ -110,6 +153,7 @@ private:
 
     struct DrillItem {
         std::wstring name;
+        std::wstring categoryId; // nonempty only for synthetic category summaries
         bool isDirectory = false;
         uint64_t sizeBytes = 0;
         uint64_t totalSizeBytes = 0; // subtree aggregate when known
@@ -138,7 +182,7 @@ private:
     struct VolumeItem {
         std::wstring rootPath;   // "C:\"
         bool unavailable = false; // volume vanished; figures below are stale
-        bool fullyIndexed = false;
+        bool rootAvailable = false;
         uint64_t totalBytes = 0;
         uint64_t freeBytes = 0;
         uint64_t usedBytes = 0;
@@ -161,6 +205,8 @@ private:
                                uint64_t allocatedBytesKnownCount,
                                uint64_t allocatedBytesTotalCount);
     void SortItems(int column, bool ascending);
+    std::optional<DrillItem> CaptureSelectedItem() const;
+    void RestoreSelectedItem(const std::optional<DrillItem>& selected);
     void PopulateCategoryFilter();
     void UpdateCategoryFilterFromControl();
     void ApplyCategoryFilter();
@@ -196,6 +242,7 @@ private:
     std::vector<DrillItem> items_;
     std::vector<VolumeItem> volumes_;    // storage-overview rows
     std::wstring currentPath_;
+    std::wstring displayedPath_;
     bool visible_ = false;
     bool engineActive_ = false;
     bool darkTheme_ = false;

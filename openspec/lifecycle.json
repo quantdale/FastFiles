@@ -1769,6 +1769,38 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "original-vision-journey-recovery",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/original-vision-journey-recovery/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "column-uia-identity-dispatch",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/column-uia-identity-dispatch/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/column-uia-identity-dispatch/evidence/validation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "93cd2b604641dc38c56940e3330ec2acb74962af"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

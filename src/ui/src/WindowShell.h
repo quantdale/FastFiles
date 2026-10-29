@@ -2,6 +2,7 @@
 #include <atomic>
 #include <windows.h>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <map>
 
@@ -48,6 +49,8 @@ private:
 
     void Render();
     void EnsureColumnVisible(int columnIndex, float viewportWidth);
+    void EnsurePaneColumnVisible(int pane, int columnIndex, float viewportWidth);
+    void ReconcileBrowseInteraction(bool revealFocusedColumn);
     void RequestRepaint();
     void ApplyTheme();
     void MarkDeviceDirty();
@@ -68,6 +71,7 @@ private:
     std::wstring FileTypeFor(const std::wstring& path) const;
     bool InitializeCommands();
     CommandContext CurrentCommandContext() const;
+    std::vector<SelectionItem> CurrentCommandSelection() const;
     bool InvokeCommand(const std::wstring& commandId);
     bool DispatchShortcut(const MSG& message, ShortcutScope scope, bool nativeEditFocused);
     bool QueueTransfer(const std::vector<std::wstring>& paths, const std::wstring& destination, FileOperationKind kind);
@@ -78,8 +82,10 @@ private:
     void NavigateColumnViewTo(const std::wstring& path);
     // quick-access-home 5.4: the single Home-aware navigation entry. Keeps the
     // model, the per-pane ColumnView Home kind, and the Home data snapshot in
-    // lockstep for both Home and filesystem destinations.
-    void NavigateToLocation(const NavigationLocation& location);
+    // lockstep for both Home and filesystem destinations. A filesystem caller
+    // may supply its reconstructed hierarchy; the callback runs synchronously.
+    void NavigateToLocation(const NavigationLocation& location,
+                            const std::function<void()>& populateFileSystem = {});
     // quick-access-home 5.5: rebuild the Home snapshot from live workspace /
     // search state and push it into ColumnView (no polling).
     void RefreshHomeData();
@@ -115,6 +121,9 @@ private:
     CommandRegistry commandRegistry_;
     ShortcutMap shortcuts_;
     CommandPalette commandPalette_;
+    std::vector<std::wstring> paletteTargets_;
+    bool paletteStorage_ = false;
+    bool paletteSearch_ = false;
     SearchPanel searchPanel_;
     StorageAnalysis storageAnalysis_;
     SettingsDialog settingsDialog_;

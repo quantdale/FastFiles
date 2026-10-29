@@ -132,7 +132,16 @@ bool CategoryEngine::Matches(const std::wstring& fileName, const std::wstring& c
     if (configuredCategory) {
         return match.matched && match.categoryId == categoryId;
     }
-    return categoryId == L"other" && !match.matched;
+    return (categoryId == L"other" || categoryId == UncategorizedFilterId()) && !match.matched;
+}
+
+std::wstring CategoryEngine::UncategorizedFilterId() const {
+    // User category IDs are unrestricted. Choose a distinct internal key
+    // against the actual configuration rather than reserving a user name.
+    std::wstring id = L".ff-uncategorized";
+    while (std::any_of(categories_.begin(), categories_.end(),
+        [&id](const CategoryDefinition& category) { return category.id == id; })) id += L"_";
+    return id;
 }
 
 } // namespace ffui

@@ -216,6 +216,7 @@ private:
     // resolves the live item state. False = stale element (fail cleanly,
     // never retarget the new occupant of the same row index).
     bool Resolve(UiaItemInfo& item, bool& statusLineShown) const;
+    HRESULT Dispatch(UiaBrowseActionKind kind) const;
 
     ColumnViewUiaProvider* owner_ = nullptr;
     int pane_ = 0;
@@ -441,7 +442,8 @@ public:
     // provider minted under the old ColumnView fragment is stale even if the
     // same pane index is later created again.
     bool SurfaceAlive() const noexcept {
-        return Alive() && fragmentState_ != nullptr && fragmentState_->alive;
+        return Alive() && fragmentState_ != nullptr && fragmentState_->alive &&
+               surface_ != nullptr && surface_->UiaBrowseContentActive();
     }
     UiaOwnerStatePtr FragmentState() const noexcept { return fragmentState_; }
     UiaViewGeometry Geometry() const { return surface_ != nullptr ? surface_->UiaGeometry() : UiaViewGeometry{}; }

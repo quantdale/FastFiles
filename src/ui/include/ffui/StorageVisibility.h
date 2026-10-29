@@ -17,6 +17,11 @@ enum class StorageViewMode {
     Treemap
 };
 
+constexpr bool StorageRowsAreFiles(StorageViewMode mode) noexcept {
+    return mode == StorageViewMode::DrillDown || mode == StorageViewMode::LargestFolders ||
+           mode == StorageViewMode::LargestFiles;
+}
+
 enum class StorageControl {
     Back,
     Up,
@@ -73,9 +78,13 @@ inline std::wstring StorageOverviewStatusText(size_t volumeCount, bool engineAct
 }
 
 inline std::wstring StorageItemsStatusText(size_t itemCount, bool engineActive) {
-    std::wstring text = std::to_wstring(itemCount) + L" items";
+    std::wstring text = std::to_wstring(itemCount) + L" items in this folder";
     if (!engineActive) text += L" (degraded mode — partial coverage)";
     return text;
+}
+
+inline constexpr const wchar_t* StorageCoverageText(bool rootAvailable) noexcept {
+    return rootAvailable ? L"Root available — completeness unverified" : L"Coverage unverified";
 }
 
 inline const wchar_t* StorageWaitingStatusText(bool engineActive) noexcept {

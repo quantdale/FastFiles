@@ -13,6 +13,7 @@
 
 #include <d2d1.h>
 #include <windows.h>
+#include <cmath>
 
 #include "ffui/UiaSurface.h"
 #include "UITheme.h"
@@ -91,10 +92,19 @@ inline bool UiaRectOffscreen(const D2D1_RECT_F& rect, float paneX, float paneWid
 // when an hwnd is available (null hwnd = headless tests, identity step).
 inline RECT UiaRectToScreen(const D2D1_RECT_F& rectDip, const UiaViewGeometry& geometry) {
     const float scale = geometry.dpiScale > 0.0f ? geometry.dpiScale : 1.0f;
-    const LONG left = static_cast<LONG>(rectDip.left * scale + geometry.originXDip * scale);
-    const LONG top = static_cast<LONG>(rectDip.top * scale + geometry.originYDip * scale);
-    const LONG right = static_cast<LONG>(rectDip.right * scale + geometry.originXDip * scale);
-    const LONG bottom = static_cast<LONG>(rectDip.bottom * scale + geometry.originYDip * scale);
+    const float leftPixel = rectDip.left * scale + geometry.originXDip * scale;
+    const float topPixel = rectDip.top * scale + geometry.originYDip * scale;
+    const float rightPixel = rectDip.right * scale + geometry.originXDip * scale;
+    const float bottomPixel = rectDip.bottom * scale + geometry.originYDip * scale;
+    // Bound the painted fractional footprint conservatively. Truncating both
+    // edges can collapse a real subpixel treemap tile to UIA's empty rectangle.
+    // Do not inflate zero or inverted source extents into visible elements.
+    const bool positiveWidth = rectDip.right > rectDip.left;
+    const bool positiveHeight = rectDip.bottom > rectDip.top;
+    const LONG left = static_cast<LONG>(positiveWidth ? std::floor(leftPixel) : leftPixel);
+    const LONG top = static_cast<LONG>(positiveHeight ? std::floor(topPixel) : topPixel);
+    const LONG right = static_cast<LONG>(positiveWidth ? std::ceil(rightPixel) : rightPixel);
+    const LONG bottom = static_cast<LONG>(positiveHeight ? std::ceil(bottomPixel) : bottomPixel);
     RECT result{left, top, right, bottom};
     if (geometry.hwnd != nullptr && IsWindow(geometry.hwnd)) {
         POINT client{left, top};

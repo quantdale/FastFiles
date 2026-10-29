@@ -188,12 +188,41 @@ std::vector<const CommandDescriptor*> CommandRegistry::Query(const CommandContex
 bool CommandRegistry::Invoke(const std::wstring& commandId, const CommandContext& context,
                              const std::vector<std::wstring>& selection) const {
     const CommandDescriptor* descriptor = Find(commandId);
-    if (descriptor == nullptr || (descriptor->applicability & AppliesTo(context.selectionKind)) == 0 ||
-        (descriptor->enabledPredicate && !descriptor->enabledPredicate(context))) {
+    if (descriptor == nullptr || !CommandEnabled(*descriptor, context)) {
         return false;
     }
     descriptor->handler(selection);
     return true;
+}
+
+bool CommandEnabled(const CommandDescriptor& command, const CommandContext& context) {
+    if ((command.applicability & AppliesTo(context.selectionKind)) == 0 ||
+        (command.enabledPredicate && !command.enabledPredicate(context))) return false;
+    if (!context.browseWorkspace) {
+        const auto& id = command.commandId;
+        if (id == L"file.paste" || id == L"file.new-folder" || id == L"file.new-file" ||
+            id == L"selection.select-all" || id == L"navigation.up" || id == L"navigation.refresh" ||
+            id == L"item.copy-relative-path" ||
+            (id == L"item.open-terminal" && context.selectionKind == SelectionKind::Empty)) return false;
+    }
+    return true;
+}
+
+bool CommandUsesSelection(const CommandDescriptor& command) {
+    return (command.applicability & AppliesTo(SelectionKind::Empty)) == 0 ||
+           command.commandId.starts_with(L"item.");
+}
+
+std::optional<std::vector<SelectionItem>> ResolveExistingSelection(std::span<const std::wstring> paths) {
+    std::vector<SelectionItem> selection;
+    selection.reserve(paths.size());
+    for (const auto& path : paths) {
+        if (path.empty()) return std::nullopt;
+        const DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) return std::nullopt;
+        selection.push_back({path, (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0});
+    }
+    return selection;
 }
 
 SelectionKind ClassifySelection(std::span<const SelectionItem> selection) {
@@ -566,7 +595,7 @@ std::vector<PaletteResult> SearchCommands(const CommandRegistry& registry, const
         const int score = FuzzyScore(command.displayName, query);
         if (score < 0) continue;
         const bool applicable = (command.applicability & AppliesTo(context.selectionKind)) != 0;
-        const bool enabled = applicable && (!command.enabledPredicate || command.enabledPredicate(context));
+        const bool enabled = applicable && CommandEnabled(command, context);
         const ShortcutBinding* binding = shortcuts.FindByCommand(command.commandId);
         result.push_back({&command, score, enabled, binding ? FormatKeyChord(binding->chord) : L""});
     }

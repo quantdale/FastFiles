@@ -361,6 +361,7 @@ STDMETHODIMP ColumnViewUiaProvider::Navigate(NavigateDirection direction, IRawEl
             }
             return S_OK;
         }
+        if (!surface_->UiaBrowseContentActive()) return S_OK;
         auto group = GroupElement();
         if (group != nullptr) {
             *retVal = group.Detach();
@@ -405,10 +406,10 @@ STDMETHODIMP ColumnViewUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** retVal)
 
 STDMETHODIMP ColumnViewUiaProvider::SetFocus() noexcept {
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
-    if (hwnd_ != nullptr && IsWindow(hwnd_)) {
-        ::SetFocus(hwnd_);
-    }
-    return S_OK;
+    UiaBrowseActionRequest request;
+    request.kind = UiaBrowseActionKind::FocusRoot;
+    request.ownerLifetime = State();
+    return surface_->UiaDispatchBrowseAction(request) ? S_OK : kElementNotAvailable;
 }
 
 STDMETHODIMP ColumnViewUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
@@ -425,6 +426,7 @@ STDMETHODIMP ColumnViewUiaProvider::ElementProviderFromPoint(double x, double y,
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
 
     const bool treemapActive = treemapSurface_ != nullptr && treemapSurface_->TreemapActive();
+    if (!treemapActive && !surface_->UiaBrowseContentActive()) return S_OK;
     const UiaViewGeometry geometry = treemapActive ? TreemapGeometry() : Geometry();
     POINT pt{static_cast<LONG>(x), static_cast<LONG>(y)};
     if (geometry.hwnd != nullptr && IsWindow(geometry.hwnd)) {
@@ -465,6 +467,7 @@ STDMETHODIMP ColumnViewUiaProvider::ElementProviderFromPoint(double x, double y,
     }
 
     const int paneCount = surface_->UiaPaneCount();
+    if (paneCount <= 0) return S_OK;
     const float paneWidth = geometry.widthDip / static_cast<float>(paneCount);
     const int pane = paneCount > 1 ? (xDip < paneWidth ? 0 : 1) : 0;
     if (pane < 0 || pane >= paneCount) return S_OK;
@@ -579,7 +582,7 @@ STDMETHODIMP ColumnViewUiaProvider::GetFocus(IRawElementProviderFragment** retVa
 }
 
 Microsoft::WRL::ComPtr<UiaProviderBase> ColumnViewUiaProvider::FocusElement() {
-    if (!Alive() || surface_ == nullptr) return nullptr;
+    if (!Alive() || surface_ == nullptr || !surface_->UiaBrowseContentActive()) return nullptr;
     const int active = surface_->UiaActivePane();
     if (surface_->UiaPaneIsHome(active)) {
         const int target = surface_->UiaHomeFocusTarget(active);
@@ -1157,12 +1160,12 @@ STDMETHODIMP ColumnViewGroupUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** re
 }
 
 STDMETHODIMP ColumnViewGroupUiaProvider::SetFocus() noexcept {
-    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
-    const HWND hwnd = owner_->Hwnd();
-    if (hwnd != nullptr && IsWindow(hwnd)) {
-        ::SetFocus(hwnd);
-    }
-    return S_OK;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) return kElementNotAvailable;
+    UiaBrowseActionRequest request;
+    request.kind = UiaBrowseActionKind::FocusRoot;
+    request.ownerLifetime = owner_->State();
+    request.fragmentLifetime = State();
+    return owner_->Surface()->UiaDispatchBrowseAction(request) ? S_OK : kElementNotAvailable;
 }
 
 STDMETHODIMP ColumnViewGroupUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
@@ -1346,8 +1349,12 @@ STDMETHODIMP PaneUiaProvider::SetFocus() noexcept {
     if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
-    owner_->Surface()->UiaActivatePane(pane_);
-    return S_OK;
+    UiaBrowseActionRequest request;
+    request.kind = UiaBrowseActionKind::FocusPane;
+    request.pane = pane_;
+    request.ownerLifetime = owner_->State();
+    request.fragmentLifetime = State();
+    return owner_->Surface()->UiaDispatchBrowseAction(request) ? S_OK : kElementNotAvailable;
 }
 
 STDMETHODIMP PaneUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
@@ -1749,8 +1756,14 @@ STDMETHODIMP ColumnUiaProvider::SetFocus() noexcept {
     if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
-    owner_->Surface()->UiaSetColumnFocus(pane_, column_);
-    return S_OK;
+    UiaBrowseActionRequest request;
+    request.kind = UiaBrowseActionKind::FocusColumn;
+    request.pane = pane_;
+    request.column = column_;
+    request.pathHash = pathHash_;
+    request.ownerLifetime = owner_->State();
+    request.fragmentLifetime = State();
+    return owner_->Surface()->UiaDispatchBrowseAction(request) ? S_OK : kElementNotAvailable;
 }
 
 STDMETHODIMP ColumnUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
@@ -1860,6 +1873,22 @@ bool ColumnItemUiaProvider::Resolve(UiaItemInfo& item, bool& statusLineShown) co
     // Never retarget: the current occupant of this row must still be the
     // item this element was created for.
     return UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh, item.fullPath) == idHash_;
+}
+
+HRESULT ColumnItemUiaProvider::Dispatch(UiaBrowseActionKind kind) const {
+    UiaItemInfo item;
+    bool statusLine = false;
+    if (!Resolve(item, statusLine)) return kElementNotAvailable;
+    UiaBrowseActionRequest request;
+    request.kind = kind;
+    request.pane = pane_;
+    request.column = column_;
+    request.row = row_;
+    request.pathHash = pathHash_;
+    request.itemHash = idHash_;
+    request.ownerLifetime = owner_->State();
+    request.fragmentLifetime = State();
+    return owner_->Surface()->UiaDispatchBrowseAction(request) ? S_OK : kElementNotAvailable;
 }
 
 STDMETHODIMP ColumnItemUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept {
@@ -2033,13 +2062,8 @@ STDMETHODIMP ColumnItemUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** retVal)
 }
 
 STDMETHODIMP ColumnItemUiaProvider::SetFocus() noexcept {
-    UiaItemInfo item;
-    bool statusLine = false;
-    if (!Resolve(item, statusLine)) {
-        return kElementNotAvailable;
-    }
-    owner_->Surface()->UiaSetItemFocus(pane_, column_, row_);
-    return S_OK;
+    const HRESULT result = Dispatch(UiaBrowseActionKind::FocusItem);
+    return result;
 }
 
 STDMETHODIMP ColumnItemUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
@@ -2050,37 +2074,18 @@ STDMETHODIMP ColumnItemUiaProvider::get_FragmentRoot(IRawElementProviderFragment
 }
 
 STDMETHODIMP ColumnItemUiaProvider::Select() noexcept {
-    UiaItemInfo item;
-    bool statusLine = false;
-    if (!Resolve(item, statusLine)) {
-        return kElementNotAvailable;
-    }
-    owner_->Surface()->UiaSelectItem(pane_, column_, row_);
-    return S_OK;
+    const HRESULT result = Dispatch(UiaBrowseActionKind::Select);
+    return result;
 }
 
 STDMETHODIMP ColumnItemUiaProvider::AddToSelection() noexcept {
-    UiaItemInfo item;
-    bool statusLine = false;
-    if (!Resolve(item, statusLine)) {
-        return kElementNotAvailable;
-    }
-    if (!item.selected) {
-        owner_->Surface()->UiaToggleItem(pane_, column_, row_);
-    }
-    return S_OK;
+    const HRESULT result = Dispatch(UiaBrowseActionKind::AddSelection);
+    return result;
 }
 
 STDMETHODIMP ColumnItemUiaProvider::RemoveFromSelection() noexcept {
-    UiaItemInfo item;
-    bool statusLine = false;
-    if (!Resolve(item, statusLine)) {
-        return kElementNotAvailable;
-    }
-    if (item.selected) {
-        owner_->Surface()->UiaToggleItem(pane_, column_, row_);
-    }
-    return S_OK;
+    const HRESULT result = Dispatch(UiaBrowseActionKind::RemoveSelection);
+    return result;
 }
 
 STDMETHODIMP ColumnItemUiaProvider::get_IsSelected(BOOL* retVal) noexcept {
@@ -2109,24 +2114,14 @@ STDMETHODIMP ColumnItemUiaProvider::get_SelectionContainer(IRawElementProviderSi
 }
 
 STDMETHODIMP ColumnItemUiaProvider::Invoke() noexcept {
-    UiaItemInfo item;
-    bool statusLine = false;
-    if (!Resolve(item, statusLine)) {
-        return kElementNotAvailable;
-    }
-    owner_->Surface()->UiaActivateItem(pane_, column_, row_);
-    UiaProviderBase::RaiseInvoked(this);
-    return S_OK;
+    const HRESULT result = Dispatch(UiaBrowseActionKind::Invoke);
+    if (SUCCEEDED(result)) UiaProviderBase::RaiseInvoked(this);
+    return result;
 }
 
 STDMETHODIMP ColumnItemUiaProvider::ScrollIntoView() noexcept {
-    UiaItemInfo item;
-    bool statusLine = false;
-    if (!Resolve(item, statusLine)) {
-        return kElementNotAvailable;
-    }
-    owner_->Surface()->UiaScrollItemIntoView(pane_, column_, row_);
-    return S_OK;
+    const HRESULT result = Dispatch(UiaBrowseActionKind::ScrollItem);
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -2889,7 +2884,15 @@ STDMETHODIMP HomeItemUiaProvider::Invoke() noexcept {
     if (!item.enabled) {
         return E_FAIL;
     }
-    surface->UiaActivateHomeItem(pane_, globalIndex_, false);
+    UiaHomeActionRequest request;
+    request.pane = pane_;
+    request.globalIndex = globalIndex_;
+    request.sectionKind = sectionKind_;
+    request.indexInSection = indexInSection_;
+    request.valueHash = valueHash_;
+    request.ownerLifetime = owner_->State();
+    request.fragmentLifetime = State();
+    if (!surface->UiaDispatchHomeAction(request)) return kElementNotAvailable;
     UiaProviderBase::RaiseInvoked(this);
     return S_OK;
 }
@@ -3133,7 +3136,14 @@ STDMETHODIMP HomeClearUiaProvider::Invoke() noexcept {
     if (section.sectionKind < 0) {
         return kElementNotAvailable;
     }
-    surface->UiaActivateHomeClear(pane_, clearKind_);
+    UiaHomeActionRequest request;
+    request.kind = UiaHomeActionKind::ClearSection;
+    request.pane = pane_;
+    request.sectionKind = section.sectionKind;
+    request.clearKind = clearKind_;
+    request.ownerLifetime = owner_->State();
+    request.fragmentLifetime = State();
+    if (!surface->UiaDispatchHomeAction(request)) return kElementNotAvailable;
     UiaProviderBase::RaiseInvoked(this);
     return S_OK;
 }

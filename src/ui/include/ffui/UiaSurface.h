@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <string>
 #include <windows.h>
+#include "ffui/UiaIdentity.h"
+#include "ffui/UiaLifetime.h"
 
 #include "ffui/HomeLayout.h" // HomeSectionKind values + layout geometry
 
@@ -97,6 +99,19 @@ struct UiaItemInfo {
     bool focused = false;        // row == the column's focusIndex
 };
 
+// column-uia-identity-dispatch: retain original provider identity until mutation.
+enum class UiaBrowseActionKind { Select, AddSelection, RemoveSelection, FocusItem, Invoke, ScrollItem, FocusRoot, FocusColumn, FocusPane };
+struct UiaBrowseActionRequest {
+    UiaBrowseActionKind kind = UiaBrowseActionKind::Select;
+    int pane = -1;
+    int column = -1;
+    int row = -1;
+    uint64_t pathHash = 0;
+    uint64_t itemHash = 0;
+    UiaOwnerStatePtr ownerLifetime;
+    UiaOwnerStatePtr fragmentLifetime;
+};
+
 // One Home surface item (bounded <= kHomeMaxItems = 200 by the layout seam).
 struct UiaHomeItemInfo {
     int sectionKind = kUiaHomeSectionPinned;
@@ -117,6 +132,22 @@ struct UiaHomeSectionInfo {
     int firstGlobalIndex = 0;
     float headerX = 0.0f, headerY = 0.0f, headerWidth = 0.0f, headerHeight = 0.0f;
     bool clearAffordance = false; // Recent folders/searches sections with items
+};
+
+// Closed Home action data preserves the identity and lifetime resolved by the
+// caller until the owner thread can validate and execute the real operation.
+enum class UiaHomeActionKind { InvokeItem, ClearSection };
+
+struct UiaHomeActionRequest {
+    UiaHomeActionKind kind = UiaHomeActionKind::InvokeItem;
+    int pane = -1;
+    int globalIndex = -1;
+    int sectionKind = -1;
+    int indexInSection = -1;
+    uint64_t valueHash = 0;
+    int clearKind = -1;
+    UiaOwnerStatePtr ownerLifetime;
+    UiaOwnerStatePtr fragmentLifetime;
 };
 
 // Home scroll geometry (per pane).
@@ -143,7 +174,16 @@ struct UiaSearchResultInfo {
     // description and the visible row agree. Default-constructed == unknown.
     uint64_t allocatedSizeBytes = 0;
     bool allocatedSizeKnown = false;
+    // Optional semantic-list identity/description for typed non-file rows.
+    // Search leaves these unset and retains its canonical candidate identity.
+    uint64_t identityHash = 0;
+    std::wstring description;
 };
+
+inline uint64_t SemanticListItemIdentity(const UiaSearchResultInfo& info) {
+    return info.identityHash != 0 ? info.identityHash
+        : UiaSearchIdentityHash(info.volumeId, info.id, info.folder, info.name);
+}
 
 // The one seam. Non-pure members have safe defaults so a test fake (or a
 // surface that owns only part of the semantics) overrides only what it
@@ -156,6 +196,7 @@ public:
 
     // --- navigation surface (ColumnView) ---
     virtual UiaViewGeometry UiaGeometry() const { return {}; }
+    virtual bool UiaBrowseContentActive() const { return true; }
     // The shell details pane publishes its current terminal state through the
     // root help text.  This is a user-visible accessibility projection, not a
     // test-only channel: screen readers and black-box diagnostics can tell
@@ -192,9 +233,77 @@ public:
     virtual void UiaSetHorizontalScroll(int pane, float offsetDip) { (void)pane; (void)offsetDip; }
     virtual void UiaScrollItemIntoView(int pane, int col, int row) { (void)pane; (void)col; (void)row; }
 
+    // Native adapters override this to validate and mutate under one model
+    // lock on the owner thread. The default supports single-threaded surfaces.
+    virtual bool UiaDispatchBrowseAction(const UiaBrowseActionRequest& request) {
+        if (!request.ownerLifetime || !request.ownerLifetime->alive) return false;
+        if (request.kind == UiaBrowseActionKind::FocusRoot) {
+            return !request.fragmentLifetime || (request.fragmentLifetime->alive && UiaBrowseContentActive());
+        }
+        if (!request.fragmentLifetime || !request.fragmentLifetime->alive || !UiaBrowseContentActive() ||
+            request.pane < 0 || request.pane >= UiaPaneCount()) return false;
+        if (request.kind == UiaBrowseActionKind::FocusPane) {
+            UiaActivatePane(request.pane);
+            return true;
+        }
+        if (UiaPaneIsHome(request.pane) || request.column < 0 || request.column >= UiaColumnCount(request.pane)) return false;
+        const auto column = UiaColumnInfoOf(request.pane, request.column);
+        if (UiaHashWide(column.path) != request.pathHash) return false;
+        if (request.kind == UiaBrowseActionKind::FocusColumn) {
+            UiaSetColumnFocus(request.pane, request.column);
+            return true;
+        }
+        if (request.row < 0 || request.row >= column.itemCount) return false;
+        const auto item = UiaItemInfoOf(request.pane, request.column, request.row);
+        if (UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh, item.fullPath) != request.itemHash) return false;
+        switch (request.kind) {
+        case UiaBrowseActionKind::Select: UiaSelectItem(request.pane, request.column, request.row); break;
+        case UiaBrowseActionKind::AddSelection:
+            if (!item.selected) UiaToggleItem(request.pane, request.column, request.row);
+            break;
+        case UiaBrowseActionKind::RemoveSelection:
+            if (item.selected) UiaToggleItem(request.pane, request.column, request.row);
+            break;
+        case UiaBrowseActionKind::FocusItem: UiaSetItemFocus(request.pane, request.column, request.row); break;
+        case UiaBrowseActionKind::Invoke: UiaActivateItem(request.pane, request.column, request.row); break;
+        case UiaBrowseActionKind::ScrollItem: UiaScrollItemIntoView(request.pane, request.column, request.row); break;
+        default: return false;
+        }
+        return true;
+    }
+
     // --- actions (Home) ---
     virtual void UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) { (void)pane; (void)globalIndex; (void)openInNewTab; }
     virtual void UiaActivateHomeClear(int pane, int clearKind) { (void)pane; (void)clearKind; }
+    // original-vision-journey-recovery: native adapters marshal this closed
+    // request before validating the original provider identity and mutating.
+    virtual bool UiaDispatchHomeAction(const UiaHomeActionRequest& request) {
+        if (request.ownerLifetime == nullptr || !request.ownerLifetime->alive ||
+            request.fragmentLifetime == nullptr || !request.fragmentLifetime->alive ||
+            !UiaBrowseContentActive() || request.pane < 0 || request.pane >= UiaPaneCount() ||
+            !UiaPaneIsHome(request.pane)) return false;
+        if (request.kind == UiaHomeActionKind::InvokeItem) {
+            if (request.globalIndex < 0 || request.globalIndex >= UiaHomeItemCount(request.pane)) return false;
+            const auto item = UiaHomeItemInfoOf(request.pane, request.globalIndex);
+            if (!item.enabled || item.sectionKind != request.sectionKind ||
+                item.indexInSection != request.indexInSection || UiaHashWide(item.value) != request.valueHash) return false;
+            UiaActivateHomeItem(request.pane, request.globalIndex, false);
+            return true;
+        }
+        if (request.kind != UiaHomeActionKind::ClearSection ||
+            (request.clearKind != kUiaHomeClearRecentFolders && request.clearKind != kUiaHomeClearRecentSearches)) return false;
+        const int wantedSection = request.clearKind == kUiaHomeClearRecentFolders
+            ? kUiaHomeSectionRecentFolders : kUiaHomeSectionRecentSearches;
+        if (request.sectionKind != wantedSection) return false;
+        for (int i = 0; i < UiaHomeSectionCount(request.pane); ++i) {
+            const auto section = UiaHomeSectionInfoOf(request.pane, i);
+            if (section.sectionKind == wantedSection && section.clearAffordance && section.itemCount > 0) {
+                UiaActivateHomeClear(request.pane, request.clearKind);
+                return true;
+            }
+        }
+        return false;
+    }
     virtual void UiaSetHomeFocusItem(int pane, int globalIndex) { (void)pane; (void)globalIndex; }
     virtual void UiaSetHomeFocusClear(int pane, int clearKind) { (void)pane; (void)clearKind; }
     virtual void UiaScrollHomeItemIntoView(int pane, int globalIndex) { (void)pane; (void)globalIndex; }
@@ -207,12 +316,50 @@ public:
     virtual bool UiaSearchVisible() const { return false; }
     virtual bool UiaSearchHasKeyboardFocus() const { return false; }
     virtual HWND UiaSearchHwnd() const { return nullptr; }
+    virtual void UiaListSetFocus() {
+        const HWND hwnd = UiaSearchHwnd();
+        if (hwnd != nullptr && IsWindow(hwnd)) ::SetFocus(hwnd);
+    }
     virtual void UiaSearchSelectItem(size_t index) { (void)index; }
     virtual void UiaSearchAddToSelection(size_t index) { (void)index; }
     virtual void UiaSearchRemoveFromSelection(size_t index) { (void)index; }
     virtual void UiaSearchSetFocusItem(size_t index) { (void)index; }
     virtual void UiaSearchActivateItem(size_t index) { (void)index; }
     virtual void UiaSearchScrollIntoView(size_t index) { (void)index; }
+    // Expected identity travels with the action; native adapters validate it
+    // atomically on their owning UI thread instead of re-stamping an index.
+    virtual bool UiaListDispatchAction(size_t index, uint64_t expectedIdentity, unsigned action) {
+        if (index >= UiaSearchResultCount() || SemanticListItemIdentity(UiaSearchResultInfoOf(index)) != expectedIdentity) return false;
+        switch (action) {
+        case 0: UiaSearchSelectItem(index); break;
+        case 1: UiaSearchRemoveFromSelection(index); break;
+        case 2: UiaSearchSetFocusItem(index); break;
+        case 3: UiaSearchScrollIntoView(index); break;
+        case 4: UiaSearchActivateItem(index); break;
+        default: return false;
+        }
+        return true;
+    }
+    virtual bool UiaListResultRect(size_t index, uint64_t identity, RECT& rect) const {
+        return index < UiaSearchResultCount() && SemanticListItemIdentity(UiaSearchResultInfoOf(index)) == identity &&
+               UiaSearchResultRect(index, rect);
+    }
+    virtual bool UiaListResultOffscreen(size_t index, uint64_t identity) const {
+        return index >= UiaSearchResultCount() || SemanticListItemIdentity(UiaSearchResultInfoOf(index)) != identity ||
+               UiaSearchResultOffscreen(index);
+    }
+    // Optional real report-list column headers. Search has none; Storage
+    // projects the actual SysHeader32 geometry and sorting commands.
+    virtual size_t UiaListHeaderCount() const { return 0; }
+    virtual std::wstring UiaListHeaderName(size_t index) const { (void)index; return {}; }
+    virtual bool UiaListHeaderRect(size_t index, RECT& outScreen) const { (void)index; (void)outScreen; return false; }
+    virtual void UiaListInvokeHeader(size_t index) { (void)index; }
+    virtual uint64_t UiaListHeaderIdentity(size_t index) const { return static_cast<uint64_t>(index) + 1; }
+    virtual bool UiaListDispatchHeader(size_t index, uint64_t identity) {
+        if (index >= UiaListHeaderCount() || UiaListHeaderIdentity(index) != identity) return false;
+        UiaListInvokeHeader(index);
+        return true;
+    }
 };
 
 } // namespace ffui
