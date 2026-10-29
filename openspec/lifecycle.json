@@ -1864,7 +1864,7 @@
     },
     {
       "name": "fit-native-command-palette-to-results",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
