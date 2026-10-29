@@ -169,5 +169,7 @@ if ($failures -gt 0) {
     Write-Error "$failures E2E harness contract checks failed."
     exit 1
 }
+& (Join-Path $PSScriptRoot 'Test-E2EProvenance.ps1')
+& (Join-Path $PSScriptRoot 'Test-E2EFailureEvidenceOwnership.ps1')
 Write-Host 'PASS: E2E harness contract checks completed.'
 exit 0

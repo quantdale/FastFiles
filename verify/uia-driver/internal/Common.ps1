@@ -38,11 +38,78 @@ if (-not ('UiaDriverUnavailableException' -as [type])) {
     }
 }
 
-function Initialize-UiaManagedApi {
-    if (-not $script:UiaManagedApiLoaded) {
-        Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-        $script:UiaManagedApiLoaded = $true
+function Get-UiaStandardProxyIdentity {
+    # repair-native-ui-verification-fidelity 1.1: metadata-only policy, also
+    # exercised by portable tests without loading any Windows UIA assembly.
+    param([System.Reflection.AssemblyName]$InstalledIdentity, [string[]]$ExportedTypeNames)
+    $standardName = 'UIAutomationClientSideProviders'
+    if ($null -eq $InstalledIdentity -or
+        -not [string]::Equals($InstalledIdentity.Name, $standardName, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Only the installed standard UIAutomationClientSideProviders assembly is supported.'
     }
+    $entries = @($ExportedTypeNames | Where-Object {
+        $_ -cmatch '^([^.]+)\.UIAutomationClientSideProviders$' -and
+        [string]::Equals($Matches[1], $standardName, [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($entries.Count -ne 1) { throw 'The installed standard provider must export exactly one standard entry type.' }
+    $requestedIdentity = [System.Reflection.AssemblyName]$InstalledIdentity.Clone()
+    $requestedIdentity.Name = $entries[0].Substring(0, $entries[0].LastIndexOf('.'))
+    return $requestedIdentity
+}
+
+function Initialize-UiaStandardProxy {
+    param([System.Reflection.Assembly]$ClientAssembly)
+    # The AppDomain marker survives Import-Module -Force. Its installed-client
+    # MVID key and provider MVID bind the record to this runtime, not a module
+    # import or arbitrary global configuration. Failures are deliberately cached.
+    $key = 'FastFiles.UiaStandardProxy.' + $ClientAssembly.ManifestModule.ModuleVersionId.ToString('D')
+    $domain = [AppDomain]::CurrentDomain
+    $prior = $domain.GetData($key)
+    if ($null -ne $prior) {
+        if ($prior.Status -eq 'Ready') { return }
+        throw [UiaDriverUnavailableException]::new($prior.Error, 'standard-uia-proxy-unavailable')
+    }
+    $state = @{ Status = 'Initializing'; Error = 'Standard UIA proxy initialization is already in progress.' }
+    $domain.SetData($key, $state)
+    try {
+        $providerPath = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetDirectoryName($ClientAssembly.Location)) 'UIAutomationClientSideProviders.dll'))
+        $installedIdentity = [Reflection.AssemblyName]::GetAssemblyName($providerPath)
+        if (-not [string]::Equals($installedIdentity.Name, 'UIAutomationClientSideProviders', [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The adjacent assembly is not the installed standard UIA provider.'
+        }
+        $provider = [Reflection.Assembly]::LoadFrom($providerPath)
+        if (-not [string]::Equals([IO.Path]::GetFullPath($provider.Location), $providerPath, [StringComparison]::OrdinalIgnoreCase) -or
+            -not [string]::Equals($provider.FullName, $installedIdentity.FullName, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The loaded standard UIA provider does not match the installed client directory and identity.'
+        }
+        $requestedIdentity = Get-UiaStandardProxyIdentity -InstalledIdentity $installedIdentity -ExportedTypeNames @($provider.GetExportedTypes() | ForEach-Object { $_.FullName })
+        $providerMvid = $provider.ManifestModule.ModuleVersionId
+        # The public ClientSettings surface has no registration-table getter.
+        # Register the installed standard provider once for this client module;
+        # the AppDomain marker prevents duplication by subsequent driver imports.
+        [System.Windows.Automation.ClientSettings]::RegisterClientSideProviderAssembly($requestedIdentity)
+        $state.ProviderMvid = $providerMvid.ToString('D')
+        $state.ProviderPath = $providerPath
+        $state.RequestedIdentity = $requestedIdentity.FullName
+        $state.RegisteredByBootstrap = $true
+        $state.Error = $null
+        $state.Status = 'Ready'
+    } catch {
+        $state.Error = 'Installed standard UIA proxy initialization failed: ' + $_.Exception.Message
+        $state.Status = 'Failed'
+        throw [UiaDriverUnavailableException]::new($state.Error, 'standard-uia-proxy-unavailable')
+    }
+}
+
+function Initialize-UiaManagedApi {
+    if ($script:UiaManagedApiLoaded) { return }
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    # Initialize the public UIA runtime before registering proxies. Registering
+    # on a completely cold client otherwise hits uninitialized runtime state
+    # on some installed versions; no standard-control semantics are used here.
+    $null = [System.Windows.Automation.AutomationElement]::RootElement
+    Initialize-UiaStandardProxy -ClientAssembly ([System.Windows.Automation.AutomationElement].Assembly)
+    $script:UiaManagedApiLoaded = $true
 }
 
 function Test-UiaMockElement {

@@ -71,3 +71,8 @@ pwsh ./verify/e2e/Test-CompactCommandPalette.ps1 -ArtifactsDir build/compact-pal
 ```
 
 It uses four isolated profiles for light/dark and Compact/Comfortable, 620/1008/1600 window widths, real native keyboard/query controls, live resizing, Home dispatch, UIA bounds and measured-DPI screenshots. The exact-source gate runs before launch and an existing evidence directory is rejected. Screenshots require actual inspection; external overlays and physical display limitations must remain explicit. No user file operations, system setting changes, privilege or signing are required. The isolated PR25-based source needs the safe cleanup successor composition before actual app execution; pass `-RepoRoot` to that committed integration checkout when testing this draft.
+Portable contracts run through `Test-E2EHarness.ps1`, including
+`Test-E2EProvenance.ps1`. The latter executes the actual runner against an owned
+fake repository and a provenance module that always fails preflight. It checks
+the preset build root, all five required binaries (including a missing engine),
+and development/exact-tree mode without launching any application or UI.

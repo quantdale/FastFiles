@@ -1,0 +1,37 @@
+{
+  "Status": "FAIL",
+  "RunnerSha256": "E6EFFEFBC64EC39C0AC3FB06EA4BBB979DE2F9A38E97CBBA6CEC7AE51A2FB680",
+  "Cases": [
+    {
+      "Name": "complete-development",
+      "ExitCode": 1,
+      "Call": {
+        "BuildDirectory": "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-23fdd1779f7a4e12bdfce3ba12d059c8\\build\\test-preset\\src",
+        "Binaries": [
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-23fdd1779f7a4e12bdfce3ba12d059c8\\build\\test-preset\\src\\ui\\FastFiles.exe"
+        ],
+        "Missing": [],
+        "Mode": "development",
+        "Stage": "e2e-preflight"
+      },
+      "PreflightReceiptExists": true,
+      "PreflightStopReported": true
+    },
+    {
+      "Name": "missing-engine-exact",
+      "ExitCode": 1,
+      "Call": {
+        "BuildDirectory": "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-23fdd1779f7a4e12bdfce3ba12d059c8\\build\\test-preset\\src",
+        "Binaries": [
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-23fdd1779f7a4e12bdfce3ba12d059c8\\build\\test-preset\\src\\ui\\FastFiles.exe"
+        ],
+        "Missing": [],
+        "Mode": "exact-tree",
+        "Stage": "e2e-preflight"
+      },
+      "PreflightReceiptExists": true,
+      "PreflightStopReported": true
+    }
+  ],
+  "Error": "FAIL: complete-development: helper receives preset build root above src/ui"
+}

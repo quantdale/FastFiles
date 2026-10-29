@@ -1873,6 +1873,46 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "repair-native-ui-verification-fidelity",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repair-native-ui-verification-fidelity/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repair-native-ui-verification-fidelity/evidence/qualification.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "repair-address-navigation-discovery",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repair-address-navigation-discovery/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "preserve-e2e-failure-evidence",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-e2e-failure-evidence/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

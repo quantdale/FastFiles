@@ -1,0 +1,10 @@
+{
+  "implementation": "d33e31999c38f20d7d9b4ec77c5ae6362b87aff8",
+  "combined": "3acfa1261243963a641046c059062cdddf0a6df6",
+  "navigationBodySha256": "c75e2b31dafefb98d32911122ba17338dc85dbdecbcaeb92a6b1d4571bbd3fdd",
+  "testScriptSha256": "b54648fc148e53e46d99000d22a1c9afa0b44795b887e8bc96d8c2643825695c",
+  "wholeNavigationFunctionEqual": true,
+  "wholeTestEqual": true,
+  "productSrcTreeUnchangedSince": "b868b4e81636475368d7074b0f7a1d4f03f120f3",
+  "scope": "Source components only; generated identity/resources and whole executable differ. No whole-executable equality."
+}

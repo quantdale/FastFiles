@@ -1,0 +1,141 @@
+{
+  "StartedUtc": "2026-10-27T11:59:39.3302731Z",
+  "ClientPid": 140616,
+  "PowerShell": "7.6.9",
+  "ColdStart": true,
+  "Status": "PASS",
+  "SourceHashes": [
+    {
+      "Sha256": "10CF6D78B6C4CAC6B002912E63354F683254F2704059F6E429FCEB12955CB8D3",
+      "Path": "verify/uia-driver/internal/Common.ps1"
+    },
+    {
+      "Sha256": "A6B1AEE0B5A00A61D07400BA74F2DC129BC8FF2A8ED5345F38AA126B522A8627",
+      "Path": "verify/uia-driver/internal/Input.ps1"
+    },
+    {
+      "Sha256": "3F52C78FA9822929B249513FBE76A0CAB0551F3D12603285E37C0C53727F05C1",
+      "Path": "verify/uia-driver/tests/NativeStandardFixture.cs"
+    },
+    {
+      "Sha256": "E1EFE018D379B431E9747C8F4C6A8024989C96839611021FD24C0F9B23538A1B",
+      "Path": "verify/uia-driver/tests/NativeNameObserver.cs"
+    },
+    {
+      "Sha256": "F260E818BE9BADC8B27E782C11913D21B7A9515850A1DA7C9AA1E528F042F117",
+      "Path": "verify/uia-driver/tests/Test-NativeStandardControls.ps1"
+    }
+  ],
+  "Before": [
+    {
+      "Label": "checkbox",
+      "Hwnd": 8655664,
+      "Pid": 140616,
+      "ThreadId": 143000,
+      "Class": "Button",
+      "ControlType": "ControlType.CheckBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "TogglePatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "Label": "combo",
+      "Hwnd": 21236788,
+      "Pid": 140616,
+      "ThreadId": 143000,
+      "Class": "ComboBox",
+      "ControlType": "ControlType.ComboBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "SelectionPatternIdentifiers.Pattern",
+        "ExpandCollapsePatternIdentifiers.Pattern"
+      ]
+    }
+  ],
+  "NameBefore": "count=1;latest=30005:Owned fixture title before bootstrap;current=Owned fixture title before bootstrap",
+  "AfterSame": [
+    {
+      "Label": "checkbox",
+      "Hwnd": 8655664,
+      "Pid": 140616,
+      "ThreadId": 143000,
+      "Class": "Button",
+      "ControlType": "ControlType.CheckBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "TogglePatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "Label": "combo",
+      "Hwnd": 21236788,
+      "Pid": 140616,
+      "ThreadId": 143000,
+      "Class": "ComboBox",
+      "ControlType": "ControlType.ComboBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "SelectionPatternIdentifiers.Pattern",
+        "ExpandCollapsePatternIdentifiers.Pattern"
+      ]
+    }
+  ],
+  "AfterFresh": [
+    {
+      "Label": "freshCheckbox",
+      "Hwnd": 22089304,
+      "Pid": 140616,
+      "ThreadId": 143000,
+      "Class": "Button",
+      "ControlType": "ControlType.CheckBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "TogglePatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "Label": "freshCombo",
+      "Hwnd": 7737804,
+      "Pid": 140616,
+      "ThreadId": 143000,
+      "Class": "ComboBox",
+      "ControlType": "ControlType.ComboBox",
+      "FrameworkId": "Win32",
+      "IsKeyboardFocusable": true,
+      "Patterns": [
+        "SelectionPatternIdentifiers.Pattern",
+        "ExpandCollapsePatternIdentifiers.Pattern"
+      ]
+    }
+  ],
+  "NameAfter": "count=1;latest=30005:Owned fixture title after bootstrap;current=Owned fixture title after bootstrap",
+  "Bootstrap": {
+    "Status": "Ready",
+    "RegisteredByBootstrap": true,
+    "Error": null,
+    "ProviderPath": "C:\\Program Files\\PowerShell\\7\\UIAutomationClientSideProviders.dll",
+    "ProviderMvid": "872718a0-4c24-4648-bce6-f935adc9acd5",
+    "RequestedIdentity": "UIAutomationClientsideProviders, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+  },
+  "ReloadReusedMarker": true,
+  "Capture": {
+    "LegacyPidLookupSucceeded": false,
+    "SiblingObserved": true,
+    "OwnerPid": 140616,
+    "ReleasedObserved": false,
+    "OwnerTid": 143000,
+    "ActualCaptureHwnd": 8655664,
+    "LegacyObservedCapture": false,
+    "ParentObserved": true
+  },
+  "ClosedNormally": true,
+  "WindowStillExists": false,
+  "DestroyedHandleCapture": false,
+  "EndedUtc": "2026-10-27T11:59:41.4489420Z"
+}

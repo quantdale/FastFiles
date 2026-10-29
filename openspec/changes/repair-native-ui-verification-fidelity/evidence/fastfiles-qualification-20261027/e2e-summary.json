@@ -1,0 +1,48 @@
+{
+  "source": "5a0ccbb",
+  "passed": 7,
+  "failed": 1,
+  "skipped": 0,
+  "results": [
+    {
+      "id": "launch-ready",
+      "status": "PASS",
+      "detail": "main window and engine handshake ready; pid=122908; ready=engine-connected"
+    },
+    {
+      "id": "navigation-browse",
+      "status": "PASS",
+      "detail": "Home, This PC terminal state, nested browse, Back, Forward, Up, direct path, stale-column, and terminal-item checks passed"
+    },
+    {
+      "id": "search-user-flow",
+      "status": "PASS",
+      "detail": "Home search, exact, partial, no-result, superseded-query, full hierarchy, exact selected path, and visible result checks passed"
+    },
+    {
+      "id": "storage-terminal-geometry",
+      "status": "PASS",
+      "detail": "Storage.Treemap reached a terminal usable state with 1 tiles; group/tile UIA bounds were contained and a tile Invoke was accepted"
+    },
+    {
+      "id": "preview-terminal-state",
+      "status": "PASS",
+      "detail": "preview terminal states were distinct (Preview: Ready -> Preview: Unsupported); stale preview was not accepted as the new selection"
+    },
+    {
+      "id": "file-operations",
+      "status": "PASS",
+      "detail": "real create-folder, rename, copy, move, and recycle-delete operations verified under 'C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-9bf97ac6273c4172bd101708a0387036-5336eb3a666b45b99854db399821878a\\Fixtures\\FastFilesE2E'; conflict case not invoked because the production default uses a modal conflict policy"
+    },
+    {
+      "id": "cold-restore",
+      "status": "FAIL",
+      "detail": "restored Home did not exit within the unchanged close deadline"
+    },
+    {
+      "id": "process-lifecycle",
+      "status": "PASS",
+      "detail": "completed 2 bounded launch/navigate/close iterations with no repo-owned process residue"
+    }
+  ]
+}

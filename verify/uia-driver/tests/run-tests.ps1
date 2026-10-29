@@ -30,6 +30,10 @@ $module = Join-Path $repo 'verify\uia-driver\UiaDriver.psm1'
 $treePath = Join-Path $repo 'verify\uia-driver\tests\recorded-trees\sample-files-window.json'
 Import-Module $module -Force
 
+# Metadata/cache policy runs before the optional native availability probe and
+# also works on non-Windows hosts. Native fixture is deliberately opt-in only.
+& (Join-Path $PSScriptRoot 'test-standard-proxy-metadata.ps1')
+
 Write-Host "== availability probe (2.2) =="
 $avail = Get-UiaDriverAvailability
 Check ($null -ne $avail) 'availability probe returns an envelope'

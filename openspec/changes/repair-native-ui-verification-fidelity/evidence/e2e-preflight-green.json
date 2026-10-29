@@ -1,0 +1,48 @@
+{
+  "Status": "PASS",
+  "RunnerSha256": "AA1EC8AFDE1C6E1943587860BCD45D47E1DFB522ED1EAB2B6EC97AE57596C1B0",
+  "Cases": [
+    {
+      "Name": "complete-development",
+      "ExitCode": 1,
+      "Call": {
+        "BuildDirectory": "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset",
+        "Binaries": [
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\ui\\FastFiles.exe",
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\engine\\FastFilesEngine.exe",
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\indexsvc\\FastFilesIndexSvc.exe",
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\installer\\FastFilesSetup.exe",
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\fftest\\fftest.exe"
+        ],
+        "Missing": [],
+        "Mode": "development",
+        "Stage": "e2e-preflight"
+      },
+      "PreflightReceiptExists": true,
+      "PreflightStopReported": true
+    },
+    {
+      "Name": "missing-engine-exact",
+      "ExitCode": 1,
+      "Call": {
+        "BuildDirectory": "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset",
+        "Binaries": [
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\ui\\FastFiles.exe",
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\engine\\FastFilesEngine.exe",
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\indexsvc\\FastFilesIndexSvc.exe",
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\installer\\FastFilesSetup.exe",
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\fftest\\fftest.exe"
+        ],
+        "Missing": [
+          "C:\\Users\\palac\\AppData\\Local\\Temp\\FastFiles-E2E-Provenance-80af6f4f0575439296eb6d2061bf6bfe\\build\\test-preset\\src\\engine\\FastFilesEngine.exe"
+        ],
+        "Mode": "exact-tree",
+        "Stage": "e2e-preflight"
+      },
+      "PreflightReceiptExists": true,
+      "PreflightStopReported": true
+    }
+  ],
+  "Checks": 20,
+  "CleanupSucceeded": true
+}
