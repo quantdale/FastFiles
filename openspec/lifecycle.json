@@ -1642,10 +1642,61 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/explore-findings.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/index.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/owner-handoff.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/certification-report.md"
         }
       ],
       "supersededBy": null,
-      "taskOverrides": []
+      "taskOverrides": [
+        {
+          "task": "7.11",
+          "disposition": "external",
+          "categories": [
+            "external-provider",
+            "interactive"
+          ],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/native-acceptance-report.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/uia-explorer-drag-in-investigation.md"
+            }
+          ]
+        },
+        {
+          "task": "7.12",
+          "disposition": "external",
+          "categories": [
+            "external-provider",
+            "interactive"
+          ],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/native-acceptance-report.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/uia-explorer-drag-in-investigation.md"
+            }
+          ]
+        }
+      ]
     },
     {
       "name": "overnight-truth-audit-and-measured-performance",
