@@ -61,3 +61,13 @@ fresh owned-window Name-property terminal observations, actual measured-DPI
 captures and lifecycle diagnostics. An already completed copy cannot qualify
 cancellation, and absent bin matches cannot qualify permanent exclusion unless
 the owned recycle/Undo positive control first passed.
+
+## Compact command palette qualification
+
+With clean committed diagnostic binaries and safe registered-window cleanup composition, run this serialized desktop test (stop other UI/engine-pipe suites first):
+
+```powershell
+pwsh ./verify/e2e/Test-CompactCommandPalette.ps1 -ArtifactsDir build/compact-palette-qualification
+```
+
+It uses four isolated profiles for light/dark and Compact/Comfortable, 620/1008/1600 window widths, real native keyboard/query controls, live resizing, Home dispatch, UIA bounds and measured-DPI screenshots. The exact-source gate runs before launch and an existing evidence directory is rejected. Screenshots require actual inspection; external overlays and physical display limitations must remain explicit. No user file operations, system setting changes, privilege or signing are required. The isolated PR25-based source needs the safe cleanup successor composition before actual app execution; pass `-RepoRoot` to that committed integration checkout when testing this draft.

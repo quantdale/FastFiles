@@ -1,0 +1,33 @@
+{
+  "source": "90e6cdf4ecc0927672b96bedfb14edefbf966a08",
+  "failure": null,
+  "observations": [
+    {
+      "label": "first",
+      "elapsedMs": 10023,
+      "managedGroup": true,
+      "freshManagedGroup": true,
+      "nativeExit": 0,
+      "nativeGroup": true,
+      "nativeRootProvider": "root id=MainWindow name=FastFiles class=FastFilesMainWindow provider=[pid:128252,providerId:0xF91854 Main:Nested [pid:148356,providerId:0xF91854 Main(parent link):FastFiles Column View provider (unmanaged:FastFiles.exe)]; Nonclient:Microsoft: Non-Client Proxy (unmanaged:uiautomationcore.dll); Hwnd(parent link):Microsoft: HWND Proxy (unmanaged:uiautomationcore.dll)]",
+      "managedErrors": [],
+      "freshManagedErrors": []
+    },
+    {
+      "label": "second",
+      "elapsedMs": 15119,
+      "managedGroup": true,
+      "freshManagedGroup": true,
+      "nativeExit": 0,
+      "nativeGroup": true,
+      "nativeRootProvider": "root id=MainWindow name=FastFiles class=FastFilesMainWindow provider=[pid:150416,providerId:0xD157A Main:Nested [pid:148964,providerId:0xD157A Main(parent link):FastFiles Column View provider (unmanaged:FastFiles.exe)]; Nonclient:Microsoft: Non-Client Proxy (unmanaged:uiautomationcore.dll); Hwnd(parent link):Microsoft: HWND Proxy (unmanaged:uiautomationcore.dll)]",
+      "managedErrors": [],
+      "freshManagedErrors": []
+    }
+  ],
+  "cleanupPass": [
+    true,
+    true
+  ],
+  "priorFailureScreenshotSha256": "cbfd74f7f96c41ecae62648bbed1bdd67a558fa2b957c82dfb3482db877f4059"
+}

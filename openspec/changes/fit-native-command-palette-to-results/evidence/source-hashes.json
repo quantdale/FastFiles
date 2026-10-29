@@ -1,0 +1,17 @@
+{
+  "base": "95c1589a7b3ca6511aea93961509b819a1c64270",
+  "files": [
+    {
+      "path": "src/ui/src/CommandPalette.cpp",
+      "sha256": "474ad36a3409cf175ba5b36f2fea30dcb3a4a5be6bd73120a9076703d654a111"
+    },
+    {
+      "path": "src/ui/src/UITheme.h",
+      "sha256": "0199d289b0b55ad1f37d9abd99d628da68f7892caa530fd8724632ac870de0ab"
+    },
+    {
+      "path": "tests/ui/test_command_palette_geometry.cpp",
+      "sha256": "568619f78ec312f0cae44adb32e6f1d4b07846e67aaba0a3d732eb24a465fb48"
+    }
+  ]
+}

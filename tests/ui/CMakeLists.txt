@@ -333,3 +333,10 @@ add_executable(ffasync_work_admission_tests test_async_work_admission.cpp)
 target_include_directories(ffasync_work_admission_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffasync_work_admission_tests COMMAND ffasync_work_admission_tests)
 set_tests_properties(ffasync_work_admission_tests PROPERTIES TIMEOUT 120)
+
+add_executable(ffcommand_palette_geometry_tests test_command_palette_geometry.cpp
+  ../../src/ui/src/CommandPalette.cpp ../../src/ui/src/CommandSystem.cpp)
+target_include_directories(ffcommand_palette_geometry_tests PRIVATE ../../src/ui/src ../../src/ui/include)
+target_link_libraries(ffcommand_palette_geometry_tests PRIVATE user32 gdi32 comctl32 shell32 d2d1)
+add_test(NAME ffcommand_palette_geometry_tests COMMAND ffcommand_palette_geometry_tests)
+set_tests_properties(ffcommand_palette_geometry_tests PROPERTIES TIMEOUT 30)

@@ -1,0 +1,137 @@
+{
+  "source": "90e6cdf4ecc0927672b96bedfb14edefbf966a08",
+  "status": "PASS",
+  "passed": 8,
+  "failed": 0,
+  "skipped": 0,
+  "results": [
+    {
+      "id": "launch-ready",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "navigation-browse",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "search-user-flow",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "storage-terminal-geometry",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "preview-terminal-state",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "file-operations",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "cold-restore",
+      "status": "PASS",
+      "stage": "complete"
+    },
+    {
+      "id": "process-lifecycle",
+      "status": "PASS",
+      "stage": "complete"
+    }
+  ],
+  "restoreCloseObservations": [
+    {
+      "processId": 132028,
+      "uiaCloseReturned": true,
+      "uiaError": "",
+      "fallbackAttempted": false,
+      "fallbackKeys": "",
+      "fallbackInput": [],
+      "fallbackError": "",
+      "deadlineMs": 10000,
+      "exitObserved": true
+    },
+    {
+      "processId": 105964,
+      "uiaCloseReturned": true,
+      "uiaError": "",
+      "fallbackAttempted": false,
+      "fallbackKeys": "",
+      "fallbackInput": [],
+      "fallbackError": "",
+      "deadlineMs": 10000,
+      "exitObserved": true
+    },
+    {
+      "processId": 137480,
+      "uiaCloseReturned": true,
+      "uiaError": "",
+      "fallbackAttempted": false,
+      "fallbackKeys": "",
+      "fallbackInput": [],
+      "fallbackError": "",
+      "deadlineMs": 10000,
+      "exitObserved": true
+    }
+  ],
+  "restoreCleanupObservations": [
+    {
+      "Pass": true,
+      "OwnedPids": [
+        132028,
+        143672
+      ],
+      "Residue": [],
+      "PipePresentBefore": false,
+      "PipePresentAfter": false,
+      "PipeCleanup": {
+        "Pass": true,
+        "State": "absent"
+      },
+      "DiagnosticsPreserved": true,
+      "DiagnosticsCopyError": null,
+      "SessionRootRetained": false
+    },
+    {
+      "Pass": true,
+      "OwnedPids": [
+        105964,
+        139616
+      ],
+      "Residue": [],
+      "PipePresentBefore": false,
+      "PipePresentAfter": false,
+      "PipeCleanup": {
+        "Pass": true,
+        "State": "absent"
+      },
+      "DiagnosticsPreserved": true,
+      "DiagnosticsCopyError": null,
+      "SessionRootRetained": false
+    },
+    {
+      "Pass": true,
+      "OwnedPids": [
+        137480,
+        128704
+      ],
+      "Residue": [],
+      "PipePresentBefore": false,
+      "PipePresentAfter": false,
+      "PipeCleanup": {
+        "Pass": true,
+        "State": "absent"
+      },
+      "DiagnosticsPreserved": true,
+      "DiagnosticsCopyError": null,
+      "SessionRootRetained": false
+    }
+  ]
+}

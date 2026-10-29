@@ -85,9 +85,8 @@ void CommandPalette::ApplyDensityMetrics() {
 void CommandPalette::Show(CommandContext context) {
     context_ = context;
     visible_ = true;
-    SetWindowTextW(edit_, L"");
     ApplyDensityMetrics();
-    Reposition();
+    SetWindowTextW(edit_, L"");
     RefreshResults();
     // final-local-certification-closure FC-001: verified (not fire-and-forget)
     // focus acquisition. Best-effort: when the owner is not yet foreground-
@@ -136,16 +135,31 @@ void CommandPalette::Reposition() {
     if (owner_ == nullptr || !visible_) return;
     RECT client{};
     GetClientRect(owner_, &client);
-    const int clientWidth = static_cast<int>(client.right - client.left);
-    const int clientHeight = static_cast<int>(client.bottom - client.top);
-    const int width = (std::min)(Scaled(560), (std::max)(Scaled(240), clientWidth - Scaled(40)));
-    const int height = (std::min)(Scaled(360), (std::max)(Scaled(140), clientHeight - Scaled(80)));
-    const int left = (client.right - width) / 2;
-    const int top = (std::max)(Scaled(20), (clientHeight - height) / 4);
-    const int editHeight = Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).controlHeight + 6.0f));
+    const int clientWidth = (std::max)(0, static_cast<int>(client.right - client.left));
+    const int clientHeight = (std::max)(0, static_cast<int>(client.bottom - client.top));
+    const int margin = Scaled(static_cast<int>(UiMetrics::kPaletteMargin));
+    const int horizontalMargin = (std::min)(margin, clientWidth / 2);
+    const int width = (std::min)(Scaled(static_cast<int>(UiMetrics::kPaletteWidth)),
+                                 clientWidth - 2 * horizontalMargin);
+    const int maximumHeight = (std::min)(Scaled(static_cast<int>(UiMetrics::kPaletteMaxHeight)),
+        (std::max)(0, clientHeight - Scaled(static_cast<int>(UiMetrics::kPaletteVerticalClearance))));
+    const int left = (clientWidth - width) / 2;
+    // fit-native-command-palette-to-results 1.3: anchor against the maximum
+    // envelope, not the result count, so typing never moves the query field.
+    const int top = (std::min)(clientHeight, (std::max)(margin, (clientHeight - maximumHeight) / 4));
+    const int editHeight = (std::min)(clientHeight - top,
+        Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).controlHeight + UiMetrics::kPaletteQueryExtraHeight)));
+    const int gap = (std::min)(Scaled(static_cast<int>(UiMetrics::kSpaceXxs)), clientHeight - top - editHeight);
+    const int listBudget = (std::max)(0, (std::min)(maximumHeight - editHeight - gap,
+                                                   clientHeight - top - editHeight - gap));
+    const LRESULT nativeRowHeight = SendMessageW(list_, LB_GETITEMHEIGHT, 0, 0);
+    const int rowHeight = nativeRowHeight > 0 ? static_cast<int>(nativeRowHeight)
+        : (std::max)(1, Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).rowHeight)));
+    const size_t visibleRows = (std::min)((std::max)(size_t{1}, results_.size()),
+                                         static_cast<size_t>(listBudget / rowHeight));
+    const int listHeight = static_cast<int>(visibleRows) * rowHeight;
     SetWindowPos(edit_, HWND_TOP, left, top, width, editHeight, kPaletteOverlayLayoutFlags);
-    SetWindowPos(list_, HWND_TOP, left, top + editHeight + Scaled(2), width,
-                 height - editHeight - Scaled(2), kPaletteOverlayLayoutFlags);
+    SetWindowPos(list_, HWND_TOP, left, top + editHeight + gap, width, listHeight, kPaletteOverlayLayoutFlags);
 }
 
 void CommandPalette::UpdateContext(CommandContext context) {
@@ -173,6 +187,7 @@ void CommandPalette::RefreshResults() {
         // explanatory text rather than a command.
         SendMessageW(list_, LB_ADDSTRING, 0,
                      reinterpret_cast<LPARAM>(L"No matching commands"));
+        Reposition();
         return;
     }
     for (const auto& result : results_) {
@@ -183,6 +198,7 @@ void CommandPalette::RefreshResults() {
                      reinterpret_cast<LPARAM>(result.command->displayName.c_str()));
     }
     SendMessageW(list_, LB_SETCURSEL, 0, 0);
+    Reposition();
 }
 
 void CommandPalette::ExecuteSelected() {

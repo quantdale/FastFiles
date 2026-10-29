@@ -1,0 +1,5 @@
+# Independent actual visual review
+
+Fresh read-only /root/compact_palette_review inspected six current native frames and actual PR31 idle-cancel baseline. No file edits, app launch or input. No meaningful correction identified: sparse lists end after one complete row; clear frames show intact query text/caret, readable unavailable/no-match cues, aligned typography/rows, selected highlight and scrollbar. JSON36 observations confirms compact47px rows/list376px or singleton47px, comfortable55px/list385px or singleton55px.
+
+Dark-Comfortable-1008-many and Light-Comfortable-1600-none were partially obscured by an unrelated microphone overlay. Those pixels remain unreviewed; no external/system action was taken. Review is bounded to actual120DPI captures, without HC/per-monitor/animation/whole-product certification. Root separately inspected the same six images, including the three clear preserved frames. Subsequent live-resize/Home run adds behavioral acceptance, not an independent review of every additional pixel.
