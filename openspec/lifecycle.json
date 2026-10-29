@@ -1904,7 +1904,7 @@
     },
     {
       "name": "preserve-e2e-failure-evidence",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
