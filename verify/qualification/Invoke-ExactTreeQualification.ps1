@@ -8,6 +8,17 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# final-product-consolidation hosted repair (run 40907960406): exact-tree
+# materialization failed on the hosted runner with 'Filename too long' when
+# checking out deep committed evidence-artifact paths (Windows MAX_PATH).
+# core.longpaths must reach every git process this script (and its child
+# qualification scripts) spawns, so it is exported as git process configuration
+# instead of mutating any repository or global config (git-mutation guard).
+if (-not $env:GIT_CONFIG_COUNT) {
+    $env:GIT_CONFIG_COUNT = '1'
+    $env:GIT_CONFIG_KEY_0 = 'core.longpaths'
+    $env:GIT_CONFIG_VALUE_0 = 'true'
+}
 Import-Module (Join-Path $RepoRoot 'verify\core\RepositoryState.psm1') -Force
 Import-Module (Join-Path $RepoRoot 'verify\core\Schema.psm1') -Force
 

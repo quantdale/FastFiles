@@ -895,7 +895,9 @@ try {
     }
     Write-ReleaseJson -Value $candidate -Path $candidateManifestPath
     $candidateManifestCheck = Test-ReleaseJsonProjection -Path $candidateManifestPath -ExpectedValue $candidate
-    if (-not $candidateManifestCheck.valid) { throw 'CANDIDATE_MANIFEST_OUTPUT_MISMATCH' }
+    if (-not $candidateManifestCheck.valid) {
+        throw "CANDIDATE_MANIFEST_OUTPUT_MISMATCH: $(@($candidateManifestCheck.issues) -join ',') firstDifference=$($candidateManifestCheck.firstDifference)"
+    }
     $provenancePath = Join-Path $output 'provenance.json'
     $provenance = [ordered]@{
             schemaVersion = 1
@@ -917,7 +919,9 @@ try {
         }
     Write-ReleaseJson -Value $provenance -Path $provenancePath
     $provenanceCheck = Test-ReleaseJsonProjection -Path $provenancePath -ExpectedValue $provenance
-    if (-not $provenanceCheck.valid) { throw 'CANDIDATE_PROVENANCE_OUTPUT_MISMATCH' }
+    if (-not $provenanceCheck.valid) {
+        throw "CANDIDATE_PROVENANCE_OUTPUT_MISMATCH: $(@($provenanceCheck.issues) -join ',') firstDifference=$($provenanceCheck.firstDifference)"
+    }
     $checksumsPath = Join-Path $output 'SHA256SUMS.txt'
     Write-Checksums -Root $output -OutputPath $checksumsPath -MarkerPath $markerPath
     $finalOutputEntries = @($archiveInventory) + @([pscustomobject]@{

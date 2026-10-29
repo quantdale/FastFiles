@@ -928,15 +928,32 @@ function Test-ReleaseJsonProjection {
     )
 
     $issues = [System.Collections.Generic.List[string]]::new()
+    $firstDifference = ''
     try {
         $actualValue = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        # Spelling-invariant projection (final-product-consolidation hosted
+        # repair, run 40907960406): both sides pass through the identical
+        # serialize -> parse -> serialize pipeline so the comparison is
+        # semantic and independent of PowerShell-version type-repr spelling
+        # differences (ordered-dictionary vs parsed-object serialization),
+        # while a truncated or tampered file still diverges and fails.
         $actualJson = ConvertTo-Json -InputObject $actualValue -Depth 24 -Compress
-        $expectedJson = ConvertTo-Json -InputObject $ExpectedValue -Depth 24 -Compress
-        if ($actualJson -cne $expectedJson) { [void]$issues.Add('RELEASE_JSON_PROJECTION_MISMATCH') }
+        $expectedNormalized = ConvertTo-Json -InputObject $ExpectedValue -Depth 24 -Compress | ConvertFrom-Json -ErrorAction Stop
+        $expectedJson = ConvertTo-Json -InputObject $expectedNormalized -Depth 24 -Compress
+        if ($actualJson -cne $expectedJson) {
+            [void]$issues.Add('RELEASE_JSON_PROJECTION_MISMATCH')
+            $limit = [Math]::Min($actualJson.Length, $expectedJson.Length)
+            $index = 0
+            while ($index -lt $limit -and $actualJson[$index] -ceq $expectedJson[$index]) { $index++ }
+            $from = [Math]::Max(0, $index - 40)
+            $to = [Math]::Min($limit, $index + 80)
+            $firstDifference = "at=$index actual=[$($actualJson.Substring($from, [Math]::Min(120, $actualJson.Length - $from)))] expected=[$($expectedJson.Substring($from, [Math]::Min(120, $expectedJson.Length - $from)))]"
+        }
     } catch {
         [void]$issues.Add('RELEASE_JSON_PROJECTION_INVALID')
+        $firstDifference = "parse-error=$($_.Exception.Message)"
     }
-    [pscustomobject]@{ valid = $issues.Count -eq 0; issues = @($issues.ToArray()) }
+    [pscustomobject]@{ valid = $issues.Count -eq 0; issues = @($issues.ToArray()); firstDifference = $firstDifference }
 }
 
 function Test-ReleaseCandidateOutputContents {
