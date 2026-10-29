@@ -1625,7 +1625,7 @@
     },
     {
       "name": "final-product-consolidation-and-integrated-acceptance",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1654,6 +1654,14 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/certification-report.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/deliverables/reconciliation-and-review.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/local-input-reconciliation.md"
         }
       ],
       "supersededBy": null,
