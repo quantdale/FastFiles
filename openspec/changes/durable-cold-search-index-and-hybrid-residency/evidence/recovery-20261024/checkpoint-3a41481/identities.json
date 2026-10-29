@@ -1,0 +1,71 @@
+{
+  "implementation_sha": "fbc2fb2bd451d880d70951bd7203552299696ce6",
+  "production_and_benchmark_measurement_sha": "dab21288f400967f883598e1c24e7ca2a270ecb9",
+  "certification_source_sha": "3a41481a78df16b44928469f932d75427fd72a9c",
+  "combined_candidate_sha": "f6c9f02ef2075fbffffc62c82273ba1131251ce9",
+  "combined_candidate_tree": "9ad21b4f8eb23e08067dc2fe4551f8740375576f",
+  "repository_tip_and_evidence_sha": "derive after the evidence commit; never self-referential",
+  "binary_scope": "Hashes bind existing local artifacts, not a blanket certification or reproducible-build assertion",
+  "binaries": [
+    {
+      "preset": "debug",
+      "file": "build/debug/src/ui/FastFiles.exe",
+      "sha256": "da282fecec113ada5781cb3ceea9ff351026f0091c5cbd41ce2f4c8a24042c08"
+    },
+    {
+      "preset": "debug",
+      "file": "build/debug/src/engine/FastFilesEngine.exe",
+      "sha256": "352d58db6941ae8db46bcce8e9dd0c7bcb3d7fdba3ece7c0ac5817949f201986"
+    },
+    {
+      "preset": "debug",
+      "file": "build/debug/src/indexsvc/FastFilesIndexSvc.exe",
+      "sha256": "6044b097398c27660490e28fba8563f4710a25011cc8f5d5e2d8bf75cd3d549f"
+    },
+    {
+      "preset": "debug",
+      "file": "build/debug/src/installer/FastFilesSetup.exe",
+      "sha256": "bdc774f3578bba6bd0cebbee4684aa85ab70a4a2f5e7ff2dccb540bd81276a00"
+    },
+    {
+      "preset": "release-test",
+      "file": "build/release-test/src/ui/FastFiles.exe",
+      "sha256": "4d2b885d455a39f19ba5ba22079339d1554119aa6a70d6d0ad21f1ca10ed5f9d"
+    },
+    {
+      "preset": "release-test",
+      "file": "build/release-test/src/engine/FastFilesEngine.exe",
+      "sha256": "93d976ea7f2ccf3781a945389ed44c14d633b25990c485a98f246290d1f0a387"
+    },
+    {
+      "preset": "release-test",
+      "file": "build/release-test/src/indexsvc/FastFilesIndexSvc.exe",
+      "sha256": "6e6fd197cdd3cc3b36ff4567d7ac71d0223f34542301c170e16bf18f85f604ad"
+    },
+    {
+      "preset": "release-test",
+      "file": "build/release-test/src/installer/FastFilesSetup.exe",
+      "sha256": "44f9a39854bb54a3430fe976f2b1be5e43912ece8ee82154ede072e1049237f5"
+    },
+    {
+      "preset": "debug-diagnostic",
+      "file": "build/debug-diagnostic/src/ui/FastFiles.exe",
+      "sha256": "0f582f246699eaa73a5f51b161c74d495b16297f26b4789c697613c811f8e15f"
+    },
+    {
+      "preset": "debug-diagnostic",
+      "file": "build/debug-diagnostic/src/engine/FastFilesEngine.exe",
+      "sha256": "6a04ff72aa1dd424f458efcf0c0d898a1aed771b17477af12890fbcf59e1f844"
+    },
+    {
+      "preset": "debug-diagnostic",
+      "file": "build/debug-diagnostic/src/indexsvc/FastFilesIndexSvc.exe",
+      "sha256": "344c5765d99186f92e653e8224713f73696d2c5f85c535652a90cae30ac44575"
+    },
+    {
+      "preset": "debug-diagnostic",
+      "file": "build/debug-diagnostic/src/installer/FastFilesSetup.exe",
+      "sha256": "21015789ffbdb61f4c5d37e66d41d657f7bfddd220245a0334689899780302c1"
+    }
+  ]
+}

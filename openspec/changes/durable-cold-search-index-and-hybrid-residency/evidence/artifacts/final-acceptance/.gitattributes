@@ -1,0 +1,3 @@
+# Auditable LF text views; gzip companions retain exact measured bytes.
+* text eol=lf
+*.gz -text

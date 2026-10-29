@@ -22,6 +22,14 @@ if(FF_PWSH_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-ProcessReaper.ps1"
   )
   set_tests_properties(ffverify_process_reaper_ps_tests PROPERTIES TIMEOUT 60)
+  # Non-destructive actual-image/start capture qualification; the child exits
+  # naturally and no process reaper or termination operation is called.
+  add_test(
+    NAME ffverify_process_identity_fixture_ps_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-ProcessIdentityFixture.ps1"
+  )
+  set_tests_properties(ffverify_process_identity_fixture_ps_tests PROPERTIES TIMEOUT 30)
   # Real desktop E2E remains an explicit dev.ps1 action; this headless
   # contract test keeps its marker and bounded-wait helpers covered by CTest.
   add_test(

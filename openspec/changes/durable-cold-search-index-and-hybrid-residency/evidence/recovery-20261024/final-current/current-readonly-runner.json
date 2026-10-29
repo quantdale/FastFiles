@@ -1,0 +1,82 @@
+{
+  "schema": "fastfiles-readonly-final-query-runner-v1",
+  "source_sha": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+  "implementation_sha": "4c1c4501e5b1f0579a2d34f4f7afea5f83708979",
+  "executable_sha256": "0b9ec97ec7b0e1cdc2af67641f265aa0161a136759155286eca96a7d84ed5ca3",
+  "fixture_access": "SQLite mode=ro on every connection; normal locks/change detection; no copies or writes",
+  "temperature": "first iteration per ordered query class, fresh process; not OS-cache controlled",
+  "runs": [
+    {
+      "scale": "2m",
+      "run": 1,
+      "command": [
+        "build\\release-test\\tests\\engine\\ffengine_bench_identity_ordering_oracle.exe",
+        "--db",
+        "build\\campaign\\open-2m.db",
+        "--readonly-fixture",
+        "--output",
+        "build\\campaign\\recovery-20261024\\current-2m-oracle-1.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 214.66572308540344,
+      "fixture_sha256_before": "a653e57cf2a962cb02e30657581f2a22ef7fc81fe1fac993c083ed33f509e2b4",
+      "fixture_sha256_after": "a653e57cf2a962cb02e30657581f2a22ef7fc81fe1fac993c083ed33f509e2b4",
+      "source_fixture_unchanged": true,
+      "free_after": 1161396224
+    },
+    {
+      "scale": "2m",
+      "run": 2,
+      "command": [
+        "build\\release-test\\tests\\engine\\ffengine_bench_identity_ordering_oracle.exe",
+        "--db",
+        "build\\campaign\\open-2m.db",
+        "--readonly-fixture",
+        "--output",
+        "build\\campaign\\recovery-20261024\\current-2m-oracle-2.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 218.25226473808289,
+      "fixture_sha256_before": "a653e57cf2a962cb02e30657581f2a22ef7fc81fe1fac993c083ed33f509e2b4",
+      "fixture_sha256_after": "a653e57cf2a962cb02e30657581f2a22ef7fc81fe1fac993c083ed33f509e2b4",
+      "source_fixture_unchanged": true,
+      "free_after": 1160704000
+    },
+    {
+      "scale": "2m",
+      "run": 3,
+      "command": [
+        "build\\release-test\\tests\\engine\\ffengine_bench_identity_ordering_oracle.exe",
+        "--db",
+        "build\\campaign\\open-2m.db",
+        "--readonly-fixture",
+        "--output",
+        "build\\campaign\\recovery-20261024\\current-2m-oracle-3.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 217.42210960388184,
+      "fixture_sha256_before": "a653e57cf2a962cb02e30657581f2a22ef7fc81fe1fac993c083ed33f509e2b4",
+      "fixture_sha256_after": "a653e57cf2a962cb02e30657581f2a22ef7fc81fe1fac993c083ed33f509e2b4",
+      "source_fixture_unchanged": true,
+      "free_after": 1160151040
+    },
+    {
+      "scale": "5m",
+      "run": 1,
+      "command": [
+        "build\\release-test\\tests\\engine\\ffengine_bench_identity_ordering_oracle.exe",
+        "--db",
+        "build\\campaign\\open-5m.db",
+        "--readonly-fixture",
+        "--output",
+        "build\\campaign\\recovery-20261024\\current-5m-oracle-1.json"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 549.5519995689392,
+      "fixture_sha256_before": "96d353521e2154ce7a60cadaf7fadd70b6494e536aa83e14e023b304862ecb03",
+      "fixture_sha256_after": "96d353521e2154ce7a60cadaf7fadd70b6494e536aa83e14e023b304862ecb03",
+      "source_fixture_unchanged": true,
+      "free_after": 1166065664
+    }
+  ]
+}

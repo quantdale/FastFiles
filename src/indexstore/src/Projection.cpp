@@ -400,42 +400,43 @@ void Projection::EvictSubtree(const EntryKey& rootKey) {
         }
     }
 
-    // Remove descendants before the selected directory so every child-index
-    // slice is still valid when Remove() unlinks the child.
-    // large-index-lifecycle-and-search-scalability 4.4: eviction is a bulk
-    // removal -- skip per-entry accelerator erases for large subtrees. The
-    // caller's CompactStorage() invalidates the accelerator anyway, and the
-    // memory-pressure path must not allocate a rebuild here.
+    // durable-cold-search-index-and-hybrid-residency final review: every
+    // caller immediately compacts surviving identities. Large subtrees must
+    // therefore skip doomed sibling slices as well as filename postings;
+    // per-child unlinking is quadratic for a flat directory. The traversal
+    // above finishes before any erasure, including cycle detection.
     if (removalOrder.size() > kPerEntryFilenameRemovalThreshold) {
         InvalidateFilenameIndex();
-    }
-    for (auto it = removalOrder.rbegin(); it != removalOrder.rend(); ++it) {
-        Remove(it->volumeRowId, it->frn);
+        denseIterationOrderValid_ = false;
+        for (const EntryKey& key : removalOrder) {
+            idToIndex_.erase(key);
+        }
+    } else {
+        // Without a following bulk erasure, unlink descendants first so
+        // each parent's child-index slice remains valid during removal.
+        for (auto it = removalOrder.rbegin(); it != removalOrder.rend(); ++it) {
+            Remove(it->volumeRowId, it->frn);
+        }
     }
     evictedVolumes_.insert(rootKey.volumeRowId);
     ++subtreeEvictionCount_;
 }
 
 void Projection::EvictVolume(const VolumeRowId volumeRowId) {
-    // memory-bounded-indexed-scale 5.x: whole-volume unload. A flat key
-    // snapshot first, then individual removals (Remove unlinks each row's
-    // child-index slice), then a single compaction -- never per-row
-    // compaction, matching the batch-boundary policy.
+    // durable-cold-search-index-and-hybrid-residency final review: every
+    // row of this volume is doomed. Erase its identities without searching
+    // sibling slices (linear search per unlink was quadratic for flat
+    // directories). CompactStorage rebuilds all surviving child links once.
     std::vector<EntryKey> keys;
     keys.reserve(idToIndex_.size());
     idToIndex_.ForEach([&](const EntryKey& key, const uint32_t) {
         if (key.volumeRowId == volumeRowId) keys.push_back(key);
     });
     if (keys.empty()) return;
-    // large-index-lifecycle-and-search-scalability 4.4: same bulk rule as
-    // EvictSubtree -- the trailing CompactStorage() invalidates the
-    // accelerator regardless, so per-entry erases are pure waste above the
-    // threshold.
-    if (keys.size() > kPerEntryFilenameRemovalThreshold) {
-        InvalidateFilenameIndex();
-    }
+    InvalidateFilenameIndex();
+    denseIterationOrderValid_ = false;
     for (const EntryKey& key : keys) {
-        Remove(key.volumeRowId, key.frn);
+        idToIndex_.erase(key);
     }
     evictedVolumes_.insert(volumeRowId);
     ++subtreeEvictionCount_;
@@ -472,7 +473,9 @@ void Projection::CompactStorage() {
 
     entries_ = std::move(compacted);
     lastAccessTimes_ = std::move(compactedAccessTimes);
-    freeList_.clear();
+    // All slots were repacked: retained free-list capacity is unused and
+    // can itself exceed a small budget after full-volume eviction.
+    std::vector<uint32_t>().swap(freeList_);
     idToIndex_ = std::move(compactedIds);
     parentToChildren_ = std::move(compactedChildren);
     namePool_ = std::move(compactedNames);
@@ -498,6 +501,26 @@ bool Projection::EnforceMemoryLimit() {
         if (!EnforceMemoryLimitOnceTo(lowWatermark)) break;
         evictedAny = true;
         if (EstimatedMemoryBytes() >= before) break; // no progress guard
+    }
+    // durable-cold-search-index-and-hybrid-residency: many tiny directories
+    // can consume all eight passes while ingestion adds more rows than those
+    // victims release. Repeating eight whole-projection compactions per batch
+    // caused the measured 3.1M-row cliff (12-13 seconds enforcement versus
+    // ~0.17 seconds durable write per 8,192 rows), and did NOT bound memory.
+    // Fall back to cold residency for the LRU victim's entire volume. Every
+    // iteration removes a whole volume, rather than one small subtree; the
+    // durable store and existing cold search remain authoritative. This
+    // sacrifices hot residency only after the fine-grained policy fails to
+    // reach its watermark; no memory-budget increase or data loss is needed.
+    while (EstimatedMemoryBytes() > lowWatermark) {
+        const auto victim = LeastRecentlyUsedEntry();
+        if (!victim.has_value()) break;
+        const size_t before = EstimatedMemoryBytes();
+        EvictVolume(victim->volumeRowId);
+        evictedAny = true;
+        lastEvictionBytesBefore_ = before;
+        lastEvictionBytesAfter_ = EstimatedMemoryBytes();
+        if (lastEvictionBytesAfter_ >= before) break;
     }
     return evictedAny;
 }

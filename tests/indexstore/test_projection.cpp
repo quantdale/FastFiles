@@ -1453,7 +1453,77 @@ void TestFittingVolumeReloadIsNotRejectedByEmptyProjectionPrior() {
     }
 }
 
+// durable-cold-search-index-and-hybrid-residency: eight tiny LRU victims
+// must not leave a large retained working set over budget indefinitely.
+void TestTinyVictimsCannotSustainAnOverBudgetProjection() {
+    Projection proj;
+    proj.SetMaximumMemoryBytes(64 * 1024);
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    for (uint64_t id = 100; id < 120; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"empty_directory", 0x10));
+    }
+    for (uint64_t id = 1000; id < 21000; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"row.txt", 0));
+    }
+    Check(proj.EstimatedMemoryBytes() > 64 * 1024, "tiny-victim fixture exceeds the budget");
+    Check(proj.EnforceMemoryLimitNow(), "tiny-victim enforcement evicts resident data");
+    Check(proj.EstimatedMemoryBytes() <= 64 * 1024,
+          "enforcement reaches the budget instead of repeating eight tiny compactions per batch");
+    Check(proj.NeedsReload(1), "whole-volume fallback marks the durable volume cold");
+}
+
+void TestWholeVolumeEvictionDoesNotUnlinkDoomedSiblings() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    for (uint64_t id = 100; id < 20100; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"sibling.txt", 0));
+    }
+    proj.Upsert(2, MakeEntry(5, 5, u"D:", 0x10));
+    proj.Upsert(2, MakeEntry(6, 5, u"survivor.txt", 0));
+    FlatChildrenMap::testingRemovalComparisons = 0;
+    proj.EvictVolume(1);
+    Check(FlatChildrenMap::testingRemovalComparisons <= 20100,
+          "whole-volume eviction does not quadratically unlink doomed siblings");
+    Check(proj.EntryCount() == 2 && proj.Find(2, FileId{6, 0}) != nullptr,
+          "whole-volume bulk eviction preserves other-volume entries");
+    Check(proj.ChildIndices(2, FileId{5, 0}).size() == 1,
+          "compaction reconstructs exact surviving child links");
+}
+
+// durable-cold-search-index-and-hybrid-residency final review: the
+// fine-grained path must not quadratically unlink a doomed flat subtree.
+void TestSubtreeEvictionDoesNotUnlinkDoomedSiblings() {
+    Projection proj;
+    proj.SetMaximumMemoryBytes(64 * 1024);
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(10, 5, u"old_directory", 0x10));
+    proj.Upsert(1, MakeEntry(20, 5, u"surviving_directory", 0x10));
+    proj.Upsert(1, MakeEntry(21, 20, u"surviving_child.txt", 0));
+    for (uint64_t id = 100; id < 20100; ++id) {
+        proj.Upsert(1, MakeEntry(id, 10, u"sibling.txt", 0));
+    }
+    proj.Upsert(2, MakeEntry(5, 5, u"D:", 0x10));
+    proj.Upsert(2, MakeEntry(6, 5, u"other_volume.txt", 0));
+    FlatChildrenMap::testingRemovalComparisons = 0;
+    Check(proj.EnforceMemoryLimitNow(), "large flat subtree is selected for eviction");
+    Check(FlatChildrenMap::testingRemovalComparisons <= 20100,
+          "subtree eviction does not quadratically unlink doomed siblings");
+    Check(proj.EntryCount() == 5 && proj.Find(1, FileId{10, 0}) == nullptr,
+          "subtree eviction preserves exact surviving row count");
+    Check(proj.Find(1, FileId{21, 0}) != nullptr && proj.Find(2, FileId{6, 0}) != nullptr,
+          "subtree eviction preserves same-volume and other-volume survivors");
+    Check(proj.ChildIndices(1, FileId{5, 0}).size() == 1 &&
+          proj.ChildIndices(1, FileId{20, 0}).size() == 1 &&
+          proj.ChildIndices(2, FileId{5, 0}).size() == 1,
+          "subtree compaction reconstructs every surviving child slice");
+    Check(proj.NeedsReload(1) && !proj.NeedsReload(2),
+          "only the partially evicted volume is marked cold");
+}
+
 int main() {
+    TestSubtreeEvictionDoesNotUnlinkDoomedSiblings();
+    TestWholeVolumeEvictionDoesNotUnlinkDoomedSiblings();
+    TestTinyVictimsCannotSustainAnOverBudgetProjection();
     TestSiblingsDoNotDuplicateSharedAncestorPath();
     TestRepeatedNamesAcrossTreeShareOneInternedId();
     TestPathIsReconstructedOnDemand();

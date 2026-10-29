@@ -1,0 +1,896 @@
+{
+  "status": "PASS",
+  "filter": "all",
+  "executable": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+  "artifactsDir": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\recovery-20261024\\e2e",
+  "passed": 8,
+  "failed": 0,
+  "skipped": 0,
+  "results": [
+    {
+      "id": "launch-ready",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "main window and engine handshake ready; pid=56784; ready=engine-connected",
+      "durationMs": 138.2,
+      "data": {
+        "main": {
+          "Name": "FastFiles",
+          "AutomationId": "MainWindow",
+          "ControlType": "Window",
+          "ClassName": "FastFilesMainWindow",
+          "ProcessId": 56784
+        },
+        "mainHelpText": "",
+        "tabLabels": [
+          "1: This PC"
+        ],
+        "pane": {
+          "Name": "Pane 1",
+          "AutomationId": "Pane.0",
+          "ControlType": "Pane",
+          "ClassName": "",
+          "ProcessId": 56784
+        },
+        "visibleColumns": [
+          {
+            "name": "This PC",
+            "automationId": "Pane.0.Column.0",
+            "itemCount": 2,
+            "visibleItemCount": 2,
+            "items": [
+              {
+                "name": "C:\\",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 280,
+                  "y": 183,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "D:\\",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 280,
+                  "y": 221,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          }
+        ],
+        "processId": 56784,
+        "sessionRoot": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c"
+      },
+      "artifactDir": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\recovery-20261024\\e2e\\launch-ready"
+    },
+    {
+      "id": "navigation-browse",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "Home, This PC terminal state, nested browse, Back, Forward, Up, direct path, stale-column, and terminal-item checks passed",
+      "durationMs": 19190.9,
+      "data": {
+        "main": {
+          "Name": "FastFiles",
+          "AutomationId": "MainWindow",
+          "ControlType": "Window",
+          "ClassName": "FastFilesMainWindow",
+          "ProcessId": 56784
+        },
+        "mainHelpText": "Preview: No selection",
+        "tabLabels": [
+          "1: Nested"
+        ],
+        "pane": {
+          "Name": "Pane 1",
+          "AutomationId": "Pane.0",
+          "ControlType": "Pane",
+          "ClassName": "",
+          "ProcessId": 56784
+        },
+        "visibleColumns": [
+          {
+            "name": "C:\\",
+            "automationId": "Pane.0.Column.0",
+            "itemCount": 33,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users",
+            "automationId": "Pane.0.Column.1",
+            "itemCount": 6,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy",
+            "automationId": "Pane.0.Column.2",
+            "itemCount": 107,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData",
+            "automationId": "Pane.0.Column.3",
+            "itemCount": 3,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local",
+            "automationId": "Pane.0.Column.4",
+            "itemCount": 99,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions",
+            "automationId": "Pane.0.Column.5",
+            "itemCount": 2,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c",
+            "automationId": "Pane.0.Column.6",
+            "itemCount": 4,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures",
+            "automationId": "Pane.0.Column.7",
+            "itemCount": 1,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E",
+            "automationId": "Pane.0.Column.8",
+            "itemCount": 2,
+            "visibleItemCount": 2,
+            "items": [
+              {
+                "name": "Browse",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 68,
+                  "y": 183,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": ".fastfiles-e2e-fixture",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 68,
+                  "y": 221,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E\\Browse",
+            "automationId": "Pane.0.Column.9",
+            "itemCount": 5,
+            "visibleItemCount": 5,
+            "items": [
+              {
+                "name": "Nested",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 183,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Operations",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 221,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Search",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 259,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Storage",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 297,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "root-note.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 335,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E\\Browse\\Nested",
+            "automationId": "Pane.0.Column.10",
+            "itemCount": 1,
+            "visibleItemCount": 1,
+            "items": [
+              {
+                "name": "restore-proof.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 548,
+                  "y": 183,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          }
+        ],
+        "processId": 56784,
+        "sessionRoot": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c"
+      },
+      "artifactDir": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\recovery-20261024\\e2e\\navigation-browse"
+    },
+    {
+      "id": "search-user-flow",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "exact, partial, no-result, superseded-query, selection, and result-open checks passed",
+      "durationMs": 12360.2,
+      "data": {
+        "main": {
+          "Name": "FastFiles",
+          "AutomationId": "MainWindow",
+          "ControlType": "Window",
+          "ClassName": "FastFilesMainWindow",
+          "ProcessId": 56784
+        },
+        "mainHelpText": "Preview: Ready",
+        "tabLabels": [
+          "1: Search"
+        ],
+        "pane": {
+          "Name": "Pane 1",
+          "AutomationId": "Pane.0",
+          "ControlType": "Pane",
+          "ClassName": "",
+          "ProcessId": 56784
+        },
+        "visibleColumns": [
+          {
+            "name": "C:\\",
+            "automationId": "Pane.0.Column.0",
+            "itemCount": 33,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users",
+            "automationId": "Pane.0.Column.1",
+            "itemCount": 6,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy",
+            "automationId": "Pane.0.Column.2",
+            "itemCount": 107,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData",
+            "automationId": "Pane.0.Column.3",
+            "itemCount": 3,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local",
+            "automationId": "Pane.0.Column.4",
+            "itemCount": 99,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions",
+            "automationId": "Pane.0.Column.5",
+            "itemCount": 2,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c",
+            "automationId": "Pane.0.Column.6",
+            "itemCount": 4,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures",
+            "automationId": "Pane.0.Column.7",
+            "itemCount": 1,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E",
+            "automationId": "Pane.0.Column.8",
+            "itemCount": 2,
+            "visibleItemCount": 2,
+            "items": [
+              {
+                "name": "Browse",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 68,
+                  "y": 183,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": ".fastfiles-e2e-fixture",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 68,
+                  "y": 221,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E\\Browse",
+            "automationId": "Pane.0.Column.9",
+            "itemCount": 5,
+            "visibleItemCount": 5,
+            "items": [
+              {
+                "name": "Nested",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 183,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Operations",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 221,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Search",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 259,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Storage",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 297,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "root-note.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 308,
+                  "y": 335,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E\\Browse\\Search",
+            "automationId": "Pane.0.Column.10",
+            "itemCount": 3,
+            "visibleItemCount": 3,
+            "items": [
+              {
+                "name": "exact-file.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 548,
+                  "y": 183,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "partial-alpha.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 548,
+                  "y": 221,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "partial-beta.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 548,
+                  "y": 259,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": true
+              }
+            ]
+          }
+        ],
+        "processId": 56784,
+        "sessionRoot": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c"
+      },
+      "artifactDir": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\recovery-20261024\\e2e\\search-user-flow"
+    },
+    {
+      "id": "storage-terminal-geometry",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "Storage.Treemap reached a terminal usable state with 2 tiles; group/tile UIA bounds were contained and a tile Invoke was accepted",
+      "durationMs": 5956.4,
+      "data": {
+        "group": {
+          "x": 292,
+          "y": 275,
+          "width": 764,
+          "height": 397
+        },
+        "main": {
+          "x": 52,
+          "y": 52,
+          "width": 1024,
+          "height": 640
+        },
+        "tileCount": 2
+      },
+      "artifactDir": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\recovery-20261024\\e2e\\storage-terminal-geometry"
+    },
+    {
+      "id": "preview-terminal-state",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "preview terminal states were distinct (Preview: Ready -> Preview: Unsupported); stale preview was not accepted as the new selection",
+      "durationMs": 10639.0,
+      "data": {
+        "firstStatus": "Preview: Ready",
+        "secondStatus": "Preview: Unsupported"
+      },
+      "artifactDir": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\recovery-20261024\\e2e\\preview-terminal-state"
+    },
+    {
+      "id": "file-operations",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "real create-folder, rename, copy, move, and recycle-delete operations verified under 'C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E'; conflict case not invoked because the production default uses a modal conflict policy",
+      "durationMs": 37730.6,
+      "data": {
+        "created": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E\\Browse\\Operations\\created-by-e2e",
+        "renamed": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E\\Browse\\Operations\\renamed-by-e2e.txt",
+        "copied": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E\\Browse\\Operations\\Destination\\copy-me.txt",
+        "moved": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-common-fea6ed9feeea4f218ccbf82d5b9a8555-72280f48cd53481b8aeaea93bdbfe58c\\Fixtures\\FastFilesE2E\\Browse\\Operations\\Destination\\move-me.txt",
+        "deleted": true
+      },
+      "artifactDir": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\campaign\\recovery-20261024\\e2e\\file-operations"
+    },
+    {
+      "id": "cold-restore",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "Nested directory restored after a real close/relaunch in the same isolated state directory",
+      "durationMs": 6489.3,
+      "data": {
+        "main": {
+          "Name": "FastFiles",
+          "AutomationId": "MainWindow",
+          "ControlType": "Window",
+          "ClassName": "FastFilesMainWindow",
+          "ProcessId": 29308
+        },
+        "mainHelpText": "",
+        "tabLabels": [
+          "1: Nested"
+        ],
+        "pane": {
+          "Name": "Pane 1",
+          "AutomationId": "Pane.0",
+          "ControlType": "Pane",
+          "ClassName": "",
+          "ProcessId": 29308
+        },
+        "visibleColumns": [
+          {
+            "name": "C:\\",
+            "automationId": "Pane.0.Column.0",
+            "itemCount": 33,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users",
+            "automationId": "Pane.0.Column.1",
+            "itemCount": 6,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy",
+            "automationId": "Pane.0.Column.2",
+            "itemCount": 107,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData",
+            "automationId": "Pane.0.Column.3",
+            "itemCount": 3,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local",
+            "automationId": "Pane.0.Column.4",
+            "itemCount": 99,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions",
+            "automationId": "Pane.0.Column.5",
+            "itemCount": 2,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-restore-first-2ee961496f154ab28c13e6081e7c744a-c00b81136b3440ca952c0154fc92c2be",
+            "automationId": "Pane.0.Column.6",
+            "itemCount": 4,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-restore-first-2ee961496f154ab28c13e6081e7c744a-c00b81136b3440ca952c0154fc92c2be\\Fixtures",
+            "automationId": "Pane.0.Column.7",
+            "itemCount": 1,
+            "visibleItemCount": 0,
+            "items": []
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-restore-first-2ee961496f154ab28c13e6081e7c744a-c00b81136b3440ca952c0154fc92c2be\\Fixtures\\FastFilesE2E",
+            "automationId": "Pane.0.Column.8",
+            "itemCount": 2,
+            "visibleItemCount": 2,
+            "items": [
+              {
+                "name": "Browse",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 94,
+                  "y": 209,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": ".fastfiles-e2e-fixture",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 94,
+                  "y": 247,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-restore-first-2ee961496f154ab28c13e6081e7c744a-c00b81136b3440ca952c0154fc92c2be\\Fixtures\\FastFilesE2E\\Browse",
+            "automationId": "Pane.0.Column.9",
+            "itemCount": 5,
+            "visibleItemCount": 5,
+            "items": [
+              {
+                "name": "Nested",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 334,
+                  "y": 209,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Operations",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 334,
+                  "y": 247,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Search",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 334,
+                  "y": 285,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "Storage",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 334,
+                  "y": 323,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              },
+              {
+                "name": "root-note.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 334,
+                  "y": 361,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          },
+          {
+            "name": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-restore-first-2ee961496f154ab28c13e6081e7c744a-c00b81136b3440ca952c0154fc92c2be\\Fixtures\\FastFilesE2E\\Browse\\Nested",
+            "automationId": "Pane.0.Column.10",
+            "itemCount": 1,
+            "visibleItemCount": 1,
+            "items": [
+              {
+                "name": "restore-proof.txt",
+                "automationId": "",
+                "controlType": "ListItem",
+                "bounds": {
+                  "x": 574,
+                  "y": 209,
+                  "width": 240,
+                  "height": 38
+                },
+                "isOffscreen": false,
+                "isSelected": false
+              }
+            ]
+          }
+        ],
+        "processId": 29308,
+        "sessionRoot": "C:\\Users\\Michael Roy\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-e2e-restore-first-2ee961496f154ab28c13e6081e7c744a-c00b81136b3440ca952c0154fc92c2be"
+      },
+      "artifactDir": ""
+    },
+    {
+      "id": "process-lifecycle",
+      "status": "PASS",
+      "stage": "complete",
+      "detail": "completed 2 bounded launch/navigate/close iterations with no repo-owned process residue",
+      "durationMs": 11313.4,
+      "data": [
+        {
+          "iteration": 1,
+          "pid": 51396,
+          "closed": true,
+          "cleanup": {
+            "Pass": true,
+            "OwnedPids": [
+              51396,
+              39076
+            ],
+            "Residue": [],
+            "PipePresentBefore": false,
+            "PipePresentAfter": false,
+            "PipeCleanup": {
+              "Pass": true,
+              "State": "absent"
+            },
+            "DiagnosticsPreserved": true,
+            "DiagnosticsCopyError": null,
+            "SessionRootRetained": false
+          }
+        },
+        {
+          "iteration": 2,
+          "pid": 35404,
+          "closed": true,
+          "cleanup": {
+            "Pass": true,
+            "OwnedPids": [
+              35404,
+              34000
+            ],
+            "Residue": [],
+            "PipePresentBefore": false,
+            "PipePresentAfter": false,
+            "PipeCleanup": {
+              "Pass": true,
+              "State": "absent"
+            },
+            "DiagnosticsPreserved": true,
+            "DiagnosticsCopyError": null,
+            "SessionRootRetained": false
+          }
+        }
+      ],
+      "artifactDir": ""
+    }
+  ],
+  "binaryProvenance": {
+    "schemaVersion": 1,
+    "kind": "fastfiles-binary-provenance",
+    "mode": "exact-tree",
+    "stage": "e2e-preflight",
+    "source": {
+      "headSha": "3a41481a78df16b44928469f932d75427fd72a9c",
+      "treeSha": "98bcd6ede7f2af91117fd6cb80730db9df44efba",
+      "treeSemantic": "HEAD^{tree}",
+      "sourceClean": true,
+      "stateDigest": "5e0c19dc8998d5fa583cea1281ec8f5240fb77f9e797d271d7c9ab02d48b4e88",
+      "reasonCodes": []
+    },
+    "binaries": [
+      {
+        "filename": "FastFiles.exe",
+        "path": "C:\\Users\\Michael Roy\\Documents\\FastFiles\\build\\worktrees\\durable-cold-search\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+        "exists": true,
+        "sha256": "0f582f246699eaa73a5f51b161c74d495b16297f26b4789c697613c811f8e15f",
+        "buildIdentity": "3a41481a78df16b44928469f932d75427fd72a9c",
+        "buildIdentityFormatValid": true,
+        "peArchitecture": "x64",
+        "productVersion": "0.1.0",
+        "fileVersion": "0.1.0.0",
+        "worktreeState": "clean",
+        "configuration": "Debug",
+        "issues": []
+      }
+    ],
+    "setIdentity": "3a41481a78df16b44928469f932d75427fd72a9c",
+    "setConsistent": true,
+    "boundToHead": true,
+    "boundToTree": false,
+    "treeBindingStatus": "NOT_EMBEDDED",
+    "checkResult": {
+      "status": "PASS",
+      "issueCodes": [],
+      "reason": null
+    },
+    "checkedAtUtc": "2026-10-24T11:11:23.8229214Z"
+  }
+}

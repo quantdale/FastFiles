@@ -1,0 +1,44 @@
+{
+  "implementation": "7a14b8409eb611c26de385702753d43aa6ac067d",
+  "production_source_equivalent_to": "bd67375501c8e20306734ae789ce4760d63876f5",
+  "executions": [
+    {
+      "rows": 2000000,
+      "passed_cells": 70,
+      "input_sha256": "6064CEAA77FF4C25C91139C417CB3F4462F0FCFC6A774FEE5E3B762F99E98867",
+      "oracle_sha256": "D140FC5DC58269EABB18C2A573C60E8C9057B33F626A95854EAB89B938D87B06",
+      "builder_sha256": "6619E3569A78E8D65A07B5FB14612E510C675969DA89B275323A9F7E00C2B1C2",
+      "route_flags": [
+        1,
+        2,
+        1
+      ],
+      "projection_estimates": [
+        69411082,
+        16448,
+        57082922
+      ],
+      "generation_restarts": 1,
+      "receipt_audit": "PASS"
+    },
+    {
+      "rows": 5000000,
+      "passed_cells": 70,
+      "input_sha256": "48CF38627C51C4F512A8915DFFA299F11E55D9ACAB4A61294DC9AA06591845DF",
+      "oracle_sha256": "D140FC5DC58269EABB18C2A573C60E8C9057B33F626A95854EAB89B938D87B06",
+      "builder_sha256": "6619E3569A78E8D65A07B5FB14612E510C675969DA89B275323A9F7E00C2B1C2",
+      "route_flags": [
+        1,
+        2,
+        1
+      ],
+      "projection_estimates": [
+        69411082,
+        16448,
+        57082922
+      ],
+      "generation_restarts": 1,
+      "receipt_audit": "PASS"
+    }
+  ]
+}

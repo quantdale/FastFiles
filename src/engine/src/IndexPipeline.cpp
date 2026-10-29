@@ -5,6 +5,9 @@
 #include <cwctype>
 #include <limits>
 #include <utility>
+#ifdef FF_INGESTION_PROFILE
+#include <cstdio>
+#endif
 
 #include "ffprotocol/Diagnostics.h"
 #include "ffsearch/Path.h"
@@ -136,6 +139,9 @@ bool MaterializeCandidateFolderDurable(
     }
     if (!reachedRoot) return false;
     std::wstring folder = prefixIt->second;
+    // durable-cold-search-index-and-hybrid-residency 4.1: C: is
+    // drive-relative. Keep root-child folders absolute, as on the hot path.
+    if (segmentsReversed.empty()) folder += L"\\";
     for (auto it = segmentsReversed.rbegin(); it != segmentsReversed.rend(); ++it) {
         folder += L"\\";
         folder += ToWString(*it);
@@ -511,6 +517,11 @@ IndexPipeline::ReadPlaneDiagnostics IndexPipeline::GetReadPlaneDiagnostics() con
     return result;
 }
 
+ffindexstore::Store::CheckpointDiagnostics IndexPipeline::GetCheckpointDiagnostics() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return store_.GetCheckpointDiagnostics();
+}
+
 void IndexPipeline::SetBulkScanActive(const bool active) {
     std::lock_guard<std::mutex> lock(mutex_);
     projection_.SetBulkScanActive(active);
@@ -525,6 +536,7 @@ void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHo
     }
     store_.CheckpointPassive();
     store_.CheckpointIfWalExceeds(kWalForceCheckpointThresholdBytes);
+    FlushPendingPlannerStatsLocked();
     if (userIdle) {
         const uint64_t nowEpochSeconds = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count());
@@ -533,27 +545,33 @@ void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHo
     RecordMetadataOnlyUpdateLocked();
 }
 
-void IndexPipeline::MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount) {
+void IndexPipeline::NoteBulkInsertForPlannerStatsLocked(size_t recordCount) {
     if (recordCount == 0) {
         return;
     }
+    // analyze-maintenance-scheduling: ingestion only ACCUMULATES the pending
+    // statistics-refresh debt. Running ANALYZE here made sustained bulk
+    // ingestion quadratic (a full-database ANALYZE on ~6 of every 7 batches
+    // with 8,192-row wire batches -- the 5M ingestion collapse); the refresh
+    // runs at maintenance cadence instead (RunStoreMaintenance), gated by the
+    // same threshold. address-engineering-audit-findings 5.1: the counter is
+    // retained when ANALYZE fails so a later maintenance pass retries it.
     const uint64_t count = static_cast<uint64_t>(recordCount);
     if (recordsSinceAnalyze_ > std::numeric_limits<uint64_t>::max() - count) {
         recordsSinceAnalyze_ = kAnalyzeRecordThreshold;
     } else {
         recordsSinceAnalyze_ += count;
     }
+}
+
+void IndexPipeline::FlushPendingPlannerStatsLocked() {
     if (recordsSinceAnalyze_ < kAnalyzeRecordThreshold) {
         return;
     }
-    // address-engineering-audit-findings 5.1: ANALYZE runs only after the
-    // durable batch commits. A failed maintenance operation never makes an
-    // already-committed ingestion look failed; retaining the threshold makes
-    // the next batch retry the statistics refresh.
     if (store_.Analyze()) {
-        recordsSinceAnalyze_ %= kAnalyzeRecordThreshold;
+        recordsSinceAnalyze_ = 0;
+        RecordMetadataOnlyUpdateLocked();
     }
-    RecordMetadataOnlyUpdateLocked();
 }
 
 void IndexPipeline::MaybeReportProjectionMemoryPressureLocked() {
@@ -729,13 +747,22 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
     std::lock_guard<std::mutex> lock(mutex_);
     // design.md D4: commit to the durable store first; the projection is
     // only touched once that commit has actually succeeded.
+#ifdef FF_INGESTION_PROFILE
+    const auto profileStart = std::chrono::steady_clock::now();
+#endif
     if (!store_.ApplyBatch(volumeId, changes)) {
         return false;
     }
-    MaybeAnalyzeAfterBulkInsertLocked(changes.size());
+#ifdef FF_INGESTION_PROFILE
+    const auto profileStoreEnd = std::chrono::steady_clock::now();
+#endif
+    NoteBulkInsertForPlannerStatsLocked(changes.size());
     for (const auto& change : changes) {
         projection_.Upsert(volumeId, change.record);
     }
+#ifdef FF_INGESTION_PROFILE
+    const auto profileProjectionEnd = std::chrono::steady_clock::now();
+#endif
     MaybeReportProjectionMemoryPressureLocked();
 
     // Optimization: fuse the two rule-evaluation passes and cache the
@@ -794,6 +821,9 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
     }
     // invoking it from Projection::Upsert turns a large volume scan into an
     // O(N) compaction storm once the bounded memory policy is reached.
+#ifdef FF_INGESTION_PROFILE
+    const auto profileEnforcementStart = std::chrono::steady_clock::now();
+#endif
     if (projection_.EnforceMemoryLimitNow()) {
         AdvanceResidencyEpochsForStructuralChangeLocked();
     }
@@ -801,6 +831,16 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
     if (!changes.empty()) {
         AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
     }
+#ifdef FF_INGESTION_PROFILE
+    const auto profileEnd = std::chrono::steady_clock::now();
+    const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    const auto memory = projection_.GetMemoryDiagnostics();
+    std::fprintf(stderr, "PROFILE rows=%zu store_ms=%.3f projection_ms=%.3f rules_ms=%.3f enforcement_ms=%.3f estimated=%zu evictions=%zu\n",
+        changes.size(), ms(profileStart, profileStoreEnd), ms(profileStoreEnd, profileProjectionEnd),
+        ms(profileProjectionEnd, profileEnforcementStart), ms(profileEnforcementStart, profileEnd),
+        memory.estimatedBytes, static_cast<size_t>(memory.subtreeEvictionCount));
+    std::fflush(stderr);
+#endif
     return true;
 }
 
@@ -862,7 +902,7 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
             ++upsertCount;
         }
     }
-    MaybeAnalyzeAfterBulkInsertLocked(upsertCount);
+    NoteBulkInsertForPlannerStatsLocked(upsertCount);
     for (const auto& change : changes) {
         if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
             projection_.UpsertPartial(volumeId, change.record, change.fields);
@@ -1027,7 +1067,17 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
 
     const bool hasRulesForReconcile = volumeRules_.find(id) != volumeRules_.end();
     std::vector<ffindexstore::EntryChange> removals;
-    for (const auto& existingId : store_.ListEntryIds(id)) {
+    bool enumerationSucceeded = false;
+    const auto existingIds = store_.ListEntryIds(id, &enumerationSucceeded);
+    if (!enumerationSucceeded) {
+        // durable-cold-search-index-and-hybrid-residency 4.2: a failed read
+        // is not successful exhaustion. Keep the obligation for the normal
+        // manager retry path; no removals committed and no successful
+        // reconciliation timestamp may be published.
+        RecordMetadataOnlyUpdateLocked();
+        return;
+    }
+    for (const auto& existingId : existingIds) {
         const bool notSeen = seen.find(existingId) == seen.end();
         const bool excluded = hasRulesForReconcile && !IsEntryIncludedLocked(id, existingId);
         if (notSeen || excluded) {
@@ -1039,6 +1089,7 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
 
     bool searchableMutation = false;
     bool secondaryApplied = true;
+    size_t committedRemovals = 0;
     if (!removals.empty()) {
 #ifdef FF_INDEX_PIPELINE_TESTING
         const bool injectedFailure = ShouldInjectSecondaryPruningFailureLocked(
@@ -1047,30 +1098,58 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
         const bool injectedFailure = false;
 #endif
         if (!injectedFailure) {
-            secondaryApplied = store_.ApplyBatch(id, removals);
+            // wal-lifecycle: the mass removal is applied in bounded chunks,
+            // each its own committed transaction, with a checkpoint decision
+            // between chunks -- a multi-million-row reconciliation can no
+            // longer accumulate a single-transaction WAL the size of the
+            // whole removal set (the 960 MB-class burst). Removals are
+            // idempotent derived state: a crash or failure between chunks
+            // leaves exactly the committed prefix applied and the pass's
+            // obligation retained below, so the next pass re-derives the
+            // rest. The projection mirrors the committed prefix in ONE bulk
+            // pass afterwards (per-chunk projection passes would re-trigger
+            // the filename-accelerator rebuild per chunk).
+            constexpr size_t kReconciliationRemovalChunkRows = 5'000;
+            std::vector<ffindexstore::FileId> committedIds;
+            committedIds.reserve(removals.size());
+            for (size_t begin = 0; begin < removals.size(); begin += kReconciliationRemovalChunkRows) {
+                const size_t end = (std::min)(begin + kReconciliationRemovalChunkRows, removals.size());
+                std::vector<ffindexstore::EntryChange> chunk(
+                    removals.begin() + static_cast<std::ptrdiff_t>(begin),
+                    removals.begin() + static_cast<std::ptrdiff_t>(end));
+                if (!store_.ApplyBatch(id, chunk)) {
+                    secondaryApplied = false;
+                    break;
+                }
+                for (size_t index = begin; index < end; ++index) {
+                    committedIds.push_back(removals[index].record.id);
+                }
+                store_.CheckpointIfWalExceeds(kWalForceCheckpointThresholdBytes);
+            }
+            committedRemovals = committedIds.size();
+            if (!committedIds.empty()) {
+                // large-index-lifecycle-and-search-scalability 4.4: reconciliation
+                // mass removal is the same bulk case as rule pruning.
+                projection_.RemoveBatch(id, committedIds);
+                searchableMutation = true;
+            }
         } else {
             secondaryApplied = false;
-        }
-        if (secondaryApplied) {
-            std::vector<ffindexstore::FileId> removedIds;
-            removedIds.reserve(removals.size());
-            for (const auto& removal : removals) {
-                removedIds.push_back(removal.record.id);
-            }
-            // large-index-lifecycle-and-search-scalability 4.4: reconciliation
-            // mass removal is the same bulk case as rule pruning.
-            projection_.RemoveBatch(id, removedIds);
-            searchableMutation = true;
         }
     }
 
     if (secondaryApplied || removals.empty()) {
         reconciliationSeen_.erase(it);
     } else {
-        // Secondary durable removal failed: retain the current pass's obligation
-        // so the next reconciliation or retry still owes the same deletions.
-        // Do not advance searchable epoch; the failure is not a searchable mutation.
-        searchableMutation = false;
+        // Durable removal did not fully apply: retain the current pass's
+        // obligation so the next reconciliation or retry still owes the
+        // remaining deletions (already-committed chunks are idempotently
+        // re-derived and no-ops). A partially-applied pass DID mutate the
+        // searchable set for its committed prefix and must advance the
+        // epoch; a wholly-unapplied pass advances nothing.
+        if (committedRemovals == 0) {
+            searchableMutation = false;
+        }
     }
 
     if (searchableMutation) {
@@ -1367,6 +1446,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
         ffindexstore::ProjectionEntryCursor cursor;
         std::optional<std::vector<uint32_t>> filenameCandidates;
         std::function<void(SearchPhase)> phaseHook;
+        bool forceCanonicalColdScan = false;
     };
     ffsearch::SearchResponse search;
     ffsearch::SearchDiagnostics searchDiagnostics;
@@ -1418,6 +1498,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
             context.dependencySetEpoch = dependencySetEpoch_.load(std::memory_order_acquire);
             context.allVolumes = searchRequest.scope == ffsearch::SearchScope::AllIndexedLocations;
             context.phaseHook = searchTestHooks_.onPhase;
+            context.forceCanonicalColdScan = searchTestHooks_.forceCanonicalColdScan;
 
             std::unordered_map<ffindexstore::VolumeRowId, std::wstring> configuredPrefixes;
             std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
@@ -1490,7 +1571,8 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                 context.orderedCold.assign(context.coldVolumes.begin(), context.coldVolumes.end());
                 std::sort(context.orderedCold.begin(), context.orderedCold.end());
                 searchedColdVolumes = searchedColdVolumes || !context.orderedCold.empty();
-                context.reader = store_.OpenReadSession({readSessionFaultInjector_});
+                context.reader = store_.OpenReadSession(
+                    {readSessionFaultInjector_, searchTestHooks_.candidatePlannerProbe});
                 if (!context.reader) {
                     readerFailures_.fetch_add(1, std::memory_order_relaxed);
                     unavailable = true;
@@ -1901,7 +1983,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         ++candidateObjectsMaterialized;
                         return !stale && !isCancelled();
                     };
-                const bool streamed = coldNamePrefilter.has_value()
+                const bool streamed = !context.forceCanonicalColdScan && coldNamePrefilter.has_value()
                     ? context.reader->ForEachEntryWithAsciiNameUntil(coldVolumeId, *coldNamePrefilter,
                                                                      coldVisitor)
                     : context.reader->ForEachEntryUntil(coldVolumeId, coldVisitor);
@@ -2031,7 +2113,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         ++candidateObjectsMaterialized;
                         return !isCancelled() && !accumulator.Cancelled() && !streamFailed;
                     };
-                const bool streamed = durableNamePrefilter.has_value()
+                const bool streamed = !context.forceCanonicalColdScan && durableNamePrefilter.has_value()
                     ? context.reader->ForEachEntryWithAsciiNameUntil(volumeId, *durableNamePrefilter,
                                                                      durableVisitor)
                     : context.reader->ForEachEntryUntil(volumeId, durableVisitor);

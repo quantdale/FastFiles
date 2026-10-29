@@ -1,11 +1,12 @@
 # Proposal: durable-cold-search-index-and-hybrid-residency
 
-Status: **PROPOSAL / DECISION RECORD ONLY — implementation is explicitly not
-started.** This change was prepared during the `large-index-lifecycle-and-
-search-scalability` closure campaign (PR #14 handoff) as the separately scoped
-successor that campaign deliberately deferred. It must not be folded into PR
-#14 and must not begin production implementation without an explicit owner
-authorization and a completed measurement phase (task group 1).
+Status: **IMPLEMENTED; ACCEPTANCE ACTIVE.** The original proposal below records
+the measurement-first decision process. Alternative A was selected on
+2026-10-22 and implemented on the isolated PR #15 branch, stacked on PR #14.
+Current acceptance is owned by `tasks.md` and `evidence/final-closure/`.
+The owner's 2026-10-25 directive authorizes the production-reachable canonical
+equality clarification; it does not close unverified acceptance cells or
+authorize merging the existing PRs.
 
 ## Problem
 
@@ -69,16 +70,20 @@ record per alternative:
 4. **Schema migration and rollback.** Any schema v3 must be additive and
    versioned: migration cost at 2M-5M rows, crash-consistent index updates
    (the index must never disagree with the entries table after a crash —
-   transactional coupling or rebuild-on-open), rollback to v2 with no data
-   loss, and disk-size tradeoffs (measured index bytes per 1M rows per
-   alternative).
+   transactional coupling or rebuild-on-open), a documented,
+   data-preserving downgrade policy (FAIL_CLOSED_DOWNGRADE refusal +
+   operator-invoked rollback that drops only derived structures — never an
+   automatic in-binary downgrade, which is not supported), and disk-size
+   tradeoffs (measured index bytes per 1M rows per alternative).
 5. **Bounded memory footprint.** The durable index is a disk structure, but
    caches/planners built on it must stay within documented bounds; no
    alternative may silently raise the default 500 MiB projection budget.
-6. **Cold/hot result equivalence.** Cold (durable-index-assisted) and hot
-   (projection-accelerated) results must remain byte-identical in identity
-   and ordering for every query class — the pinned contract from the
-   predecessor spec delta.
+6. **Canonical result equivalence.** Every production-reachable route must
+   match an independent full canonical scan at 200k/1M/2M/5M, including ordered
+   identities, metadata, caps/status and cancellation. Actually resident and
+   mixed-residency volumes must additionally exercise hot/cold equivalence,
+   transitions and generation invalidation under the unchanged default budget.
+   Enlarged-budget fully resident oversized experiments are supplemental only.
 7. **Startup/rebuild cost.** Index build during scan/ingestion, incremental
    maintenance per USN batch, and reopen/recovery cost must be measured;
    a durable index that doubles ingestion time is a regression.
@@ -105,7 +110,8 @@ cold, machine-readable artifacts with embedded identity):
   UI change is implied.
 - **Risk:** schema migration on multi-million-row user indexes is the
   highest-risk operation this product would yet ship; crash-consistency and
-  rollback are mandatory acceptance items, not stretch goals.
+  a data-preserving downgrade policy (fail-closed refusal + documented
+  operator rollback) are mandatory acceptance items, not stretch goals.
 - **Non-goals:** raising default memory consumption; changing canonical match
   semantics; hot-path redesign; any change to the certified PR #14 behavior.
 - **Relationship to PR #14:** none — PR #14 remains a self-contained,

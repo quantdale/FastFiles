@@ -1,0 +1,25 @@
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Debug"
+  CMAKE_CXX_FLAGS="/DWIN32 /D_WINDOWS /GR /EHsc /fsanitize=address"
+  CMAKE_CXX_FLAGS_DEBUG="/MDd /Ob0 /Od"
+  CMAKE_EXE_LINKER_FLAGS="/INCREMENTAL:NO"
+
+-- Configuring done (0.5s)
+-- Generating done (1.4s)
+-- Build files have been written to: C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/asan
+ninja: no work to do.
+Internal ctest changing into directory: C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/asan
+Test project C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/asan
+    Start  5: ffprotocol_fuzz_tests
+1/4 Test  #5: ffprotocol_fuzz_tests ............   Passed   12.02 sec
+    Start  6: ffipc_framing_tests
+2/4 Test  #6: ffipc_framing_tests ..............   Passed    2.42 sec
+    Start  7: ffipc_listener_lifecycle_tests
+3/4 Test  #7: ffipc_listener_lifecycle_tests ...   Passed   50.89 sec
+    Start 23: ffvolumescanner_terminal_tests
+4/4 Test #23: ffvolumescanner_terminal_tests ...   Passed    1.58 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =  66.96 sec

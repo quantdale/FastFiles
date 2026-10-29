@@ -11,6 +11,18 @@ target_compile_definitions(ffengine_index_pipeline_tests PRIVATE FF_INDEX_PIPELI
 
 add_test(NAME ffengine_index_pipeline_tests COMMAND ffengine_index_pipeline_tests)
 
+# durable-cold-search-index-and-hybrid-residency 4.2: bounded, disposable
+# ordinary error-return and pinned-reader tests. Historical deliberate-crash
+# cases require an explicit separate invocation and are NOT default CTest.
+add_executable(ffengine_storage_pressure_tests
+  test_storage_pressure.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp)
+target_include_directories(ffengine_storage_pressure_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_storage_pressure_tests PRIVATE ffindexstore ffprotocol ffsearch sqlite3 Rpcrt4 Shell32 Ole32)
+add_test(NAME ffengine_storage_pressure_tests COMMAND ffengine_storage_pressure_tests --ordinary-only)
+set_tests_properties(ffengine_storage_pressure_tests PROPERTIES TIMEOUT 180)
+
 add_executable(ffengine_volume_session_manager_tests
   test_volume_session_manager.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
@@ -263,6 +275,50 @@ target_link_libraries(ffengine_bench_large_index_scalability PRIVATE ffindexstor
 # refresh the generated identity first or the report could claim a stale tree.
 add_dependencies(ffengine_bench_large_index_scalability fastfiles_build_identity)
 
+# Same deterministic production ingestion path, but NO global new/delete
+# probe and NO stage-timing define. Historical instrumented target is kept.
+add_executable(ffengine_bench_ingestion_uninstrumented
+  bench_ingestion_uninstrumented.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp)
+target_include_directories(ffengine_bench_ingestion_uninstrumented PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_bench_ingestion_uninstrumented PRIVATE ffindexstore ffprotocol ffsearch ffsetup psapi Rpcrt4 Shell32 Ole32)
+add_dependencies(ffengine_bench_ingestion_uninstrumented fastfiles_build_identity)
+target_link_options(ffengine_bench_ingestion_uninstrumented PRIVATE
+  "/MAP:$<TARGET_FILE_DIR:ffengine_bench_ingestion_uninstrumented>/ffengine_bench_ingestion_uninstrumented.map")
+
+# durable-cold-search-index-and-hybrid-residency 4.1 exact differential oracle:
+# candidate-index results vs the readiness-gate-forced canonical stream,
+# compared as exact ordered sequences (identity/ordering/caps/truncation).
+# Informational/evidence tool, not a CTest gate (5M-scale runtime).
+add_executable(ffengine_bench_identity_ordering_oracle
+  bench_identity_ordering_oracle.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+)
+target_include_directories(ffengine_bench_identity_ordering_oracle PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_bench_identity_ordering_oracle PRIVATE ffindexstore ffprotocol ffsearch ffsetup sqlite3 psapi Rpcrt4 Shell32 Ole32)
+add_dependencies(ffengine_bench_identity_ordering_oracle fastfiles_build_identity)
+# Small comparator negative controls only; the large fixture run is never a
+# default CTest workload.
+add_test(NAME ffengine_identity_ordering_oracle_self_tests
+  COMMAND ffengine_bench_identity_ordering_oracle --self-test)
+
+# Diagnostic profile of the exact production ingestion fixture, with per-batch
+# stage timing compiled out of every other target (including the engine).
+add_executable(ffengine_bench_ingestion_profile
+  bench_ingestion_profile.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+)
+target_compile_definitions(ffengine_bench_ingestion_profile PRIVATE FF_INGESTION_PROFILE=1)
+target_include_directories(ffengine_bench_ingestion_profile PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_bench_ingestion_profile PRIVATE ffindexstore ffprotocol ffsearch ffsetup psapi Rpcrt4 Shell32 Ole32)
+add_dependencies(ffengine_bench_ingestion_profile fastfiles_build_identity)
+
 # Informational only: compares bounded secondary filename-index candidates
 # against the canonical matcher. It is intentionally not registered with
 # CTest because its scales are selected for engineering evidence, not a
@@ -302,3 +358,26 @@ target_link_libraries(ffengine_bench_allocation_isolation PRIVATE ffprotocol)
 set_tests_properties(ffengine_legacy_scan_failure_binding_tests PROPERTIES TIMEOUT 180)
 set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_idle_manager_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_active_path_resilience_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests ffengine_pooled_snapshot_lifetime_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)
+
+# durable-cold-search-index-and-hybrid-residency 1.2: Alternative-A prototype
+# probe (FTS5 candidate generation), bench-only and never registered with
+# CTest. It compiles its OWN copy of the vendored SQLite amalgamation WITH
+# SQLITE_ENABLE_FTS5 (the production sqlite3 target deliberately does not
+# enable FTS5) and keeps the vendored /W0 warning posture for that source.
+add_executable(ffengine_bench_fts5_candidate_probe
+  bench_fts5_candidate_probe.cpp
+  ${CMAKE_SOURCE_DIR}/third_party/sqlite/sqlite3.c
+)
+target_include_directories(ffengine_bench_fts5_candidate_probe PRIVATE ${CMAKE_SOURCE_DIR}/third_party/sqlite)
+target_compile_definitions(ffengine_bench_fts5_candidate_probe PRIVATE
+  SQLITE_THREADSAFE=1
+  SQLITE_DEFAULT_WAL_SYNCHRONOUS=1
+  SQLITE_OMIT_DEPRECATED
+  SQLITE_OMIT_LOAD_EXTENSION
+  SQLITE_ENABLE_FTS5
+)
+target_link_libraries(ffengine_bench_fts5_candidate_probe PRIVATE psapi)
+if(MSVC)
+  target_compile_options(ffengine_bench_fts5_candidate_probe PRIVATE /wd4100 /wd4267)
+  set_source_files_properties(${CMAKE_SOURCE_DIR}/third_party/sqlite/sqlite3.c PROPERTIES COMPILE_FLAGS "/W0 /analyze-")
+endif()

@@ -1,0 +1,73 @@
+[
+  {
+    "case": "too-small",
+    "exit": 1,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "unaligned",
+    "exit": 1,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "small-remainder",
+    "exit": 1,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "out-of-range",
+    "exit": 1,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "negative",
+    "exit": 2,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "overflow",
+    "exit": 2,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "malformed",
+    "exit": 2,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "missing-value",
+    "exit": 2,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "missing-roots",
+    "exit": 2,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "wrong-volumes",
+    "exit": 2,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "wrong-mode",
+    "exit": 2,
+    "all_three_sentinels_unchanged": true,
+    "passed": true
+  },
+  {
+    "case": "readonly-residency-rejected",
+    "exit": 2,
+    "passed": true
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "sourceSha": "6e060fbb34569ac9d21b964cff84d36743f350f3",
+  "sourceClean": true,
+  "implementationEquivalentTo": "db7887c1ec1d3d8f493848a9050240407423e678",
+  "fixtureSha256Before": "C96F5FE82F767D12215875E048648F798331ABC78011C1FE03807C30C7C18724",
+  "oracleExeSha256": "9C128A98527E090F163E169E83353E977E14F14045BF239D241BDA15793D5BCB",
+  "configuration": "Debug diagnostic",
+  "purpose": "canonical correctness, not performance",
+  "startUtc": "2026-10-25T13:11:28.8489749Z",
+  "exitCode": 0,
+  "fixtureSha256After": "C96F5FE82F767D12215875E048648F798331ABC78011C1FE03807C30C7C18724",
+  "endUtc": "2026-10-25T13:24:14.7849298Z"
+}

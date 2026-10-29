@@ -1,0 +1,4 @@
+Current optimized executable resolves allocation/deallocation to CRT, not probe replacements.
+ 0001:002764f4       ??2@YAPEAX_K@Z             00000001402774f4 f   MSVCRT:new_scalar.obj
+ 0001:00277dec       ??3@YAXPEAX@Z              0000000140278dec f   MSVCRT:delete_scalar.obj
+ 0002:00060030       $unwind$??2@YAPEAX_K@Z     00000001402f1030     MSVCRT:new_scalar.obj

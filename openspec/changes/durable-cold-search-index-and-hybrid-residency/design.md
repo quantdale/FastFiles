@@ -1,8 +1,10 @@
 # Design / decision record: durable-cold-search-index-and-hybrid-residency
 
-Status: **decision record seeded during the PR #14 closure campaign; every
-alternative is UNDECIDED pending the measurement phase (task group 1).** No
-production implementation exists or is authorized by this document.
+Status: **IMPLEMENTED; ACCEPTANCE ACTIVE.** Alternative A was selected after
+measurement on 2026-10-22 and implemented on PR #15. Historical alternatives
+remain below for decision traceability. `tasks.md` and `evidence/final-closure/`
+own the current acceptance frontier; the 2026-10-25 clarification below does not
+waive result correctness or authorize integration.
 
 ## 1. Bounding facts (inherited, measured)
 
@@ -30,7 +32,7 @@ These constrain the design space and come from the completed
   fold-exceptional classification via a memoized host probe, fail-closed on
   API error).
 
-## 2. Alternatives to measure (all currently UNDECIDED)
+## 2. Alternatives evaluated (selection recorded in section 4)
 
 | # | Alternative | Sketch | Principal risk |
 |---|---|---|---|
@@ -47,9 +49,13 @@ These constrain the design space and come from the completed
    mixed-case, short-name shapes) — the predecessor's
    `TestFilenameCandidatesAreConservativeSuperset` family extended to the
    durable generator.
-2. **Equivalence:** cold-with-index results byte-identical to hot results for
-   all 12 query classes at 200k/1M/2M (and 5M for the selected candidate).
-3. **Migration:** v2 -> v3 cost at 2M-5M; rollback path; crash-consistency
+2. **Equivalence:** every production-reachable route matches an independent
+   full canonical scan for all query classes at 200k/1M/2M/5M, in ordered
+   identities, metadata, caps/status and cancellation. Hot/cold and
+   mixed-residency transitions/generation invalidation additionally require
+   actual route evidence under the unchanged default budget. Wholly resident
+   oversized tests using enlarged test-only budgets are supplemental.
+3. **Migration:** v2 -> v3 cost at 2M-5M; downgrade policy (FAIL_CLOSED_DOWNGRADE refusal + documented operator rollback of derived structures only); crash-consistency
    (kill-during-update recovery; index never disagrees with entries);
    rebuild-on-open as the fallback recovery.
 4. **Resources:** planner/index cache memory bounds; disk bytes per 1M rows;
@@ -65,9 +71,10 @@ These constrain the design space and come from the completed
 | Date | Decision | Status |
 |---|---|---|
 | 2026-10-21 | Proposal + decision record created at PR #14 closure; alternatives A-E recorded; measurement-first mandated; no alternative selected | RECORDED |
-| (future) | Task group 1 measurements complete | PENDING |
-| (future) | Alternative selected/rejected with measured rationale | PENDING |
-| (future) | Schema/migration/rollback design for the selected alternative | PENDING |
+| 2026-10-22 | Task group 1 measurements complete: fresh 200k/1M/2M cold baseline reproduced (2M selective 3513 ms / broad 27483 ms / extension 38709 ms); FTS5 candidate prototype (dual side-set arms) 0 false negatives x 3 scales x 10 classes and 41-76x candidate-gen win on target classes at 2M; B/D model bench measured (69-71 MB/1M postings, 42.9 MB/1M sorted-keys); lane-A..F reports landed | COMPLETE |
+| 2026-10-22 | **Alternative A (SQLite FTS5 trigram candidate index) SELECTED**; B deferred as fallback; C deferred (out of scope); D rejected (correctness: prefix ranges miss infix matches); E rejected (control arm). Full evidence: `evidence/architecture-decision-record.md` | DECIDED |
+| (future) | Phase D implementation + acceptance results | PENDING |
+| 2026-10-25 | Owner-authorized clarification: canonical exact equality at every scale plus real resident/mixed/transition routes under the unchanged production budget replaces the wholly-hot oversized-corpus premise. Evidence inventory in `evidence/final-closure/acceptance-decision.md`; task 4.1 remains open for unverified cells. | APPLIED; ACCEPTANCE OPEN |
 
 ## 5. Explicit non-decisions
 
@@ -79,3 +86,7 @@ These constrain the design space and come from the completed
   may achieve the latency targets without a schema change, and alternative E
   is retained only as a control arm.
 - The 500 MiB default budget is **not** raised by this proposal.
+
+## 2026-10-26 bounded independent residency-route qualification
+
+The optional oracle mode uses two ordinary IndexPipeline instances on a fresh owned SQLite backup: an independently all-cold, all-prefilter-bypassed reference and a tested resident/mixed/cold/reloaded projection under the unchanged500MiB production maximum. Reuse the existing deterministic Store fixture generator at200k/two logical volumes. Require actual residency/budget/row-route premises, complete canonical row enumeration, no reference candidate admission, ordered identity/all metadata/status/caps/cancellation equality and released durable readers. Trigger one eviction at captured WorkStarted, as the existing concurrency regression does, and require an actual generation restart with canonical equality. Keep the existing default v2 all-cold matrix behavior; no engine/storage schema/policy change. Negative self-tests reject equal candidate lists when full-scan/admission/cap/status premises are invalid. Cleanup may remove only factory-owned, marked, canonicalized temp scratch roots. Execution is pending and task4.1 stays open, including retained2M scope; this design does not close acceptance or repeat old expensive experiments.

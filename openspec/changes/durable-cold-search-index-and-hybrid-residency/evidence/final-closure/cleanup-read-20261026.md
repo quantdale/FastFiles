@@ -1,0 +1,9 @@
+# Fail-closed candidate cleanup — 2026-10-26
+
+A current independent source review identified lookup/enumeration read errors being treated as absence/exhaustion. A graceful one-shot sqlite3_progress_handler interruption targeted actual cleanup SELECTs on disposable synthetic databases through the existing captured connection seam. No process termination, user data, disk exhaustion or privileged operation.
+
+Original volume cleanup RED returns success after partial enumeration: entries0/map0/terms3/volumes0. The separate row cleanup already returns failure with entries/map/terms4/volume1. Strengthened negative control includes one explicit valid conservative side-set member; removing only the new volume terminal-status guard again causes two assertions to fail and drops the side-set while leaving three orphan FTS rows. This proves the guard's causal effect. Raw logs retained in artifacts/cleanup-read-20261026.
+
+Fix: CandidateTermRowid returns status separately from successful absence; callers fail closed on errors. CandidateIndexRemoveVolume requires SQLITE_DONE before any identity/FTS deletion after enumeration. Existing caller transaction rolls back on failure. Final ordinary regression reports both arms false with entries/map/terms4, exceptions1 and volume1, then successful retries, no orphan exceptions, FTS integrity and idempotent absent-row removal. Owned fixture cleanup completes. Focused release-test ordinary CTest1/1 PASS1.34s; direct recovery-only final zero failures. No deliberate-crash branch was dispatched.
+
+Independent final source approval records exact production/test blobs in reviews/native-broad-review-20261026.md. Full committed-source Debug/release certification remains pending at this checkpoint. Healthy-query larger-scale evidence is not silently rebound across the Store production delta.

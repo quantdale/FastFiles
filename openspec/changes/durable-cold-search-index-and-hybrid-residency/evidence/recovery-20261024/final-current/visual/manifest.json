@@ -1,0 +1,5935 @@
+{
+  "schema": "fastfiles.visual-capture.v1",
+  "hostId": "local-interactive-windows",
+  "startedUtc": "2026-10-24T14:12:36.6012984Z",
+  "finishedUtc": "2026-10-24T14:14:07.2735872Z",
+  "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+  "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+  "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+  "branch": "feat/durable-cold-search-and-hybrid-residency",
+  "worktreeState": "clean",
+  "provenanceState": "exact-committed-tree",
+  "exactTreeBound": true,
+  "sourceKind": "git-commit",
+  "captures": [
+    {
+      "scenarioId": "home-default",
+      "expectedState": "Home surface activated through the real Home command",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "home-default.png",
+      "imageHash": "88830610cf8b1ee4f6feb2de98e86df12552db45bd508fa5537bd53c04c6c67b",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 191,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 239,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 239,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 287,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 287,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Command": {
+            "Pass": true,
+            "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1792851164,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":39644,\\\"tid\\\":56952,\\\"epochMs\\\":1792851164941}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":76613950,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":39644,\"popupClasses\":[]}",
+            "CommandState": {
+              "editPresent": true,
+              "editHasKeyboardFocus": true,
+              "editTextPresent": true,
+              "listPresent": true,
+              "listEnabled": true,
+              "listNativeHandle": 15731172,
+              "listVisible": true,
+              "listItems": [
+                "Home",
+                "Open Command Palette"
+              ],
+              "selectedIndex": 0,
+              "selectedName": "Home",
+              "expectedMatches": [
+                "Home"
+              ],
+              "expectedNameLikeMatches": [],
+              "interactive": {
+                "foregroundHwnd": 76613950,
+                "foregroundEvidenceAvailable": true,
+                "foregroundTitle": "FastFiles",
+                "focusedAutomationId": "6301",
+                "focusedControlType": "Pane",
+                "focusedProcessId": 39644,
+                "popupClasses": []
+              }
+            },
+            "PaletteClosed": true,
+            "DispatchEvidence": {
+              "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+              "message": "command=navigation.home",
+              "state": "{\"timestamp\":1792851164,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":39644,\"tid\":56952,\"epochMs\":1792851164941}",
+              "outcome": "accepted"
+            }
+          },
+          "Surface": {
+            "Pass": true,
+            "Found": [
+              "1: Home",
+              "Pane.0.Home"
+            ],
+            "Missing": []
+          }
+        }
+      },
+      "timestampUtc": "2026-10-24T14:12:46.5295231Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:12:46.5273359Z",
+        "surface": "home-default",
+        "semanticState": "Home surface activated through the real Home command",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 191,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 239,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 239,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 287,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 287,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "88830610cf8b1ee4f6feb2de98e86df12552db45bd508fa5537bd53c04c6c67b",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "home-default",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "88830610cf8b1ee4f6feb2de98e86df12552db45bd508fa5537bd53c04c6c67b"
+        }
+      }
+    },
+    {
+      "scenarioId": "browse-column-view",
+      "expectedState": "Column View on an international fixture folder with details pane open",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "browse-column-view.png",
+      "imageHash": "229e26f608ec3a545e1fa5cfd6341876233464e4d7697477c3f5b175358023f3",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 169,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 207,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 245,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 283,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 321,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 359,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 397,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 435,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 473,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 511,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 549,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 587,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 625,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 663,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 701,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 739,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 777,
+          "width": 25,
+          "height": 16,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 283,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 321,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 359,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "tab label reflects 'CatalogBrowse' (used SendInput-fallback)"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:12:52.9095849Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:12:52.9095072Z",
+        "surface": "browse-column-view",
+        "semanticState": "Column View on an international fixture folder with details pane open",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 169,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 207,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 245,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 283,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 321,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 359,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 397,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 435,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 473,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 511,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 549,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 587,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 625,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 663,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 701,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 739,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 777,
+            "width": 25,
+            "height": 16,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 283,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 321,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 359,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "229e26f608ec3a545e1fa5cfd6341876233464e4d7697477c3f5b175358023f3",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "browse-column-view",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "229e26f608ec3a545e1fa5cfd6341876233464e4d7697477c3f5b175358023f3"
+        }
+      }
+    },
+    {
+      "scenarioId": "browse-keyboard-focus",
+      "expectedState": "Column View with keyboard-focused item row and selection focus ring",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "browse-keyboard-focus.png",
+      "imageHash": "e0f255f71fad3d3271686a502f0c43145d9f5891fd42ded584508da8df8b59d7",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 169,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 207,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 245,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 283,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 321,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 359,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 397,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 435,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 473,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 511,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 549,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 587,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 625,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 663,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 701,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 739,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 777,
+          "width": 25,
+          "height": 16,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 283,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 321,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 359,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "keyboard focus moved to row 'EmptyFolder' (selected) via DOWN",
+          "Before": [],
+          "After": [
+            "EmptyFolder"
+          ]
+        }
+      },
+      "timestampUtc": "2026-10-24T14:12:55.3398462Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:12:55.3397869Z",
+        "surface": "browse-keyboard-focus",
+        "semanticState": "Column View with keyboard-focused item row and selection focus ring",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 169,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 207,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 245,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 283,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 321,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 359,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 397,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 435,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 473,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 511,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 549,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 587,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 625,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 663,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 701,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 739,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 777,
+            "width": 25,
+            "height": 16,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 283,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 321,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 359,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "e0f255f71fad3d3271686a502f0c43145d9f5891fd42ded584508da8df8b59d7",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "browse-keyboard-focus",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "e0f255f71fad3d3271686a502f0c43145d9f5891fd42ded584508da8df8b59d7"
+        }
+      }
+    },
+    {
+      "scenarioId": "browse-empty-state",
+      "expectedState": "Column View empty directory placeholder state",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "browse-empty-state.png",
+      "imageHash": "fa554638cde4d773594368037d451589d082c7353a575e78b01a9688c9a10170",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 169,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 207,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 283,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 321,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 359,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "tab label reflects 'EmptyFolder' (used SendInput-fallback)"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:02.3271863Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:02.3271094Z",
+        "surface": "browse-empty-state",
+        "semanticState": "Column View empty directory placeholder state",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 169,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 207,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 283,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 321,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 359,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "fa554638cde4d773594368037d451589d082c7353a575e78b01a9688c9a10170",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "browse-empty-state",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "fa554638cde4d773594368037d451589d082c7353a575e78b01a9688c9a10170"
+        }
+      }
+    },
+    {
+      "scenarioId": "home-wide",
+      "expectedState": "Home remains usable at 1600px width",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1600,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "home-wide.png",
+      "imageHash": "c4b94cd235c89916a4fed80b4e9b6a59f83c159917c658709896681f425e2f0e",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 502,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 747,
+          "y": 191,
+          "width": 502,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 315,
+          "width": 502,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 747,
+          "y": 315,
+          "width": 502,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 363,
+          "width": 502,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 747,
+          "y": 363,
+          "width": 502,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 411,
+          "width": 502,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 747,
+          "y": 411,
+          "width": 502,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Command": {
+            "Pass": true,
+            "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1792851183,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":39644,\\\"tid\\\":56952,\\\"epochMs\\\":1792851183484}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":76613950,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":39644,\"popupClasses\":[]}",
+            "CommandState": {
+              "editPresent": true,
+              "editHasKeyboardFocus": true,
+              "editTextPresent": true,
+              "listPresent": true,
+              "listEnabled": true,
+              "listNativeHandle": 15731172,
+              "listVisible": true,
+              "listItems": [
+                "Home",
+                "Open Command Palette"
+              ],
+              "selectedIndex": 0,
+              "selectedName": "Home",
+              "expectedMatches": [
+                "Home"
+              ],
+              "expectedNameLikeMatches": [],
+              "interactive": {
+                "foregroundHwnd": 76613950,
+                "foregroundEvidenceAvailable": true,
+                "foregroundTitle": "FastFiles",
+                "focusedAutomationId": "6301",
+                "focusedControlType": "Pane",
+                "focusedProcessId": 39644,
+                "popupClasses": []
+              }
+            },
+            "PaletteClosed": true,
+            "DispatchEvidence": {
+              "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+              "message": "command=navigation.home",
+              "state": "{\"timestamp\":1792851183,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":39644,\"tid\":56952,\"epochMs\":1792851183484}",
+              "outcome": "accepted"
+            }
+          },
+          "Surface": {
+            "Pass": true,
+            "Found": [
+              "1: Home",
+              "Pane.0.Home"
+            ],
+            "Missing": []
+          }
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:04.9645824Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:04.9645118Z",
+        "surface": "home-wide",
+        "semanticState": "Home remains usable at 1600px width",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1600,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 502,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 747,
+            "y": 191,
+            "width": 502,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 315,
+            "width": 502,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 747,
+            "y": 315,
+            "width": 502,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 363,
+            "width": 502,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 747,
+            "y": 363,
+            "width": 502,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 411,
+            "width": 502,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 747,
+            "y": 411,
+            "width": 502,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "c4b94cd235c89916a4fed80b4e9b6a59f83c159917c658709896681f425e2f0e",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "home-wide",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "c4b94cd235c89916a4fed80b4e9b6a59f83c159917c658709896681f425e2f0e"
+        }
+      }
+    },
+    {
+      "scenarioId": "details-closed",
+      "expectedState": "Column View with the details pane closed",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "details-closed.png",
+      "imageHash": "4208486f551542f515ccfcbbf30a4bdd2e2e6758f8a20f57507cac7f8287405d",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 169,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 207,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 245,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 283,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 321,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 359,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 397,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 435,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 473,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 511,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 549,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 587,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 625,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 663,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 701,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 739,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 777,
+          "width": 25,
+          "height": 16,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 283,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 321,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 359,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Navigation": {
+            "Pass": true,
+            "Detail": "tab label reflects 'CatalogBrowse' (used SendInput-fallback)"
+          },
+          "Command": {
+            "Pass": true,
+            "Detail": "palette 'details' activated commandId='view.toggle-details-pane'; selected='Toggle Details Pane'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=view.toggle-details-pane\",\"state\":\"{\\\"timestamp\\\":1792851190,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=view.toggle-details-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=view.toggle-details-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":39644,\\\"tid\\\":56952,\\\"epochMs\\\":1792851190060}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":76613950,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"Pane.0.Column.8\",\"focusedControlType\":\"List\",\"focusedProcessId\":39644,\"popupClasses\":[]}",
+            "CommandState": {
+              "editPresent": true,
+              "editHasKeyboardFocus": true,
+              "editTextPresent": true,
+              "listPresent": true,
+              "listEnabled": true,
+              "listNativeHandle": 15731172,
+              "listVisible": true,
+              "listItems": [
+                "Toggle Details Pane"
+              ],
+              "selectedIndex": 0,
+              "selectedName": "Toggle Details Pane",
+              "expectedMatches": [
+                "Toggle Details Pane"
+              ],
+              "expectedNameLikeMatches": [],
+              "interactive": {
+                "foregroundHwnd": 76613950,
+                "foregroundEvidenceAvailable": true,
+                "foregroundTitle": "FastFiles",
+                "focusedAutomationId": "6301",
+                "focusedControlType": "Pane",
+                "focusedProcessId": 39644,
+                "popupClasses": []
+              }
+            },
+            "PaletteClosed": true,
+            "DispatchEvidence": {
+              "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+              "message": "command=view.toggle-details-pane",
+              "state": "{\"timestamp\":1792851190,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=view.toggle-details-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=view.toggle-details-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":39644,\"tid\":56952,\"epochMs\":1792851190060}",
+              "outcome": "accepted"
+            }
+          }
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:12.5921774Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:12.5921216Z",
+        "surface": "details-closed",
+        "semanticState": "Column View with the details pane closed",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 169,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 207,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 245,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 283,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 321,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 359,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 397,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 435,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 473,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 511,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 549,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 587,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 625,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 663,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 701,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 739,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 777,
+            "width": 25,
+            "height": 16,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 283,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 321,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 359,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "4208486f551542f515ccfcbbf30a4bdd2e2e6758f8a20f57507cac7f8287405d",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "details-closed",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "4208486f551542f515ccfcbbf30a4bdd2e2e6758f8a20f57507cac7f8287405d"
+        }
+      }
+    },
+    {
+      "scenarioId": "dual-pane",
+      "expectedState": "Dual-pane Column View with two semantic pane roots",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "dual",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "dual-pane.png",
+      "imageHash": "53c14941e58dcfb579f9d8eb9d3acfba90aeac42d55baf66284993e106dddfec",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 843,
+          "y": 131,
+          "width": 240,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 131,
+          "width": 183,
+          "height": 661,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 131,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 169,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 207,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 245,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 283,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 321,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 359,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 397,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 435,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 473,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 511,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 549,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 587,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 625,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 663,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 701,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 739,
+          "width": 25,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 0,
+          "y": 777,
+          "width": 25,
+          "height": 16,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 25,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 265,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 505,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 283,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 321,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 745,
+          "y": 359,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 283,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 321,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 359,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 397,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 435,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 473,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 511,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 549,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 587,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 625,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 663,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 701,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 739,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 603,
+          "y": 777,
+          "width": 240,
+          "height": 16,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 843,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 843,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 843,
+          "y": 207,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 843,
+          "y": 245,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 843,
+          "y": 283,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 843,
+          "y": 321,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 131,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 169,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 207,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 245,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 283,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 321,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 359,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 397,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 435,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 473,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 511,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 549,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 587,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 625,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 663,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 701,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 739,
+          "width": 183,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 1083,
+          "y": 777,
+          "width": 183,
+          "height": 16,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Command": {
+            "Pass": true,
+            "Detail": "palette 'dual pane' activated commandId='navigation.toggle-dual-pane'; selected='Toggle Dual Pane'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.toggle-dual-pane\",\"state\":\"{\\\"timestamp\\\":1792851195,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.toggle-dual-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=2;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=true\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.toggle-dual-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=2;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=true\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":39644,\\\"tid\\\":56952,\\\"epochMs\\\":1792851195115}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":76613950,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"Pane.0.Column.8\",\"focusedControlType\":\"List\",\"focusedProcessId\":39644,\"popupClasses\":[]}",
+            "CommandState": {
+              "editPresent": true,
+              "editHasKeyboardFocus": true,
+              "editTextPresent": true,
+              "listPresent": true,
+              "listEnabled": true,
+              "listNativeHandle": 15731172,
+              "listVisible": true,
+              "listItems": [
+                "Toggle Dual Pane",
+                "Toggle Details Pane"
+              ],
+              "selectedIndex": 0,
+              "selectedName": "Toggle Dual Pane",
+              "expectedMatches": [
+                "Toggle Dual Pane"
+              ],
+              "expectedNameLikeMatches": [],
+              "interactive": {
+                "foregroundHwnd": 76613950,
+                "foregroundEvidenceAvailable": true,
+                "foregroundTitle": "FastFiles",
+                "focusedAutomationId": "6301",
+                "focusedControlType": "Pane",
+                "focusedProcessId": 39644,
+                "popupClasses": []
+              }
+            },
+            "PaletteClosed": true,
+            "DispatchEvidence": {
+              "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+              "message": "command=navigation.toggle-dual-pane",
+              "state": "{\"timestamp\":1792851195,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.toggle-dual-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=2;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=true\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.toggle-dual-pane;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=2;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=true\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":39644,\"tid\":56952,\"epochMs\":1792851195115}",
+              "outcome": "accepted"
+            }
+          },
+          "Surface": {
+            "Pass": true,
+            "Found": [
+              "Pane.0",
+              "Pane.1"
+            ],
+            "Missing": []
+          }
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:18.8630618Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:18.8629905Z",
+        "surface": "dual-pane",
+        "semanticState": "Dual-pane Column View with two semantic pane roots",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "dual",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 843,
+            "y": 131,
+            "width": 240,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 131,
+            "width": 183,
+            "height": 661,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 131,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 169,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 207,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 245,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 283,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 321,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 359,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 397,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 435,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 473,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 511,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 549,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 587,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 625,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 663,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 701,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 739,
+            "width": 25,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 0,
+            "y": 777,
+            "width": 25,
+            "height": 16,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 25,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 265,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 505,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 283,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 321,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 745,
+            "y": 359,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 283,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 321,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 359,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 397,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 435,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 473,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 511,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 549,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 587,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 625,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 663,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 701,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 739,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 603,
+            "y": 777,
+            "width": 240,
+            "height": 16,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 843,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 843,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 843,
+            "y": 207,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 843,
+            "y": 245,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 843,
+            "y": 283,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 843,
+            "y": 321,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 131,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 169,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 207,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 245,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 283,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 321,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 359,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 397,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 435,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 473,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 511,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 549,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 587,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 625,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 663,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 701,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 739,
+            "width": 183,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 1083,
+            "y": 777,
+            "width": 183,
+            "height": 16,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "53c14941e58dcfb579f9d8eb9d3acfba90aeac42d55baf66284993e106dddfec",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "dual-pane",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "53c14941e58dcfb579f9d8eb9d3acfba90aeac42d55baf66284993e106dddfec"
+        }
+      }
+    },
+    {
+      "scenarioId": "home-from-command",
+      "expectedState": "Home restored through the command palette",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "home-from-command.png",
+      "imageHash": "94b80d26f3fa55f6ad363d2dd3b72187b7f45e20fdee17daf064223065de8d24",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 315,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 315,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 363,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 363,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 411,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 411,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Command": {
+            "Pass": true,
+            "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1792851201,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":39644,\\\"tid\\\":56952,\\\"epochMs\\\":1792851201578}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":76613950,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":39644,\"popupClasses\":[]}",
+            "CommandState": {
+              "editPresent": true,
+              "editHasKeyboardFocus": true,
+              "editTextPresent": true,
+              "listPresent": true,
+              "listEnabled": true,
+              "listNativeHandle": 15731172,
+              "listVisible": true,
+              "listItems": [
+                "Home",
+                "Open Command Palette"
+              ],
+              "selectedIndex": 0,
+              "selectedName": "Home",
+              "expectedMatches": [
+                "Home"
+              ],
+              "expectedNameLikeMatches": [],
+              "interactive": {
+                "foregroundHwnd": 76613950,
+                "foregroundEvidenceAvailable": true,
+                "foregroundTitle": "FastFiles",
+                "focusedAutomationId": "6301",
+                "focusedControlType": "Pane",
+                "focusedProcessId": 39644,
+                "popupClasses": []
+              }
+            },
+            "PaletteClosed": true,
+            "DispatchEvidence": {
+              "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+              "message": "command=navigation.home",
+              "state": "{\"timestamp\":1792851201,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":39644,\"tid\":56952,\"epochMs\":1792851201578}",
+              "outcome": "accepted"
+            }
+          },
+          "Surface": {
+            "Pass": true,
+            "Found": [
+              "1: Home",
+              "Pane.0.Home"
+            ],
+            "Missing": []
+          }
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:23.0731595Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:23.0731038Z",
+        "surface": "home-from-command",
+        "semanticState": "Home restored through the command palette",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 315,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 315,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 363,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 363,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 411,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 411,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "94b80d26f3fa55f6ad363d2dd3b72187b7f45e20fdee17daf064223065de8d24",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "home-from-command",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "94b80d26f3fa55f6ad363d2dd3b72187b7f45e20fdee17daf064223065de8d24"
+        }
+      }
+    },
+    {
+      "scenarioId": "fast-search-idle",
+      "expectedState": "Fast Search workspace with idle empty state; Filters present; no Filters expansion",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "fast-search-idle.png",
+      "imageHash": "442b0871755cd4936149001826780b662a13ef43a8030fe89a0dbee6462f7996",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 315,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 315,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 363,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 363,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 411,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 411,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "palette 'search' activated commandId='search.focus'; selected='Search'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=search.focus\",\"state\":\"{\\\"timestamp\\\":1792851203,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":39644,\\\"tid\\\":56952,\\\"epochMs\\\":1792851203991}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":76613950,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"1001\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":39644,\"popupClasses\":[]}",
+          "Ui": {
+            "Pass": true,
+            "Found": [
+              "Filters",
+              "Search.Results",
+              "7101"
+            ],
+            "Missing": []
+          }
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:25.5183083Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:25.5182670Z",
+        "surface": "fast-search-idle",
+        "semanticState": "Fast Search workspace with idle empty state; Filters present; no Filters expansion",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 315,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 315,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 363,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 363,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 411,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 411,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "442b0871755cd4936149001826780b662a13ef43a8030fe89a0dbee6462f7996",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "fast-search-idle",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "442b0871755cd4936149001826780b662a13ef43a8030fe89a0dbee6462f7996"
+        }
+      }
+    },
+    {
+      "scenarioId": "search-filters-expanded",
+      "expectedState": "Fast Search with the Filters disclosure expanded",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "search-filters-expanded.png",
+      "imageHash": "930bdbdfabb7af3bf71b405865990a3cba13f36a11e96b2313114f72bc9061e6",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 315,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 315,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 363,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 363,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 411,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 411,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "ExpandCollapse state='Expanded'"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:27.2710821Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:27.2710045Z",
+        "surface": "search-filters-expanded",
+        "semanticState": "Fast Search with the Filters disclosure expanded",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 315,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 315,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 363,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 363,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 411,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 411,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "930bdbdfabb7af3bf71b405865990a3cba13f36a11e96b2313114f72bc9061e6",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "search-filters-expanded",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "930bdbdfabb7af3bf71b405865990a3cba13f36a11e96b2313114f72bc9061e6"
+        }
+      }
+    },
+    {
+      "scenarioId": "search-no-results",
+      "expectedState": "Fast Search with zero results and empty search state",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "search-no-results.png",
+      "imageHash": "3371b490bdc29e38d52af231924e6eb8901e28b459110e7cdc9eaf5e330c905d",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 315,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 315,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 363,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 363,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 411,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 411,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "query='zzzz_no_matching_files_query_9999' resultsElement=True children=0"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:31.2284271Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:31.2283559Z",
+        "surface": "search-no-results",
+        "semanticState": "Fast Search with zero results and empty search state",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 315,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 315,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 363,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 363,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 411,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 411,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "3371b490bdc29e38d52af231924e6eb8901e28b459110e7cdc9eaf5e330c905d",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "search-no-results",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "3371b490bdc29e38d52af231924e6eb8901e28b459110e7cdc9eaf5e330c905d"
+        }
+      }
+    },
+    {
+      "scenarioId": "storage-overview",
+      "expectedState": "Storage Analysis workspace with Overview mode",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "storage-overview.png",
+      "imageHash": "ca8132f410d536a360d49ad6896cdaee80a2d2230836a7508b551d6d2fb48909",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 423,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 423,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 471,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 471,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 519,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 519,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "palette 'analyze' activated commandId='storage.analyze'; selected='Analyze Storage'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze\",\"state\":\"{\\\"timestamp\\\":1792851215,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":39644,\\\"tid\\\":56952,\\\"epochMs\\\":1792851215616}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":76613950,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"7211\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":39644,\"popupClasses\":[]}"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:37.1128213Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:37.1127806Z",
+        "surface": "storage-overview",
+        "semanticState": "Storage Analysis workspace with Overview mode",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 423,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 423,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 471,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 471,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 519,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 519,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "ca8132f410d536a360d49ad6896cdaee80a2d2230836a7508b551d6d2fb48909",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "storage-overview",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "ca8132f410d536a360d49ad6896cdaee80a2d2230836a7508b551d6d2fb48909"
+        }
+      }
+    },
+    {
+      "scenarioId": "settings-general",
+      "expectedState": "Settings dialog on the General page",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 620,
+      "viewportHeight": 800,
+      "paneMode": "dialog",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "settings-general.png",
+      "imageHash": "8342b3732e168d2cb16ca6e6361e3443a86ea550c119db254ba46681b66f01aa",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 63,
+          "y": 139,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 433,
+          "y": 139,
+          "width": 173,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 63,
+          "y": 371,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 433,
+          "y": 371,
+          "width": 173,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 63,
+          "y": 419,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 433,
+          "y": 419,
+          "width": 173,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 63,
+          "y": 467,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 433,
+          "y": 467,
+          "width": 173,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "settings opened through the command palette"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:41.5417597Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:41.5417156Z",
+        "surface": "settings-general",
+        "semanticState": "Settings dialog on the General page",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 620,
+          "height": 800
+        },
+        "paneMode": "dialog",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 63,
+            "y": 139,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 433,
+            "y": 139,
+            "width": 173,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 63,
+            "y": 371,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 433,
+            "y": 371,
+            "width": 173,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 63,
+            "y": 419,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 433,
+            "y": 419,
+            "width": 173,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 63,
+            "y": 467,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 433,
+            "y": 467,
+            "width": 173,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "8342b3732e168d2cb16ca6e6361e3443a86ea550c119db254ba46681b66f01aa",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "settings-general",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "8342b3732e168d2cb16ca6e6361e3443a86ea550c119db254ba46681b66f01aa"
+        }
+      }
+    },
+    {
+      "scenarioId": "command-palette",
+      "expectedState": "Command palette edit 6301 is visible over the shell",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "command-palette.png",
+      "imageHash": "bb607000f3a2182da6559227e89d0317242f3ede70f60000336862c6778f8f07",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 423,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 423,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 471,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 471,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 519,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 519,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "palette edit present"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:45.6780805Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:45.6780407Z",
+        "surface": "command-palette",
+        "semanticState": "Command palette edit 6301 is visible over the shell",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 423,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 423,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 471,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 471,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 519,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 519,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "bb607000f3a2182da6559227e89d0317242f3ede70f60000336862c6778f8f07",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "command-palette",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "bb607000f3a2182da6559227e89d0317242f3ede70f60000336862c6778f8f07"
+        }
+      }
+    },
+    {
+      "scenarioId": "home-narrow",
+      "expectedState": "Home remains usable at 800px width",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 800,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "home-narrow.png",
+      "imageHash": "b4e562b078d35036b330fdac369ce07398707cf06efcf7ab8bcda8fed430a0fd",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 244,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 489,
+          "y": 191,
+          "width": 244,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 423,
+          "width": 244,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 489,
+          "y": 423,
+          "width": 244,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 471,
+          "width": 244,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 489,
+          "y": 471,
+          "width": 244,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 519,
+          "width": 244,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 489,
+          "y": 519,
+          "width": 244,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Command": {
+            "Pass": true,
+            "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1792851227,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":39644,\\\"tid\\\":56952,\\\"epochMs\\\":1792851227551}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":76613950,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":39644,\"popupClasses\":[]}",
+            "CommandState": {
+              "editPresent": true,
+              "editHasKeyboardFocus": true,
+              "editTextPresent": true,
+              "listPresent": true,
+              "listEnabled": true,
+              "listNativeHandle": 15731172,
+              "listVisible": true,
+              "listItems": [
+                "Home",
+                "Open Command Palette"
+              ],
+              "selectedIndex": 0,
+              "selectedName": "Home",
+              "expectedMatches": [
+                "Home"
+              ],
+              "expectedNameLikeMatches": [],
+              "interactive": {
+                "foregroundHwnd": 76613950,
+                "foregroundEvidenceAvailable": true,
+                "foregroundTitle": "FastFiles",
+                "focusedAutomationId": "6301",
+                "focusedControlType": "Pane",
+                "focusedProcessId": 39644,
+                "popupClasses": []
+              }
+            },
+            "PaletteClosed": true,
+            "DispatchEvidence": {
+              "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+              "message": "command=navigation.home",
+              "state": "{\"timestamp\":1792851227,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":39644,\"tid\":56952,\"epochMs\":1792851227551}",
+              "outcome": "accepted"
+            }
+          },
+          "Surface": {
+            "Pass": true,
+            "Found": [
+              "1: Home",
+              "Pane.0.Home"
+            ],
+            "Missing": []
+          }
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:49.0331766Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:49.0331178Z",
+        "surface": "home-narrow",
+        "semanticState": "Home remains usable at 800px width",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 800,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 244,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 489,
+            "y": 191,
+            "width": 244,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 423,
+            "width": 244,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 489,
+            "y": 423,
+            "width": 244,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 471,
+            "width": 244,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 489,
+            "y": 471,
+            "width": 244,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 519,
+            "width": 244,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 489,
+            "y": 519,
+            "width": 244,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "b4e562b078d35036b330fdac369ce07398707cf06efcf7ab8bcda8fed430a0fd",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "home-narrow",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "b4e562b078d35036b330fdac369ce07398707cf06efcf7ab8bcda8fed430a0fd"
+        }
+      }
+    },
+    {
+      "scenarioId": "home-dark",
+      "expectedState": "Home after F9 theme toggle",
+      "fixtureId": "sandbox-home",
+      "theme": "Dark",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "home-dark.png",
+      "imageHash": "9eca24d6165e13403923a226c6938ac3706d7fe32362148bff6c063c96e2c85d",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 191,
+          "width": 362,
+          "height": 56,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 423,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 423,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 471,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 471,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 519,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 607,
+          "y": 519,
+          "width": 362,
+          "height": 40,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Found": [
+            "1: Home",
+            "Pane.0.Home"
+          ],
+          "Missing": []
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:56.0435762Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:56.0434792Z",
+        "surface": "home-dark",
+        "semanticState": "Home after F9 theme toggle",
+        "theme": "dark",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 237,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 191,
+            "width": 362,
+            "height": 56,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 423,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 423,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 471,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 471,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 237,
+            "y": 519,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 607,
+            "y": 519,
+            "width": 362,
+            "height": 40,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "9eca24d6165e13403923a226c6938ac3706d7fe32362148bff6c063c96e2c85d",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "home-dark",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "9eca24d6165e13403923a226c6938ac3706d7fe32362148bff6c063c96e2c85d"
+        }
+      }
+    },
+    {
+      "scenarioId": "gallery-light",
+      "expectedState": "Component gallery light (real Direct2D capture)",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": 96,
+      "dpiExpected": 96,
+      "dpiMatch": true,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": "gallery-light.png",
+      "imageHash": "3cc5f809acf9eac9561d94d30f8384ab455889453191e64cbd9985731888e60f",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 221,
+          "y": 131,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 221,
+          "y": 169,
+          "width": 240,
+          "height": 38,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "window title='FastFiles — Gallery (debug)'; measured mean=234.8 (light requires >128)"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:13:59.0281860Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": {
+        "schemaVersion": 2,
+        "commit": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+        "tree": "705a8de99de9b4c909944a7e254be2c63367333e",
+        "executableIdentity": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+        "branch": "feat/durable-cold-search-and-hybrid-residency",
+        "sourceKind": "git-commit",
+        "worktreeState": "clean",
+        "provenanceState": "exact-committed-tree",
+        "exactTreeBound": true,
+        "captureTimestamp": "2026-10-24T14:13:59.0281313Z",
+        "surface": "gallery-light",
+        "semanticState": "Component gallery light (real Direct2D capture)",
+        "theme": "light",
+        "density": "comfortable",
+        "dpi": 96,
+        "dpiScalePercent": 100.0,
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "paneMode": "single",
+        "fixtureId": "sandbox-home",
+        "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+        "privacyRedactions": [
+          {
+            "x": 221,
+            "y": 131,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          },
+          {
+            "x": 221,
+            "y": 169,
+            "width": 240,
+            "height": 38,
+            "reason": "host-user path redacted from committed visual evidence"
+          }
+        ],
+        "screenshotHash": "3cc5f809acf9eac9561d94d30f8384ab455889453191e64cbd9985731888e60f",
+        "baselineIdentity": "",
+        "diffResult": null,
+        "criticResult": null,
+        "artifactProvenance": {
+          "source": "local-dwm-capture",
+          "scenarioId": "gallery-light",
+          "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+          "screenshotHash": "3cc5f809acf9eac9561d94d30f8384ab455889453191e64cbd9985731888e60f"
+        }
+      }
+    },
+    {
+      "scenarioId": "gallery-dark",
+      "expectedState": "Component gallery dark (real Direct2D capture)",
+      "fixtureId": "sandbox-home",
+      "theme": "Dark",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": null,
+      "dpiExpected": null,
+      "dpiMatch": null,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": [],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "Pass": false,
+          "Detail": "window title='FastFiles — Gallery (debug)' after F9 dark toggle; lightMean=234.8 darkMean=234.8"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:14:02.1009654Z",
+      "status": "FAIL",
+      "reason": "{\"Pass\":false,\"Detail\":\"window title='FastFiles — Gallery (debug)' after F9 dark toggle; lightMean=234.8 darkMean=234.8\"}",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": null
+    },
+    {
+      "scenarioId": "gallery-narrow",
+      "expectedState": "Component gallery narrow single-column (real Direct2D capture)",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 800,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": null,
+      "dpiExpected": null,
+      "dpiMatch": null,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": [],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "Pass": false,
+          "Detail": "window title='FastFiles — Gallery (debug)' at 800px; mean=32.4"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:14:05.2029857Z",
+      "status": "FAIL",
+      "reason": "{\"Pass\":false,\"Detail\":\"window title='FastFiles — Gallery (debug)' at 800px; mean=32.4\"}",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": null
+    },
+    {
+      "scenarioId": "gallery-wide",
+      "expectedState": "Component gallery wide two-column (real Direct2D capture)",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1600,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "observedDpi": null,
+      "dpiExpected": null,
+      "dpiMatch": null,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": [],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "Pass": false,
+          "Detail": "window title='FastFiles — Gallery (debug)' at 1600px; mean=28"
+        }
+      },
+      "timestampUtc": "2026-10-24T14:14:07.0314251Z",
+      "status": "FAIL",
+      "reason": "{\"Pass\":false,\"Detail\":\"window title='FastFiles — Gallery (debug)' at 1600px; mean=28\"}",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": null
+    },
+    {
+      "scenarioId": "catalog-coverage",
+      "expectedState": "canonical visual scenario registry",
+      "fixtureId": "coverage-contract",
+      "theme": "Light",
+      "density": "comfortable",
+      "width": 1280,
+      "viewportHeight": 800,
+      "paneMode": "single",
+      "dpiScale": 0,
+      "observedDpi": null,
+      "dpiExpected": null,
+      "dpiMatch": null,
+      "applicationSha": "ee46d8702a52425b25f143444ee76b20c5799969fb5cc87ff1c26755f5df1f9a",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": [],
+      "provenanceState": "exact-committed-tree",
+      "worktreeState": "clean",
+      "exactTreeBound": true,
+      "assertionResult": {
+        "pass": false,
+        "evidence": null
+      },
+      "timestampUtc": "2026-10-24T14:14:07.2699076Z",
+      "status": "FAIL",
+      "reason": "missing=; duplicate=; unexpected=",
+      "duplicateOf": "",
+      "duplicateReason": "",
+      "v2": null
+    }
+  ]
+}

@@ -275,6 +275,11 @@ private:
 // indices live in one flat array.
 class FlatChildrenMap {
 public:
+#ifdef FF_INDEXSTORE_TESTING
+    // durable-cold-search-index-and-hybrid-residency 4.2: structural work
+    // counter for bulk-eviction scaling, not a wall-clock assertion.
+    static inline size_t testingRemovalComparisons = 0;
+#endif
     using Value = std::vector<uint32_t>;
     static constexpr size_t kMaxProbeDistance = 64;
 
@@ -403,6 +408,9 @@ public:
         size_t off = offsets_[idx];
         size_t cnt = counts_[idx];
         for (size_t i = 0; i < cnt; ++i) {
+#ifdef FF_INDEXSTORE_TESTING
+            ++testingRemovalComparisons;
+#endif
             if (values_[off + i] == childIndex) {
                 values_[off + i] = values_[off + cnt - 1];
                 --counts_[idx];

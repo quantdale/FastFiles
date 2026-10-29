@@ -1,0 +1,8 @@
+[31;1mException: [0mC:\Users\Michael Roy\Documents\FastFiles\build\worktrees\durable-cold-search\verify\visual\Invoke-VisualCatalog.ps1:66[0m
+[31;1m[0m[36;1mLine |[0m
+[31;1m[0m[36;1m[36;1m  66 | [0m     [36;1mthrow $catalogGate.message[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m     ~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mPROVENANCE_MISMATCH:MIXED_BINARY_SET: expected=3a41481a78df16b44928469f932d75427fd72a9c; actual=unavailable;[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m[36;1m     | [31;1mbinary=fftest.exe; check=sha256-set; sourceCommit=3a41481a78df16b44928469f932d75427fd72a9c;[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m[36;1m[31;1m[36;1m     | [31;1msourceTree=98bcd6ede7f2af91117fd6cb80730db9df44efba; sourceState=clean; stage=visual-catalog-preflight;[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m[36;1m[31;1m[36;1m[31;1m[36;1m     | [31;1mdetail=MIXED_BINARY_SET[0m

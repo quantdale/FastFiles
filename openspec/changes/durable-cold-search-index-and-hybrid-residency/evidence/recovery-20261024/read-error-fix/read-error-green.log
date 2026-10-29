@@ -1,0 +1,22 @@
+Internal ctest changing into directory: C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/debug
+Test project C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/debug
+    Start  8: ffindexstore_store_tests
+1/8 Test  #8: ffindexstore_store_tests ....................   Passed    1.65 sec
+    Start  9: ffindexstore_projection_tests
+2/8 Test  #9: ffindexstore_projection_tests ...............   Passed    7.61 sec
+    Start 10: ffindexstore_flat_hash_map_tests
+3/8 Test #10: ffindexstore_flat_hash_map_tests ............   Passed    0.05 sec
+    Start 11: ffindexstore_read_session_tests
+4/8 Test #11: ffindexstore_read_session_tests .............   Passed    0.55 sec
+    Start 28: ffengine_index_pipeline_tests
+5/8 Test #28: ffengine_index_pipeline_tests ...............   Passed    8.21 sec
+    Start 29: ffengine_storage_pressure_tests
+6/8 Test #29: ffengine_storage_pressure_tests .............   Passed    4.78 sec
+    Start 30: ffengine_volume_session_manager_tests
+7/8 Test #30: ffengine_volume_session_manager_tests .......   Passed   13.04 sec
+    Start 44: ffengine_index_pipeline_concurrency_tests
+8/8 Test #44: ffengine_index_pipeline_concurrency_tests ...   Passed    1.84 sec
+
+100% tests passed, 0 tests failed out of 8
+
+Total Test time (real) =  37.76 sec

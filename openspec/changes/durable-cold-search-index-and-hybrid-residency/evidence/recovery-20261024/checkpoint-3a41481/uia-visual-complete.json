@@ -1,0 +1,584 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffuia_visual-matrix",
+  "category": "uia",
+  "command": "build/debug-diagnostic/src/ui/FastFiles.exe",
+  "commit": "3a41481a78df16b44928469f932d75427fd72a9c",
+  "tree": "98bcd6ede7f2af91117fd6cb80730db9df44efba",
+  "exactTreeBound": true,
+  "executableHash": "0f582f246699eaa73a5f51b161c74d495b16297f26b4789c697613c811f8e15f",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-10-24T11:32:41.0363355Z",
+  "endUtc": "2026-10-24T11:44:10.7952422Z",
+  "requestedIterations": 25,
+  "completedIterations": 25,
+  "passed": 25,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "totalIterations": 25,
+  "iterationLedger": [
+    {
+      "iteration": 1,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27657.79,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 2,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27954.71,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 3,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27448.77,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 4,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27641.97,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 5,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27447.61,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 6,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27474.63,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 7,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27505.2,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 8,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27451.77,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 9,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27346.07,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 10,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27678.85,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 11,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 28060.49,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 12,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27446.67,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 13,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27534.65,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 14,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27855.86,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 15,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27685.3,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 16,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27651.79,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 17,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27634.44,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 18,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27077.62,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 19,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27431.54,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 20,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27520.61,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 21,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27512.55,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 22,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27479.34,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 23,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27591.72,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 24,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27931.17,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    },
+    {
+      "iteration": 25,
+      "pass": true,
+      "assertions": 14,
+      "failedAssertions": 0,
+      "durationMs": 27697.15,
+      "failedCheck": "",
+      "phases": {
+        "scopeWarmupSub": true,
+        "scopeWarmupBack": true,
+        "windowWidthPx": 1024,
+        "pane0WidthDetailsOpenPx": 508,
+        "pane0WidthDetailsClosedPx": 788,
+        "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+        "storageBlocked": "",
+        "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+        "topLevelSum": 100.0,
+        "drilledPercent": 100.0
+      }
+    }
+  ],
+  "phaseDurations": {},
+  "assertionCounts": {
+    "total": 350,
+    "failed": 0
+  },
+  "semanticPostconditions": {
+    "scopeWarmupSub": true,
+    "scopeWarmupBack": true,
+    "windowWidthPx": 1024,
+    "pane0WidthDetailsOpenPx": 508,
+    "pane0WidthDetailsClosedPx": 788,
+    "fullcardSkipped": "window 1024px < 1600px; rail regime delta=280px recorded, magnitude not asserted",
+    "storageBlocked": "",
+    "topLevelPercents": "{\"fileA.bin\":10.0,\"fileB.bin\":20.0,\"fileC.bin\":30.0,\"Sub\":40.0}",
+    "topLevelSum": 100.0,
+    "drilledPercent": 100.0
+  },
+  "displayMatrix": [
+    {
+      "requested": {},
+      "observed": {
+        "Theme": "Light",
+        "DpiPercent": 100,
+        "Contrast": "Unknown",
+        "Viewport": "Wide",
+        "PaneTopology": "Unmeasured",
+        "DetailsPane": "Unmeasured"
+      },
+      "realized": true,
+      "unrealizedFields": []
+    }
+  ],
+  "unrealizedDimensions": [],
+  "capabilities": [
+    "uia-core-smoke",
+    "uia-keyboard-navigation",
+    "dual-pane",
+    "details-pane",
+    "storage-parent-percent"
+  ],
+  "cleanup": {
+    "pass": true,
+    "status": "PASS",
+    "method": "none-required",
+    "residue": [],
+    "orphanCount": 0,
+    "orphanPids": []
+  },
+  "minDurationMs": 27077.62,
+  "medianDurationMs": 27534.65,
+  "p95DurationMs": 27931.17,
+  "maxDurationMs": 28060.49,
+  "firstFailure": null,
+  "artifactHashes": {
+    "uia-visual-complete.md": "c9910c9b44af6c57ee5044e2a323d86172c71a62f87c0dc448166832728ce3f1"
+  },
+  "disposition": "PASS"
+}

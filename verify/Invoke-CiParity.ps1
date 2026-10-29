@@ -102,8 +102,13 @@ function Invoke-ParityStep {
     $timedOut = $false
     $proc = $null
     try {
+        # durable-cold-search: the c261da4 quoting class (observed live from
+        # the worktree path under the user profile): Start-Process joins
+        # -ArgumentList with spaces and does NOT quote, so -File split at the
+        # space and every child printed pwsh usage and exited 64. Embed the
+        # quotes in the argument, exactly as the equivalence verifier fix.
         $proc = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow `
-            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath) `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$scriptPath`"") `
             -RedirectStandardOutput $outLog -RedirectStandardError $errLog
         if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
             $timedOut = $true

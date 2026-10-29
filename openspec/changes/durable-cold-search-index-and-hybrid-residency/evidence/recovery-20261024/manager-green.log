@@ -1,0 +1,8 @@
+Internal ctest changing into directory: C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/debug
+Test project C:/Users/Michael Roy/Documents/FastFiles/build/worktrees/durable-cold-search/build/debug
+    Start 30: ffengine_volume_session_manager_tests
+1/1 Test #30: ffengine_volume_session_manager_tests ...   Passed   14.08 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =  14.10 sec

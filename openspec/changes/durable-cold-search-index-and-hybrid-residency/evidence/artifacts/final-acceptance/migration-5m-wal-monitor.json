@@ -1,0 +1,28 @@
+{
+  "schema": "fastfiles-migration-wal-monitor-v1",
+  "head": "5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac",
+  "command": [
+    "build\\release-test\\tests\\indexstore\\ffindexstore_bench_store_open.exe",
+    "--measure",
+    "--db",
+    "build\\campaign\\final-acceptance\\migration-5m-copy.db",
+    "--case",
+    "migration-v2",
+    "--processes",
+    "1",
+    "--output",
+    "build\\campaign\\final-acceptance\\migration-5m-watched.json",
+    "--source-sha",
+    "5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac",
+    "--source-state",
+    "clean",
+    "--preset",
+    "release-test"
+  ],
+  "peak_wal_bytes_sampled": 648352072,
+  "sampling_interval_ms": 100,
+  "samples": 855,
+  "elapsed_s": 90.13355580001371,
+  "exit_code": 0,
+  "scope": "whole parent preparation plus one migration; sampled lower bound, not a strict peak guarantee"
+}
