@@ -1,0 +1,1530 @@
+{
+  "schemaVersion": 1,
+  "kind": "fastfiles-integration-ledger",
+  "generatedAt": "2026-10-29T00:00:00Z (apply intake; live-derived)",
+  "retrievalNote": "All identities derived live from git and the GitHub API at intake; re-derive at publication (task 12.1).",
+  "main": {
+    "branch": "main",
+    "sha": "0dfd4d5533663c8f2110108e11789910b179a3f5",
+    "tree": "ce0cd3a3bbdf2572135f95986a6012562a4df4ad"
+  },
+  "pullRequests": [
+    {
+      "number": 14,
+      "title": "large-index-lifecycle-and-search-scalability: bulk replacement rebuild (31-34x) + filename-accelerator planner (56-189x selective)",
+      "draft": false,
+      "headBranch": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "headSha": "633b7b3f59c6c7212ed306d12ec4fe2d6f0e1427",
+      "prReportedBaseBranch": "main",
+      "prReportedBaseSha": "7f9ce9a1863c542d9eb70a8bfc34a86661cf57cd",
+      "resolvedBaseRef": "origin/main",
+      "resolvedBaseSha": "0dfd4d5533663c8f2110108e11789910b179a3f5",
+      "forkPoint": "7f9ce9a1863c542d9eb70a8bfc34a86661cf57cd",
+      "uniqueCommitCount": 23,
+      "uniqueCommits": [
+        {
+          "sha": "633b7b3f59c6c7212ed306d12ec4fe2d6f0e1427",
+          "subject": "large-index-lifecycle: record the post-completion audit and the P1-2 repair trail"
+        },
+        {
+          "sha": "72b4f86651569329c0983d826c16d928fe9c0c43",
+          "subject": "large-index-lifecycle: fix the fail-fast prior that cold-locked >819,200-row volumes"
+        },
+        {
+          "sha": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+          "subject": "large-index-lifecycle: land independent-review findings (verifier hardening, UIA claim corrections, record fixes)"
+        },
+        {
+          "sha": "4118c6ed1feb189d8c868b7ae6bcd821ee7ae525",
+          "subject": "large-index-lifecycle: close PR #14 integrity gaps (equivalence hardening, Explorer UIA qualification, governance)"
+        },
+        {
+          "sha": "2f365a52748511420499b5d3459e5560739ea958",
+          "subject": "verify: fix executable-tree-equivalence quoting bugs (space-containing checkout paths)"
+        },
+        {
+          "sha": "d522713266c90e10568b72e66889bd8db2f7c111",
+          "subject": "large-index-lifecycle: record certification ladder + identity (10.1/10.2), close 7.1"
+        },
+        {
+          "sha": "190d52f54e5b39460be85c8b136ee382a1e6f653",
+          "subject": "large-index-lifecycle: checkpoint the review-remediation campaign state"
+        },
+        {
+          "sha": "bdf2664062c5b02290b5e8091e0081a8994109c5",
+          "subject": "large-index-lifecycle: close task 9.1 (six-lane adversarial review with remediation)"
+        },
+        {
+          "sha": "01f5427da591c6dbc98a414203eee193427d76cf",
+          "subject": "large-index-lifecycle: record six-lane adversarial review + remediation (9.1)"
+        },
+        {
+          "sha": "43fc3c175d4a940a094e1261b1c96aa8bf0668d1",
+          "subject": "large-index-lifecycle: fix adversarial-review findings (P1 epoch gaps, reload fail-fast, cursor staleness, accelerator revival, store mask, clipboard gates)"
+        },
+        {
+          "sha": "c8e95109f5578e49a1333dd900ea89a5d44b3efc",
+          "subject": "large-index-lifecycle: record memory/cold decision, 10-cycle resource stability, and cold-reload characterization (8.1/8.2)"
+        },
+        {
+          "sha": "b6df9ef5d75413fab5de1764543a701b031b007b",
+          "subject": "large-index-lifecycle: conservative SQL name prefilter for cold-store search streams"
+        },
+        {
+          "sha": "420792dd48d61997e17a89d054115f88341904ce",
+          "subject": "large-index-lifecycle: fix clipboard delivery-skew sampling and record review-remediation evidence"
+        },
+        {
+          "sha": "68de2bdad7fc38eb76d5c7e054581e4a87342034",
+          "subject": "large-index-lifecycle: close PR review P2-A/P2-B (host-verified exceptional-name candidates; honest clipboard classification)"
+        },
+        {
+          "sha": "34f7ddb27b26aa2efc86c85c6d0dbe6f15fab8ac",
+          "subject": "large-index-lifecycle: final checkpoint for the A+B handoff (fixes certified locally, PR boundary)"
+        },
+        {
+          "sha": "cc1fcbe79cd9fef7dc4a192d0e7b730641431900",
+          "subject": "large-index-lifecycle: record the search-scaling baseline, planner acceptance, and evidence attribution"
+        },
+        {
+          "sha": "045c9b0eec4e724294dc4f91a7873c9db1411c20",
+          "subject": "large-index-lifecycle: register the OpenSpec change with evidence and lifecycle entry"
+        },
+        {
+          "sha": "243199edb483a3993cabde03d13caa2529cdaf7f",
+          "subject": "large-index-lifecycle: serve filename-accelerator candidates from the posting intersection (6.3)"
+        },
+        {
+          "sha": "c261da466aa5756158c3c0dd3e24dc5abc28a9d3",
+          "subject": "tests: repair hook-guard portability and quick-actions clipboard environment skip"
+        },
+        {
+          "sha": "2e0d819564389f36df8e3bbe5aff67ddf77d0fbb",
+          "subject": "large-index-lifecycle: bulk removal path for replacement rebuilds and mass removal (4.4)"
+        },
+        {
+          "sha": "54fedddd47d7b3b42637d8b21ecae63e125aed44",
+          "subject": "large-index-lifecycle: make isolation arms self-explaining (index validity, eviction state, rebuild verdict)"
+        },
+        {
+          "sha": "4901d68d5583eff0480872a848d0d503c82b2556",
+          "subject": "large-index-lifecycle: add removal-cost isolation seam and rebuild matrix bench"
+        },
+        {
+          "sha": "44159265fb1f3ecc1f4ca45447f21ab157d05a2c",
+          "subject": "large-index-lifecycle: record live reconciliation and rebuild-pathology source trace"
+        }
+      ],
+      "changedPathsCount": 54,
+      "testPaths": [
+        "tests/engine/bench_large_index_scalability.cpp",
+        "tests/engine/test_index_pipeline.cpp",
+        "tests/indexstore/CMakeLists.txt",
+        "tests/indexstore/bench_rebuild_isolation.cpp",
+        "tests/indexstore/test_projection.cpp",
+        "tests/indexstore/test_store.cpp",
+        "tests/indexstore/test_store_read_session.cpp",
+        "tests/ui/CMakeLists.txt",
+        "tests/ui/ClipboardRoundTripClassifier.h",
+        "tests/ui/test_clipboard_classifier.cpp",
+        "tests/ui/test_quick_actions.cpp"
+      ],
+      "openspecChanges": [
+        "durable-cold-search-index-and-hybrid-residency",
+        "large-index-lifecycle-and-search-scalability"
+      ],
+      "containedAncestorPRs": [],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 15,
+      "title": "durable-cold-search: FTS5 candidate index for 2M+ cold search (STACKED on PR #14, DRAFT)",
+      "draft": true,
+      "headBranch": "feat/durable-cold-search-and-hybrid-residency",
+      "headSha": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+      "prReportedBaseBranch": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "prReportedBaseSha": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+      "resolvedBaseRef": "feat/large-index-lifecycle-and-search-scalability-20261008",
+      "resolvedBaseSha": "633b7b3f59c6c7212ed306d12ec4fe2d6f0e1427",
+      "forkPoint": "d3884eecd03805a91fe5d12d7a90ceb1b5c082f2",
+      "uniqueCommitCount": 34,
+      "uniqueCommits": [
+        {
+          "sha": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+          "subject": "Record final performance and combined integration acceptance with explicit blockers"
+        },
+        {
+          "sha": "db7887c1ec1d3d8f493848a9050240407423e678",
+          "subject": "Bound subtree eviction work and isolate search acceptance measurements"
+        },
+        {
+          "sha": "2ff3b595940d95c706fa815b72ffee1c8d53fb44",
+          "subject": "Record current-source ordinary qualification and explicit acceptance blockers"
+        },
+        {
+          "sha": "269d1c36036cb84b40c3ef01baee3c2b6c990579",
+          "subject": "Preserve ordinary checkpoint evidence before final-source revalidation"
+        },
+        {
+          "sha": "4c1c4501e5b1f0579a2d34f4f7afea5f83708979",
+          "subject": "Reject failed schema and reconciliation reads without false completion"
+        },
+        {
+          "sha": "3a41481a78df16b44928469f932d75427fd72a9c",
+          "subject": "Checkpoint ordinary acceptance evidence and resource limits"
+        },
+        {
+          "sha": "fbc2fb2bd451d880d70951bd7203552299696ce6",
+          "subject": "Keep optional storage test buffers off the stack"
+        },
+        {
+          "sha": "dab21288f400967f883598e1c24e7ca2a270ecb9",
+          "subject": "Make recovery readiness atomic and preserve deferred retry intent"
+        },
+        {
+          "sha": "08be96fa2717cbf5daf9123345a23840c43fb4df",
+          "subject": "Harden candidate recovery and bulk eviction under real storage faults"
+        },
+        {
+          "sha": "8c4c8481f312aa4651a5c2bab3cb61e0b0e50af0",
+          "subject": "Record verified 5M acceptance evidence and remaining certification boundaries"
+        },
+        {
+          "sha": "5d7e98ae412cd893e47e7ebc9a9bdea4c609d0ac",
+          "subject": "Bound failed fine-grained eviction with whole-volume cold fallback"
+        },
+        {
+          "sha": "0dba6335d22e91897b61726839422e1d1ee5d700",
+          "subject": "Fix differential oracle independence and verify partial reconciliation failure"
+        },
+        {
+          "sha": "0019b374514dc120a868d94b00d026cfd459c9f8",
+          "subject": "durable-cold-search: exact identity/ordering differential oracle (5M acceptance)"
+        },
+        {
+          "sha": "86e48c3d9ed214cb332274c014ef26e303bc3f71",
+          "subject": "wal-lifecycle: chunk reconciliation removals + policy-true WAL measurement"
+        },
+        {
+          "sha": "dc08c355e49e9dfd35f384a7e3e75f3b1a43c11d",
+          "subject": "durable-cold-search: ingestion A/B/C evidence + RETAIN decision (analyze-maintenance-scheduling)"
+        },
+        {
+          "sha": "898d9547880fcf83ef8f5112b4b0a1ec3d48ab11",
+          "subject": "plan-stability: pin the candidate stream and aggregate CTE to their indexes"
+        },
+        {
+          "sha": "13a35c4aad7461f97c358fc09517c188275a3725",
+          "subject": "analyze-maintenance-scheduling: defer ANALYZE out of the ingestion hot path"
+        },
+        {
+          "sha": "3e081f5e0c288e182d043ac0489d7b16d03c8231",
+          "subject": "durable-cold-search: reconcile migration/downgrade spec (FAIL_CLOSED_DOWNGRADE) + 3.3c evidence"
+        },
+        {
+          "sha": "ae6a4206b66c6563eeade1f3032d2fdfc12390de",
+          "subject": "durable-cold-search: gallery A/B attribution + acceptance lanes (B/C/D/E)"
+        },
+        {
+          "sha": "b68767a903a4455f1c3409330d836c8ceb50e00c",
+          "subject": "durable-cold-search: final certification record + task ledger closure"
+        },
+        {
+          "sha": "80a6f119dd45a6bb589986e34d75ef8c482b7ad5",
+          "subject": "durable-cold-search: acceptance evidence (startup decomposition, lifecycle matrix, 5M staged, review wave, repeatability) + 5M migration measurement"
+        },
+        {
+          "sha": "628de6d9dcfc3838d88e58d451c7a9b63535939d",
+          "subject": "durable-cold-search: review-wave remediation (query-time readiness gate + P2/P3 hardening)"
+        },
+        {
+          "sha": "97b9cebfa0946e1132d85687525b583cddbbdcfd",
+          "subject": "durable-cold-search: pin the candidate admission query plans (CROSS JOIN driver)"
+        },
+        {
+          "sha": "ed7190e05f13449fe8f3dc40916f06bd4e2971b3",
+          "subject": "durable-cold-search: PR #15 finalization slice 1 (startup decomposition, volume-aware admission, atomic fallback, evidence recovery)"
+        },
+        {
+          "sha": "1c427d739911e0d3c84af0926ba411cdc2f2abe6",
+          "subject": "durable-cold-search: final WORKSTATE checkpoint (locally certified at b203cf1)"
+        },
+        {
+          "sha": "b203cf1f74dd0e07ffa4d9fe269006a89b647f79",
+          "subject": "durable-cold-search: harness fixes (parity launcher quoting, vendored /analyze exemption)"
+        },
+        {
+          "sha": "e6b9c51c1bb25ff425a5c121a9b6de9a219d1f57",
+          "subject": "durable-cold-search: resource measurements (task 4.2 evidence; reviewer-E P1s closed)"
+        },
+        {
+          "sha": "29680775d50caadc2e5633d53849c43958ece872",
+          "subject": "durable-cold-search: cost-based candidate cap + canonical fallback (task 3.2)"
+        },
+        {
+          "sha": "c951722b4bd02990e7461c838f524cfab5ba1e78",
+          "subject": "durable-cold-search: reviewer-A remediation (contract narrowing, defensive folding, test hardening, seam hygiene)"
+        },
+        {
+          "sha": "435241de2a9f01fe9459fcc0e52fc97d888eb8fe",
+          "subject": "durable-cold-search: fix v1->v3 migration idempotency (reviewer-B P1)"
+        },
+        {
+          "sha": "5ae557b1376b64e73b52a86e67c0ecb67e3b9108",
+          "subject": "durable-cold-search: evidence-integrity remediation (reviewer-F P1 provenance claim, artifact preservation) + task 3.1 closure"
+        },
+        {
+          "sha": "3aa64bf14f962f523388d5b9d9623502018422a3",
+          "subject": "durable-cold-search: database-safety gates (host-fold signature, crash-consistency tests, superset differential)"
+        },
+        {
+          "sha": "7c8faea5b6085e31dafc0568725b6adc48a45ff9",
+          "subject": "durable-cold-search: implement durable FTS5 candidate index (schema v3 + maintenance + cold candidate rung)"
+        },
+        {
+          "sha": "b834175fe1bd41951f2aced4342e30ee60179fad",
+          "subject": "durable-cold-search: Phase A baselines + all-alternative measurement + architecture decision (A selected)"
+        }
+      ],
+      "changedPathsCount": 630,
+      "testPaths": [
+        "tests/engine/CMakeLists.txt",
+        "tests/engine/bench_fts5_candidate_probe.cpp",
+        "tests/engine/bench_identity_ordering_oracle.cpp",
+        "tests/engine/bench_ingestion_profile.cpp",
+        "tests/engine/bench_ingestion_uninstrumented.cpp",
+        "tests/engine/bench_large_index_scalability.cpp",
+        "tests/engine/test_index_pipeline.cpp",
+        "tests/engine/test_index_pipeline_concurrency.cpp",
+        "tests/engine/test_storage_pressure.cpp",
+        "tests/engine/test_volume_session_manager.cpp",
+        "tests/indexstore/CMakeLists.txt",
+        "tests/indexstore/SqliteWriteFaultVfs.h",
+        "tests/indexstore/bench_candidate_index_resources.cpp",
+        "tests/indexstore/bench_store_open.cpp",
+        "tests/indexstore/test_projection.cpp",
+        "tests/indexstore/test_store.cpp",
+        "tests/indexstore/test_store_read_session.cpp"
+      ],
+      "openspecChanges": [
+        "durable-cold-search-index-and-hybrid-residency"
+      ],
+      "containedAncestorPRs": [],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 16,
+      "title": "theme-toggle-follow-system: fix first-F9 no-op (root cause of the 3 Gallery visual failures)",
+      "draft": true,
+      "headBranch": "fix/f9-theme-toggle-follow-system",
+      "headSha": "e75a230db9ac89f6a638754cb6ad672735e4d644",
+      "prReportedBaseBranch": "main",
+      "prReportedBaseSha": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "resolvedBaseRef": "origin/main",
+      "resolvedBaseSha": "0dfd4d5533663c8f2110108e11789910b179a3f5",
+      "forkPoint": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "uniqueCommitCount": 1,
+      "uniqueCommits": [
+        {
+          "sha": "e75a230db9ac89f6a638754cb6ad672735e4d644",
+          "subject": "theme-toggle-follow-system: fix first-F9 no-op (Follow-System resolved at press time)"
+        }
+      ],
+      "changedPathsCount": 4,
+      "testPaths": [
+        "tests/ui/CMakeLists.txt",
+        "tests/ui/test_theme_toggle.cpp"
+      ],
+      "openspecChanges": [],
+      "containedAncestorPRs": [],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 17,
+      "title": "Fix root search paths and fail-closed index cleanup",
+      "draft": true,
+      "headBranch": "fix/acceptance-frontier-20261025",
+      "headSha": "797722734319ea18c65e4f04bbacdcf245b47316",
+      "prReportedBaseBranch": "feat/durable-cold-search-and-hybrid-residency",
+      "prReportedBaseSha": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+      "resolvedBaseRef": "origin/feat/durable-cold-search-and-hybrid-residency",
+      "resolvedBaseSha": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+      "forkPoint": "8bffb329779ee0a431aaed37fa92925a4b373d9b",
+      "uniqueCommitCount": 16,
+      "uniqueCommits": [
+        {
+          "sha": "797722734319ea18c65e4f04bbacdcf245b47316",
+          "subject": "Clarify completed canonical acceptance chronology"
+        },
+        {
+          "sha": "4a1457660420f8021295ebadd505f8baf63dfbac",
+          "subject": "Preserve current-source certification and owner integration boundaries"
+        },
+        {
+          "sha": "f8208ebbf0931dec29d96d78408ccdc81f5806ca",
+          "subject": "Reconcile completed canonical acceptance lifecycle"
+        },
+        {
+          "sha": "6d08dfcb9c6e3bc65e7c50e10f108fc31bb2084b",
+          "subject": "Close canonical acceptance with real mixed routes at 2M and 5M"
+        },
+        {
+          "sha": "7a14b8409eb611c26de385702753d43aa6ac067d",
+          "subject": "Support mixed-residency canonical oracles at large scales"
+        },
+        {
+          "sha": "861e8db19806bcb0cb363b345017f72aa02a7071",
+          "subject": "Bind current canonical scales and prove cancellation after materialization"
+        },
+        {
+          "sha": "bd67375501c8e20306734ae789ce4760d63876f5",
+          "subject": "Roll back candidate cleanup when identity enumeration fails"
+        },
+        {
+          "sha": "d4f0cbe1a58c1d1fbc163ebfab4e25af8558989f",
+          "subject": "Record verified nondegenerate canonical residency routes"
+        },
+        {
+          "sha": "f22f40152d9de5a4400212528b375abb618cedc6",
+          "subject": "Correct canonical sort coverage and reject all-tie fixtures"
+        },
+        {
+          "sha": "2bfb75fae9a90f61d6c9ded5f7e295aee7a67251",
+          "subject": "Verify root-path route premises and preserve canonical evidence"
+        },
+        {
+          "sha": "324122ab587759c2e7412a56ab487db192f179eb",
+          "subject": "Keep cold search root-child locations absolute"
+        },
+        {
+          "sha": "5e91403e255a28d77666803cb45794423bb97fbb",
+          "subject": "Give residency oracle fixtures complete volume roots"
+        },
+        {
+          "sha": "b424c2e48ee6edadf5771bd1a6a1a810514e48b2",
+          "subject": "Add independent canonical qualification for real residency routes"
+        },
+        {
+          "sha": "067eaabf023c55e2c25de5d9eab3b1c987267168",
+          "subject": "Normalize acceptance checkpoint line endings"
+        },
+        {
+          "sha": "d543d082caf14fb31b16a2443a59396e9a3b134a",
+          "subject": "Record exact canonical search equality at 200k and 1M"
+        },
+        {
+          "sha": "949fbb9b0113a8ff42453a9e268875aa259e8851",
+          "subject": "Qualify fixture identity and clarify reachable search acceptance"
+        }
+      ],
+      "changedPathsCount": 94,
+      "testPaths": [
+        "tests/engine/bench_identity_ordering_oracle.cpp",
+        "tests/engine/test_index_pipeline.cpp",
+        "tests/engine/test_storage_pressure.cpp",
+        "tests/indexstore/bench_store_open.cpp",
+        "tests/verification/CMakeLists.txt"
+      ],
+      "openspecChanges": [
+        "durable-cold-search-index-and-hybrid-residency"
+      ],
+      "containedAncestorPRs": [
+        15
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 18,
+      "title": "Recover visible workspace actions, accessible Storage and Home navigation",
+      "draft": true,
+      "headBranch": "feat/original-vision-product-20261025",
+      "headSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "prReportedBaseBranch": "main",
+      "prReportedBaseSha": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "resolvedBaseRef": "origin/main",
+      "resolvedBaseSha": "0dfd4d5533663c8f2110108e11789910b179a3f5",
+      "forkPoint": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "uniqueCommitCount": 7,
+      "uniqueCommits": [
+        {
+          "sha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+          "subject": "Keep Settings completion controls inside the visible dialog"
+        },
+        {
+          "sha": "fc2fab77a1417dfd9077ca37ef713019c3baf591",
+          "subject": "Keep native command choices visible above workspace paints"
+        },
+        {
+          "sha": "4d2171d867e9f685e6acbb5567e30488f204f5d8",
+          "subject": "Preserve live palette state while preparing visual captures"
+        },
+        {
+          "sha": "be8cddce797cdda945579a7d39c6993a9fd30c6b",
+          "subject": "Preserve category scope and restore the real Home workspace"
+        },
+        {
+          "sha": "1208cb6449090ecc585d8f0050b7f2e36bf50a79",
+          "subject": "Enclose fractional UIA geometry without changing storage proportions"
+        },
+        {
+          "sha": "84564bdaf61498263b5c186fda95e5aa89c3c1cf",
+          "subject": "Bind native workspace accessibility to visible identity and lifetime"
+        },
+        {
+          "sha": "908b3f1462e82f22113ad2d60033a27015cca180",
+          "subject": "Recover visible command targets and Home search reveal"
+        }
+      ],
+      "changedPathsCount": 54,
+      "testPaths": [
+        "tests/commands/test_command_system.cpp",
+        "tests/ui/UiaTestSurface.h",
+        "tests/ui/test_columnview_uia.cpp",
+        "tests/ui/test_home_uia.cpp",
+        "tests/ui/test_search_metadata.cpp",
+        "tests/ui/test_search_uia.cpp",
+        "tests/ui/test_storage_visibility.cpp",
+        "tests/ui/test_treemap_filter.cpp",
+        "tests/ui/test_treemap_uia.cpp",
+        "tests/ui/test_uia_geometry.cpp"
+      ],
+      "openspecChanges": [
+        "original-vision-journey-recovery"
+      ],
+      "containedAncestorPRs": [],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 19,
+      "title": "Preserve Column View action identity and reveal actual keyboard focus",
+      "draft": true,
+      "headBranch": "fix/column-uia-identity-dispatch-20261025",
+      "headSha": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+      "prReportedBaseBranch": "feat/original-vision-product-20261025",
+      "prReportedBaseSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "resolvedBaseRef": "feat/original-vision-product-20261025",
+      "resolvedBaseSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "forkPoint": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "uniqueCommitCount": 4,
+      "uniqueCommits": [
+        {
+          "sha": "d2187aa45d0023a3878b94c8891989194ed4f9ac",
+          "subject": "Record qualified Column View identity and visible-focus contract"
+        },
+        {
+          "sha": "93cd2b604641dc38c56940e3330ec2acb74962af",
+          "subject": "Reveal focused columns and isolate dual-pane painting"
+        },
+        {
+          "sha": "d34198accfe21ea5be64332e7f44295c99d70310",
+          "subject": "Preserve column and pane identity during native keyboard focus"
+        },
+        {
+          "sha": "d9f0a1f4dcdc3746d4180a1b2a0c114e06949fb1",
+          "subject": "Bind Column View accessibility actions to original item identities"
+        }
+      ],
+      "changedPathsCount": 31,
+      "testPaths": [
+        "tests/e2e/README.md",
+        "tests/ui/test_columnview_uia.cpp",
+        "tests/ui/test_uia_geometry.cpp"
+      ],
+      "openspecChanges": [
+        "column-uia-identity-dispatch"
+      ],
+      "containedAncestorPRs": [
+        18
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 20,
+      "title": "Keep native status feedback legible in narrow windows",
+      "draft": true,
+      "headBranch": "fix/native-single-line-status-20261026",
+      "headSha": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+      "prReportedBaseBranch": "feat/original-vision-product-20261025",
+      "prReportedBaseSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "resolvedBaseRef": "feat/original-vision-product-20261025",
+      "resolvedBaseSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "forkPoint": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "uniqueCommitCount": 3,
+      "uniqueCommits": [
+        {
+          "sha": "a07970ecb4a025a463d8809641fa5bf2c8718a0d",
+          "subject": "Preserve full combined product certification and actual visual limits"
+        },
+        {
+          "sha": "ed58805e378d9fea3f31d8a892008f60c574339d",
+          "subject": "Record source-bound native status qualification and integration limits"
+        },
+        {
+          "sha": "cd1f429bd6159da2615aa452bdcf97fef950c909",
+          "subject": "Keep native status feedback legible in narrow windows"
+        }
+      ],
+      "changedPathsCount": 31,
+      "testPaths": [
+        "tests/ui/CMakeLists.txt",
+        "tests/ui/test_engine_status.cpp",
+        "tests/ui/test_ui_style.cpp"
+      ],
+      "openspecChanges": [
+        "original-vision-journey-recovery"
+      ],
+      "containedAncestorPRs": [
+        18
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 21,
+      "title": "Make native file conflicts readable and keyboard accessible",
+      "draft": true,
+      "headBranch": "fix/accessible-conflict-actions-20261026",
+      "headSha": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "prReportedBaseBranch": "feat/original-vision-product-20261025",
+      "prReportedBaseSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "resolvedBaseRef": "feat/original-vision-product-20261025",
+      "resolvedBaseSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "forkPoint": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "uniqueCommitCount": 6,
+      "uniqueCommits": [
+        {
+          "sha": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+          "subject": "Record qualified native conflict decisions and lifecycle boundaries"
+        },
+        {
+          "sha": "f10654156a5450790e4ab2623a105bcdab9f0236",
+          "subject": "Keep native close observations in serialized restore evidence"
+        },
+        {
+          "sha": "8768554aa8eeab4a30c30226655cc8abd5f7afc1",
+          "subject": "Repair and diagnose the bounded native close fallback in E2E qualification"
+        },
+        {
+          "sha": "75d6d0e92f082f6d745f023f42203e35a6e0df02",
+          "subject": "Send and verify the native Shift Tab chord in conflict qualification"
+        },
+        {
+          "sha": "f4c28b6689b91476a50e0758e939299b6ae638e5",
+          "subject": "Exercise native conflict decisions through pointer and keyboard input"
+        },
+        {
+          "sha": "1dbff32a2c74b56cfdafc83d8ee10b0c38536580",
+          "subject": "Restore native conflict action names, keyboard focus and themed surfaces"
+        }
+      ],
+      "changedPathsCount": 18,
+      "testPaths": [
+        "tests/e2e/README.md",
+        "tests/e2e/Test-E2EHarness.ps1"
+      ],
+      "openspecChanges": [
+        "original-vision-journey-recovery"
+      ],
+      "containedAncestorPRs": [
+        18
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 22,
+      "title": "Restrict UIA teardown to registered Explorer windows",
+      "draft": true,
+      "headBranch": "fix/uia-fixture-window-ownership-20261026",
+      "headSha": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "prReportedBaseBranch": "fix/accessible-conflict-actions-20261026",
+      "prReportedBaseSha": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "resolvedBaseRef": "fix/accessible-conflict-actions-20261026",
+      "resolvedBaseSha": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "forkPoint": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "uniqueCommitCount": 1,
+      "uniqueCommits": [
+        {
+          "sha": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+          "subject": "Restrict UIA teardown to registered Explorer windows"
+        }
+      ],
+      "changedPathsCount": 4,
+      "testPaths": [],
+      "openspecChanges": [],
+      "containedAncestorPRs": [
+        18,
+        21
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 23,
+      "title": "Make file-operation errors actionable and cancellation reliable",
+      "draft": true,
+      "headBranch": "fix/actionable-file-operation-errors-20261026",
+      "headSha": "fef65837a30aeb6fa44283490d4e25cb584aab3e",
+      "prReportedBaseBranch": "fix/accessible-conflict-actions-20261026",
+      "prReportedBaseSha": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "resolvedBaseRef": "fix/accessible-conflict-actions-20261026",
+      "resolvedBaseSha": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "forkPoint": "b028e1165e7d6199bc3cc04d8fece0a9b5f443aa",
+      "uniqueCommitCount": 9,
+      "uniqueCommits": [
+        {
+          "sha": "fef65837a30aeb6fa44283490d4e25cb584aab3e",
+          "subject": "Certify owned file-operation journeys and preserve Home-close boundary"
+        },
+        {
+          "sha": "9195788352a7bdba1996e42bda3c48570b794037",
+          "subject": "Route operation Escape from native children through the shell"
+        },
+        {
+          "sha": "fbf3c0912f8350cb0735d7bff7b2a1dcd50859c6",
+          "subject": "Narrow native cancellation fixture while retaining content and identity guards"
+        },
+        {
+          "sha": "5d70009cceb0c51892bcde3f8d96d55063c33316",
+          "subject": "Bound file-operation progress traffic to preserve terminal events"
+        },
+        {
+          "sha": "0b07b7e2caf66b88fd05be6c56ecf7516412776d",
+          "subject": "Observe real bulk-copy progress without synchronous UIA polling"
+        },
+        {
+          "sha": "13434ef14f60aec5238b5c12735cd919246edd9f",
+          "subject": "Resolve the native address edit without large subtree searches"
+        },
+        {
+          "sha": "16c1d51a8d4b4f25b2e515d891cb690f685978f1",
+          "subject": "Distinguish stopped operation errors from ordinary cancellation"
+        },
+        {
+          "sha": "e624aad968f6db8427b5d59399b03ebae3d81bfb",
+          "subject": "Keep large native operation checks bounded and resumable"
+        },
+        {
+          "sha": "9b6042a0ac1f677e650fdedd33e8c56ac1b15a76",
+          "subject": "Explain file-operation failures with actionable recovery guidance"
+        }
+      ],
+      "changedPathsCount": 65,
+      "testPaths": [
+        "tests/e2e/README.md",
+        "tests/fileoperations/test_file_operations_e2e.cpp"
+      ],
+      "openspecChanges": [
+        "original-vision-journey-recovery"
+      ],
+      "containedAncestorPRs": [
+        18,
+        21
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 24,
+      "title": "Correct native shutdown ownership and qualify three restore closes",
+      "draft": true,
+      "headBranch": "fix/native-shutdown-lifetime-20261026",
+      "headSha": "b683f33ba271c0de2b7eb4bc38faf5f9f391fa8c",
+      "prReportedBaseBranch": "fix/uia-fixture-window-ownership-20261026",
+      "prReportedBaseSha": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "resolvedBaseRef": "fix/uia-fixture-window-ownership-20261026",
+      "resolvedBaseSha": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "forkPoint": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+      "uniqueCommitCount": 4,
+      "uniqueCommits": [
+        {
+          "sha": "b683f33ba271c0de2b7eb4bc38faf5f9f391fa8c",
+          "subject": "Qualify native shutdown lifetime and three clean restore closes"
+        },
+        {
+          "sha": "09761df11761e209f43d31e302b167ba343c3486",
+          "subject": "Include registered-window teardown and require final restore cleanup"
+        },
+        {
+          "sha": "dbc3858aec612c5076355218c42a4c3acb0bf5eb",
+          "subject": "Synchronize shutdown publication and require every restored app to close"
+        },
+        {
+          "sha": "a25633e2a3ea6332feccbf2260ecf7f51de36bf5",
+          "subject": "Preserve native shutdown lifetimes and decline excess shell work"
+        }
+      ],
+      "changedPathsCount": 43,
+      "testPaths": [
+        "tests/e2e/Test-E2EHarness.ps1",
+        "tests/protocol/test_diagnostics.cpp",
+        "tests/ui/CMakeLists.txt",
+        "tests/ui/test_async_work_admission.cpp"
+      ],
+      "openspecChanges": [
+        "original-vision-journey-recovery"
+      ],
+      "containedAncestorPRs": [
+        18,
+        21,
+        22
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 25,
+      "title": "Make file-operation cancellation discoverable without competing progress windows",
+      "draft": true,
+      "headBranch": "feat/discoverable-operation-cancel-20261026",
+      "headSha": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "prReportedBaseBranch": "fix/actionable-file-operation-errors-20261026",
+      "prReportedBaseSha": "fef65837a30aeb6fa44283490d4e25cb584aab3e",
+      "resolvedBaseRef": "fix/actionable-file-operation-errors-20261026",
+      "resolvedBaseSha": "fef65837a30aeb6fa44283490d4e25cb584aab3e",
+      "forkPoint": "fef65837a30aeb6fa44283490d4e25cb584aab3e",
+      "uniqueCommitCount": 14,
+      "uniqueCommits": [
+        {
+          "sha": "95c1589a7b3ca6511aea93961509b819a1c64270",
+          "subject": "Qualify discoverable cancellation with owned operation and conflict journeys"
+        },
+        {
+          "sha": "650744faf72e91bc6250d49e0b19fd4432276994",
+          "subject": "Keep timed palette qualification focused on actual command input"
+        },
+        {
+          "sha": "a52573e49c1b7d26665deccb8adfc11980ccbbd7",
+          "subject": "Bind timed command evidence to the owned log and input offset"
+        },
+        {
+          "sha": "62e6422b4b8e93af0d9cff59f8d876c2d7f1203b",
+          "subject": "Keep Shell progress windows from stealing operation command focus"
+        },
+        {
+          "sha": "bcc7285e7737491fd774ade51b08afd38ef7c16c",
+          "subject": "Observe cancellation through focused native palette input"
+        },
+        {
+          "sha": "e73abcb3700481dbc3598563d89a5819bc287424",
+          "subject": "Calibrate bounded native cancellation observation window"
+        },
+        {
+          "sha": "99e40b7657ff695db23e31ac827879b967456043",
+          "subject": "Keep failed palette identity and list reads unresolved"
+        },
+        {
+          "sha": "76514506648765ae8576c03b9a3049069951fd5a",
+          "subject": "Find native palette siblings without traversing file rows"
+        },
+        {
+          "sha": "e6fa8adb3c7d4dbd3194070c92c404a8bd8a3970",
+          "subject": "Reconcile cancellation successor with published operation evidence"
+        },
+        {
+          "sha": "a4eb280a94d5b6cc2501dce90426cd29a7bce471",
+          "subject": "Qualify cancellation discovery through the real command palette"
+        },
+        {
+          "sha": "8e1aaf052d3e14d58c28b49d85457e8efc346a88",
+          "subject": "Explain disabled palette commands with their availability reason"
+        },
+        {
+          "sha": "83acca1e89134fac6d3fabc3b6d36e5bee5d2720",
+          "subject": "Refresh cancellation availability only on lifecycle changes"
+        },
+        {
+          "sha": "bc46052088141ea6f5a59acf6e1cb9e00e437c4b",
+          "subject": "Preserve terminal caption during cancellation state handoff"
+        },
+        {
+          "sha": "f42a30b4185cc30859d4c2f20bb9721713546b79",
+          "subject": "Expose discoverable cancellation for outstanding file operations"
+        }
+      ],
+      "changedPathsCount": 88,
+      "testPaths": [
+        "tests/commands/test_command_system.cpp",
+        "tests/fileoperations/test_file_operations_e2e.cpp"
+      ],
+      "openspecChanges": [
+        "original-vision-journey-recovery"
+      ],
+      "containedAncestorPRs": [
+        18,
+        21,
+        23
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 26,
+      "title": "Make Storage ranking and navigation actionable across window sizes",
+      "draft": true,
+      "headBranch": "feat/storage-intelligence-navigation-20261027",
+      "headSha": "275172ac97b65366a4a339359fc2cb60dfd754ba",
+      "prReportedBaseBranch": "feat/original-vision-product-20261025",
+      "prReportedBaseSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "resolvedBaseRef": "feat/original-vision-product-20261025",
+      "resolvedBaseSha": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "forkPoint": "981a9ba678a191107c78eec22a60c9620eb5848e",
+      "uniqueCommitCount": 12,
+      "uniqueCommits": [
+        {
+          "sha": "275172ac97b65366a4a339359fc2cb60dfd754ba",
+          "subject": "Verify adaptive Storage focus and selection across live resize"
+        },
+        {
+          "sha": "bdc460f16fad006968e8a4f1179d8847db044349",
+          "subject": "Qualify Storage mode and focus continuity through actual resize"
+        },
+        {
+          "sha": "fc7ffcf9d32b429fa1e48a7971fbe7f3107b79e4",
+          "subject": "Preserve qualified Storage navigation and partial-intelligence evidence"
+        },
+        {
+          "sha": "09264aca08fb890d0d21ec57bd735ff9f2d3ec0f",
+          "subject": "Make native Storage keyboard controls traversable and repaint mode text"
+        },
+        {
+          "sha": "352389a6ad454c430a9a5e88e6ade8551d0e6fac",
+          "subject": "Complete adaptive Storage navigation and coherent known-file ranking"
+        },
+        {
+          "sha": "9a9115803356d8f037411cc6f72274e7088f8072",
+          "subject": "Preserve truthful Treemap loading and unavailable status"
+        },
+        {
+          "sha": "8b881a3b0a22e9e9a6824e26c6a73a76ad51bd70",
+          "subject": "Preserve partial Treemap totals and show persistent size facts"
+        },
+        {
+          "sha": "1d37c1eb685be4a83a0a5262574d78981b2109ee",
+          "subject": "Distinguish inactive Storage selection with native row edges"
+        },
+        {
+          "sha": "26cc17f5f063b4479cb847fe5c0aaed11e14ee03",
+          "subject": "Keep Storage selection visible when palette takes focus"
+        },
+        {
+          "sha": "0dc4d3b8247b062805fb0266cd1db7b710f8e767",
+          "subject": "Show scoped relative locations in recursive Storage ranking"
+        },
+        {
+          "sha": "55956dc70658d1986fc8424256ed5fe73cfed6f6",
+          "subject": "Add owned recursive Storage ranking qualification journey"
+        },
+        {
+          "sha": "0d0ca0e9a84c1eb6f34cb1617983d6ab1a453af6",
+          "subject": "Rank known descendant files with exact Storage action paths"
+        }
+      ],
+      "changedPathsCount": 65,
+      "testPaths": [
+        "tests/search/test_query.cpp",
+        "tests/ui/CMakeLists.txt",
+        "tests/ui/test_shell_layout.cpp",
+        "tests/ui/test_storage_ranking.cpp",
+        "tests/ui/test_storage_visibility.cpp",
+        "tests/ui/test_treemap_filter.cpp",
+        "tests/ui/test_treemap_metadata.cpp"
+      ],
+      "openspecChanges": [
+        "original-vision-journey-recovery"
+      ],
+      "containedAncestorPRs": [
+        18
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 27,
+      "title": "Honor request-scoped Restore conflicts and truthful skipped counts",
+      "draft": true,
+      "headBranch": "fix/restore-conflict-policy-20261027",
+      "headSha": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+      "prReportedBaseBranch": "feat/discoverable-operation-cancel-20261026",
+      "prReportedBaseSha": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "resolvedBaseRef": "feat/discoverable-operation-cancel-20261026",
+      "resolvedBaseSha": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "forkPoint": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "uniqueCommitCount": 2,
+      "uniqueCommits": [
+        {
+          "sha": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+          "subject": "Certify request-scoped Restore conflict planning on isolated Debug source"
+        },
+        {
+          "sha": "be2036d7136d75309eee6d68e2ceb6f9be8b0c66",
+          "subject": "Honor request-scoped Restore conflicts and report intentional skips"
+        }
+      ],
+      "changedPathsCount": 22,
+      "testPaths": [
+        "tests/fileoperations/CMakeLists.txt",
+        "tests/fileoperations/test_file_operations_e2e.cpp",
+        "tests/fileoperations/test_restore_plan.cpp"
+      ],
+      "openspecChanges": [
+        "original-vision-journey-recovery"
+      ],
+      "containedAncestorPRs": [
+        18,
+        21,
+        23,
+        25
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 28,
+      "title": "Restore native UIA patterns and enforce complete E2E provenance",
+      "draft": true,
+      "headBranch": "fix/native-ui-verification-fidelity-20261027",
+      "headSha": "9f12c3a9c959f1682ad6ee44ed644034c5d1add0",
+      "prReportedBaseBranch": "main",
+      "prReportedBaseSha": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "resolvedBaseRef": "origin/main",
+      "resolvedBaseSha": "0dfd4d5533663c8f2110108e11789910b179a3f5",
+      "forkPoint": "a26fe609439a18c128b2a2e557bc7eb2534fa128",
+      "uniqueCommitCount": 4,
+      "uniqueCommits": [
+        {
+          "sha": "9f12c3a9c959f1682ad6ee44ed644034c5d1add0",
+          "subject": "Certify native verification fidelity without waiving product failures"
+        },
+        {
+          "sha": "3a69fcfaa7a30faf6cdb6be855545e1862b4a656",
+          "subject": "Qualify native client patterns and preserve actual product acceptance failures"
+        },
+        {
+          "sha": "34ae7271fb380612f0d788a2c78e6e8c33dd208a",
+          "subject": "Gate E2E preflight on every required binary"
+        },
+        {
+          "sha": "3fae3cb5f132d8cf15c194f99ebbca754e97ca5c",
+          "subject": "Repair native UI verification proxy and capture fidelity"
+        }
+      ],
+      "changedPathsCount": 48,
+      "testPaths": [
+        "tests/e2e/README.md",
+        "tests/e2e/Test-E2EHarness.ps1",
+        "tests/e2e/Test-E2EProvenance.ps1"
+      ],
+      "openspecChanges": [
+        "repair-native-ui-verification-fidelity"
+      ],
+      "containedAncestorPRs": [],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 29,
+      "title": "Preserve quit messages through native UI cleanup",
+      "draft": true,
+      "headBranch": "fix/preserve-ui-quit-20261027",
+      "headSha": "733a45b14d4a94cca1837248fa8f1c418fa55793",
+      "prReportedBaseBranch": "feat/storage-intelligence-navigation-20261027",
+      "prReportedBaseSha": "275172ac97b65366a4a339359fc2cb60dfd754ba",
+      "resolvedBaseRef": "feat/storage-intelligence-navigation-20261027",
+      "resolvedBaseSha": "275172ac97b65366a4a339359fc2cb60dfd754ba",
+      "forkPoint": "275172ac97b65366a4a339359fc2cb60dfd754ba",
+      "uniqueCommitCount": 2,
+      "uniqueCommits": [
+        {
+          "sha": "733a45b14d4a94cca1837248fa8f1c418fa55793",
+          "subject": "Certify quit preservation with restored Home and full native journeys"
+        },
+        {
+          "sha": "7981ebb537d69a8d8e53a866ed70a14502baf98c",
+          "subject": "Preserve main-thread quit through owned payload cleanup"
+        }
+      ],
+      "changedPathsCount": 30,
+      "testPaths": [
+        "tests/ui/CMakeLists.txt",
+        "tests/ui/test_owned_message_drain.cpp"
+      ],
+      "openspecChanges": [
+        "preserve-ui-quit-through-message-drains"
+      ],
+      "containedAncestorPRs": [
+        18,
+        26
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 30,
+      "title": "Preserve destinations without replacement consent and report cancellation truthfully",
+      "draft": true,
+      "headBranch": "fix/execution-conflict-consent-20261027",
+      "headSha": "430b7111cb3acf91aadc28472d6fdf3146ee4f4d",
+      "prReportedBaseBranch": "fix/restore-conflict-policy-20261027",
+      "prReportedBaseSha": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+      "resolvedBaseRef": "fix/restore-conflict-policy-20261027",
+      "resolvedBaseSha": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+      "forkPoint": "ec5bd9579e9456088ffbda988a900c2ebe8bb934",
+      "uniqueCommitCount": 4,
+      "uniqueCommits": [
+        {
+          "sha": "430b7111cb3acf91aadc28472d6fdf3146ee4f4d",
+          "subject": "Certify collision-safe transfers and truthful native cancellation"
+        },
+        {
+          "sha": "40b6b2da456fc2e8a92d1c0321c7e6f761ee5d53",
+          "subject": "Keep requested native cancellation out of IO failure reports"
+        },
+        {
+          "sha": "eb5f95126117f0092f02604576b96f458e70b6ad",
+          "subject": "Preserve native cancellation failure and exact diagnostic frontier"
+        },
+        {
+          "sha": "4b51907157f58b222c54adbca4f62fead9b6c2ec",
+          "subject": "Preserve destinations without replacement consent at execution"
+        }
+      ],
+      "changedPathsCount": 56,
+      "testPaths": [
+        "tests/fileoperations/CMakeLists.txt",
+        "tests/fileoperations/test_file_operation_policy.cpp",
+        "tests/fileoperations/test_file_operations_e2e.cpp"
+      ],
+      "openspecChanges": [
+        "preserve-execution-conflict-consent"
+      ],
+      "containedAncestorPRs": [
+        18,
+        21,
+        23,
+        25,
+        27
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 31,
+      "title": "Keep native navigation verification bounded and safe",
+      "draft": true,
+      "headBranch": "fix/address-navigation-discovery-20261028",
+      "headSha": "0fbaee3574d4f34a6a7e8eeec3f46ad197ce96ef",
+      "prReportedBaseBranch": "fix/native-ui-verification-fidelity-20261027",
+      "prReportedBaseSha": "9f12c3a9c959f1682ad6ee44ed644034c5d1add0",
+      "resolvedBaseRef": "fix/native-ui-verification-fidelity-20261027",
+      "resolvedBaseSha": "9f12c3a9c959f1682ad6ee44ed644034c5d1add0",
+      "forkPoint": "9f12c3a9c959f1682ad6ee44ed644034c5d1add0",
+      "uniqueCommitCount": 6,
+      "uniqueCommits": [
+        {
+          "sha": "0fbaee3574d4f34a6a7e8eeec3f46ad197ce96ef",
+          "subject": "Place foreground regression under its OpenSpec task group"
+        },
+        {
+          "sha": "7e37f18556dcdb5cfd95fdc272ea130cbe4234fb",
+          "subject": "Cover address recommit after owned foreground is lost"
+        },
+        {
+          "sha": "30a2bc60bc802648259ca2dad819b54c9c420211",
+          "subject": "Close bounded navigation verification with draft integration handoff"
+        },
+        {
+          "sha": "881270dcbe235c34389bb80a6911998017a62f13",
+          "subject": "Certify native navigation guards and preserve qualification boundaries"
+        },
+        {
+          "sha": "d33e31999c38f20d7d9b4ec77c5ae6362b87aff8",
+          "subject": "Treat Windows folder names literally in navigation verification"
+        },
+        {
+          "sha": "2d29f1ecde3e06735a1c29011679bea04703983a",
+          "subject": "Bound native tab discovery and keep navigation retries in the address edit"
+        }
+      ],
+      "changedPathsCount": 47,
+      "testPaths": [
+        "tests/uia-driver/CMakeLists.txt"
+      ],
+      "openspecChanges": [
+        "repair-address-navigation-discovery"
+      ],
+      "containedAncestorPRs": [
+        28
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 32,
+      "title": "Preserve shortcut destinations and cancel link batches safely",
+      "draft": true,
+      "headBranch": "fix/shortcut-creation-safety-20261028",
+      "headSha": "12b40ee402582f27f1e21e9df44fffc8bebe51e3",
+      "prReportedBaseBranch": "fix/execution-conflict-consent-20261027",
+      "prReportedBaseSha": "430b7111cb3acf91aadc28472d6fdf3146ee4f4d",
+      "resolvedBaseRef": "fix/execution-conflict-consent-20261027",
+      "resolvedBaseSha": "430b7111cb3acf91aadc28472d6fdf3146ee4f4d",
+      "forkPoint": "430b7111cb3acf91aadc28472d6fdf3146ee4f4d",
+      "uniqueCommitCount": 5,
+      "uniqueCommits": [
+        {
+          "sha": "12b40ee402582f27f1e21e9df44fffc8bebe51e3",
+          "subject": "Close verified shortcut safety with draft integration handoff"
+        },
+        {
+          "sha": "39c53abcd81bfac2e328eda9d439b8496f756ac4",
+          "subject": "Certify shortcut data safety with source-bound native and sanitizer evidence"
+        },
+        {
+          "sha": "d14308c9802f23d2ff3b83d019b2d62c4ac5784d",
+          "subject": "Record shortcut safety certification and native navigation boundary"
+        },
+        {
+          "sha": "eda462a481181c6cc16596810799fd7d62a3709f",
+          "subject": "Qualify Unicode shortcuts and guard fixture ownership"
+        },
+        {
+          "sha": "27daa1760009113e9bb5570c6c2ab199a0d6fdc1",
+          "subject": "Preserve late shortcut destinations and honor batch cancellation"
+        }
+      ],
+      "changedPathsCount": 43,
+      "testPaths": [
+        "tests/fileoperations/CMakeLists.txt",
+        "tests/fileoperations/test_file_operations_e2e.cpp",
+        "tests/fileoperations/test_new_file_writer.cpp"
+      ],
+      "openspecChanges": [
+        "prevent-shortcut-creation-overwrite"
+      ],
+      "containedAncestorPRs": [
+        18,
+        21,
+        23,
+        25,
+        27,
+        30
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 33,
+      "title": "Protect incoming files during mixed transfers",
+      "draft": true,
+      "headBranch": "fix/protect-generated-transfer-results-20261028",
+      "headSha": "cb23f8e674c30034a6190cabe2cb7f1c203e2b27",
+      "prReportedBaseBranch": "fix/shortcut-creation-safety-20261028",
+      "prReportedBaseSha": "12b40ee402582f27f1e21e9df44fffc8bebe51e3",
+      "resolvedBaseRef": "fix/shortcut-creation-safety-20261028",
+      "resolvedBaseSha": "12b40ee402582f27f1e21e9df44fffc8bebe51e3",
+      "forkPoint": "12b40ee402582f27f1e21e9df44fffc8bebe51e3",
+      "uniqueCommitCount": 7,
+      "uniqueCommits": [
+        {
+          "sha": "cb23f8e674c30034a6190cabe2cb7f1c203e2b27",
+          "subject": "Reconcile completed transfer protection lifecycle"
+        },
+        {
+          "sha": "020726519985477d8cb21d163b08a5e4cc37cf25",
+          "subject": "Close transfer-protection qualification on the completed certification"
+        },
+        {
+          "sha": "9e3cd307ecb47fd5c5d6eb685e25567a38d0d7ae",
+          "subject": "Reconcile original vision against current native journeys"
+        },
+        {
+          "sha": "86210ab4330b47f10ce3a06e5d762daaf7286226",
+          "subject": "Record final transfer certification and cold restore boundary"
+        },
+        {
+          "sha": "0e10726584e167b953f80ae0b9013c70b9f93707",
+          "subject": "Preserve incomplete transfer outcomes and bound safety checks"
+        },
+        {
+          "sha": "49d05347a313704159f2c4bee52a67fef8786ba5",
+          "subject": "Preserve committed transfer protection validation"
+        },
+        {
+          "sha": "6c924879fa544e1277e4a7b0ef3bfc40b0288667",
+          "subject": "Protect incoming transfer results from later replacement work"
+        }
+      ],
+      "changedPathsCount": 49,
+      "testPaths": [
+        "tests/fileoperations/CMakeLists.txt",
+        "tests/fileoperations/test_file_operation_policy.cpp",
+        "tests/fileoperations/test_file_operations_e2e.cpp"
+      ],
+      "openspecChanges": [
+        "protect-generated-transfer-results"
+      ],
+      "containedAncestorPRs": [
+        18,
+        21,
+        23,
+        25,
+        27,
+        30,
+        32
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 34,
+      "title": "Fit the native command palette to its results",
+      "draft": true,
+      "headBranch": "feat/compact-native-command-palette-20261028",
+      "headSha": "15b6e6632e206feb0ebf3eb7a59a68c7be81332b",
+      "prReportedBaseBranch": "feat/discoverable-operation-cancel-20261026",
+      "prReportedBaseSha": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "resolvedBaseRef": "feat/discoverable-operation-cancel-20261026",
+      "resolvedBaseSha": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "forkPoint": "95c1589a7b3ca6511aea93961509b819a1c64270",
+      "uniqueCommitCount": 4,
+      "uniqueCommits": [
+        {
+          "sha": "15b6e6632e206feb0ebf3eb7a59a68c7be81332b",
+          "subject": "Close palette qualification tasks 2.2/2.3 on completed certification"
+        },
+        {
+          "sha": "75833880bbacec5490a7eda44df38627c1dc2a69",
+          "subject": "Record combined native journeys and preserved restore failure"
+        },
+        {
+          "sha": "d51d5af1c7504434c363e9f8ed8fa8b68c312c52",
+          "subject": "Qualify compact native command controls through visible keyboard journeys"
+        },
+        {
+          "sha": "8a916999a72cceb80e60e51b367e5eba8bed9b58",
+          "subject": "Fit native command results without moving the query field"
+        }
+      ],
+      "changedPathsCount": 41,
+      "testPaths": [
+        "tests/e2e/README.md",
+        "tests/ui/CMakeLists.txt",
+        "tests/ui/test_command_palette_geometry.cpp"
+      ],
+      "openspecChanges": [
+        "fit-native-command-palette-to-results"
+      ],
+      "containedAncestorPRs": [
+        18,
+        21,
+        23,
+        25
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 35,
+      "title": "Preserve E2E failure evidence and reject invalid scenario results",
+      "draft": true,
+      "headBranch": "fix/preserve-e2e-failure-evidence-20261028",
+      "headSha": "3ec322b16f7c3d54d31bb443baf9fe3423d07be4",
+      "prReportedBaseBranch": "fix/address-navigation-discovery-20261028",
+      "prReportedBaseSha": "0fbaee3574d4f34a6a7e8eeec3f46ad197ce96ef",
+      "resolvedBaseRef": "fix/address-navigation-discovery-20261028",
+      "resolvedBaseSha": "0fbaee3574d4f34a6a7e8eeec3f46ad197ce96ef",
+      "forkPoint": "0fbaee3574d4f34a6a7e8eeec3f46ad197ce96ef",
+      "uniqueCommitCount": 5,
+      "uniqueCommits": [
+        {
+          "sha": "3ec322b16f7c3d54d31bb443baf9fe3423d07be4",
+          "subject": "Publish draft successor PR #35 and close task 2.2"
+        },
+        {
+          "sha": "9884911373c26c684913c0bb1ec6e1b3f79a034d",
+          "subject": "Record integration qualification and close task 2.1"
+        },
+        {
+          "sha": "c29f4cf77ef30daee1d4521b2603c29a3b515107",
+          "subject": "Reject unknown E2E selectors before artifacts and gate"
+        },
+        {
+          "sha": "f40c93047cf18312d4878abf350bc15ab4066e1f",
+          "subject": "Reject E2E runs that select no work"
+        },
+        {
+          "sha": "007af1c3535ceb1055eb392f400ada7c483c2605",
+          "subject": "Preserve E2E failure evidence and reject invalid results"
+        }
+      ],
+      "changedPathsCount": 29,
+      "testPaths": [
+        "tests/e2e/Test-E2EFailureEvidenceOwnership.ps1",
+        "tests/e2e/Test-E2EHarness.ps1",
+        "tests/e2e/Test-E2EProvenance.ps1"
+      ],
+      "openspecChanges": [
+        "preserve-e2e-failure-evidence"
+      ],
+      "containedAncestorPRs": [
+        28,
+        31
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    },
+    {
+      "number": 36,
+      "title": "Preserve rename destinations and exclusively create new items",
+      "draft": true,
+      "headBranch": "fix/rename-newitem-collision-audit-20261029",
+      "headSha": "ca6326fba6611e2a3be242b9485a1d76d29cb2d0",
+      "prReportedBaseBranch": "fix/protect-generated-transfer-results-20261028",
+      "prReportedBaseSha": "cb23f8e674c30034a6190cabe2cb7f1c203e2b27",
+      "resolvedBaseRef": "origin/fix/protect-generated-transfer-results-20261028",
+      "resolvedBaseSha": "cb23f8e674c30034a6190cabe2cb7f1c203e2b27",
+      "forkPoint": "cb23f8e674c30034a6190cabe2cb7f1c203e2b27",
+      "uniqueCommitCount": 5,
+      "uniqueCommits": [
+        {
+          "sha": "ca6326fba6611e2a3be242b9485a1d76d29cb2d0",
+          "subject": "Close rename and creation safety with unmerged draft handoff"
+        },
+        {
+          "sha": "6c18395d7119ff6781cf1bfc7bbc0d539e5a0c0d",
+          "subject": "Record committed rename and creation safety certification"
+        },
+        {
+          "sha": "afde7d64d0d90570bb2f933fc6f3a0ae2a5e1f6f",
+          "subject": "Carry PR33 lifecycle correction as parent ancestry"
+        },
+        {
+          "sha": "33a2cbe7dc1eeef13a7da58e25284bae1fec8ea9",
+          "subject": "Reconcile completed transfer protection lifecycle"
+        },
+        {
+          "sha": "f601998c4afc36a18e246f12f71b65c3b09216b9",
+          "subject": "Preserve rename destinations and exclusively create new items"
+        }
+      ],
+      "changedPathsCount": 28,
+      "testPaths": [
+        "tests/fileoperations/CMakeLists.txt",
+        "tests/fileoperations/test_creation_collisions.cpp"
+      ],
+      "openspecChanges": [
+        "preserve-rename-and-creation-destinations"
+      ],
+      "containedAncestorPRs": [
+        18,
+        21,
+        23,
+        25,
+        27,
+        30,
+        32,
+        33
+      ],
+      "localValidation": "branch-local qualification recorded in branch evidence; composite re-validated at integration stage gates",
+      "reviews": "no GitHub APPROVED review; local scoped review evidence on branch",
+      "disposition": "ACCEPTED_FOR_INTEGRATION"
+    }
+  ],
+  "localOnlyInputs": [
+    {
+      "branch": "test/original-vision-integration-20261025",
+      "sha": "e400d7065571271b5052fa6e58e9971814d331d6",
+      "note": "old composite integration simulation (e400d70): input evidence only; content reconciled against candidate (task 1.3), never wholesale imported"
+    },
+    {
+      "branch": "feat/recursive-storage-ranking-20261027",
+      "sha": "1d37c1eb685be4a83a0a5262574d78981b2109ee",
+      "note": "ancestor of PR #29 head -> subsumed by accepted chain"
+    },
+    {
+      "branch": "test/foreground-retry-regression-20261028",
+      "sha": "7e37f18556dcdb5cfd95fdc272ea130cbe4234fb",
+      "note": "ancestor of PR #35 head -> subsumed by accepted chain"
+    },
+    {
+      "branch": "test/native-uia-client-probe-20261027",
+      "sha": "e1c8e9fd41a7faef69d364ba1fc268a988a19014",
+      "note": "ancestor of the simulation; unique probe content reconciled at task 1.3/6.1"
+    },
+    {
+      "branch": "fix/search-result-home-handoff-20261025",
+      "sha": "8a4f58830238203ce622da8fc25a7ea708c91d8a",
+      "note": "3 unique commits (Home-aware search result navigation, visible command targets, UIA foreground acquisition); content-reconciled at task 1.3"
+    },
+    {
+      "branch": "feat/storage-semantic-list-20261025",
+      "sha": "090f7e2f231a6c31f0bad356e982d83b65839cb9",
+      "note": "5 unique commits (Storage semantic UIA list/sort headers, Search UIA dispatch); content-reconciled at task 1.3"
+    },
+    {
+      "branch": "fix/visible-uia-workspace-20261025",
+      "sha": "5456f1ec109b5fa9a6b24bdcdbf4ffa4b951c3e7",
+      "note": "4 unique commits (owner-thread Home invokes, retire hidden Browse fragments); content-reconciled at task 1.3"
+    },
+    {
+      "branch": "fix/treemap-partial-intelligence-20261027",
+      "sha": "c3b26ca1d103ced21ebd834b07805e4ff76cb123",
+      "note": "13 commits (recursive ranking shared with #29 chain + partial Treemap totals truthfulness); content-reconciled at task 1.3"
+    },
+    {
+      "branch": "fix/compact-storage-navigation-20261027",
+      "sha": "180ea28fdc281a2c55e60b7ad3d7bc4726d0ec68",
+      "note": "156 commits on simulation-derived lineage; content-reconciled at task 1.3"
+    },
+    {
+      "branch": "test/mixed-residency-oracle-20261026",
+      "sha": "51736309391d1a9081fae38efc3a82ebb0b6af16",
+      "note": "mixed-residency canonical oracle harness; content-reconciled at task 1.3"
+    },
+    {
+      "branch": "test/storage-ranking-residency-20261027",
+      "sha": "dec145dfe63e6cd352fc3108e0423845a2690423",
+      "note": "storage ranking hot/cold residency qualification; content-reconciled at task 1.3"
+    },
+    {
+      "branch": "test/search-reopen-scope-20261028",
+      "sha": "0ac6a3d6aaa315c7e043477b080be0d9bd75c58e",
+      "note": "bounded Search reopen-scope + in-panel snapshot refresh probes (open-question evidence, task 8.2); also on origin"
+    },
+    {
+      "branch": "archive/large-index-local-draft-20261008",
+      "sha": "358d57f8ead066c1f872dc4f89ee179442d7e708",
+      "note": "archived superseded parallel draft (358d57f, not for merge)"
+    }
+  ],
+  "acceptedCompositeInput": {}
+}
