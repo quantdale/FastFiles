@@ -1,5 +1,16 @@
 # Certification ladder (10.1) + identity (10.2) — 2026-10-21
 
+> **2026-10-29 post-completion audit addendum.** The rebuild-revalidation and
+> reload numbers in this ladder and in `lifecycle-reload-resources.md` were
+> measured at binary `b6df9ef`, BEFORE the review-lane D P1-2 fit pre-check
+> landed in `43fc3c1`. The 2026-10-29 audit found that pre-check falsely
+> rejected volumes above 819,200 rows at the default budget (warm hydration
+> and cold reload silently cold at ~1M rows) and repaired it; the ladder's
+> gate results were re-verified on the audit host, and the corrected identity
+> (`implementation_sha` superseded by the audit-fix commit) and full findings
+> are in `post-completion-audit-2026-10-29.md`. Everything else in this
+> document stands as recorded.
+
 Candidate tree: the review-remediation series ending at `43fc3c1`
 (executable-impacting) plus documentation/evidence commits. All runs on the
 campaign host from a clean worktree.
