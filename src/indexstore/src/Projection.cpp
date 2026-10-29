@@ -1158,46 +1158,60 @@ bool Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, u
     evictedVolumes_.erase(volumeRowId);
     denseIterationOrderValid_ = false;
     filenameIndexValid_ = false;
-    // large-index-lifecycle-and-search-scalability review-lane D P1-2:
-    // fail fast when the reloaded volume cannot survive the trailing
-    // enforcement. Without this guard an oversized volume is streamed in
-    // full (unbounded transient above the watermark, under the pipeline
-    // mutex) only to have enforcement evict it again -- returning false and
-    // an empty export, repeatedly. The estimate uses this projection's own
-    // measured average row cost against the early-enforcement watermark.
-    {
-        const size_t lowWatermark = maximumMemoryBytes_ - maximumMemoryBytes_ / 5;
-        const size_t baseline = EstimatedMemoryBytes();
-        const size_t rowCount = EntryCount();
-        const size_t averageRowBytes = rowCount == 0 ? 512 : baseline / rowCount;
-        const size_t projected = expectedEntryCount > (lowWatermark / (averageRowBytes == 0 ? 1 : averageRowBytes))
-            ? lowWatermark + 1
-            : baseline + expectedEntryCount * averageRowBytes;
-        if (projected > lowWatermark) {
-            evictedVolumes_.insert(volumeRowId);
-            enforcingMemoryLimit_ = wasEnforcingMemoryLimit;
-            return false;
-        }
-    }
-    Reserve(EntryCount() + expectedEntryCount);
+    // large-index-lifecycle-and-search-scalability review-lane D P1-2,
+    // corrected by the 2026-10-29 post-completion audit: bound the reload
+    // transient on MEASURED growth instead of predicting it with a row-cost
+    // prior. The original pre-check used a flat 512 bytes/row guess whenever
+    // the projection was empty, so at the default budget it rejected every
+    // volume above lowWatermark/512 = 819,200 rows -- including 1M-row
+    // volumes whose measured size (~338 MB) fits under the 400 MiB
+    // watermark. That silently left warm startup hydration (RebuildAll) and
+    // cold reload permanently cold for such volumes while every search fell
+    // back to the durable cold stream. No prior is sound here: modeled row
+    // cost ranges from tens of bytes to several kilobytes with name length,
+    // so the P1-2 guard is enforced DURING the stream on the estimate. A
+    // volume that fits loads exactly; a genuinely oversized volume is
+    // aborted at the early-enforcement watermark (bounded transient and
+    // bounded work per attempt -- never streamed in full above the
+    // watermark) and stays cold, preserving the P1-2 outcome (no eviction
+    // thrash, no empty export loop) without the false positives.
+    const size_t lowWatermark = maximumMemoryBytes_ - maximumMemoryBytes_ / 5;
+    // Entry records alone must never be pre-allocated beyond what the
+    // watermark could hold; geometric growth covers the fitting path and an
+    // oversized volume cannot claim its full entry array up front.
+    const size_t reserveCapRows = (lowWatermark / 2) / sizeof(ProjectionEntry);
+    Reserve(EntryCount() + (std::min)(expectedEntryCount, reserveCapRows));
     // large-index-lifecycle-and-search-scalability review-lane D P2-2:
     // allocation failure mid-stream must fall into the same cleanup as a
     // failed durable read -- a partial stream left the volume looking hot and
     // complete, silently missing rows forever. Store::ForEachEntry does not
     // catch visitor exceptions.
     bool streamed = false;
+    bool fitViolation = false;
     try {
-        streamed = store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) {
+        constexpr size_t kFitCheckIntervalRows = 4096;
+        size_t streamedRows = 0;
+        streamed = store.ForEachEntryUntil(volumeRowId, [&](const EntryRecord& record) {
             Upsert(volumeRowId, record);
+            ++streamedRows;
+            if (streamedRows % kFitCheckIntervalRows == 0 && EstimatedMemoryBytes() > lowWatermark) {
+                fitViolation = true;
+                return false; // bounded early stop: abort at the watermark
+            }
+            return true;
         });
     } catch (...) {
         streamed = false;
     }
-    if (!streamed) {
+    if (streamed && !fitViolation && EstimatedMemoryBytes() > lowWatermark) {
+        fitViolation = true; // volumes below the interval check land here
+    }
+    if (!streamed || fitViolation) {
         // completion-integrity-hardening-and-release-certification 4.1.2:
-        // a failed durable read may have delivered a prefix of the rows. Do
-        // not expose that prefix as a resident volume; retain the cold marker
-        // so a later rebuild can retry from the durable source.
+        // a failed durable read may have delivered a prefix of the rows, and
+        // a fit abort stops mid-stream by design. Do not expose either
+        // prefix as a resident volume; retain the cold marker so a later
+        // rebuild can retry from the durable source.
         RemoveVolume(volumeRowId, false);
         CompactStorage();
         evictedVolumes_.insert(volumeRowId);

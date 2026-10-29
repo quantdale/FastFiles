@@ -1399,6 +1399,60 @@ void TestOversizedVolumeReloadFailsFastAndStaysCold() {
           "the failed reload is counted for diagnostics");
 }
 
+// large-index-lifecycle-and-search-scalability post-completion audit repair
+// (review-lane D P1-2 correction): the fail-fast fit estimate must not use a
+// flat 512 bytes/row guess when the projection is empty. That prior rejected
+// every volume above lowWatermark/512 rows at the default budget (819,200)
+// even when the true modeled size fits comfortably -- silently leaving warm
+// startup hydration (RebuildAll) and cold reload permanently cold for
+// ~1M-row volumes (measured 1M cost ~338 MB against the 400 MiB watermark).
+// A volume that fits the watermark must reload and stay hot; the oversized
+// rejection semantics are pinned by TestOversizedVolumeReloadFailsFastAndStaysCold.
+void TestFittingVolumeReloadIsNotRejectedByEmptyProjectionPrior() {
+    ffindexstore::Store store;
+    const std::string dbPath = FreshDbPath("projection_fitting_reload.db");
+    Check(store.Open(dbPath), "fitting-reload store opens");
+    const auto volume = store.GetOrCreateVolume({{}, 708});
+    Check(volume.has_value(), "fitting-reload volume is created");
+    std::vector<ffindexstore::EntryChange> batch;
+    batch.push_back({ffindexstore::EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)});
+    for (uint64_t id = 100; id < 1800; ++id) {
+        batch.push_back({ffindexstore::EntryChangeKind::Upsert,
+                         MakeEntry(id, 5, u"row_" + NumberToUtf16(id) + u".txt", 0)});
+    }
+    Check(store.ApplyBatch(*volume, batch), "fitting-reload rows persist");
+    // 1 MiB budget: the low watermark is 838,861 bytes and the old
+    // empty-projection prior (512 bytes/row) would reject at 1,638 rows even
+    // though this 1,701-row short-name volume models at only a few hundred KB.
+    // Case 1: cold reload into a projection that holds a sibling volume.
+    {
+        Projection proj;
+        proj.Upsert(99, MakeEntry(5, 5, u"D:", 0x10));
+        Check(proj.RebuildVolumeFromStore(store, *volume, 1701),
+              "the initial load of the fitting volume succeeds at the default budget");
+        proj.EvictVolume(*volume);
+        Check(proj.NeedsReload(*volume), "the fitting volume is cold after eviction");
+        proj.SetMaximumMemoryBytes(1048576);
+        Check(proj.ReloadEvictedVolume(store, *volume),
+              "a volume that fits the watermark reloads despite exceeding the old 512-byte prior cutoff");
+        Check(!proj.NeedsReload(*volume), "the reloaded volume is hot");
+        Check(proj.EntryCount() == 1702, "every persisted row is resident and the sibling volume survives");
+        const auto diagnostics = proj.GetMemoryDiagnostics();
+        Check(diagnostics.coldReloadFailedCount == 0, "the fitting reload is not counted as failed");
+        Check(diagnostics.estimatedBytes <= 838860, "self-check: the fixture really fits the watermark");
+    }
+    // Case 2: warm startup hydration shape -- the projection is completely
+    // empty at the fit check, exactly where the old flat 512 bytes/row guess
+    // rejected every volume above lowWatermark/512 rows.
+    {
+        Projection empty;
+        empty.SetMaximumMemoryBytes(1048576);
+        Check(empty.RebuildVolumeFromStore(store, *volume, 1701),
+              "warm-shape hydration loads a fitting volume with no prior at all");
+        Check(empty.EntryCount() == 1701, "every persisted row is resident in the empty-prior rebuild");
+    }
+}
+
 int main() {
     TestSiblingsDoNotDuplicateSharedAncestorPath();
     TestRepeatedNamesAcrossTreeShareOneInternedId();
@@ -1439,6 +1493,7 @@ int main() {
     TestBulkScanCycleRevivesFilenameAccelerator();
     TestCursorDetectsDisturbedLayout();
     TestOversizedVolumeReloadFailsFastAndStaysCold();
+    TestFittingVolumeReloadIsNotRejectedByEmptyProjectionPrior();
 
     if (fftest::FailureCount() > 0) {
         return 1;
