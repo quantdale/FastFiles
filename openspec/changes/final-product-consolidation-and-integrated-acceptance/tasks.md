@@ -4,7 +4,7 @@
 - [ ] 1.2 Write and validate the complete versioned machine-readable integration ledger from live PRs and relevant local-only inputs, including both base identities, unique commits/files/tests, ancestry, OpenSpec, checks/reviews/findings and pending dispositions (design D1).
 - [ ] 1.3 Reconcile the old integration simulation and unpublished branches against published heads by ancestry, range-diff and content; record unique accepted/rejected/superseded changes without wholesale importing stale state.
 - [ ] 1.4 Read incoming feature tasks/specs, original-vision alignment and existing Refero research; map predecessor invariants to regression tests and task evidence, including current PR26 Storage4.12 and PR17 fixture identity correction.
-- [ ] 1.5 Freeze the journeys A–H/five-pillar acceptance matrix, environment prerequisites, filesystem oracles, known intermittents and required local/hosted/review gates; preserve every named success state and qualification rule in design D11 and define explicit result/exclusion semantics.
+- [ ] 1.5 Freeze the journeys A–I/five-pillar acceptance matrix, environment prerequisites, filesystem oracles, known intermittents and required local/hosted/review gates; preserve every named success state and qualification rule in design D11 and define explicit result/exclusion semantics.
 - [ ] 1.6 Confirm the isolated central worktree/build ownership, initial source/input pins, resource/foreground scheduling and semantic stage plan; commit the intake checkpoint before product edits.
 
 ## 2. Core indexing and search integration
@@ -59,6 +59,8 @@
 - [ ] 7.8 Execute journey F delete/restore: safe owned delete, supported Restore and real multi-item Recycle Bin Undo/conflict/history; distinguish holding-folder worker evidence and leave unavailable real journeys unqualified.
 - [ ] 7.9 Execute journey G permitted engine-unavailable/search-cancel/index-rebuild/empty/permission-error and shutdown/reopen recovery cells without destructive/global/privileged experiments.
 - [ ] 7.10 Execute journey H keyboard/UIA labels, stale identity, dialog focus, selected row/active pane and live light/dark checks; record synthetic versus available physical DPI/High Contrast/reduced-motion scope separately.
+- [ ] 7.11 Execute journey I Explorer → FastFiles transfer on an owned fixture: marker files dragged from a test-owned Explorer window into an owned FastFiles destination pane; verify exact destination bytes/hashes/counts with independent pre/post filesystem oracles and visible destination refresh plus source-state truth (move empties the source, copy preserves it) in the actual native UI.
+- [ ] 7.12 Execute journey I FastFiles → Explorer transfer on an owned fixture: marker files dragged from an owned FastFiles source into a test-owned Explorer destination window with the same independent destination byte oracles and visible source/destination refresh verification. The inherited drag-in-from-explorer UIA scenario is diagnostic only; its SKIP/BLOCKED_ENVIRONMENT classification is never these cells' result.
 
 ## 8. Bounded diagnosis and necessary product completion
 
@@ -67,6 +69,7 @@
 - [ ] 8.3 Repair demonstrated material safety/journey/gate gaps in the central workstream, with focused regression then affected native/full-gate rerun and independent review of material fixes.
 - [ ] 8.4 For a demonstrated consequential UX defect, use prior Refero research first, then bounded new research if necessary; record reference/design/native runtime/screenshots/verification and preserve native accessibility/theme/token contracts. If no such defect exists, record why no UX rewrite was required.
 - [ ] 8.5 Update the five-pillar gap matrix from actual candidate evidence; prove all material locally executable required gaps closed and retain blocked or unqualified obligations without product-complete overclaim.
+- [ ] 8.6 For any journey I cell without verified delivery or visible refresh, preserve first-failure evidence and produce a bounded evidence-backed non-delivery diagnosis across the delivery chain (valid target entry, drag/drop feedback, `IDropTarget` handler invocation, destination I/O initiation, destination bytes, visible refresh). Classify `BLOCKED_ENVIRONMENT` only with that evidence — never automatically or from suite skips; repair a demonstrated product/harness defect with focused regression and requalification, or leave the cell explicitly unqualified with a reviewed cause class.
 
 ## 9. Source-frozen engineering certification
 
@@ -74,7 +77,7 @@
 - [ ] 9.2 Run current Debug build and complete permitted Debug CTest selection; preserve configured/selected/pass/fail/skip/excluded totals, names and first failures without claiming unrestricted full-suite success.
 - [ ] 9.3 Run current release-test build and complete permitted release-test CTest selection with the same accounting discipline and actual source identity.
 - [ ] 9.4 Run MSVC Analyze, supported ASan slice, source markers/registration/hygiene, documentation drift, strict OpenSpec and lifecycle checks; keep external signing/trust/privileged gates separate.
-- [ ] 9.5 Run final source-bound native E2E, UIA core/full, visual catalog/Gallery, many-tabs/dual-pane and required signature regressions serially; inspect actual screenshots and retain every skip/failure/exclusion.
+- [ ] 9.5 Run final source-bound native E2E, UIA core/full, visual catalog/Gallery, many-tabs/dual-pane, journey I Explorer interop transfer and required signature regressions serially; inspect actual screenshots and retain every skip/failure/exclusion.
 - [ ] 9.6 For any certification failure, classify/reproduce safely, fix the demonstrated cause, rerun focused plus affected full available gate, re-review material changes and refresh the implementation/provenance baseline when executable inputs change.
 
 ## 10. Performance preservation and final adversarial review
@@ -99,4 +102,4 @@
 - [ ] 12.3 Inspect the pushed candidate's hosted run once and positively establish applicable required checks/reviews/policy; retain pre-step external failure or HTTP403 policy uncertainty without retries/settings changes or bypass.
 - [ ] 12.4 Execute ordinary non-force PR merge only if every design D10 prerequisite passes; otherwise leave this merge task unchecked with exact evidenced blocker and continue independent safe work to completion.
 - [ ] 12.5 After an actually accepted merge, reconcile original PR dispositions and unique changes/tests before any justified closure; if merge is blocked, keep originals open with their proposed dispositions and do not delete branches.
-- [ ] 12.6 Publish all 19 named success states from design D11 with their qualification evidence and independent code/integration/local/hosted/signing/clean-host/privileged/physical/release status, exact owner action and daily-use assessment; verify clean session-owned state, remote SHA and resumability without automatically starting another campaign.
+- [ ] 12.6 Publish all 20 named success states from design D11 with their qualification evidence and independent code/integration/local/hosted/signing/clean-host/privileged/physical/release status, exact owner action and daily-use assessment; verify clean session-owned state, remote SHA and resumability without automatically starting another campaign.

@@ -2,7 +2,7 @@
 
 ## Scope
 
-Proposal-only slice on the isolated central branch, based on main `a26fe609439a18c128b2a2e557bc7eb2534fa128`. No incoming feature head was merged, no product/test/build/harness input was edited, and no application, benchmark, process-reaper or privileged scenario was launched. Planning-complete is not product-complete. The 67 apply tasks remain unchecked.
+Proposal-only slice on the isolated central branch, based on main `a26fe609439a18c128b2a2e557bc7eb2534fa128`. No incoming feature head was merged, no product/test/build/harness input was edited, and no application, benchmark, process-reaper or privileged scenario was launched. Planning-complete is not product-complete. The 70 apply tasks remain unchecked.
 
 Live branch, publication SHA and hosted result are derived from Git/GitHub after publication, not embedded here as a self-referential current-state claim.
 
@@ -27,6 +27,20 @@ Fresh-context read-only reviewer run `ee228251-55dc-4d17-8746-436b31ba9417` insp
 Correction: design D11 now lists the campaign's actual 19 exact state identifiers, PASS evidence conditions and owning task mappings. Tasks 1.5/12.6 and the terminal spec requirement explicitly bind to that table. The earlier count of 20 in the draft and initial review was incorrect; no artificial extra state was added.
 
 Retained reviewer recheck `864ce132-264f-474e-9a5f-24623e7ba49b` confirmed the omission resolved, found no issues in the correction/blast radius, and returned planning verdict OK. Neither review ran tests or approved integrated product behavior, main merge, privileged qualification or production release.
+
+## Planning review remediation (2026-10-29) — Explorer interoperability P1
+
+A follow-up planning review (verdict: one planning blocker before apply) found that Explorer interoperability lacked explicit acceptance: tasks omitted dedicated Explorer transfer qualification, and design D11's `PRODUCTION_RELEASE_READY` row was interoperability's only home. The review observed that the inherited UIA suite can skip failed delivery as environmental although the prior investigation has not excluded an application defect, and required owned-fixture Explorer → FastFiles and FastFiles → Explorer journeys with destination bytes and visible refresh verification, plus evidence-backed diagnosis of non-delivery rather than automatic environmental classification.
+
+Correction (planning artifacts only; still no implementation):
+
+- Spec: new journey-I requirement "External Explorer transfer interoperability is owned acceptance" with both-direction success postconditions (independent destination byte/hash/count oracles + visible source/destination refresh) and a non-delivery scenario binding the evidence-backed diagnosis rule; "Bounded acceptance" matrix scope extended A–H → A–I.
+- Tasks: 7.11 and 7.12 are the dedicated owned-fixture journey-I cells (Explorer → FastFiles and FastFiles → Explorer separately; the inherited drag-in-from-explorer suite is diagnostic only and its SKIP/BLOCKED_ENVIRONMENT never stands in for these cells' results); 8.6 is the bounded non-delivery diagnosis gate with the explicit "never automatic environmental classification" rule; 9.5 includes the journey-I cells in final certification; 1.5 freezes journeys A–I; 12.6 publishes 20 states. The ledger is now 70 tasks.
+- Design: new decision D12 ("Explorer interoperability is owned acceptance, not release readiness") records the rationale and the classification contract; D11 gains the `EXPLORER_INTEROPERABILITY_QUALIFIED` state row (owning tasks 7.11–7.12, 8.6, 9.5) and its table count moves 19 → 20; `PRODUCTION_RELEASE_READY` no longer defers interop; D3/D4 cover journey I and its oracles; the Risks list gains the greenwashing risk with its mitigation.
+
+State-count note: the earlier planning round correctly removed an artificial 20th placeholder state (count 20 → 19). This remediation adds a different, obligation-bearing state demanded by the interop finding — it has dedicated owning tasks and PASS evidence conditions and is not a placeholder; the D11 table remains the authoritative enumeration in both directions.
+
+Re-validation after this correction: recorded in the commit message and re-derivable from the live tree (focused + repository strict OpenSpec, lifecycle model, doc drift).
 
 ## Handoff
 

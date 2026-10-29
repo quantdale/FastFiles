@@ -42,7 +42,7 @@ For each material conflict, record input SHAs, both protected behaviors, chosen 
 
 ### D3: Freeze a finite product acceptance boundary
 
-**Why:** “repair every gap” without a boundary creates another endless successor campaign. The acceptance matrix enumerates journeys A–H from the spec, predecessor invariants, owned fixtures, expected UI/filesystem observations, required environments and result/evidence locations. Five pillars are assessed independently: discovery, hierarchy, storage intelligence, daily operations and native polish.
+**Why:** “repair every gap” without a boundary creates another endless successor campaign. The acceptance matrix enumerates journeys A–I from the spec, predecessor invariants, owned fixtures, expected UI/filesystem observations, required environments and result/evidence locations. Five pillars are assessed independently: discovery, hierarchy, storage intelligence, daily operations and native polish.
 
 New work is admitted only for a demonstrated data-safety/security defect, integration regression, or defect that blocks an existing required journey/gate. Record its repro, impact, owner, acceptance cell and focused test in the same workstream. Unrelated feature ideas stay in backlog. Large refactors need evidence that a smaller repair cannot preserve the contract and independent review; new product behavior requires an explicit delta before implementation.
 
@@ -54,7 +54,7 @@ An environment blockage is not a failed feature implementation, but does not clo
 
 **Why:** UIA action success, worker correctness and visible pixels each leave different failure modes uncovered. Use the real native executable, public UIA/keyboard/pointer routes and the real operation handlers. Fixtures are marker-owned, isolated and bounded; independently capture pre/post inventories, content hashes, actual path/casing, success/skip/failure counts, cancellation and history outcomes. Never touch real user files or use global/privileged recovery experiments.
 
-Required special cases include new file → inline rename → rename again → Undo; new folder → inline rename → enter; rename collision → error → recovery; copy/move conflicts with explicit choices; multi-conflict request-scoped apply-to-all, default unchecked and next-request reset; Keep-both reservation; Skip versus Cancel; real multi-item Recycle Bin Undo where safely supported; generated-name protection and partial completion. Holding-folder Restore remains a distinct seam and cannot certify the real Recycle Bin journey. A blocked real journey remains unqualified.
+Required special cases include new file → inline rename → rename again → Undo; new folder → inline rename → enter; rename collision → error → recovery; copy/move conflicts with explicit choices; multi-conflict request-scoped apply-to-all, default unchecked and next-request reset; Keep-both reservation; Skip versus Cancel; real multi-item Recycle Bin Undo where safely supported; generated-name protection and partial completion; and journey I's external Explorer → FastFiles and FastFiles → Explorer transfer with independent destination byte oracles and visible source/destination refresh. Holding-folder Restore remains a distinct seam and cannot certify the real Recycle Bin journey. A blocked real journey remains unqualified.
 
 Search checks compare ordered identities/fields with an independent canonical oracle, use actual cold/mixed/resident routes under the existing budget and preserve migration/readiness/durability regressions. Reopen probes do not replace in-panel snapshot-refresh coverage. Storage checks distinguish known-file ranking and partial lower bounds from whole-volume completeness. Tabs/dual panes assert source/destination/selection ownership and persistence, not just window presence.
 
@@ -102,7 +102,7 @@ After an actually accepted consolidation merge, reconcile original PRs as MERGED
 
 **Why:** one “complete” flag hides external release obligations. Publish all requested success states from `LATEST_REMOTE_RECONCILED` through `PRODUCTION_RELEASE_READY`, each with status/evidence/limitations. Report implemented, integrated, locally qualified, hosted qualified, signed, clean-host installed, privileged validated, physical-display validated and release-authorized separately. The product report classifies each pillar as functional-and-verified, implemented-but-defective, incomplete, not-implemented or environment-blocked with scope; degraded coverage never establishes whole-computer discovery.
 
-The following table is the authoritative list of the campaign's 19 named success states. Every report record carries result, source/evidence references, tested scope and limitation/owner action; no aggregate flag overrides an unqualified member. Tasks 1.5 and 12.6 must preserve the complete list.
+The following table is the authoritative list of the campaign's 20 named success states. Every report record carries result, source/evidence references, tested scope and limitation/owner action; no aggregate flag overrides an unqualified member. Tasks 1.5 and 12.6 must preserve the complete list.
 
 | State | Evidence required for PASS | Owning tasks |
 | --- | --- | --- |
@@ -117,6 +117,7 @@ The following table is the authoritative list of the campaign's 19 named success
 | `ORIGINAL_VISION_ALIGNED` | All five pillars meet their frozen required product cells; degraded coverage alone cannot complete whole-computer discovery | 1.5, 8.5 |
 | `REAL_NATIVE_E2E_VERIFIED` | Required current-source real executable journeys pass with UI and filesystem postconditions and safe cleanup | 7.1–7.9, 9.5 |
 | `UIA_AND_ACCESSIBILITY_VERIFIED` | Required public keyboard/focus/identity/label/lifetime cells pass; physical or assistive profiles not exercised remain explicitly outside the claim | 7.10, 9.5 |
+| `EXPLORER_INTEROPERABILITY_QUALIFIED` | Dedicated owned-fixture Explorer → FastFiles and FastFiles → Explorer transfer journeys pass with independent destination byte/hash/count verification and visible source/destination refresh in both directions; every non-delivery carries a bounded evidence-backed diagnosis across the delivery chain (target entry, drop feedback, handler invocation, destination I/O, destination bytes, refresh) before any disposition, and `BLOCKED_ENVIRONMENT` is never assigned automatically or inherited from suite skips | 7.11–7.12, 8.6, 9.5 |
 | `VISUAL_COHERENCE_VERIFIED` | Required current-profile native captures are actually reviewed and contain no unresolved material visual defect; untested profiles are named | 8.4, 9.5 |
 | `CRITICAL_PERFORMANCE_PRESERVED` | Affected comparable measurements and applicable retained evidence show no material correctness/common-path regression | 2.4, 10.1–10.2 |
 | `INDEPENDENT_REVIEWS_COMPLETE` | Material-resolution and both final review angles complete, findings fixed/dispositioned and material fixes re-reviewed | 6.2–6.3, 10.3–10.4 |
@@ -124,9 +125,18 @@ The following table is the authoritative list of the campaign's 19 named success
 | `LOCAL_CERTIFICATION_COMPLETE` | Every mandatory local gate has executed and passed at applicable current inputs; a restricted required exclusion prevents this PASS | 9.1–9.6 |
 | `HOSTED_CERTIFICATION_COMPLETE` | Actual candidate jobs execute and all applicable mandatory hosted checks pass; pre-step failures do not qualify | 12.3 |
 | `MAIN_INTEGRATION_COMPLETE` | An ordinary permitted merge actually occurred and fetched main contains the accepted candidate with its merge attribution | 12.4–12.5 |
-| `PRODUCTION_RELEASE_READY` | Separate signing/pins, clean-host/privileged/physical/interoperability requirements and owner release authorization are all evidenced; this campaign alone cannot supply that authorization | 12.6 and separately authorized release qualification |
+| `PRODUCTION_RELEASE_READY` | Separate signing/pins, clean-host/privileged/physical-environment requirements and owner release authorization are all evidenced (Explorer interop is owned by `EXPLORER_INTEROPERABILITY_QUALIFIED`, not deferred here); this campaign alone cannot supply that authorization | 12.6 and separately authorized release qualification |
 
 Engineering acceptance requires all mandatory local cells passing, no material unresolved findings and required independent review. A terminal blocked handoff is allowed when every safe executable task is finished and each remaining task has specific evidence and an external action; those blocked tasks and associated success states remain unqualified, and the lifecycle cannot be marked completed with mandatory raw unchecked tasks. No new acceptance campaign is automatically started. Production release remains unauthorized by this change.
+
+### D12: Explorer interoperability is owned acceptance, not release readiness
+
+**Why:** the inherited UIA suite can skip failed external drag delivery as environmental, but the predecessor investigation
+(`large-index-lifecycle-and-search-scalability/evidence/uia-explorer-drag-in-investigation.md`) fixed its own Explorer-side targeting defect and still could not establish Explorer → FastFiles delivery, leaving the journey `UNQUALIFIED` with an unresolved cause class — an application defect is NOT excluded. Burying interoperability inside release readiness therefore hides a real acceptance hole behind a gate this campaign cannot even execute.
+
+Journey I owns both transfer directions on marker-owned fixtures and defines success as delivered destination bytes (independent pre/post oracles) plus visible source and destination refresh in the actual native UI — never UIA action success or absence of error alone. Non-delivery requires a bounded discriminating chain (valid target entry, drag/drop feedback, `IDropTarget` handler invocation, destination I/O initiation, destination bytes, visible refresh) before any disposition: a demonstrated product or harness defect is repaired with focused regression and requalification; `BLOCKED_ENVIRONMENT` is recorded only with evidence that places the failure outside the application; an unresolved non-delivery remains explicitly unqualified with a preserved cause class. The predecessor's `UNQUALIFIED` outcome is the baseline to advance, not a disposition.
+
+**Alternative/trade-off:** keeping interop as a release-only readiness item would repeat the `UNQUALIFIED` limbo and let suite skips silently substitute for acceptance; owning it costs serialized Explorer-window fixtures and bounded diagnosis effort, but converts an unexcluded defect class into evidence either way.
 
 ## Risks / Trade-offs
 
@@ -134,6 +144,7 @@ Engineering acceptance requires all mandatory local cells passing, no material u
 - [Risk] A correct test harness is overwritten by a parallel branch → compare actual changed bodies and preserve close/focus/evidence/result regressions and unique test registrations.
 - [Risk] Stale lifecycle metadata looks like missing implementation → compare task-level evidence on all source heads before edits; validate merged lifecycle after each stage.
 - [Risk] Intermittent input/UIA failure is greenwashed by retry → retain first failure and later observations, vary diagnostics only with new evidence, bounded attempts and reviewed disposition.
+- [Risk] Interop non-delivery is greenwashed as environmental → journey I's owned-fixture cells and the evidence-backed non-delivery diagnosis chain (D12) keep classification honest.
 - [Risk] External checks prevent the desired merge → deliver the qualified candidate without bypass; owner action is explicitly separate from engineering work.
 - [Risk] Massive certification exceeds host resources → preflight, stage, serialize scarce resources and reuse only demonstrably applicable evidence.
 

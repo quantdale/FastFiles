@@ -38,7 +38,7 @@ Each material stage SHALL preserve all compatible accepted behavior and unique t
 
 ### Requirement: Bounded acceptance and explicit outcomes
 
-The campaign SHALL freeze a finite matrix of journeys A–H, predecessor invariants, observable postconditions, fixture ownership and required environments before product edits. New repairs MUST address demonstrated safety defects, integration regressions or blocked existing acceptance. Each cell SHALL record PASS, FAIL, NOT_RUN, SKIPPED, BLOCKED_ENVIRONMENT or BLOCKED_EXTERNAL with evidence and scope; only executed matching postconditions support PASS.
+The campaign SHALL freeze a finite matrix of journeys A–I, predecessor invariants, observable postconditions, fixture ownership and required environments before product edits. New repairs MUST address demonstrated safety defects, integration regressions or blocked existing acceptance. Each cell SHALL record PASS, FAIL, NOT_RUN, SKIPPED, BLOCKED_ENVIRONMENT or BLOCKED_EXTERNAL with evidence and scope; only executed matching postconditions support PASS.
 
 #### Scenario: Feature idea is unrelated to required journeys
 - **WHEN** a new feature opportunity does not repair a required acceptance failure
@@ -135,6 +135,18 @@ Journey H SHALL exercise keyboard-only navigation, public UIA focus/selected-row
 #### Scenario: Physical profile is unavailable
 - **WHEN** geometry tests cover a DPI or accessibility profile absent from the physical runtime
 - **THEN** those tests support only their software scope, not live physical-display or assistive-technology certification
+
+### Requirement: External Explorer transfer interoperability is owned acceptance
+
+Journey I SHALL qualify Explorer → FastFiles and FastFiles → Explorer transfer on owned fixtures in the actual native application. Success MUST be established by independent destination byte/hash/count verification and visible source and destination refresh in both directions; UIA action success or the absence of an error SHALL NOT substitute for delivered bytes or refreshed listings. Non-delivery MUST receive a bounded evidence-backed diagnosis across the delivery chain (valid target entry, drag/drop feedback, handler invocation, destination I/O initiation, destination bytes, visible refresh) before any disposition; `BLOCKED_ENVIRONMENT` SHALL NOT be assigned without that evidence, and the inherited drag-in-from-explorer suite's skip classification SHALL NOT stand in for this requirement's result. A demonstrated product or harness defect MUST be repaired with focused regression and requalification; an unresolved non-delivery remains explicitly unqualified with a preserved cause class.
+
+#### Scenario: Owned-fixture transfer succeeds in both directions
+- **WHEN** marker files are dragged from a test-owned Explorer window into an owned FastFiles destination and from an owned FastFiles source into a test-owned Explorer destination
+- **THEN** independent pre/post oracles verify exact destination bytes/hashes/counts, and the visible destination listing shows the transferred items with the expected source state (move empties the source, copy preserves it) in the actual native UI
+
+#### Scenario: Drop is attempted but nothing is delivered
+- **WHEN** an interop cell ends without verified destination bytes or without visible refresh
+- **THEN** first-failure evidence is preserved and the delivery chain is discriminated with bounded instrumentation before classification, a demonstrated product or harness cause is repaired and requalified rather than skipped, and environmental classification is recorded only with evidence that places the failure outside the application
 
 ### Requirement: Security and persistent-index contracts survive consolidation
 
