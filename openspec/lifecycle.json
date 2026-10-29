@@ -1624,6 +1624,30 @@
       "taskOverrides": []
     },
     {
+      "name": "final-product-consolidation-and-integrated-acceptance",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-consolidation-and-integrated-acceptance/evidence/explore-findings.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
       "name": "overnight-truth-audit-and-measured-performance",
       "state": "completed",
       "evidence": [
