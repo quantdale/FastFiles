@@ -1,0 +1,32 @@
+{
+  "combinedNativeSource": "5a0ccbb",
+  "successorDriver": "bdc460f",
+  "scope": "Exact component equality only; combined includes PR17/22 and client bootstrap3fae3cb",
+  "files": [
+    {
+      "path": "src/ui/src/StorageAnalysis.cpp",
+      "successorBlob": "e078523bb649ec9822b3f4be502031eb7e5a18d0",
+      "combinedBlob": "e078523bb649ec9822b3f4be502031eb7e5a18d0"
+    },
+    {
+      "path": "src/ui/src/StorageAnalysis.h",
+      "successorBlob": "7aa60bed52606cb901ea8b9635b4ca457bf40e2e",
+      "combinedBlob": "7aa60bed52606cb901ea8b9635b4ca457bf40e2e"
+    },
+    {
+      "path": "src/ui/src/TreemapView.cpp",
+      "successorBlob": "6a9974a313bc5053a3cff46b2c3f6786a9cce183",
+      "combinedBlob": "6a9974a313bc5053a3cff46b2c3f6786a9cce183"
+    },
+    {
+      "path": "src/ui/include/ffui/TreemapLayout.h",
+      "successorBlob": "2386aaede19aea1bd63730d84137ad4699626027",
+      "combinedBlob": "2386aaede19aea1bd63730d84137ad4699626027"
+    },
+    {
+      "path": "verify/e2e/Test-RecursiveStorageRanking.ps1",
+      "successorBlob": "2e112e3a3a9064f25295070fb4cd51d6b9fb1bd9",
+      "combinedBlob": "2e112e3a3a9064f25295070fb4cd51d6b9fb1bd9"
+    }
+  ]
+}

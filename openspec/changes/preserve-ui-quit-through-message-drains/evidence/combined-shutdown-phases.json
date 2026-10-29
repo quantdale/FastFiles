@@ -1,0 +1,563 @@
+[
+  {
+    "artifactDirectory": "cold-restore-first",
+    "phases": [
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818094,
+        "message": "wm-destroy",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818109,
+        "message": "wm-destroy-file-operations-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818113,
+        "message": "wm-destroy-preview-clear",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818118,
+        "message": "wm-destroy-providers-release",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818148,
+        "message": "message-loop-exit",
+        "outcome": "observed"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818151,
+        "message": "engine-client-stop",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818156,
+        "message": "engine-client-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818159,
+        "message": "shell-destruction",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818167,
+        "message": "icon-worker-join",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818172,
+        "message": "icon-worker-join",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818175,
+        "message": "shell-destruction",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818180,
+        "message": "ole-uninitialize",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818188,
+        "message": "ole-uninitialize",
+        "outcome": "end"
+      }
+    ]
+  },
+  {
+    "artifactDirectory": "cold-restore-second",
+    "phases": [
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818094,
+        "message": "wm-destroy",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818109,
+        "message": "wm-destroy-file-operations-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818113,
+        "message": "wm-destroy-preview-clear",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818118,
+        "message": "wm-destroy-providers-release",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818148,
+        "message": "message-loop-exit",
+        "outcome": "observed"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818151,
+        "message": "engine-client-stop",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818156,
+        "message": "engine-client-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818159,
+        "message": "shell-destruction",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818167,
+        "message": "icon-worker-join",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818172,
+        "message": "icon-worker-join",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818175,
+        "message": "shell-destruction",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818180,
+        "message": "ole-uninitialize",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818188,
+        "message": "ole-uninitialize",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823146,
+        "message": "wm-destroy",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823154,
+        "message": "wm-destroy-file-operations-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823158,
+        "message": "wm-destroy-preview-clear",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823162,
+        "message": "wm-destroy-providers-release",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823225,
+        "message": "message-loop-exit",
+        "outcome": "observed"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823228,
+        "message": "engine-client-stop",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823233,
+        "message": "engine-client-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823235,
+        "message": "shell-destruction",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823240,
+        "message": "icon-worker-join",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823243,
+        "message": "icon-worker-join",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823247,
+        "message": "shell-destruction",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823251,
+        "message": "ole-uninitialize",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823259,
+        "message": "ole-uninitialize",
+        "outcome": "end"
+      }
+    ]
+  },
+  {
+    "artifactDirectory": "cold-restore-home",
+    "phases": [
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818094,
+        "message": "wm-destroy",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818109,
+        "message": "wm-destroy-file-operations-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818113,
+        "message": "wm-destroy-preview-clear",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818118,
+        "message": "wm-destroy-providers-release",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818148,
+        "message": "message-loop-exit",
+        "outcome": "observed"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818151,
+        "message": "engine-client-stop",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818156,
+        "message": "engine-client-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818159,
+        "message": "shell-destruction",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818167,
+        "message": "icon-worker-join",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818172,
+        "message": "icon-worker-join",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818175,
+        "message": "shell-destruction",
+        "outcome": "end"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818180,
+        "message": "ole-uninitialize",
+        "outcome": "begin"
+      },
+      {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818188,
+        "message": "ole-uninitialize",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823146,
+        "message": "wm-destroy",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823154,
+        "message": "wm-destroy-file-operations-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823158,
+        "message": "wm-destroy-preview-clear",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823162,
+        "message": "wm-destroy-providers-release",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823225,
+        "message": "message-loop-exit",
+        "outcome": "observed"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823228,
+        "message": "engine-client-stop",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823233,
+        "message": "engine-client-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823235,
+        "message": "shell-destruction",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823240,
+        "message": "icon-worker-join",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823243,
+        "message": "icon-worker-join",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823247,
+        "message": "shell-destruction",
+        "outcome": "end"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823251,
+        "message": "ole-uninitialize",
+        "outcome": "begin"
+      },
+      {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823259,
+        "message": "ole-uninitialize",
+        "outcome": "end"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826786,
+        "message": "wm-destroy",
+        "outcome": "begin"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826795,
+        "message": "wm-destroy-file-operations-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826798,
+        "message": "wm-destroy-preview-clear",
+        "outcome": "end"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826802,
+        "message": "wm-destroy-providers-release",
+        "outcome": "end"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826845,
+        "message": "message-loop-exit",
+        "outcome": "observed"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826848,
+        "message": "engine-client-stop",
+        "outcome": "begin"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826852,
+        "message": "engine-client-stop",
+        "outcome": "end"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826855,
+        "message": "shell-destruction",
+        "outcome": "begin"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826860,
+        "message": "icon-worker-join",
+        "outcome": "begin"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826863,
+        "message": "icon-worker-join",
+        "outcome": "end"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826866,
+        "message": "shell-destruction",
+        "outcome": "end"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826868,
+        "message": "ole-uninitialize",
+        "outcome": "begin"
+      },
+      {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826875,
+        "message": "ole-uninitialize",
+        "outcome": "end"
+      }
+    ]
+  }
+]

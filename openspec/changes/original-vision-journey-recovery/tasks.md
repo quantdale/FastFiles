@@ -25,6 +25,12 @@
 
 ## 4. Qualification and handoff
 
+- [x] 4.12 Replace narrow Storage mode-button stacking with a labeled native view selector sharing actual mode mutation, retain wider radio controls/focus continuity, and reserve full-width coverage-first status. Qualify native keyboard selection, data/actions, light/dark and narrow/wide geometry. Combined5a focused620/1600 transitions preserve actual focus/mode and stable-category focus; actual ComboBox patterns and full ranking/reveal/Treemap/hash/cleanup pass. Existing63 narrowDark and8ef wideLight qualify bounded geometry; evidence/storage-focused-resize-20261027.md. Physical display/palette fidelity remains separately unqualified.
+
+- [x] 4.10 Preserve terminal partial Treemap aggregate leaves and their known logical/allocated lower bounds through the actual shared rollup; keep unknown allocation independent, show logical size without hover and persist coverage feedback. Red-first rollup and focused pure tests are required; native complete/partially browsed fixtures, pointer-away light/dark captures, UIA metadata and existing navigation/cleanup require root qualification before closure. Isolated127/127 and exact component-bound combined native known/partial/action/hierarchy evidence pass; see evidence/storage-successor-20261027.md. Wider integration/release boundaries remain explicit.
+
+- [x] 4.9 Make All-category Largest Files a bounded recursive ranking of known files, using the existing indexed query and a truthfully partial published/browsed fallback; preserve exact descendant targets and hierarchical Treemap, add before-cap file/scope and stale-result regressions, then qualify native nested-largest/duplicate-basename reveal and screenshots. Isolated implementation/pure validation is distinct from native certification; completion remains with the integrator. Isolated127/127 and exact component-bound combined native known/partial/action/hierarchy evidence pass; see evidence/storage-successor-20261027.md. Wider integration/release boundaries remain explicit.
+
 - [ ] 4.1 Execute focused regressions, actual native E2E/UIA/visual review and correct actionable defects.
 - [ ] 4.2 Run broader local certification, independent review and integration simulation with PR14/15/16.
 - [ ] 4.3 Record exact source/evidence identity, commit, reconcile remote, publish unmerged successor work and report real limitations.

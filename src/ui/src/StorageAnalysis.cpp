@@ -1,3 +1,4 @@
+#include "OwnedMessageDrain.h"
 #include "StorageAnalysis.h"
 
 #include "NativeChrome.h"
@@ -7,6 +8,7 @@
 #include "Util.h"
 #include "ffui/NativeOverlayLayout.h"
 #include "ffui/StorageLayout.h"
+#include "ffui/ChromeTabTraversal.h"
 #include "ffui/StorageRadioState.h"
 #include "ffui/DisplayPath.h"
 #include "ffui/SnapshotAggregate.h"
@@ -17,6 +19,7 @@
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace ffui {
 namespace {
@@ -33,14 +36,56 @@ constexpr int kByCategoryId = 7209;
 constexpr int kTreemapId = 7210;
 constexpr int kOverviewListId = 7211;
 constexpr int kCategoryFilterId = 7212;
+constexpr int kModeSelectorId = 7213;
 constexpr UINT_PTR kStorageButtonSubclassBase = 0x5340;
 constexpr UINT_PTR kRadioSubclassBase = 0x5346;
 constexpr UINT_PTR kStatusSubclassId = 0x5350;
 constexpr size_t kStorageRadioCount = kStorageModeCount;
+constexpr UINT_PTR kInactiveSelectionSubclass = 0x5352;
+constexpr UINT_PTR kStorageTabSubclass = 0x5353;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
     return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+}
+
+void DrawInactiveStorageSelection(HWND hwnd, HDC dc, bool darkTheme) {
+    if (!dc || UiSystemHighContrast()) return;
+    const HWND focused = GetFocus();
+    if (focused == hwnd || (focused != nullptr && IsChild(hwnd, focused))) return;
+    const int selected = ListView_GetNextItem(hwnd, -1, LVNI_SELECTED);
+    if (selected < 0) return;
+    RECT row{};
+    RECT body{};
+    if (!ListView_GetItemRect(hwnd, selected, &row, LVIR_BOUNDS) || !GetClientRect(hwnd, &body)) return;
+    const HWND header = ListView_GetHeader(hwnd);
+    RECT headerRect{};
+    if (header != nullptr && IsWindowVisible(header) && GetWindowRect(header, &headerRect)) {
+        MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&headerRect), 2);
+        body.top = (std::max)(body.top, headerRect.bottom);
+    }
+    RECT visible{};
+    if (!IntersectRect(&visible, &row, &body)) return;
+    const int saved = SaveDC(dc);
+    if (saved == 0) return;
+    IntersectClipRect(dc, body.left, body.top, body.right, body.bottom);
+    const UINT dpi = GetDpiForWindow(hwnd);
+    const int stroke = (std::max)(1, MulDiv(1, static_cast<int>(dpi), 96));
+    const int strip = (std::max)(stroke, MulDiv(3, static_cast<int>(dpi), 96));
+    // Solid selection edges plus a leading strip retain the selected shape;
+    // this is not the keyboard focus ring and does not replace native text.
+    HBRUSH brush = CreateSolidBrush(ToColorRef(GetUiTheme(darkTheme).accent));
+    if (brush != nullptr) {
+        const RECT edges[] = {
+            {body.left, row.top, body.right, row.top + stroke},
+            {body.left, row.bottom - stroke, body.right, row.bottom},
+            {body.left, row.top, body.left + strip, row.bottom},
+            {body.right - stroke, row.top, body.right, row.bottom}
+        };
+        for (const RECT& edge : edges) FillRect(dc, &edge, brush);
+        DeleteObject(brush);
+    }
+    RestoreDC(dc, saved);
 }
 
 void DrawStorageFocusRing(HDC dc, const RECT& rect, COLORREF color) {
@@ -138,7 +183,8 @@ void DrawStorageRadioButton(const DRAWITEMSTRUCT* item, bool darkTheme) {
         fill = ToColorRef(theme.background);
         text = ToColorRef(theme.textDisabled);
     } else if (checked) {
-        fill = ToColorRef(theme.selectionSoft);
+        // GDI drops alpha; composite the token over its real opaque canvas.
+        fill = ToColorRef(UiLerpColor(theme.background, theme.selectionSoft, theme.selectionSoft.a));
         text = ToColorRef(theme.text);
     } else if (pressed) {
         fill = ToColorRef(theme.surfaceElevated);
@@ -426,10 +472,9 @@ LRESULT CALLBACK StorageAnalysis::ListSubclassProc(HWND hwnd, UINT message, WPAR
         if (self->listUiaState_) self->listUiaState_->alive = false;
         self->listProvider_.Reset();
         self->listUiaState_.reset();
-        MSG pending{};
-        while (PeekMessageW(&pending, hwnd, kStorageListActivate, kStorageListActivate, PM_REMOVE)) {
+        DrainOwnedMessages(hwnd, kStorageListActivate, [](const MSG& pending) {
             delete reinterpret_cast<ListAction*>(pending.lParam);
-        }
+        });
         RemoveWindowSubclass(hwnd, ListSubclassProc, subclassId);
     }
     return DefSubclassProc(hwnd, message, wParam, lParam);
@@ -461,8 +506,8 @@ void StorageAnalysis::ReadListQuery(ListQuery& query) const {
     const DrillItem& item = items_[query.index];
     auto& info = query.info;
     info.name = item.name;
-    info.folder = currentPath_;
-    info.displayFolder = ffui::NormalizeDisplayPath(currentPath_);
+    info.folder = item.folder.empty() ? currentPath_ : item.folder;
+    info.displayFolder = ffui::NormalizeDisplayPath(info.folder);
     info.isDirectory = item.isDirectory;
     info.sizeBytes = item.totalSizeBytes;
     info.modifiedTime = item.lastModifiedTime;
@@ -475,9 +520,12 @@ void StorageAnalysis::ReadListQuery(ListQuery& query) const {
         info.description = L"Category summary, " + ffui::FormatSize(item.totalSizeBytes) + L" in this folder";
         info.displayFolder = L"Category summary";
     } else {
-        info.fullPath = ffui::JoinPath(currentPath_, item.name);
+        info.fullPath = StorageRankingItemPath(item.folder, item.name);
         info.identityHash = UiaHashMix(UiaHashWide(currentPath_),
             UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh, info.fullPath));
+        // A recursive rank can contain two hard-link paths with the same FRN.
+        // Preserve the selected directory entry, not just its shared file ID.
+        if (RecursiveRanking()) info.identityHash = UiaHashMix(info.identityHash, UiaHashWide(info.fullPath));
     }
     const UINT state = ListView_GetItemState(list_, static_cast<int>(query.index), LVIS_SELECTED | LVIS_FOCUSED);
     info.selected = (state & LVIS_SELECTED) != 0;
@@ -638,16 +686,23 @@ void StorageAnalysis::NotifyListChanged() {
     }
 }
 StorageAnalysis::~StorageAnalysis() {
+    StopRanking();
     listEvents_.Clear();
     if (listUiaState_) listUiaState_->alive = false;
     listProvider_.Reset();
     listUiaState_.reset();
     if (list_ != nullptr) {
-        MSG pending{};
-        while (PeekMessageW(&pending, list_, kStorageListActivate, kStorageListActivate, PM_REMOVE)) {
+        DrainOwnedMessages(list_, kStorageListActivate, [](const MSG& pending) {
             delete reinterpret_cast<ListAction*>(pending.lParam);
-        }
+        });
         RemoveWindowSubclass(list_, ListSubclassProc, kStorageListSubclass);
+    }
+    for (HWND control : {list_, overview_}) {
+        if (control != nullptr) RemoveWindowSubclass(control, InactiveSelectionSubclassProc, kInactiveSelectionSubclass);
+    }
+    for (HWND control : {back_, up_, modeSelector_, categoryFilter_, list_, overview_, overviewButton_,
+                         drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) {
+        if (control != nullptr) RemoveWindowSubclass(control, TabSubclassProc, kStorageTabSubclass);
     }
     const HWND pushButtons[] = {back_, up_};
     for (size_t i = 0; i < std::size(pushButtons); ++i) {
@@ -663,14 +718,74 @@ StorageAnalysis::~StorageAnalysis() {
                                  kRadioSubclassBase + static_cast<UINT_PTR>(i));
         }
     }
-    if (status_ != nullptr) {
-        RemoveWindowSubclass(status_, StatusSubclassProc, kStatusSubclassId);
+    for (HWND control : {status_, modeLabel_}) {
+        if (control != nullptr) RemoveWindowSubclass(control, StatusSubclassProc, kStatusSubclassId);
     }
     uiaEvents_.Clear();
     if (uiaState_) uiaState_->alive = false;
     uiaState_.reset();
     treemapView_.SetUiaEventHandler(nullptr);
     Hide();
+}
+
+// Native workspaces are children of a custom shell, not a dialog. Give their
+// real controls a spatial Tab route and their radio group native arrow behavior.
+LRESULT CALLBACK StorageAnalysis::TabSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                  UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<StorageAnalysis*>(refData);
+    if (self != nullptr && self->visible_ && IsWindowVisible(hwnd) && IsWindowEnabled(hwnd)) {
+        if (message == WM_GETDLGCODE) return DefSubclassProc(hwnd, message, wParam, lParam) | DLGC_WANTTAB;
+        if (message == WM_KEYDOWN && (GetKeyState(VK_CONTROL) & 0x8000) == 0 && (GetKeyState(VK_MENU) & 0x8000) == 0) {
+            if (wParam == VK_TAB) {
+                std::vector<HWND> focusable;
+                focusable.reserve(5);
+                AppendChromeTabStop(focusable, self->back_);
+                AppendChromeTabStop(focusable, self->up_);
+                const HWND radios[] = {self->overviewButton_, self->drillDown_, self->largestFolders_,
+                                       self->largestFiles_, self->byCategory_, self->treemap_};
+                AppendChromeTabStop(focusable, self->compactModes_ ? self->modeSelector_ : radios[static_cast<size_t>(self->viewMode_)]);
+                AppendChromeTabStop(focusable, self->categoryFilter_);
+                AppendChromeTabStop(focusable, self->viewMode_ == ViewMode::Overview ? self->overview_ : self->list_);
+                const auto decision = NextChromeTabTarget(focusable, hwnd, self->owner_, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+                if (decision.consume) {
+                    if (hwnd == self->modeSelector_ || hwnd == self->categoryFilter_) ComboBox_ShowDropdown(hwnd, FALSE);
+                    SetFocus(decision.target);
+                    if (GetFocus() == decision.target) return 0;
+                }
+            }
+            const int index = GetDlgCtrlID(hwnd) - kOverviewId;
+            if (!self->compactModes_ && index >= 0 && index < static_cast<int>(kStorageModeCount) &&
+                (wParam == VK_LEFT || wParam == VK_UP || wParam == VK_RIGHT || wParam == VK_DOWN)) {
+                const int direction = wParam == VK_LEFT || wParam == VK_UP ? -1 : 1;
+                const int next = (index + direction + static_cast<int>(kStorageModeCount)) % static_cast<int>(kStorageModeCount);
+                self->SetViewMode(static_cast<ViewMode>(next));
+                SetFocus(GetDlgItem(self->owner_, kOverviewId + next));
+                return 0;
+            }
+        }
+    }
+    if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, TabSubclassProc, subclassId);
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
+
+LRESULT CALLBACK StorageAnalysis::InactiveSelectionSubclassProc(HWND hwnd, UINT message, WPARAM wParam,
+                                                               LPARAM lParam, UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<StorageAnalysis*>(refData);
+    if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
+    const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+    if (message == WM_PAINT) {
+        const HDC dc = GetDC(hwnd);
+        DrawInactiveStorageSelection(hwnd, dc, self->darkTheme_);
+        if (dc != nullptr) ReleaseDC(hwnd, dc);
+    } else if (message == WM_PRINTCLIENT) {
+        DrawInactiveStorageSelection(hwnd, reinterpret_cast<HDC>(wParam), self->darkTheme_);
+    } else if (message == WM_SETFOCUS || message == WM_KILLFOCUS || message == LVM_SETITEMSTATE ||
+               message == WM_THEMECHANGED || message == WM_SYSCOLORCHANGE) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+    } else if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, InactiveSelectionSubclassProc, subclassId);
+    }
+    return result;
 }
 
 LRESULT CALLBACK StorageAnalysis::StorageButtonSubclassProc(HWND hwnd, UINT message, WPARAM wParam,
@@ -890,13 +1005,23 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackId)), nullptr, nullptr);
     up_ = CreateWindowExW(0, L"BUTTON", L"Up", StoragePushButtonStyle(),
                           0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUpId)), nullptr, nullptr);
+    modeLabel_ = CreateWindowExW(0, L"STATIC", L"View", WS_CHILD | SS_LEFTNOWORDWRAP,
+                                 0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
+    modeSelector_ = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
+                                    0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kModeSelectorId)), nullptr, nullptr);
+    if (modeSelector_ != nullptr) {
+        for (const wchar_t* name : {L"Overview", L"Drill Down", L"Largest Folders", L"Largest Files", L"By Category", L"Treemap"}) {
+            ComboBox_AddString(modeSelector_, name);
+        }
+        ComboBox_SetCurSel(modeSelector_, static_cast<int>(viewMode_));
+    }
     status_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_ENDELLIPSIS | SS_LEFTNOWORDWRAP,
                               0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
     list_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
-                            WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL | WS_TABSTOP,
+                            WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_TABSTOP,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListId)), nullptr, nullptr);
     overview_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
-                                WS_CHILD | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
+                                WS_CHILD | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_TABSTOP,
                                 0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewListId)), nullptr, nullptr);
     overviewButton_ = CreateWindowExW(0, L"BUTTON", L"Overview", StorageModeRadioStyle(0),
                                       0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewId)), nullptr, nullptr);
@@ -914,7 +1039,7 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     treemap_ = CreateWindowExW(0, L"BUTTON", L"Treemap", StorageModeRadioStyle(5),
                                    0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTreemapId)), nullptr, nullptr);
 
-    if (!back_ || !up_ || !status_ || !list_ || !overview_ || !overviewButton_ || !categoryFilter_ ||
+    if (!modeLabel_ || !modeSelector_ || !back_ || !up_ || !status_ || !list_ || !overview_ || !overviewButton_ || !categoryFilter_ ||
         !drillDown_ || !largestFolders_ || !largestFiles_ || !byCategory_ || !treemap_) return false;
 
     const HWND pushButtons[] = {back_, up_};
@@ -928,12 +1053,20 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
         SetWindowSubclass(radios[i], RadioSubclassProc, kRadioSubclassBase + static_cast<UINT_PTR>(i),
                           reinterpret_cast<DWORD_PTR>(this));
     }
+    for (HWND control : {back_, up_, modeSelector_, categoryFilter_, list_, overview_, overviewButton_,
+                         drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) {
+        SetWindowSubclass(control, TabSubclassProc, kStorageTabSubclass, reinterpret_cast<DWORD_PTR>(this));
+    }
     SetWindowSubclass(status_, StatusSubclassProc, kStatusSubclassId, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(modeLabel_, StatusSubclassProc, kStatusSubclassId, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(list_, ListSubclassProc, kStorageListSubclass, reinterpret_cast<DWORD_PTR>(this));
+    for (HWND control : {list_, overview_}) {
+        SetWindowSubclass(control, InactiveSelectionSubclassProc, kInactiveSelectionSubclass, reinterpret_cast<DWORD_PTR>(this));
+    }
 
-    const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"% of Volume", L"Modified", L"Size on Disk"};
-    const int widths[] = {260, 80, 100, 120, 100, 100, 145, 120};
-    for (int i = 0; i < 8; ++i) {
+    const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"% of Volume", L"Modified", L"Size on Disk", L"Location"};
+    const int widths[] = {260, 80, 100, 120, 100, 100, 145, 120, 0};
+    for (int i = 0; i < 9; ++i) {
         LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM};
         column.pszText = const_cast<wchar_t*>(columns[i]);
         column.cx = widths[i];
@@ -977,6 +1110,9 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     // report lists keep system-white backgrounds in dark mode.
     SetDarkTheme(ffui::gUiDarkTheme);
     UpdateNavigationButtonState();
+    rankingCallbackState_ = std::make_shared<RankingCallbackState>();
+    rankingCallbackState_->owner = owner_;
+    rankingWorker_ = std::thread(&StorageAnalysis::RankingWorkerMain, this);
     return true;
 }
 
@@ -1106,6 +1242,7 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
     // for capacity figures and per-volume analysis.
     CheckRadioButton(owner_, kOverviewId, kTreemapId, kOverviewId);
     viewMode_ = ViewMode::Overview;
+    ComboBox_SetCurSel(modeSelector_, static_cast<int>(viewMode_));
     RefreshData();
     ApplyModeVisibility();
     Reposition(surfaceRect);
@@ -1114,17 +1251,19 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
 
 void StorageAnalysis::Hide() {
     if (!visible_) return;
+    CancelRanking();
     HWND currentFocus = GetFocus();
     const bool storageHadFocus = (currentFocus != nullptr &&
                                   (currentFocus == list_ || currentFocus == overview_ ||
-                                   currentFocus == categoryFilter_ || currentFocus == back_ ||
+                                   currentFocus == categoryFilter_ || currentFocus == modeSelector_ || currentFocus == back_ ||
                                    currentFocus == up_ || currentFocus == overviewButton_ ||
                                    currentFocus == drillDown_ || currentFocus == largestFolders_ ||
                                    currentFocus == largestFiles_ || currentFocus == byCategory_ ||
                                    currentFocus == treemap_ ||
                                    IsChild(list_, currentFocus) || IsChild(overview_, currentFocus) ||
-                                   IsChild(categoryFilter_, currentFocus)));
+                                   IsChild(categoryFilter_, currentFocus) || IsChild(modeSelector_, currentFocus)));
     visible_ = false;
+    rankingDisplay_.reset();
     ApplyModeVisibility();
     items_.clear();
     volumes_.clear();
@@ -1136,11 +1275,15 @@ void StorageAnalysis::Hide() {
 }
 
 void StorageAnalysis::Reposition(const ShellLayoutRect& surfaceRect) {
+    lastSurfaceRect_ = surfaceRect;
     if (!visible_) return;
     const auto scaledDip = [](float dip) {
         return static_cast<int>(std::lround(ffui::UiScale(dip)));
     };
     const auto layout = ffui::ComputeStorageSurfaceLayout(surfaceRect);
+    const bool presentationChanged = compactModes_ != layout.compactModes;
+    const HWND priorFocus = GetFocus();
+    compactModes_ = layout.compactModes;
     const auto place = [scaledDip](HWND control, const ShellLayoutRect& rect) {
         const int left = scaledDip(rect.left);
         const int top = scaledDip(rect.top);
@@ -1157,22 +1300,44 @@ void StorageAnalysis::Reposition(const ShellLayoutRect& surfaceRect) {
     place(largestFiles_, layout.buttons[5]);
     place(byCategory_, layout.buttons[6]);
     place(treemap_, layout.buttons[7]);
+    place(modeLabel_, layout.viewLabel);
+    // ComboBox height includes its popup; its closed field remains one row.
+    auto selectorRect = layout.viewSelector;
+    selectorRect.bottom += compactModes_ ? 192.0f : 0.0f;
+    place(modeSelector_, selectorRect);
     place(categoryFilter_, layout.categoryFilter);
-    place(status_, layout.status);
+    const auto statusRect = StorageStatusRect(layout, viewMode_ == ViewMode::Treemap);
+    place(status_, statusRect);
     place(list_, layout.list);
     place(overview_, layout.overview);
+    ConfigureListColumns();
+    if (presentationChanged) {
+        ApplyModeVisibility();
+        const HWND radios[] = {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_};
+        if (compactModes_ && std::find(std::begin(radios), std::end(radios), priorFocus) != std::end(radios)) {
+            SetFocus(modeSelector_);
+        } else if (!compactModes_ && priorFocus == modeSelector_) {
+            SetFocus(radios[static_cast<size_t>(viewMode_)]);
+        }
+    }
 }
 
 void StorageAnalysis::ApplyModeVisibility() {
     const auto apply = [this](HWND control, StorageControl semanticControl) {
         if (control == nullptr) return;
-        const bool show = visible_ && StorageControlVisible(viewMode_, semanticControl);
+        const bool modeButton = semanticControl >= StorageControl::OverviewButton && semanticControl <= StorageControl::TreemapButton;
+        const bool show = visible_ && StorageControlVisible(viewMode_, semanticControl) && !(compactModes_ && modeButton);
         // ShowWindow(SW_SHOW) raises z-order and would cover the command palette.
         SetWindowPos(control, nullptr, 0, 0, 0, 0,
                      kNativeWorkspaceLayoutFlags | SWP_NOMOVE | SWP_NOSIZE |
                          (show ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
     };
 
+    for (HWND control : {modeLabel_, modeSelector_}) {
+        SetWindowPos(control, nullptr, 0, 0, 0, 0,
+                     kNativeWorkspaceLayoutFlags | SWP_NOMOVE | SWP_NOSIZE |
+                         (visible_ && compactModes_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+    }
     apply(back_, StorageControl::Back);
     apply(up_, StorageControl::Up);
     apply(overviewButton_, StorageControl::OverviewButton);
@@ -1313,10 +1478,22 @@ void StorageAnalysis::RefreshOverview() {
     SetWindowTextW(status_, statusText.c_str());
 }
 
-void StorageAnalysis::RefreshData() {
-    NotifyListChanged();
+void StorageAnalysis::RefreshData(bool snapshotRefresh) {
+    CancelRanking();
+    const bool retainDisplay = snapshotRefresh && StorageRankingDisplayCanRefresh(rankingDisplay_,
+        currentPath_, rankingSourceEpoch_, visible_, RecursiveRanking());
+    if (!retainDisplay) rankingDisplay_.reset();
+    ConfigureListColumns();
+    if (!retainDisplay) NotifyListChanged();
     const auto selected = displayedPath_ == currentPath_ ? CaptureSelectedItem() : std::nullopt;
-    ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    if (RecursiveRanking()) {
+        if (rankingSelectionScope_ != currentPath_ || selected || !items_.empty()) rankingSelected_ = selected;
+        rankingSelectionScope_ = currentPath_;
+    } else {
+        rankingSelected_.reset();
+        rankingSelectionScope_.clear();
+    }
+    if (!retainDisplay) ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     displayedPath_ = currentPath_;
     if (!visible_) return;
     UpdateNavigationButtonState();
@@ -1343,6 +1520,10 @@ void StorageAnalysis::RefreshData() {
     // are skipped entirely while it is active.
     if (viewMode_ == ViewMode::Overview) {
         RefreshOverview();
+        return;
+    }
+    if (RecursiveRanking()) {
+        RefreshRanking(retainDisplay);
         return;
     }
     if (!engine_) {
@@ -1385,6 +1566,7 @@ void StorageAnalysis::RefreshData() {
     for (const auto& entry : directory.entries) {
         DrillItem item;
         item.name = entry.name;
+        item.folder = targetPath;
         item.isDirectory = entry.isDirectory;
         item.sizeBytes = entry.sizeBytes;
         item.totalSizeBytes = entry.isDirectory ? 0 : entry.sizeBytes;
@@ -1420,8 +1602,10 @@ void StorageAnalysis::RefreshData() {
         items_.push_back(item);
     }
 
-    const std::wstring statusText = StorageItemsStatusText(items_.size(), engineActive_);
-    SetWindowTextW(status_, statusText.c_str());
+    const std::wstring statusText = StorageItemsStatusText(items_.size(), engineActive_) +
+        (viewMode_ == ViewMode::LargestFiles && !activeCategoryId_.empty()
+            ? L" — selected category, immediate files only" : L"");
+    SetWindowTextW(status_, viewMode_ == ViewMode::Treemap ? StorageTreemapStatusText() : statusText.c_str());
 
     // Filter based on view mode
     if (viewMode_ == ViewMode::LargestFolders) {
@@ -1481,6 +1665,223 @@ void StorageAnalysis::RefreshData() {
 
     SortItems(sortColumn_, sortAscending_);
     RestoreSelectedItem(selected);
+}
+
+void StorageAnalysis::CancelRanking() {
+    rankingGeneration_.fetch_add(1, std::memory_order_acq_rel);
+    {
+        std::lock_guard lock(rankingWorkMutex_);
+        pendingRanking_.reset();
+    }
+    if (engine_ && indexedRankingRequestId_ != 0) engine_->CancelIndexedSearch(indexedRankingRequestId_);
+    indexedRankingRequestId_ = 0;
+    rankingWorkCv_.notify_all();
+}
+
+void StorageAnalysis::StopRanking() {
+    if (rankingStopping_.exchange(true)) return;
+    CancelRanking();
+    if (rankingCallbackState_) {
+        std::lock_guard lock(rankingCallbackState_->mutex);
+        rankingCallbackState_->alive = false;
+        rankingCallbackState_->owner = nullptr;
+    }
+    rankingWorkCv_.notify_all();
+    if (rankingWorker_.joinable()) rankingWorker_.join();
+    if (owner_ != nullptr) {
+        DrainOwnedMessages(owner_, WM_APP_STORAGE_RANKING, [](const MSG& message) {
+            delete reinterpret_cast<RankingCompletion*>(message.lParam);
+        });
+    }
+}
+
+void StorageAnalysis::ConfigureListColumns() {
+    if (!list_) return;
+    const bool recursive = RecursiveRanking();
+    RECT viewport{};
+    GetClientRect(list_, &viewport);
+    const int viewportWidth = (std::max)(0L, viewport.right - viewport.left);
+    const bool resetDefaults = !recursiveColumns_ || *recursiveColumns_ != recursive || columnsDpi_ != UiDpiScale();
+    if (!resetDefaults && (!recursive || columnsViewportWidth_ == viewportWidth)) return;
+    recursiveColumns_ = recursive;
+    columnsDpi_ = UiDpiScale();
+    columnsViewportWidth_ = viewportWidth;
+    if (!recursive && sortColumn_ == 8) {
+        sortColumn_ = 3;
+        sortAscending_ = false;
+        SetSortIndicator(list_, sortColumn_, sortAscending_);
+    }
+    const int normalWidths[] = {260, 80, 100, 120, 100, 100, 145, 120, 0};
+    const int rankingWidths[] = {220, 0, 100, 0, 0, 0, 145, 120, 300};
+    int normalOrder[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+    int rankingOrder[] = {0, 2, 8, 7, 6, 1, 3, 4, 5};
+    if (resetDefaults) {
+        for (int index = 0; index < 9; ++index) {
+            ListView_SetColumnWidth(list_, index, Scaled(recursive ? rankingWidths[index] : normalWidths[index]));
+        }
+        ListView_SetColumnOrderArray(list_, 9, recursive ? rankingOrder : normalOrder);
+    }
+    if (recursive) {
+        const auto widths = ComputeStorageRankingColumnWidths(static_cast<float>(viewportWidth) / UiDpiScale());
+        const auto physical = [](float dip) { return static_cast<int>(std::lround(dip * UiDpiScale())); };
+        const int nameWidth = physical(widths.name);
+        const int sizeWidth = physical(widths.size);
+        const int locationWidth = (std::max)(physical(64.0f), viewportWidth - nameWidth - sizeWidth);
+        ListView_SetColumnWidth(list_, 0, nameWidth);
+        ListView_SetColumnWidth(list_, 2, sizeWidth);
+        ListView_SetColumnWidth(list_, 8, locationWidth);
+    }
+}
+
+void StorageAnalysis::RefreshRanking(bool retainDisplay) {
+    if (!retainDisplay) {
+        items_.clear();
+        ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
+        InvalidateRect(list_, nullptr, FALSE);
+    }
+    const auto scope = NormalizeStorageRankingScope(currentPath_);
+    if (!scope || !engine_ || rankingStopping_) {
+        SetWindowTextW(status_, L"Choose an absolute folder to rank its known files and subfolders.");
+        return;
+    }
+    const uint64_t generation = rankingGeneration_.load(std::memory_order_acquire);
+    if (!scope->indexedSupported) {
+        QueueSnapshotRanking(generation, *scope);
+        return;
+    }
+    SetWindowTextW(status_, retainDisplay ? StorageRankingRefreshingStatusText(rankingDisplay_->indexed)
+                                          : L"Finding largest indexed known files in this folder and subfolders…");
+    const auto weak = std::weak_ptr<RankingCallbackState>(rankingCallbackState_);
+    indexedRankingRequestId_ = engine_->RequestIndexedSearch(L"kind:file", 1, scope->matchPath, 3, true,
+        static_cast<uint32_t>(kStorageRankingLimit),
+        [weak, generation, scope = *scope](ffprotocol::IndexedSearchResponse response) {
+            auto state = weak.lock();
+            if (!state) return;
+            auto completion = std::make_unique<RankingCompletion>();
+            completion->generation = generation;
+            completion->scope = scope;
+            completion->indexed = true;
+            completion->available = response.status == ffprotocol::IndexedSearchStatus::Completed &&
+                response.candidates.size() <= kStorageRankingLimit;
+            completion->truncated = response.truncated;
+            for (auto& candidate : response.candidates) {
+                if (candidate.isDirectory || !candidate.persistentIndexed || !StorageRankingContains(scope, candidate.folder) ||
+                    StorageRankingItemPath(candidate.folder, candidate.name).empty()) {
+                    completion->available = false;
+                    break;
+                }
+                ffsearch::Candidate item;
+                item.name = std::move(candidate.name);
+                item.folder = std::move(candidate.folder);
+                item.sizeBytes = candidate.sizeBytes;
+                item.modifiedTime = candidate.modifiedTime;
+                item.createdTime = candidate.createdTime;
+                item.volumeId = candidate.volumeId;
+                item.id = candidate.id;
+                item.parentId = candidate.parentId;
+                item.persistentIndexed = candidate.persistentIndexed;
+                item.allocatedSizeBytes = candidate.allocatedSizeBytes;
+                item.allocatedSizeKnown = candidate.allocatedSizeKnown;
+                completion->candidates.push_back(std::move(item));
+            }
+            std::lock_guard lock(state->mutex);
+            if (state->alive && state->owner != nullptr && PostMessageW(state->owner, WM_APP_STORAGE_RANKING,
+                    0, reinterpret_cast<LPARAM>(completion.get()))) completion.release();
+        });
+}
+
+void StorageAnalysis::QueueSnapshotRanking(uint64_t generation, StorageRankingScope scope) {
+    if (rankingStopping_ || generation != rankingGeneration_.load(std::memory_order_acquire)) return;
+    const bool retainDisplay = StorageRankingDisplayCanRefresh(rankingDisplay_, currentPath_,
+        rankingSourceEpoch_, visible_, RecursiveRanking());
+    SetWindowTextW(status_, retainDisplay ? StorageRankingRefreshingStatusText(rankingDisplay_->indexed)
+        : L"Ranking browsed/published subfolders only — coverage partial…");
+    {
+        std::lock_guard lock(rankingWorkMutex_);
+        pendingRanking_ = RankingWork{generation, std::move(scope)};
+    }
+    rankingWorkCv_.notify_one();
+}
+
+void StorageAnalysis::RankingWorkerMain() {
+    while (!rankingStopping_) {
+        RankingWork work;
+        {
+            std::unique_lock lock(rankingWorkMutex_);
+            rankingWorkCv_.wait(lock, [this] { return rankingStopping_ || pendingRanking_.has_value(); });
+            if (rankingStopping_) break;
+            work = std::move(*pendingRanking_);
+            pendingRanking_.reset();
+        }
+        const auto cancelled = [this, generation = work.generation] {
+            return rankingStopping_ || generation != rankingGeneration_.load(std::memory_order_acquire);
+        };
+        const auto snapshot = engine_->ReadSnapshot();
+        if (cancelled()) continue;
+        auto completion = std::make_unique<RankingCompletion>();
+        completion->generation = work.generation;
+        completion->scope = work.scope;
+        completion->available = snapshot.has_value();
+        if (snapshot) {
+            auto ranked = RankKnownStorageSnapshot(*snapshot, work.scope, cancelled);
+            if (ranked.cancelled || cancelled()) continue;
+            completion->truncated = ranked.truncated;
+            for (auto& result : ranked.results) completion->candidates.push_back(std::move(result.candidate));
+        }
+        if (cancelled()) continue;
+        std::lock_guard lock(rankingCallbackState_->mutex);
+        if (rankingCallbackState_->alive && rankingCallbackState_->owner != nullptr &&
+            PostMessageW(rankingCallbackState_->owner, WM_APP_STORAGE_RANKING, 0,
+                         reinterpret_cast<LPARAM>(completion.get()))) completion.release();
+    }
+}
+
+bool StorageAnalysis::HandleRankingCompletion(LPARAM lParam) {
+    std::unique_ptr<RankingCompletion> completion(reinterpret_cast<RankingCompletion*>(lParam));
+    if (!completion || rankingStopping_ || !StorageRankingCompletionMatches(completion->generation,
+        rankingGeneration_.load(std::memory_order_acquire), currentPath_, completion->scope,
+        visible_, RecursiveRanking())) return true;
+    indexedRankingRequestId_ = 0;
+    // An empty durable result must not hide useful degraded/browsed records.
+    // The fallback is always labelled published/browsed partial coverage.
+    if (completion->indexed && (!completion->available || completion->candidates.empty())) {
+        QueueSnapshotRanking(completion->generation, completion->scope);
+        return true;
+    }
+    NotifyListChanged();
+    const bool coherentDisplay = StorageRankingDisplayCanRefresh(rankingDisplay_, currentPath_,
+        rankingSourceEpoch_, visible_, RecursiveRanking());
+    // A user can change or clear selection while a replacement is pending.
+    const auto selected = coherentDisplay ? CaptureSelectedItem() : rankingSelected_;
+    ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    items_.clear();
+    for (auto& candidate : completion->candidates) {
+        DrillItem item;
+        item.name = std::move(candidate.name);
+        item.folder = std::move(candidate.folder);
+        item.sizeBytes = item.totalSizeBytes = candidate.sizeBytes;
+        item.lastModifiedTime = candidate.modifiedTime;
+        item.creationTime = candidate.createdTime;
+        item.volumeRowId = candidate.volumeId;
+        item.fileIdLow = candidate.id;
+        item.parentFrnLow = candidate.parentId;
+        item.allocatedSizeBytes = candidate.allocatedSizeBytes;
+        item.allocatedSizeKnown = candidate.allocatedSizeKnown;
+        items_.push_back(std::move(item));
+    }
+    ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
+    SetWindowTextW(status_, completion->available
+        ? StorageRankingStatusText(items_.size(), completion->indexed, completion->truncated).c_str()
+        : L"No published snapshot available — subfolder coverage unknown. Browse folders or retry.");
+    rankingDisplay_ = completion->available
+        ? std::optional<StorageRankingDisplayIdentity>{{completion->scope, rankingSourceEpoch_, completion->indexed}}
+        : std::nullopt;
+    rankingSelected_ = selected;
+    ConfigureListColumns();
+    SortItems(sortColumn_, sortAscending_);
+    RestoreSelectedItem(selected);
+    InvalidateRect(list_, nullptr, FALSE);
+    return true;
 }
 
 void StorageAnalysis::RequestAggregateForParent(const ffprotocol::SnapshotDirectory& directory) {
@@ -1641,13 +2042,40 @@ void StorageAnalysis::UpdateVolumeUsedBytes() {
 }
 
 void StorageAnalysis::SortItems(int column, bool ascending) {
-    if (column < 0 || column >= 8) return;
+    if (column < 0 || column >= 9) return;
     NotifyListChanged();
     const auto selected = CaptureSelectedItem();
     ListView_SetItemState(list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
     sortColumn_ = column;
     sortAscending_ = ascending;
     SetSortIndicator(list_, column, ascending);
+
+    if (RecursiveRanking()) {
+        const auto ordinal = [](const std::wstring& left, const std::wstring& right) {
+            return CompareStringOrdinal(left.c_str(), static_cast<int>(left.size()), right.c_str(),
+                                        static_cast<int>(right.size()), TRUE) - CSTR_EQUAL;
+        };
+        std::sort(items_.begin(), items_.end(), [column, ascending, ordinal](const DrillItem& left, const DrillItem& right) {
+            int order = 0;
+            if (column == 7 && left.allocatedSizeKnown != right.allocatedSizeKnown) return left.allocatedSizeKnown;
+            if (column == 2 || column == 3 || column == 6 || column == 7) {
+                const uint64_t a = column == 6 ? left.lastModifiedTime : column == 7 ? left.allocatedSizeBytes : left.sizeBytes;
+                const uint64_t b = column == 6 ? right.lastModifiedTime : column == 7 ? right.allocatedSizeBytes : right.sizeBytes;
+                order = a == b ? 0 : a < b ? -1 : 1;
+            } else if (column == 8) {
+                order = ordinal(left.folder, right.folder);
+            }
+            if (order == 0) order = ordinal(left.name, right.name);
+            if (order == 0) order = ordinal(left.folder, right.folder);
+            if (order == 0 && left.volumeRowId != right.volumeRowId) order = left.volumeRowId < right.volumeRowId ? -1 : 1;
+            if (order == 0 && left.fileIdLow != right.fileIdLow) order = left.fileIdLow < right.fileIdLow ? -1 : 1;
+            return ascending ? order < 0 : order > 0;
+        });
+        ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
+        RestoreSelectedItem(selected);
+        InvalidateRect(list_, nullptr, FALSE);
+        return;
+    }
 
     struct SortKey {
         int group = 0;
@@ -1721,7 +2149,7 @@ void StorageAnalysis::RestoreSelectedItem(const std::optional<DrillItem>& select
     if (!selected) return;
     for (size_t index = 0; index < items_.size(); ++index) {
         const auto& item = items_[index];
-        if (item.name != selected->name || item.categoryId != selected->categoryId ||
+        if (item.name != selected->name || item.folder != selected->folder || item.categoryId != selected->categoryId ||
             item.isDirectory != selected->isDirectory || item.volumeRowId != selected->volumeRowId ||
             item.fileIdLow != selected->fileIdLow || item.fileIdHigh != selected->fileIdHigh) continue;
         ListView_SetItemState(list_, static_cast<int>(index), LVIS_SELECTED | LVIS_FOCUSED,
@@ -1732,7 +2160,7 @@ void StorageAnalysis::RestoreSelectedItem(const std::optional<DrillItem>& select
 
 void StorageAnalysis::OnSnapshotUpdated() {
     if (!visible_) return;
-    RefreshData();
+    RefreshData(true);
     treemapView_.OnSnapshotUpdated();
 }
 
@@ -1767,6 +2195,12 @@ void StorageAnalysis::RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory*
 bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     if (!visible_) return false;
     const int id = LOWORD(wParam);
+    if (id == kModeSelectorId && HIWORD(wParam) == CBN_SELCHANGE) {
+        if (!compactModes_) return true;
+        const int selected = ComboBox_GetCurSel(modeSelector_);
+        if (selected >= 0 && selected < static_cast<int>(kStorageModeCount)) SetViewMode(static_cast<ViewMode>(selected));
+        return true;
+    }
     if (id == kCategoryFilterId && HIWORD(wParam) == CBN_SELCHANGE) {
         UpdateCategoryFilterFromControl();
         RefreshData();
@@ -1792,6 +2226,8 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
         }
         return true;
     }
+    // Revalidate queued radio notifications after a resize hides their HWNDs.
+    if (compactModes_ && id >= kOverviewId && id <= kTreemapId) return true;
     if (id == kOverviewId) {
         SetViewMode(ViewMode::Overview);
         return true;
@@ -1832,11 +2268,21 @@ bool StorageAnalysis::HandleDrawItem(LPARAM lParam) {
 }
 
 void StorageAnalysis::SetViewMode(ViewMode mode) {
+    if (modeSelector_ != nullptr) {
+        if (ComboBox_GetCurSel(modeSelector_) != static_cast<int>(mode)) ComboBox_SetCurSel(modeSelector_, static_cast<int>(mode));
+        RedrawWindow(modeSelector_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    }
     if (viewMode_ == mode) {
         ApplyModeVisibility();
+        Reposition(lastSurfaceRect_);
         return;
     }
     viewMode_ = mode;
+    if (RecursiveRanking()) {
+        sortColumn_ = 2;
+        sortAscending_ = false;
+        SetSortIndicator(list_, sortColumn_, sortAscending_);
+    }
     CheckRadioButton(owner_, kOverviewId, kTreemapId,
                      mode == ViewMode::Overview ? kOverviewId :
                      mode == ViewMode::DrillDown ? kDrillDownId :
@@ -1848,6 +2294,7 @@ void StorageAnalysis::SetViewMode(ViewMode mode) {
     }
     RefreshData();
     ApplyModeVisibility();
+    Reposition(lastSurfaceRect_);
 }
 
 bool StorageAnalysis::HandleNotify(LPARAM lParam) {
@@ -1965,6 +2412,10 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                 }
                 break;
             }
+            case 8:
+                text = RecursiveRanking() ? StorageRankingLocationText(currentPath_, item.folder)
+                                          : ffui::NormalizeDisplayPath(item.folder);
+                break;
         }
         wcsncpy_s(info->item.pszText, static_cast<size_t>(info->item.cchTextMax), text.c_str(), _TRUNCATE);
         return true;
@@ -2005,12 +2456,12 @@ void StorageAnalysis::ActivateListItem(size_t index) {
         treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
         SetViewMode(ViewMode::LargestFiles);
     } else if (item.isDirectory) {
-        currentPath_ = ffui::JoinPath(currentPath_, item.name);
+        currentPath_ = StorageRankingItemPath(item.folder, item.name);
         UpdateNavigationButtonState();
         RefreshData();
         if (navigate_) navigate_(currentPath_, true);
     } else if (navigate_) {
-        navigate_(ffui::JoinPath(currentPath_, item.name), false);
+        navigate_(StorageRankingItemPath(item.folder, item.name), false);
     }
 }
 
@@ -2038,13 +2489,16 @@ bool StorageAnalysis::HandleTreemapCompletion(LPARAM lParam) {
 }
 
 void StorageAnalysis::SetEngineActive(bool active) {
-    if (engineActive_ == active) return;
+    // A connection/source transition can keep the same degraded/privileged
+    // flag. Still invalidate old ranking completions at that boundary.
+    ++rankingSourceEpoch_;
+    rankingDisplay_.reset();
     engineActive_ = active;
     if (visible_) RefreshData();
 }
 
 bool StorageAnalysis::SelectRadioFromUia(HWND radio) {
-    if (!visible_ || owner_ == nullptr || radio == nullptr || !IsWindow(radio)) return false;
+    if (!visible_ || owner_ == nullptr || radio == nullptr || !IsWindow(radio) || !IsWindowVisible(radio)) return false;
     const int id = GetDlgCtrlID(radio);
     if (id < kOverviewId || id > kTreemapId) return false;
     return PostMessageW(owner_, WM_COMMAND, MAKEWPARAM(id, BN_CLICKED), reinterpret_cast<LPARAM>(radio)) != FALSE;
@@ -2066,6 +2520,8 @@ void StorageAnalysis::SetDarkTheme(bool dark) {
     ApplyNativeExplorerTheme(list_, dark);
     ApplyNativeExplorerTheme(overview_, dark);
     ApplyNativeExplorerTheme(categoryFilter_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(modeSelector_, dark, NativeExplorerTheme::Combo);
+    if (modeLabel_ != nullptr) InvalidateRect(modeLabel_, nullptr, FALSE);
     AttachThemedListHeader(list_);
     AttachThemedListHeader(overview_);
     for (HWND list : {list_, overview_}) {
@@ -2091,7 +2547,8 @@ std::vector<SelectionItem> StorageAnalysis::ActiveSelectionItems() const {
     if (selected < 0 || static_cast<size_t>(selected) >= items_.size()) return {};
     const DrillItem& item = items_[static_cast<size_t>(selected)];
     if (!item.categoryId.empty()) return {};
-    return {{ffui::JoinPath(currentPath_, item.name), item.isDirectory}};
+    const auto path = StorageRankingItemPath(item.folder, item.name);
+    return path.empty() ? std::vector<SelectionItem>{} : std::vector<SelectionItem>{{path, item.isDirectory}};
 }
 
 bool StorageAnalysis::HandleContextMenu(WPARAM wParam, LPARAM lParam) {

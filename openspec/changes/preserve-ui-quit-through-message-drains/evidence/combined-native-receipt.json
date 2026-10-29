@@ -1,0 +1,46 @@
+{
+  "implementation": "7981ebb537d69a8d8e53a866ed70a14502baf98c",
+  "combinedSource": "d639a785b627698dfd557f4bba97e200d1171d49",
+  "focusedRestore": "PASS1/1; three natural closes/cleanup",
+  "ordinaryE2E": {
+    "passed": 8,
+    "failed": 0,
+    "skipped": 0
+  },
+  "sourceScope": "Shared helper exact; no whole-executable equivalence asserted",
+  "phasesByLifecycle": [
+    {
+      "directory": "cold-restore-first",
+      "count": 13,
+      "last": {
+        "pid": 145496,
+        "tid": 130200,
+        "epochMs": 1793108818188,
+        "message": "ole-uninitialize",
+        "outcome": "end"
+      }
+    },
+    {
+      "directory": "cold-restore-second",
+      "count": 26,
+      "last": {
+        "pid": 136068,
+        "tid": 147380,
+        "epochMs": 1793108823259,
+        "message": "ole-uninitialize",
+        "outcome": "end"
+      }
+    },
+    {
+      "directory": "cold-restore-home",
+      "count": 39,
+      "last": {
+        "pid": 137428,
+        "tid": 133284,
+        "epochMs": 1793108826875,
+        "message": "ole-uninitialize",
+        "outcome": "end"
+      }
+    }
+  ]
+}

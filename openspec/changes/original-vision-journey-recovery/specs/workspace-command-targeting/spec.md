@@ -4,6 +4,41 @@ Keep filesystem commands bound to the user's visible selection across browsing, 
 
 ## ADDED Requirements
 
+### Requirement: Treemap preserves partial facts through presentation
+
+Treemap folder aggregate leaves SHALL retain known logical and allocated lower bounds and their partial or pending state when parent totals are recomputed. Represented containers SHALL derive their own totals from retained children, including empty filtered results. Allocation completeness SHALL remain independent of logical enumeration completeness. Positive partial sizes SHALL retain visible lower-bound text, and unknown allocation SHALL NOT become zero or exact logical bytes. Logical size and coverage feedback SHALL be available without requiring pointer hover on sufficiently large tiles.
+
+#### Scenario: Known file with an unbrowsed descendant
+- **WHEN** a folder aggregate contains a known 3 MiB subtotal and a missing descendant listing
+- **THEN** actual root recomputation preserves the subtotal and partial state, exact parent percentages remain unavailable, and size text identifies the known lower bound
+- **AND** observed allocation counts do not imply complete allocation for missing descendants
+
+#### Scenario: Empty category result
+- **WHEN** category filtering removes every represented child
+- **THEN** the root does not retain the previous unfiltered logical or allocated totals
+
+#### Scenario: Pointer away from a settled tile
+- **WHEN** a sufficiently large settled tile is visible without pointer hover
+- **THEN** its name and logical size remain readable and the existing reserved status row explains that data coverage may be partial
+
+### Requirement: Recursive storage ranking preserves source scope and target identity
+
+All-category Largest Files SHALL rank at most100 files by logical size from the selected folder and known subfolders. Directory exclusion and component-bounded scope matching SHALL precede the ranking cap. Indexed records SHALL state that coverage is unverified; published/browsed fallback SHALL state partial coverage, including while service-connected. No successful directory listing, volume ID or capped result sum SHALL be presented as proof of recursive completeness.
+
+Each ranked row SHALL retain its source containing folder for visible location, UIA identity, selection restoration, file operations and canonical reveal. Equal basenames and separate hard-link paths SHALL not retarget each other. Unknown allocated size SHALL remain unknown. Configurable category refinements SHALL remain explicitly immediate-folder; sorting ranked rows SHALL describe sorting only the retained set. Treemap SHALL continue to use its hierarchical data.
+
+#### Scenario: A larger descendant beats an immediate child
+- **WHEN** a known nested file is larger than an immediate file and an even larger same-prefix sibling lies outside the selected scope
+- **THEN** the descendant ranks before the immediate file, the sibling is excluded before admission, and reveal/Copy Path target the descendant's actual containing folder
+
+#### Scenario: Indexed query is unavailable or empty
+- **WHEN** indexed ranking cannot supply rows while successful published/browsed listings contain known files
+- **THEN** a cancellable worker ranks those known files and labels the result partial without claiming missing subfolders are empty
+
+#### Scenario: Workspace changes before completion
+- **WHEN** a ranking completion arrives after hide, scope change, category/mode replacement or a newer request
+- **THEN** it cannot replace the current rows or supply actions to another workspace
+
 ### Requirement: Settings completion controls fit the real dialog
 
 Settings SHALL reserve its intended DPI-scaled client area in addition to the actual non-client frame. OK and Cancel SHALL have positive, fully visible bounds inside the dialog, and visible Cancel SHALL remain pointer-reachable without changing saved settings.
@@ -87,3 +122,19 @@ Storage lists SHALL expose their rendered rows through semantic UI Automation wi
 #### Scenario: Replaced row
 - **WHEN** a client retains a provider while its row is replaced or its owner destroyed
 - **THEN** access reports element unavailable and never targets a new occupant
+
+### Requirement: Narrow Storage prioritizes data and coverage
+
+Narrow Storage surfaces SHALL offer all existing view modes through a labeled native selector instead of vertically stacking every mode button. The selector and wider radio controls SHALL share the canonical mode action and selected mode. Resize SHALL move focus only when its currently focused mode control is hidden. Cached hidden radio actions SHALL be rejected. Coverage limitations SHALL precede optional status details and occupy a full-width row below category controls when the toolbar wraps.
+
+#### Scenario: Narrow keyboard ranking to Treemap
+- **WHEN** a user chooses Largest Files and then Treemap with the native selector keyboard interaction
+- **THEN** the real known-file ranking and hierarchical Treemap are shown with truthful partial coverage, and the data viewport remains usable
+
+#### Scenario: Resize preserves active interaction
+- **WHEN** a focused mode radio is replaced by the compact selector or the focused selector is replaced by radios
+- **THEN** focus moves to the corresponding visible control without changing the view or stealing focus from another surface
+
+#### Scenario: Storage keyboard controls remain traversable
+- **WHEN** Tab or Shift+Tab is pressed in a native Storage control
+- **THEN** focus moves through visible enabled controls in spatial order and escapes to the shell owner at a boundary, with compact selector/category and Up/selector traversal verified through actual input

@@ -12,6 +12,15 @@ static int TestDateBoundariesAndDiagnostics(const ffsearch::FilterRegistry& regi
 
 int main() {
     const auto registry = ffsearch::FilterRegistry::WithDefaults();
+    const auto files = ffsearch::ParseQuery(L"kind:file", registry);
+    Check(files.invalidFilters.empty() && files.viewCompatible, "kind:file is an additive owning/view-compatible predicate");
+    for (bool directory : {false, true}) {
+        ffsearch::Candidate candidate{L"zero-byte", L"C:\\Root", 0, 0, directory};
+        ffsearch::CandidateView view{u"zero-byte", candidate.folder, 0, 0, directory};
+        Check(files.Matches(candidate) == !directory && files.MatchesView(view) == !directory &&
+              files.MatchesWithoutFolder(candidate) == !directory && files.MatchesViewWithoutFolder(view) == !directory,
+              "file predicate includes zero-byte files and excludes directories before bounded admission in every matcher");
+    }
     static const ffsearch::Candidate report{L"quarterly report.pdf", L"C:\\Program Files\\Reports", 2 * 1024 * 1024, 0, false};
     static const ffsearch::CandidateView reportView{u"quarterly report.pdf", report.folder, report.sizeBytes,
                                              report.modifiedTime, report.isDirectory, report.createdTime,

@@ -1824,13 +1824,20 @@ function Export-UiaEvidence {
     try {
         Add-Type -AssemblyName System.Drawing
         Add-Type -AssemblyName System.Windows.Forms
-        $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        # Failure evidence is diagnostic, not a passing visual-catalog entry.
+        # Never fall back to capturing unrelated windows across the desktop.
+        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) { throw 'Owned main window is not foreground; screenshot omitted.' }
+        $rect = Get-UiaElementProperty -Driver $Driver -Element $Main -Name BoundingRectangle
+        if (-not $rect -or $rect.width -le 0 -or $rect.height -le 0) { throw 'Owned window bounds unavailable; screenshot omitted.' }
+        $windowBounds = [System.Drawing.Rectangle]::new($rect.x, $rect.y, $rect.width, $rect.height)
+        $bounds = [System.Drawing.Rectangle]::Intersect($windowBounds, [System.Windows.Forms.SystemInformation]::VirtualScreen)
+        if ($bounds.Width -le 0 -or $bounds.Height -le 0) { throw 'Owned window is outside the desktop; screenshot omitted.' }
         $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
         $g = [System.Drawing.Graphics]::FromImage($bmp)
         $g.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size)
         $png = Join-Path $ArtifactsDir ($Name + '.png')
         $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
-        $paths += [pscustomobject]@{ path = $png; type = 'screenshot'; virtualScreen = "$($bounds.X),$($bounds.Y),$($bounds.Width),$($bounds.Height)" }
+        $paths += [pscustomobject]@{ path = $png; type = 'screenshot'; captureScope = 'foreground-window'; windowBounds = "$($bounds.X),$($bounds.Y),$($bounds.Width),$($bounds.Height)" }
     } catch { }
     finally {
         if ($g) { $g.Dispose() }

@@ -75,8 +75,8 @@ void TestModeMatrix() {
               !ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::List) &&
               !ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::OverviewList) &&
               !ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::CategoryFilter) &&
-              !ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::Status),
-          "Treemap owns the Direct2D surface and hides other mode-owned surfaces");
+              ffui::StorageControlVisible(ffui::StorageViewMode::Treemap, ffui::StorageControl::Status),
+          "Treemap owns its canvas and retains explicit shared coverage feedback");
 }
 
 void TestTransitions() {
@@ -126,6 +126,8 @@ void TestIdempotence() {
 }
 
 void TestStatusText() {
+    Check(std::wstring(ffui::StorageTreemapStatusText()).find(L"coverage may be partial") != std::wstring::npos,
+          "Treemap coverage remains visible without hover or assumed completeness");
     Check(ffui::StorageOverviewStatusText(2, true) == L"2 fixed volumes",
           "indexed overview status reports the volume count");
     Check(ffui::StorageOverviewStatusText(2, false).find(L"degraded mode") != std::wstring::npos,

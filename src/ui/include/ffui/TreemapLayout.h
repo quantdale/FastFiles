@@ -42,6 +42,9 @@ struct TreemapNode {
     bool calculating = false;
     bool aggregateResolved = false;
     bool aggregateFailed = false;
+    // Atomic folder aggregate, not a container derived from represented children.
+    bool aggregateLeaf = false;
+    bool allocatedAggregateIncomplete = false;
     int64_t volumeRowId = 0;
     uint64_t fileIdLow = 0;
     uint64_t fileIdHigh = 0;
@@ -57,6 +60,56 @@ struct TreemapRect {
     float height = 0.0f;
     TreemapNode* node = nullptr;
 };
+
+inline bool AddTreemapValue(uint64_t& sum, uint64_t value) {
+    if (UINT64_MAX - sum < value) { sum = UINT64_MAX; return false; }
+    sum += value;
+    return true;
+}
+
+// Actual hierarchy rollup, shared by the native view and headless regressions.
+inline uint64_t RecomputeTreemapTotals(TreemapNode& node) {
+    if (!node.isDirectory || node.aggregateLeaf) return node.totalSizeBytes;
+    uint64_t total = 0;
+    uint64_t allocated = 0;
+    uint64_t knownCount = 0;
+    uint64_t totalCount = 0;
+    bool pending = false;
+    bool failed = node.children.empty() && node.aggregateFailed;
+    bool allocatedIncomplete = false;
+    const auto add = AddTreemapValue;
+    for (auto& child : node.children) {
+        const uint64_t childTotal = RecomputeTreemapTotals(*child);
+        if (!add(total, childTotal)) failed = true;
+        pending = pending || child->calculating;
+        failed = failed || child->aggregateFailed;
+        const bool aggregate = child->isDirectory || child->synthetic;
+        const uint64_t childAllocated = aggregate ? child->totalAllocatedSizeBytes :
+            (child->allocatedSizeKnown ? child->allocatedSizeBytes : 0);
+        const uint64_t childKnown = aggregate ? child->allocatedKnownCount : (child->allocatedSizeKnown ? 1u : 0u);
+        const uint64_t childCount = aggregate ? child->allocatedTotalCount : 1u;
+        if (!add(allocated, childAllocated)) allocatedIncomplete = true;
+        if (!add(knownCount, childKnown)) allocatedIncomplete = true;
+        if (!add(totalCount, childCount)) allocatedIncomplete = true;
+        // Folder aggregates describe descendants. Its own directory record
+        // belongs to this parent container just like an ordinary file record.
+        if (child->isDirectory) {
+            if (child->allocatedSizeKnown && !add(allocated, child->allocatedSizeBytes)) allocatedIncomplete = true;
+            if (child->allocatedSizeKnown && !add(knownCount, 1)) allocatedIncomplete = true;
+            if (!add(totalCount, 1)) allocatedIncomplete = true;
+        }
+        allocatedIncomplete = allocatedIncomplete || child->allocatedAggregateIncomplete ||
+            child->calculating || child->aggregateFailed;
+    }
+    node.totalSizeBytes = total;
+    node.totalAllocatedSizeBytes = allocated;
+    node.allocatedKnownCount = knownCount;
+    node.allocatedTotalCount = totalCount;
+    node.allocatedAggregateIncomplete = allocatedIncomplete;
+    node.calculating = pending;
+    node.aggregateFailed = failed;
+    return node.totalSizeBytes;
+}
 
 inline float AspectRatio(float side1, float side2) {
     if (side1 < 0.001f || side2 < 0.001f) return 1.0f;
@@ -96,21 +149,27 @@ inline TreemapNode* BuildSyntheticCatchAll(const std::vector<TreemapNode*>& tiny
     for (const TreemapNode* member : tiny) {
         if (UINT64_MAX - total < member->totalSizeBytes) {
             total = UINT64_MAX;
+            incomplete = true;
         } else {
             total += member->totalSizeBytes;
         }
         incomplete = incomplete || member->calculating || member->aggregateFailed;
+        synthetic->allocatedAggregateIncomplete = synthetic->allocatedAggregateIncomplete ||
+            member->allocatedAggregateIncomplete;
         // Merged allocated aggregate: files contribute their own known value
         // and a 1/1 completeness pair; directories contribute their subtree
         // pair. Unknown members never contribute bytes, only totals.
         if (member->isDirectory) {
-            synthetic->totalAllocatedSizeBytes += member->totalAllocatedSizeBytes;
-            synthetic->allocatedKnownCount += member->allocatedKnownCount;
-            synthetic->allocatedTotalCount += member->allocatedTotalCount;
+            if (!AddTreemapValue(synthetic->totalAllocatedSizeBytes, member->totalAllocatedSizeBytes)) synthetic->allocatedAggregateIncomplete = true;
+            if (!AddTreemapValue(synthetic->allocatedKnownCount, member->allocatedKnownCount)) synthetic->allocatedAggregateIncomplete = true;
+            if (!AddTreemapValue(synthetic->allocatedTotalCount, member->allocatedTotalCount)) synthetic->allocatedAggregateIncomplete = true;
+            if (member->allocatedSizeKnown && !AddTreemapValue(synthetic->totalAllocatedSizeBytes, member->allocatedSizeBytes)) synthetic->allocatedAggregateIncomplete = true;
+            if (member->allocatedSizeKnown && !AddTreemapValue(synthetic->allocatedKnownCount, 1)) synthetic->allocatedAggregateIncomplete = true;
+            if (!AddTreemapValue(synthetic->allocatedTotalCount, 1)) synthetic->allocatedAggregateIncomplete = true;
         } else {
-            if (member->allocatedSizeKnown) synthetic->totalAllocatedSizeBytes += member->allocatedSizeBytes;
-            synthetic->allocatedKnownCount += member->allocatedSizeKnown ? 1 : 0;
-            synthetic->allocatedTotalCount += 1;
+            if (member->allocatedSizeKnown && !AddTreemapValue(synthetic->totalAllocatedSizeBytes, member->allocatedSizeBytes)) synthetic->allocatedAggregateIncomplete = true;
+            if (!AddTreemapValue(synthetic->allocatedKnownCount, member->allocatedSizeKnown ? 1 : 0)) synthetic->allocatedAggregateIncomplete = true;
+            if (!AddTreemapValue(synthetic->allocatedTotalCount, 1)) synthetic->allocatedAggregateIncomplete = true;
         }
     }
     synthetic->totalSizeBytes = total;
@@ -122,9 +181,8 @@ inline TreemapNode* BuildSyntheticCatchAll(const std::vector<TreemapNode*>& tiny
                                             [](const TreemapNode* n) { return n->calculating; });
     synthetic->calculating = anyCalculating;
     synthetic->aggregateFailed = !anyCalculating && incomplete;
-    synthetic->totalAllocatedSizeBytes =
-        std::min(synthetic->totalAllocatedSizeBytes, static_cast<uint64_t>(UINT64_MAX));
     synthetic->allocatedSizeKnown =
+        !synthetic->calculating && !synthetic->aggregateFailed && !synthetic->allocatedAggregateIncomplete &&
         synthetic->allocatedTotalCount > 0 && synthetic->allocatedKnownCount == synthetic->allocatedTotalCount;
     TreemapNode* raw = synthetic.get();
     syntheticStorage.push_back(std::move(synthetic));

@@ -10,6 +10,7 @@ The original Find/Navigate/Understand/Act vision is undermined by composition de
 - Bound search location and metadata independently at real DPI.
 - Keep narrow engine/status feedback legible through bounded one-line presentation without changing full status or connection semantics.
 - Record the five-pillar audit and validate actual native journeys with stronger destination assertions.
+- Extend All-category Largest Files from immediate children to the100 largest logical-size known files under the selected folder, with source/coverage labels, visible containing locations and exact descendant actions. Preserve category refinements as explicitly immediate-folder views and retain hierarchical Treemap data.
 
 ## Capabilities
 
@@ -23,5 +24,7 @@ The original Find/Navigate/Understand/Act vision is undermined by composition de
 None. The new contracts make cross-surface composition explicit without weakening existing operation or search contracts.
 
 ## Impact
+
+The bounded Treemap follow-up preserves partial folder lower bounds through the actual rollup and makes logical size and coverage visible without hover, retaining existing native hierarchy, navigation and data sources.
 
 Native UI command routing, StorageAnalysis, SearchPanel, WindowShell, and E2E tests. No process, IPC, database, service, trust, or installer contract changes. Existing PRs remain separate and unmerged.

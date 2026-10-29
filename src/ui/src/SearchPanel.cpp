@@ -1,3 +1,4 @@
+#include "OwnedMessageDrain.h"
 #include "SearchPanel.h"
 #include "ffui/SearchRowLayout.h"
 
@@ -2764,10 +2765,9 @@ void SearchPanel::ReleaseUiaProvider() {
         if (uiaState_) uiaState_->alive = false;
     }
     if (list_ != nullptr) {
-        MSG pending{};
-        while (PeekMessageW(&pending, list_, kSearchUiaActivate, kSearchUiaActivate, PM_REMOVE)) {
+        DrainOwnedMessages(list_, kSearchUiaActivate, [](const MSG& pending) {
             delete reinterpret_cast<UiaListAction*>(pending.lParam);
-        }
+        });
     }
     uiaState_.reset();
     uiaProvider_.Reset();

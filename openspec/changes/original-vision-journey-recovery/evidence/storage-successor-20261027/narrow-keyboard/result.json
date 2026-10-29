@@ -1,0 +1,969 @@
+{
+  "captures": [
+    {
+      "bounds": {
+        "Hwnd": {
+          "value": 1120146
+        },
+        "X": 48,
+        "Y": 32,
+        "Width": 604,
+        "Height": 772,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "id": "recursive-largest-files",
+      "image": "recursive-largest-files.png",
+      "sha256": "78146cd4efa8159ddbf0b3dd77488509615e928db1ecb8fcba304898370baf3c"
+    },
+    {
+      "bounds": {
+        "Hwnd": {
+          "value": 1120146
+        },
+        "X": 48,
+        "Y": 32,
+        "Width": 604,
+        "Height": 772,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "id": "ranked-hierarchical-reveal",
+      "image": "ranked-hierarchical-reveal.png",
+      "sha256": "eda72577d0b2bf2bec6b86673135355eefcb5dfb72c4e53e5ec070cb69c645de"
+    },
+    {
+      "bounds": {
+        "Hwnd": {
+          "value": 1120146
+        },
+        "X": 48,
+        "Y": 32,
+        "Width": 604,
+        "Height": 772,
+        "Dpi": 120,
+        "Source": "DwmExtendedFrameBounds"
+      },
+      "id": "hierarchical-treemap",
+      "image": "hierarchical-treemap.png",
+      "sha256": "570fc3d0f2733c46baaa658b5dbaf0ea92e198adc55bd17bb0fd2510cabc0d95"
+    }
+  ],
+  "requestedWindowWidth": 620,
+  "scope": "Seeded degraded known-file recursive ranking; exact public UIA/actions and file hashes; screenshots require separate visual review",
+  "failure": null,
+  "observations": [
+    {
+      "result": {
+        "Pass": true,
+        "Detail": "palette 'analyze' activated commandId='storage.analyze'; selected='Analyze Storage'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze\",\"state\":\"{\\\"timestamp\\\":1793086427,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":130516,\\\"tid\\\":124016,\\\"epochMs\\\":1793086427818}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":1120146,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"7211\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":130516,\"popupClasses\":[]}",
+        "CommandState": {
+          "discoverySucceeded": true,
+          "editPresent": true,
+          "editHasKeyboardFocus": true,
+          "editTextPresent": true,
+          "listPresent": true,
+          "listEnabled": true,
+          "listNativeHandle": 1053564,
+          "listVisible": true,
+          "listItems": [
+            "Analyze Storage"
+          ],
+          "selectedIndex": 0,
+          "selectedName": "Analyze Storage",
+          "expectedMatches": [
+            "Analyze Storage"
+          ],
+          "expectedNameLikeMatches": [],
+          "interactive": {
+            "foregroundHwnd": 1120146,
+            "foregroundEvidenceAvailable": true,
+            "foregroundTitle": "FastFiles",
+            "focusedAutomationId": "6301",
+            "focusedControlType": "Pane",
+            "focusedProcessId": 130516,
+            "popupClasses": []
+          }
+        },
+        "PaletteClosed": true,
+        "DispatchEvidence": {
+          "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+          "message": "command=storage.analyze",
+          "state": "{\"timestamp\":1793086427,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":130516,\"tid\":124016,\"epochMs\":1793086427818}",
+          "outcome": "accepted"
+        }
+      },
+      "commandId": "storage.analyze"
+    },
+    {
+      "input": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "keys": "{HOME}{DOWN}{DOWN}{DOWN}{ENTER}",
+        "dryRun": {
+          "IsPresent": false
+        },
+        "sequence": [
+          {
+            "vk": 36,
+            "down": true
+          },
+          {
+            "vk": 36,
+            "down": false
+          },
+          {
+            "vk": 40,
+            "down": true
+          },
+          {
+            "vk": 40,
+            "down": false
+          },
+          {
+            "vk": 40,
+            "down": true
+          },
+          {
+            "vk": 40,
+            "down": false
+          },
+          {
+            "vk": 40,
+            "down": true
+          },
+          {
+            "vk": 40,
+            "down": false
+          },
+          {
+            "vk": 13,
+            "down": true
+          },
+          {
+            "vk": 13,
+            "down": false
+          }
+        ]
+      },
+      "id": "storage-view",
+      "expectedIndex": 3,
+      "route": "real pointer focus then native keyboard",
+      "focusSettled": {
+        "Pass": true,
+        "Value": {
+          "nativeFocus": 1839854
+        },
+        "ElapsedMs": 9,
+        "Description": "native selector processes real focus input",
+        "LastError": ""
+      },
+      "identity": {
+        "Name": "Overview",
+        "AutomationId": "7213",
+        "ControlType": "Pane",
+        "ClassName": "ComboBox",
+        "ProcessId": 130516
+      },
+      "settled": {
+        "Pass": true,
+        "Value": true,
+        "ElapsedMs": 196,
+        "Description": "native selector processes accepted keyboard input",
+        "LastError": ""
+      },
+      "selectedIndex": 3,
+      "nativeFocus": 1839854,
+      "focusInput": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "action": "Click",
+        "x": 518,
+        "y": 224,
+        "modifier": "",
+        "dryRun": {
+          "IsPresent": false
+        }
+      },
+      "name": "Largest Files"
+    },
+    {
+      "returnInput": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "keys": "{SHIFT}{TAB}",
+        "dryRun": {
+          "IsPresent": false
+        },
+        "sequence": [
+          {
+            "vk": 16,
+            "down": true
+          },
+          {
+            "vk": 9,
+            "down": true
+          },
+          {
+            "vk": 9,
+            "down": false
+          },
+          {
+            "vk": 16,
+            "down": false
+          }
+        ]
+      },
+      "input": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "keys": "{TAB}",
+        "dryRun": {
+          "IsPresent": false
+        },
+        "sequence": [
+          {
+            "vk": 9,
+            "down": true
+          },
+          {
+            "vk": 9,
+            "down": false
+          }
+        ]
+      },
+      "mode": "Largest Files",
+      "outPass": true,
+      "id": "selector-tab",
+      "neighborId": "7212",
+      "returnPass": true
+    },
+    {
+      "rows": [
+        {
+          "name": "shared.bin",
+          "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested",
+          "description": "",
+          "identity": {
+            "Name": "shared.bin",
+            "AutomationId": "",
+            "ControlType": "ListItem",
+            "ClassName": "",
+            "ProcessId": 130516
+          },
+          "runtimeId": [
+            4,
+            1,
+            205569763,
+            170318282
+          ],
+          "bounds": {
+            "x": 339,
+            "y": 371,
+            "width": 628,
+            "height": 24
+          }
+        },
+        {
+          "name": "deep-only.bin",
+          "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested",
+          "description": "",
+          "identity": {
+            "Name": "deep-only.bin",
+            "AutomationId": "",
+            "ControlType": "ListItem",
+            "ClassName": "",
+            "ProcessId": 130516
+          },
+          "runtimeId": [
+            4,
+            1,
+            -1855434021,
+            -1324544526
+          ],
+          "bounds": {
+            "x": 339,
+            "y": 395,
+            "width": 628,
+            "height": 24
+          }
+        },
+        {
+          "name": "shared.bin",
+          "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope",
+          "description": "",
+          "identity": {
+            "Name": "shared.bin",
+            "AutomationId": "",
+            "ControlType": "ListItem",
+            "ClassName": "",
+            "ProcessId": 130516
+          },
+          "runtimeId": [
+            4,
+            1,
+            -279140843,
+            -1324505593
+          ],
+          "bounds": {
+            "x": 339,
+            "y": 419,
+            "width": 628,
+            "height": 24
+          }
+        },
+        {
+          "name": "small.txt",
+          "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope",
+          "description": "",
+          "identity": {
+            "Name": "small.txt",
+            "AutomationId": "",
+            "ControlType": "ListItem",
+            "ClassName": "",
+            "ProcessId": 130516
+          },
+          "runtimeId": [
+            4,
+            1,
+            -1560140037,
+            177995084
+          ],
+          "bounds": {
+            "x": 339,
+            "y": 443,
+            "width": 628,
+            "height": 24
+          }
+        }
+      ],
+      "id": "ranked-row-observation"
+    },
+    {
+      "rows": [
+        {
+          "name": "shared.bin",
+          "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested",
+          "description": "",
+          "identity": {
+            "Name": "shared.bin",
+            "AutomationId": "",
+            "ControlType": "ListItem",
+            "ClassName": "",
+            "ProcessId": 130516
+          },
+          "runtimeId": [
+            4,
+            1,
+            205569763,
+            170318282
+          ],
+          "bounds": {
+            "x": 339,
+            "y": 371,
+            "width": 628,
+            "height": 24
+          }
+        },
+        {
+          "name": "deep-only.bin",
+          "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested",
+          "description": "",
+          "identity": {
+            "Name": "deep-only.bin",
+            "AutomationId": "",
+            "ControlType": "ListItem",
+            "ClassName": "",
+            "ProcessId": 130516
+          },
+          "runtimeId": [
+            4,
+            1,
+            -1855434021,
+            -1324544526
+          ],
+          "bounds": {
+            "x": 339,
+            "y": 395,
+            "width": 628,
+            "height": 24
+          }
+        },
+        {
+          "name": "shared.bin",
+          "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope",
+          "description": "",
+          "identity": {
+            "Name": "shared.bin",
+            "AutomationId": "",
+            "ControlType": "ListItem",
+            "ClassName": "",
+            "ProcessId": 130516
+          },
+          "runtimeId": [
+            4,
+            1,
+            -279140843,
+            -1324505593
+          ],
+          "bounds": {
+            "x": 339,
+            "y": 419,
+            "width": 628,
+            "height": 24
+          }
+        },
+        {
+          "name": "small.txt",
+          "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope",
+          "description": "",
+          "identity": {
+            "Name": "small.txt",
+            "AutomationId": "",
+            "ControlType": "ListItem",
+            "ClassName": "",
+            "ProcessId": 130516
+          },
+          "runtimeId": [
+            4,
+            1,
+            -1560140037,
+            177995084
+          ],
+          "bounds": {
+            "x": 339,
+            "y": 443,
+            "width": 628,
+            "height": 24
+          }
+        }
+      ],
+      "scope": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope",
+      "status": "Partial coverage — known files: 4; subfolders included; up to 100 logical sizes; sorting affects displayed rows",
+      "id": "recursive-rank",
+      "outside": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope-other",
+      "nested": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested"
+    },
+    {
+      "result": {
+        "Pass": true,
+        "Detail": "palette 'copy path' activated commandId='item.copy-path'; selected='Copy Path'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=item.copy-path\",\"state\":\"{\\\"timestamp\\\":1793086429,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=item.copy-path;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=item.copy-path;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":130516,\\\"tid\\\":124016,\\\"epochMs\\\":1793086429354}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":1120146,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":130516,\"popupClasses\":[]}",
+        "CommandState": {
+          "discoverySucceeded": true,
+          "editPresent": true,
+          "editHasKeyboardFocus": true,
+          "editTextPresent": true,
+          "listPresent": true,
+          "listEnabled": true,
+          "listNativeHandle": 1053564,
+          "listVisible": true,
+          "listItems": [
+            "Copy Path",
+            "Copy Relative Path"
+          ],
+          "selectedIndex": 0,
+          "selectedName": "Copy Path",
+          "expectedMatches": [
+            "Copy Path"
+          ],
+          "expectedNameLikeMatches": [],
+          "interactive": {
+            "foregroundHwnd": 1120146,
+            "foregroundEvidenceAvailable": true,
+            "foregroundTitle": "FastFiles",
+            "focusedAutomationId": "6301",
+            "focusedControlType": "Pane",
+            "focusedProcessId": 130516,
+            "popupClasses": []
+          }
+        },
+        "PaletteClosed": true,
+        "DispatchEvidence": {
+          "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+          "message": "command=item.copy-path",
+          "state": "{\"timestamp\":1793086429,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=item.copy-path;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=item.copy-path;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":130516,\"tid\":124016,\"epochMs\":1793086429354}",
+          "outcome": "accepted"
+        }
+      },
+      "commandId": "item.copy-path"
+    },
+    {
+      "row": {
+        "name": "shared.bin",
+        "folder": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested",
+        "description": "",
+        "identity": {
+          "Name": "shared.bin",
+          "AutomationId": "",
+          "ControlType": "ListItem",
+          "ClassName": "",
+          "ProcessId": 130516
+        },
+        "runtimeId": [
+          4,
+          1,
+          205569763,
+          170318282
+        ],
+        "bounds": {
+          "x": 339,
+          "y": 371,
+          "width": 628,
+          "height": 24
+        }
+      },
+      "id": "fresh-ranked-target"
+    },
+    {
+      "result": {
+        "Pass": true,
+        "Detail": "palette 'copy path' activated commandId='item.copy-path'; selected='Copy Path'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=item.copy-path\",\"state\":\"{\\\"timestamp\\\":1793086431,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=item.copy-path;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=item.copy-path;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":130516,\\\"tid\\\":124016,\\\"epochMs\\\":1793086431101}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":1120146,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"\",\"focusedControlType\":\"ListItem\",\"focusedProcessId\":130516,\"popupClasses\":[]}",
+        "CommandState": {
+          "discoverySucceeded": true,
+          "editPresent": true,
+          "editHasKeyboardFocus": true,
+          "editTextPresent": true,
+          "listPresent": true,
+          "listEnabled": true,
+          "listNativeHandle": 1053564,
+          "listVisible": true,
+          "listItems": [
+            "Copy Path",
+            "Copy Relative Path"
+          ],
+          "selectedIndex": 0,
+          "selectedName": "Copy Path",
+          "expectedMatches": [
+            "Copy Path"
+          ],
+          "expectedNameLikeMatches": [],
+          "interactive": {
+            "foregroundHwnd": 1120146,
+            "foregroundEvidenceAvailable": true,
+            "foregroundTitle": "FastFiles",
+            "focusedAutomationId": "6301",
+            "focusedControlType": "Pane",
+            "focusedProcessId": 130516,
+            "popupClasses": []
+          }
+        },
+        "PaletteClosed": true,
+        "DispatchEvidence": {
+          "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+          "message": "command=item.copy-path",
+          "state": "{\"timestamp\":1793086431,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=item.copy-path;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=item.copy-path;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":130516,\"tid\":124016,\"epochMs\":1793086431101}",
+          "outcome": "accepted"
+        }
+      },
+      "commandId": "item.copy-path"
+    },
+    {
+      "copiedPath": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested\\shared.bin",
+      "reveal": {
+        "selected": {
+          "Name": "shared.bin",
+          "AutomationId": "",
+          "ControlType": "ListItem",
+          "ClassName": "",
+          "ProcessId": 130516
+        },
+        "terminal": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested"
+      },
+      "id": "exact-reveal"
+    },
+    {
+      "result": {
+        "Pass": true,
+        "Detail": "palette 'analyze' activated commandId='storage.analyze'; selected='Analyze Storage'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze\",\"state\":\"{\\\"timestamp\\\":1793086437,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":130516,\\\"tid\\\":124016,\\\"epochMs\\\":1793086437620}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":1120146,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"7211\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":130516,\"popupClasses\":[]}",
+        "CommandState": {
+          "discoverySucceeded": true,
+          "editPresent": true,
+          "editHasKeyboardFocus": true,
+          "editTextPresent": true,
+          "listPresent": true,
+          "listEnabled": true,
+          "listNativeHandle": 1053564,
+          "listVisible": true,
+          "listItems": [
+            "Analyze Storage"
+          ],
+          "selectedIndex": 0,
+          "selectedName": "Analyze Storage",
+          "expectedMatches": [
+            "Analyze Storage"
+          ],
+          "expectedNameLikeMatches": [],
+          "interactive": {
+            "foregroundHwnd": 1120146,
+            "foregroundEvidenceAvailable": true,
+            "foregroundTitle": "FastFiles",
+            "focusedAutomationId": "6301",
+            "focusedControlType": "Pane",
+            "focusedProcessId": 130516,
+            "popupClasses": []
+          }
+        },
+        "PaletteClosed": true,
+        "DispatchEvidence": {
+          "codeName": "FFDIAG_UI_COMMAND_DISPATCHED",
+          "message": "command=storage.analyze",
+          "state": "{\"timestamp\":1793086437,\"category\":\"ui-interaction\",\"code\":40,\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"path\":\"\",\"volume\":\"\",\"state\":\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\",\"outcome\":\"accepted\",\"account\":\"\",\"sid\":\"\",\"privilegeHeld\":false,\"privilegeEnabled\":false,\"errorCode\":0,\"items\":0,\"pid\":130516,\"tid\":124016,\"epochMs\":1793086437620}",
+          "outcome": "accepted"
+        }
+      },
+      "commandId": "storage.analyze"
+    },
+    {
+      "input": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "keys": "{HOME}{DOWN}{DOWN}{DOWN}{DOWN}{DOWN}{ENTER}",
+        "dryRun": {
+          "IsPresent": false
+        },
+        "sequence": [
+          {
+            "vk": 36,
+            "down": true
+          },
+          {
+            "vk": 36,
+            "down": false
+          },
+          {
+            "vk": 40,
+            "down": true
+          },
+          {
+            "vk": 40,
+            "down": false
+          },
+          {
+            "vk": 40,
+            "down": true
+          },
+          {
+            "vk": 40,
+            "down": false
+          },
+          {
+            "vk": 40,
+            "down": true
+          },
+          {
+            "vk": 40,
+            "down": false
+          },
+          {
+            "vk": 40,
+            "down": true
+          },
+          {
+            "vk": 40,
+            "down": false
+          },
+          {
+            "vk": 40,
+            "down": true
+          },
+          {
+            "vk": 40,
+            "down": false
+          },
+          {
+            "vk": 13,
+            "down": true
+          },
+          {
+            "vk": 13,
+            "down": false
+          }
+        ]
+      },
+      "id": "storage-view",
+      "expectedIndex": 5,
+      "route": "real pointer focus then native keyboard",
+      "focusSettled": {
+        "Pass": true,
+        "Value": {
+          "nativeFocus": 1839854
+        },
+        "ElapsedMs": 0,
+        "Description": "native selector processes real focus input",
+        "LastError": ""
+      },
+      "identity": {
+        "Name": "Overview",
+        "AutomationId": "7213",
+        "ControlType": "Pane",
+        "ClassName": "ComboBox",
+        "ProcessId": 130516
+      },
+      "settled": {
+        "Pass": true,
+        "Value": true,
+        "ElapsedMs": 161,
+        "Description": "native selector processes accepted keyboard input",
+        "LastError": ""
+      },
+      "selectedIndex": 5,
+      "nativeFocus": 1839854,
+      "focusInput": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "action": "Click",
+        "x": 518,
+        "y": 224,
+        "modifier": "",
+        "dryRun": {
+          "IsPresent": false
+        }
+      },
+      "name": "Treemap"
+    },
+    {
+      "returnInput": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "keys": "{TAB}",
+        "dryRun": {
+          "IsPresent": false
+        },
+        "sequence": [
+          {
+            "vk": 9,
+            "down": true
+          },
+          {
+            "vk": 9,
+            "down": false
+          }
+        ]
+      },
+      "input": {
+        "used": "SendInput",
+        "fallback": true,
+        "ok": true,
+        "inputAccepted": true,
+        "keys": "{SHIFT}{TAB}",
+        "dryRun": {
+          "IsPresent": false
+        },
+        "sequence": [
+          {
+            "vk": 16,
+            "down": true
+          },
+          {
+            "vk": 9,
+            "down": true
+          },
+          {
+            "vk": 9,
+            "down": false
+          },
+          {
+            "vk": 16,
+            "down": false
+          }
+        ]
+      },
+      "mode": "Treemap",
+      "outPass": true,
+      "id": "selector-tab",
+      "neighborId": "7204",
+      "returnPass": true
+    },
+    {
+      "partialDescendantRequested": true,
+      "itemStatus": "Partial",
+      "pointerAway": true,
+      "id": "hierarchical-treemap",
+      "tileNames": [
+        "Nested",
+        "Other small items"
+      ],
+      "coverage": "Known data only — coverage may be partial; logical sizes shown."
+    },
+    {
+      "files": [
+        {
+          "fill": 11,
+          "hash": "12F6F6AEB1E1E8588450D4D26F7130D7D78892CB7EFB0787F46FCB12061BE31F",
+          "path": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\shared.bin",
+          "bytes": 16
+        },
+        {
+          "fill": 22,
+          "hash": "75796069BBF568B89525E4E3A349DDE979680644B20681E48C18609FCA2B6696",
+          "path": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\small.txt",
+          "bytes": 8
+        },
+        {
+          "fill": 33,
+          "hash": "5FB98733D1F9A0BE3E0403F543AA9213EF5F9507A8E2B3785D12E362DD4B5CD7",
+          "path": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested\\shared.bin",
+          "bytes": 2097152
+        },
+        {
+          "fill": 44,
+          "hash": "6DF3AA0D1B271E23B1B2F60263233AE49F574D1891423B7C5B1EB4B4E665D7E1",
+          "path": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested\\deep-only.bin",
+          "bytes": 1048576
+        },
+        {
+          "fill": 55,
+          "hash": "613EC2D754171337FBEC8131E6915EF179616988777BF6073A0BC255AD8608EE",
+          "path": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope-other\\shared.bin",
+          "bytes": 4194304
+        },
+        {
+          "fill": 66,
+          "hash": "425ED4E4A36B30EA21B90E21C712C649E8214C29B7EAF68089D1039C6E55384C",
+          "path": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\ranking-sentinel.txt",
+          "bytes": 32
+        },
+        {
+          "fill": 77,
+          "hash": "5A8C8E5442ECDCA78C46CA538A7ABC96207B14BAFABBC112DF16870D63919E6C",
+          "path": "C:\\Users\\palac\\AppData\\Local\\FastFilesUiaSessions\\FastFiles-Uia-recursive-storage-bd7558b60b8b4c558ac713ca8a112329-5b9337140b124e61ad299ebd4bd5559e\\Fixtures\\FastFilesE2E\\RankScope\\Nested\\Unbrowsed\\unpublished-largest.bin",
+          "bytes": 5242880
+        }
+      ],
+      "allNamesAndHashesUnchanged": true,
+      "id": "content-integrity"
+    }
+  ],
+  "binaryProvenance": {
+    "schemaVersion": 1,
+    "kind": "fastfiles-binary-provenance",
+    "mode": "exact-tree",
+    "stage": "recursive-storage",
+    "source": {
+      "headSha": "63c0aa2303faf5cc31d8f729ea27c8136d5d2565",
+      "treeSha": "360ee70d6f48fb2f3614d1045f6aa38d17021865",
+      "treeSemantic": "HEAD^{tree}",
+      "sourceClean": true,
+      "stateDigest": "35520bc429fdb430eebe26bf9b9d8c8334557ed9108a13abf80681fc68671e6d",
+      "reasonCodes": []
+    },
+    "binaries": [
+      {
+        "filename": "FastFiles.exe",
+        "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\integration-20261025\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+        "exists": true,
+        "sha256": "4c521d6465da5ef4f68057eff0f53e771588a55f557b99629627a7f8e922d664",
+        "buildIdentity": "63c0aa2303faf5cc31d8f729ea27c8136d5d2565",
+        "buildIdentityFormatValid": true,
+        "peArchitecture": "x64",
+        "productVersion": "0.1.0",
+        "fileVersion": "0.1.0.0",
+        "worktreeState": "clean",
+        "configuration": "Debug",
+        "issues": []
+      },
+      {
+        "filename": "FastFilesEngine.exe",
+        "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\integration-20261025\\build\\debug-diagnostic\\src\\engine\\FastFilesEngine.exe",
+        "exists": true,
+        "sha256": "940e72d0a3d8a43f609f257f99443d7de78a7ae9a886d997d386ac0aa99110fe",
+        "buildIdentity": "63c0aa2303faf5cc31d8f729ea27c8136d5d2565",
+        "buildIdentityFormatValid": true,
+        "peArchitecture": "x64",
+        "productVersion": "0.1.0",
+        "fileVersion": "0.1.0.0",
+        "worktreeState": "clean",
+        "configuration": "Debug",
+        "issues": []
+      },
+      {
+        "filename": "FastFilesIndexSvc.exe",
+        "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\integration-20261025\\build\\debug-diagnostic\\src\\indexsvc\\FastFilesIndexSvc.exe",
+        "exists": true,
+        "sha256": "ac49551e466667dd568df146d8578b4d376da1096f126aa44fc7ca8def149737",
+        "buildIdentity": "63c0aa2303faf5cc31d8f729ea27c8136d5d2565",
+        "buildIdentityFormatValid": true,
+        "peArchitecture": "x64",
+        "productVersion": "0.1.0",
+        "fileVersion": "0.1.0.0",
+        "worktreeState": "clean",
+        "configuration": "Debug",
+        "issues": []
+      },
+      {
+        "filename": "FastFilesSetup.exe",
+        "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\integration-20261025\\build\\debug-diagnostic\\src\\installer\\FastFilesSetup.exe",
+        "exists": true,
+        "sha256": "91f94873c08e608b13ac9420207dfefb507b70fa37012f4bc1a637b514582f5e",
+        "buildIdentity": "63c0aa2303faf5cc31d8f729ea27c8136d5d2565",
+        "buildIdentityFormatValid": true,
+        "peArchitecture": "x64",
+        "productVersion": "0.1.0",
+        "fileVersion": "0.1.0.0",
+        "worktreeState": "clean",
+        "configuration": "Debug",
+        "issues": []
+      },
+      {
+        "filename": "fftest.exe",
+        "path": "D:\\Documents\\tryPython\\FastFiles-worktrees\\integration-20261025\\build\\debug-diagnostic\\src\\fftest\\fftest.exe",
+        "exists": true,
+        "sha256": "8273760cb5f8aee265c10574039bf2499c8247b3018bda3ce4f774ac7fc2e328",
+        "buildIdentity": "63c0aa2303faf5cc31d8f729ea27c8136d5d2565",
+        "buildIdentityFormatValid": true,
+        "peArchitecture": "x64",
+        "productVersion": "0.1.0",
+        "fileVersion": "0.1.0.0",
+        "worktreeState": "clean",
+        "configuration": "Debug",
+        "issues": []
+      }
+    ],
+    "setIdentity": "63c0aa2303faf5cc31d8f729ea27c8136d5d2565",
+    "setConsistent": true,
+    "boundToHead": true,
+    "boundToTree": false,
+    "treeBindingStatus": "NOT_EMBEDDED",
+    "checkResult": {
+      "status": "PASS",
+      "issueCodes": [],
+      "reason": null
+    },
+    "checkedAtUtc": "2026-10-27T07:33:25.4248753Z"
+  },
+  "cleanup": {
+    "Pass": true,
+    "OwnedPids": [
+      130516,
+      131816
+    ],
+    "Residue": [],
+    "PipePresentBefore": false,
+    "PipePresentAfter": false,
+    "PipeCleanup": {
+      "Pass": true,
+      "State": "absent"
+    },
+    "DiagnosticsPreserved": true,
+    "DiagnosticsCopyError": null,
+    "SessionRootRetained": false
+  },
+  "status": "PASS",
+  "partialDescendantRequested": true,
+  "phase": "verified",
+  "requestedTheme": "Dark"
+}
