@@ -163,6 +163,12 @@ void CheckPostPreflightCollision(ffui::FileOperations& operations, const std::fi
         constexpr char bytes[] = "new destination sentinel";
         DWORD written = 0;
         created = WriteFile(file, bytes, sizeof(bytes) - 1, &written, nullptr) != FALSE && written == sizeof(bytes) - 1;
+        // /analyze C6001 false positive on the handle flow inside the conflict
+        // lambda (initialized at declaration and guarded before every use;
+        // plain-function copies of this pattern in this file analyze clean).
+        // Scoped suppress, matching tests/search/test_ondisk_filter.cpp's
+        // analyzer-noise precedent.
+#pragma warning(suppress : 6001)
         Check(CloseHandle(file) != FALSE, "close owned target sentinel");
         Check(created, "write exact owned sentinel before answering conflict");
         return ffui::ConflictDecision{created ? ffui::ConflictChoice::Skip : ffui::ConflictChoice::Cancel, false};
@@ -519,6 +525,11 @@ void CheckReplacementAfterOrdinaryFailure(ffui::FileOperations& operations, cons
     auto event = Run(operations, {ffui::FileOperationKind::Move,
         {(source / L"first.txt").wstring(), (source / L"replace.txt").wstring()}, target.wstring(), {}, true});
     conflictObserver = {};
+    // /analyze C6001 false positive on the handle assigned inside the conflict
+    // lambda (lock is initialized at declaration and guarded before use; the
+    // analyzer loses definite-assignment across the cross-TU Run() callback).
+    // Scoped suppress, matching tests/search/test_ondisk_filter.cpp precedent.
+#pragma warning(suppress : 6001)
     if (lock != INVALID_HANDLE_VALUE) Check(CloseHandle(lock) != FALSE, "close exact owned source lock");
     Check(conflictQuestionCount == 1 && terminalEventCount == beforeTerminal + 1, "ordinary failure emits one terminal event");
     Check(ReadText(source / L"first.txt") == "locked incoming first", "failed ordinary incoming bytes remain available");
@@ -615,6 +626,10 @@ void CheckShortcutCreationSafety(ffui::FileOperations& operations, const std::fi
     constexpr char bytes[] = "existing user shortcut sentinel";
     DWORD written = 0;
     const bool complete = WriteFile(file, bytes, sizeof(bytes) - 1, &written, nullptr) != FALSE && written == sizeof(bytes) - 1;
+    // /analyze C6001 false positive on the sentinel handle after the cross-TU
+    // WriteFile (initialized at declaration, guarded before use). Scoped
+    // suppress, matching tests/search/test_ondisk_filter.cpp precedent.
+#pragma warning(suppress : 6001)
     Check(CloseHandle(file) != FALSE && complete, "close exact late shortcut sentinel");
     event = Run(operations, request);
     Check(ReadText(output) == bytes, "late shortcut destination must never be overwritten");

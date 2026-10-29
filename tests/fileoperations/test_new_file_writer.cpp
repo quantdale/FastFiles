@@ -85,6 +85,12 @@ int main() {
     Check(locked != INVALID_HANDLE_VALUE, "own existing fixture locked");
     result = ffui::WriteNewFile(destination.wstring(), stream.Get());
     Check(FAILED(result.error), "locked existing destination rejected");
+    // /analyze C6001 false positive on the handle flow through the cross-TU
+    // WriteNewFile call (the handle is initialized at declaration and guarded
+    // before every use; the identical pattern in test_creation_collisions.cpp
+    // analyzes clean because no cross-TU call intervenes). Scoped suppress,
+    // matching tests/search/test_ondisk_filter.cpp's analyzer-noise precedent.
+#pragma warning(suppress : 6001)
     if (locked != INVALID_HANDLE_VALUE) Check(CloseHandle(locked) != FALSE, "own lock closed");
     Check(Read(destination) == std::string(12000, 'x'), "locked existing bytes preserved");
     int index = 0;
