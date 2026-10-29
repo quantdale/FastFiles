@@ -181,6 +181,15 @@ target_include_directories(ffquick_actions_tests PRIVATE ../../src/ui/src)
 target_link_libraries(ffquick_actions_tests PRIVATE shell32 ole32)
 add_test(NAME ffquick_actions_tests COMMAND ffquick_actions_tests)
 
+# large-index-lifecycle-and-search-scalability review-remediation (P2-B):
+# deterministic negative controls for the real-clipboard round-trip
+# classifier (wrong paths, malformed HDROP, missing/wrong Preferred
+# DropEffect, cut/copy flips, confirmed read interception, refused write,
+# interleaved external change, partial read failures). No host clipboard is
+# touched, so every classification branch is exercised on every run.
+add_executable(ffclipboard_classifier_tests test_clipboard_classifier.cpp)
+add_test(NAME ffclipboard_classifier_tests COMMAND ffclipboard_classifier_tests)
+
 # semantic-uia-core-surfaces 6.x: headless provider tests over a fake
 # UiaSurface (no window/renderer/engine). The provider sources compile into
 # the test targets; the seam headers come from src/ui/src + include.
@@ -304,5 +313,5 @@ target_include_directories(ffgallery_tests PRIVATE ../../src/ui/src ../../src/ui
 target_link_libraries(ffgallery_tests PRIVATE d2d1 dwrite shell32 ole32 user32)
 add_test(NAME ffgallery_tests COMMAND ffgallery_tests)
 set_tests_properties(ffgallery_tests PROPERTIES TIMEOUT 120)
-set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffui_icon_lru_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffasync_result_gate_tests ffstorage_visibility_tests ffstorage_radio_state_tests ffdisplay_path_tests ffshortcut_routing_tests ffaddress_bar_focus_tests ffdialog_focus_return_tests ffpalette_focus_tests ffquick_actions_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests ffsearch_filters_disclosure_tests ffsearch_snapshot_refresh_tests ffgui_show_command_tests ffnative_header_theme_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffui_icon_lru_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffasync_result_gate_tests ffstorage_visibility_tests ffstorage_radio_state_tests ffdisplay_path_tests ffshortcut_routing_tests ffaddress_bar_focus_tests ffdialog_focus_return_tests ffpalette_focus_tests ffquick_actions_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests ffsearch_filters_disclosure_tests ffsearch_snapshot_refresh_tests ffgui_show_command_tests ffnative_header_theme_tests ffclipboard_classifier_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_discovery_tests ffcolumnview_uia_tests ffhome_uia_tests ffsearch_uia_tests ffuia_geometry_tests ffuia_events_tests PROPERTIES TIMEOUT 120)

@@ -1,0 +1,12 @@
+cycle 0 published=1
+  open succeeded on attempt 1 after 0 ms (holder during failures: 0000000000000000)
+  GetClipboardData(CF_HDROP)=0000000000000000
+  product read=2 cut=1
+cycle 1 published=1
+  open succeeded on attempt 1 after 0 ms (holder during failures: 0000000000000000)
+  GetClipboardData(CF_HDROP)=0000000000000000
+  product read=2 cut=1
+cycle 2 published=1
+  open succeeded on attempt 1 after 0 ms (holder during failures: 0000000000000000)
+  GetClipboardData(CF_HDROP)=0000000000000000
+  product read=2 cut=1

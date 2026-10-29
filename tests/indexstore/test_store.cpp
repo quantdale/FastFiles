@@ -1040,6 +1040,43 @@ void TestFindEntryPointLookup() {
           "a removed row is no longer found");
 }
 
+// large-index-lifecycle-and-search-scalability review-lane C Finding 4: a
+// partial upsert of a MISSING row must create it with zero/default values for
+// absent fields (matching Projection::UpsertPartial's contract), never the
+// wire values carried in the change.
+void TestPartialUpsertOfMissingRowZeroesAbsentFields() {
+    Store store;
+    const std::string path = FreshDbPath("ffindexstore_partial_insert_mask.db");
+    Check(store.Open(path), "partial-insert store opens");
+    const auto volume = store.GetOrCreateVolume({{}, 606});
+    Check(volume.has_value(), "partial-insert volume is created");
+    EntryRecord partial = MakeEntry(50, 5, u"partial.bin");
+    partial.sizeBytes = 42;           // carried in the wire record but ABSENT
+    partial.lastModifiedTime = 999;   // from the field mask
+    partial.attributes = 0x20;
+    EntryChange change{EntryChangeKind::Upsert, partial};
+    change.fields = kEntryFieldName | kEntryFieldParentId;
+    Check(store.ApplyBatch(*volume, {change}), "partial insert commits");
+    EntryRecord stored;
+    bool found = false;
+    store.ForEachEntry(*volume, [&](const EntryRecord& entry) {
+        if (entry.id.low == 50) {
+            stored = entry;
+            found = true;
+        }
+        return true;
+    });
+    Check(found, "the partial insert created the missing row");
+    Check(stored.name == u"partial.bin" && stored.parentId.low == 5,
+          "present fields persist exactly");
+    Check(stored.sizeBytes == 0,
+          "an absent size field is created as zero, not the wire value");
+    Check(stored.lastModifiedTime == 0,
+          "an absent timestamp is created as zero, not the wire value");
+    Check(stored.attributes == 0,
+          "an absent attribute field is created as zero, not the wire value");
+}
+
 int main() {
     TestOpenCreatesSchemaAndIsReopenable();
     TestVolumeIdentityIsStableAndDeduplicated();
@@ -1059,6 +1096,7 @@ int main() {
     TestAllocatedSizeUnknownVsZeroAndPreservation();
     TestConcurrentReaderWriterWalContract();
     TestFindEntryPointLookup();
+    TestPartialUpsertOfMissingRowZeroesAbsentFields();
     TestIntegrityVerdictClassifier();
     TestLockedDatabaseFailsOpenWithoutIntegrityFlag();
     TestCorruptDatabaseSetsIntegrityFailedFlag();

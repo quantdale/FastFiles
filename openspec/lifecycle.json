@@ -1676,6 +1676,95 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "large-index-lifecycle-and-search-scalability",
+      "state": "completed",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/explore-findings.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "43fc3c175d4a940a094e1261b1c96aa8bf0668d1"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/certification-ladder.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/equivalence-gate-adversarial-matrix.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/uia-explorer-drag-in-investigation.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/hosted-ci-truth-2026-10-21.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": [
+        {
+          "task": "10.3",
+          "disposition": "external",
+          "categories": [
+            "external-provider"
+          ],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            {
+              "kind": "hosted-run",
+              "runId": "39600223131",
+              "sha": "2f365a52748511420499b5d3459e5560739ea958",
+              "record": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/hosted-ci-truth-2026-10-21.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/large-index-lifecycle-and-search-scalability/evidence/hosted-ci-truth-2026-10-21.md"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "durable-cold-search-index-and-hybrid-residency",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/durable-cold-search-index-and-hybrid-residency/specs/index-engine/spec.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

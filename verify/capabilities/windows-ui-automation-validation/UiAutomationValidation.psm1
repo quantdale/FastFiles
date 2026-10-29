@@ -3285,8 +3285,10 @@ function Invoke-UiaScenarioDragIn {
         $copied2 = $false
         $dragAttempts = 0
         $acceptedInputAttempts = 0
+        $armObservedAttempts = 0
         $foregroundBlocked = $false
         $lastDragDetail = 'no attempt was completed'
+        $attemptLog = [System.Collections.Generic.List[string]]::new()
         for ($attempt = 0; $attempt -lt 3 -and -not $copied2; $attempt++) {
             $dragAttempts++
             $freshWin = Get-UiaExplorerReadyWindow -Driver $driver -Path $dragSource -CandidateProcessIds (Get-UiaExplorerPidSet) -TimeoutMs 6000
@@ -3296,18 +3298,26 @@ function Invoke-UiaScenarioDragIn {
             }
             [void]$Context.ExplorerWindows.Add($freshWin)
             $freshItem = $null
-            try { $freshItem = Wait-UiaElement -Driver $driver -Name 'explorer-in.txt' -FromElement $freshWin -TimeoutMs 3000 -PollIntervalMs 300 } catch { }
+            # PR #14 closure (Phase C): target the ListItem ROW explicitly.
+            # A name-only match can land on Explorer's Details-view name
+            # container (Group 'DetailsViewControlRootGrid', observed
+            # pid=32016), which has no SelectionItemPattern -- run evidence
+            # shows the row (ControlType ListItem, class UIItem) exposes it.
+            try { $freshItem = Wait-UiaElement -Driver $driver -Name 'explorer-in.txt' -ControlType 'ListItem' -FromElement $freshWin -TimeoutMs 3000 -PollIntervalMs 300 } catch { }
             if (-not $freshItem) {
                 $lastDragDetail = "attempt=$dragAttempts source item was not reacquired"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             if (-not (Wait-UiaStableGeometry -Driver $driver -Element $freshItem -StablePolls 2 -PollIntervalMs 120 -TimeoutMs 1500)) {
                 $lastDragDetail = "attempt=$dragAttempts source geometry did not settle"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             $freshBr = Get-UiaElementProperty -Driver $driver -Element $freshItem -Name 'BoundingRectangle'
             if (-not $freshBr -or $freshBr.width -le 0 -or $freshBr.height -le 0) {
                 $lastDragDetail = "attempt=$dragAttempts source has no usable geometry"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             if (-not (Test-UiaForegroundWindow -Driver $driver -Element $freshWin)) {
@@ -3317,18 +3327,46 @@ function Invoke-UiaScenarioDragIn {
             if (-not (Test-UiaForegroundWindow -Driver $driver -Element $freshWin)) {
                 $foregroundBlocked = $true
                 $lastDragDetail = "attempt=$dragAttempts Explorer foreground could not be established"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
+            # large-index-lifecycle-and-search-scalability closure (PR #14 final
+            # integrity): EVIDENCE CAPTURE ONLY — branching and outcomes are
+            # unchanged. The three distinct failure modes (pattern unavailable /
+            # Select threw / Select returned without a selected row) previously
+            # collapsed into one message that discarded the exception, which made
+            # the Explorer-attribution claim unprovable from run artifacts. The
+            # failure detail now carries the exact mode, the exception type +
+            # HRESULT + message, and the failing element's identity.
             $selected = $false
+            $selectEvidence = 'not-attempted'
             try {
-                if (Test-UiaPatternAvailable -Driver $driver -Element $freshItem -PatternName 'SelectionItem') {
-                    $null = Invoke-UiaPattern -Driver $driver -Element $freshItem -PatternName 'SelectionItem' -Method 'Select'
-                    Start-Sleep -Milliseconds 600
-                    $selected = [bool](Invoke-UiaPattern -Driver $driver -Element $freshItem -PatternName 'SelectionItem' -Method 'GetSelection')
+                if (-not (Test-UiaPatternAvailable -Driver $driver -Element $freshItem -PatternName 'SelectionItem')) {
+                    $selectEvidence = 'SelectionItemPattern unavailable'
+                } else {
+                    $selectThrew = $false
+                    try {
+                        $null = Invoke-UiaPattern -Driver $driver -Element $freshItem -PatternName 'SelectionItem' -Method 'Select'
+                        $selectEvidence = 'Select returned'
+                    } catch {
+                        $selectThrew = $true
+                        $selectEvidence = 'Select threw ' + $_.Exception.GetType().Name + ' hr=' + ('0x{0:X8}' -f ($_.Exception.HResult -band 0xFFFFFFFF)) + ' msg=' + $_.Exception.Message
+                    }
+                    if (-not $selectThrew) {
+                        Start-Sleep -Milliseconds 600
+                        $selected = [bool](Invoke-UiaPattern -Driver $driver -Element $freshItem -PatternName 'SelectionItem' -Method 'GetSelection')
+                        if (-not $selected) { $selectEvidence = $selectEvidence + '; IsSelected=False after 600ms' }
+                    }
                 }
-            } catch { $selected = $false }
+            } catch { $selected = $false; $selectEvidence = $selectEvidence + '; outer=' + $_.Exception.Message }
             if (-not $selected) {
-                $lastDragDetail = "attempt=$dragAttempts SelectionItemPattern.Select did not produce a selected row"
+                $idText = ''
+                try {
+                    $idProbe = Get-UiaElementIdentity -Driver $driver -Element $freshItem
+                    $idText = " name='$($idProbe.Name)' automationId='$($idProbe.AutomationId)' controlType='$($idProbe.ControlType)' className='$($idProbe.ClassName)' pid=$($idProbe.ProcessId)"
+                } catch { $idText = ' identity-unavailable: ' + $_.Exception.Message }
+                $lastDragDetail = "attempt=$dragAttempts SelectionItemPattern.Select did not produce a selected row [$selectEvidence;$idText]"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             $sourceIdentity = Get-UiaElementIdentity -Driver $driver -Element $freshItem
@@ -3343,6 +3381,7 @@ function Invoke-UiaScenarioDragIn {
             }
             if (-not $dst2) {
                 $lastDragDetail = "attempt=$dragAttempts FastFiles target geometry was not reacquired"
+                [void]$attemptLog.Add($lastDragDetail)
                 continue
             }
             $input = Send-UiaMouseDrag -Driver $driver -FromX $src2.x -FromY $src2.y -ToX $dst2.x -ToY $dst2.y -SourceWindow $freshWin
@@ -3350,6 +3389,7 @@ function Invoke-UiaScenarioDragIn {
             $acceptedInputAttempts++
             if ([bool]$input.armObserved) { $armObservedAttempts++ }
             $lastDragDetail = "attempt=$dragAttempts acceptedInput=true armObserved=$([bool]$input.armObserved) source='$($sourceIdentity.Name)'"
+            [void]$attemptLog.Add($lastDragDetail)
             $copied2 = Wait-UiaCondition -Driver $driver -TimeoutMs 8000 -PollIntervalMs 300 -Description "destination file exists" -ScriptBlock {
                 Test-Path -LiteralPath (Join-Path $dragTarget 'explorer-in.txt')
             }
@@ -3357,7 +3397,7 @@ function Invoke-UiaScenarioDragIn {
         if (-not $copied2) {
             if ($acceptedInputAttempts -eq 3 -and -not $foregroundBlocked) {
                 $armEvidence = if ($armObservedAttempts -eq 3) { 'armObserved=true' } else { 'armObserved=false (cross-process capture was not observable)' }
-                return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "BLOCKED_ENVIRONMENT: three fresh Explorer-source attempts selected the item and every native input stage was accepted, but no destination file appeared; $armEvidence; $lastDragDetail"
+                return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "BLOCKED_ENVIRONMENT: three fresh Explorer-source attempts selected the item and every native input stage was accepted, but no destination file appeared; boundary=drop-delivery-into-FastFiles (source interaction proven available — see evidence/uia-explorer-drag-in-investigation.md); $armEvidence; $($attemptLog -join ' | ')"
             }
             if ($foregroundBlocked -and $acceptedInputAttempts -eq 0) {
                 $safe = Get-UiaSafeInteractiveState -Driver $driver -ProcessId $appPid
@@ -3366,7 +3406,7 @@ function Invoke-UiaScenarioDragIn {
                 }
                 return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "BLOCKED_ENVIRONMENT: Explorer source foreground was not established after bounded retries; foreground='$($safe.foregroundTitle)'; no drag input was claimed"
             }
-            return & $fail "destination\\explorer-in.txt was not created after $dragAttempts attempt(s); acceptedInput=$acceptedInputAttempts; $lastDragDetail"
+            return & $fail "destination\\explorer-in.txt was not created after $dragAttempts attempt(s); acceptedInput=$acceptedInputAttempts; $($attemptLog -join ' | ')"
         }
         # FastFiles UIA refresh: the file must appear in the target column.
         $refreshed = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'explorer-in.txt' -PaneId 'Pane.0' -TimeoutMs 12000

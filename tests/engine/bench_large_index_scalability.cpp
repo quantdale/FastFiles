@@ -1527,6 +1527,12 @@ struct MemoryCapturePoint {
     bool hasProjection = false;
     ffindexstore::Projection::MemoryBreakdown breakdown;
     size_t estimatedBytes = 0;
+    // large-index-lifecycle-and-search-scalability post-completion audit:
+    // surface the reload outcome so a REJECTED rebuild can never masquerade
+    // as a fast one in measurement artifacts (a failed RebuildAll leaves the
+    // projection empty and the cycle time near zero).
+    uint64_t coldReloadCount = 0;
+    uint64_t coldReloadFailedCount = 0;
 };
 
 MemoryCapturePoint CaptureMemoryPoint(const std::string& name, const double elapsedMs) {
@@ -1551,7 +1557,10 @@ MemoryCapturePoint CaptureProjectionPoint(const std::string& name, ffengine::Ind
                                           const double elapsedMs) {
     MemoryCapturePoint point = CaptureMemoryPoint(name, elapsedMs);
     point.breakdown = pipeline.GetProjectionMemoryBreakdown();
-    point.estimatedBytes = pipeline.GetProjectionMemoryDiagnostics().estimatedBytes;
+    const auto diagnostics = pipeline.GetProjectionMemoryDiagnostics();
+    point.estimatedBytes = diagnostics.estimatedBytes;
+    point.coldReloadCount = diagnostics.coldReloadCount;
+    point.coldReloadFailedCount = diagnostics.coldReloadFailedCount;
     point.hasProjection = true;
     return point;
 }
@@ -1873,9 +1882,9 @@ void WriteBreakdown(std::ostream& output, const ffindexstore::Projection::Memory
            << ",\"filename_index_bucket_count\":" << b.filenameIndexBucketCount
            << ",\"filename_index_bucket_bytes\":" << b.filenameIndexBucketBytes
            << ",\"filename_index_approx_node_bytes\":" << b.filenameIndexApproxNodeBytes
-           << ",\"filename_index_non_ascii_count\":" << b.filenameIndexNonAsciiCount
-           << ",\"filename_index_non_ascii_slots\":" << b.filenameIndexNonAsciiSlots
-           << ",\"filename_index_non_ascii_bytes\":" << b.filenameIndexNonAsciiBytes
+           << ",\"filename_index_exceptional_count\":" << b.filenameIndexExceptionalCount
+           << ",\"filename_index_exceptional_slots\":" << b.filenameIndexExceptionalSlots
+           << ",\"filename_index_exceptional_bytes\":" << b.filenameIndexExceptionalBytes
            << ",\"filename_index_bytes\":" << b.filenameIndexBytes
            << ",\"lru_slot_capacity\":" << b.lruSlotCapacity
            << ",\"lru_slot_count\":" << b.lruSlotCount
@@ -1909,7 +1918,10 @@ void WriteCapturePoint(std::ostream& output, const MemoryCapturePoint& point) {
            << ",\"shareable_bytes\":" << point.workingSetSplit.shareableBytes
            << ",\"private_bytes\":" << point.workingSetSplit.privateBytes << '}';
     if (point.hasProjection) {
-        output << ",\"estimator_bytes\":" << point.estimatedBytes << ",\"projection\":";
+        output << ",\"estimator_bytes\":" << point.estimatedBytes
+               << ",\"cold_reload_count\":" << point.coldReloadCount
+               << ",\"cold_reload_failed_count\":" << point.coldReloadFailedCount
+               << ",\"projection\":";
         WriteBreakdown(output, point.breakdown);
     }
     output << '}';

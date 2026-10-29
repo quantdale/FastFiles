@@ -361,6 +361,26 @@ private:
     std::atomic<size_t>* peak_;
 };
 
+// large-index-lifecycle-and-search-scalability review-remediation 18.x:
+// cold-stream prefilter eligibility. An ASCII-folded simple literal needle of
+// >= 3 units can use the conservative SQL name prefilter
+// (StoreReadSession::ForEachEntryWithAsciiNameUntil): LIKE folds exactly the
+// ASCII case the superset proof needs and the query's own fold is already
+// ASCII-lowercase. Non-ASCII needles return nullopt and keep the full stream
+// because SQLite LIKE cannot fold non-ASCII case variants.
+std::optional<std::string> ColdNamePrefilterNeedle(const ffsearch::Query& query) {
+    if (!query.simpleLiteralName) return std::nullopt;
+    const std::u16string& folded = query.simpleLiteralFolded;
+    if (folded.size() < 3) return std::nullopt;
+    std::string needle;
+    needle.reserve(folded.size());
+    for (const char16_t ch : folded) {
+        if (ch > 0x7f) return std::nullopt;
+        needle.push_back(static_cast<char>(ch));
+    }
+    return needle;
+}
+
 } // namespace
 
 bool IndexPipeline::VolumeSettingsEqual(const ffprotocol::VolumeSetting& left,
@@ -398,6 +418,25 @@ void IndexPipeline::AdvanceQueryVisibleEpochLocked(const ffindexstore::VolumeRow
 void IndexPipeline::RecordMetadataOnlyUpdateLocked() {
     metadataOnlyUpdates_.fetch_add(1, std::memory_order_relaxed);
     metadataOnlyInvalidationsAvoided_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void IndexPipeline::AdvanceResidencyEpochsForStructuralChangeLocked() {
+    // large-index-lifecycle-and-search-scalability review-lane D P1-1 / lane C
+    // Finding 1: memory-pressure enforcement and cold reload are structural
+    // projection events -- EvictSubtree can cold-mark ANY volume (the LRU
+    // victim is a global pick) and CompactStorage/RebuildVolumeFromStore
+    // repack every row slot, so an in-flight search's captured cursor,
+    // candidate slots, and cold-set can all be wrong afterwards. Surface the
+    // change through the SAME ProjectionResidency epoch mechanism
+    // SetProjectionMemoryBudget / UnloadVolumeFromProjection use, so searches
+    // restart with a fresh capture instead of silently serving incomplete
+    // results as Completed. Ordinary per-volume mutations never route through
+    // here (scoped searches stay insensitive to unrelated writes).
+    for (const auto& [volumeId, epoch] : volumeDataEpochs_) {
+        (void)epoch;
+        AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::ProjectionResidency);
+    }
+    AdvanceQueryVisibleEpochLocked(0, QueryMutationReason::ProjectionResidency, true);
 }
 
 bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
@@ -568,9 +607,15 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
                         secondaryApplied = store_.ApplyBatch(meta.rowId, ruleExcluded);
                     }
                     if (secondaryApplied) {
+                        std::vector<ffindexstore::FileId> excludedIds;
+                        excludedIds.reserve(ruleExcluded.size());
                         for (const auto& removal : ruleExcluded) {
-                            projection_.Remove(meta.rowId, removal.record.id);
+                            excludedIds.push_back(removal.record.id);
                         }
+                        // large-index-lifecycle-and-search-scalability 4.4:
+                        // one bulk accelerator update instead of per-entry
+                        // sorted-vector posting erases on mass rule removal.
+                        projection_.RemoveBatch(meta.rowId, excludedIds);
                     } else {
                         // The projection was rebuilt from the unchanged durable
                         // rows, so retaining them is consistent. Do not publish
@@ -728,20 +773,30 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
             secondaryApplied = store_.ApplyBatch(volumeId, ruleExcluded);
         }
         if (secondaryApplied) {
+            std::vector<ffindexstore::FileId> excludedIds;
+            excludedIds.reserve(ruleExcluded.size());
             for (const auto& removal : ruleExcluded) {
-                projection_.Remove(volumeId, removal.record.id);
+                excludedIds.push_back(removal.record.id);
             }
+            // large-index-lifecycle-and-search-scalability 4.4: one bulk
+            // accelerator update instead of per-entry sorted-vector posting
+            // erases on mass rule removal.
+            projection_.RemoveBatch(volumeId, excludedIds);
         } else {
             // Secondary pruning failed: durable and projection remain consistent (both retain the excluded rows),
             // but do not report success. Caller can retry the batch; the next attempt will re-evaluate pruning.
-            projection_.EnforceMemoryLimitNow();
+            if (projection_.EnforceMemoryLimitNow()) {
+                AdvanceResidencyEpochsForStructuralChangeLocked();
+            }
             MaybeReportProjectionMemoryPressureLocked();
             return false;
         }
     }
     // invoking it from Projection::Upsert turns a large volume scan into an
     // O(N) compaction storm once the bounded memory policy is reached.
-    projection_.EnforceMemoryLimitNow();
+    if (projection_.EnforceMemoryLimitNow()) {
+        AdvanceResidencyEpochsForStructuralChangeLocked();
+    }
     MaybeReportProjectionMemoryPressureLocked();
     if (!changes.empty()) {
         AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
@@ -860,16 +915,26 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
             secondaryApplied = store_.ApplyBatch(volumeId, ruleExcluded);
         }
         if (secondaryApplied) {
+            std::vector<ffindexstore::FileId> excludedIds;
+            excludedIds.reserve(ruleExcluded.size());
             for (const auto& removal : ruleExcluded) {
-                projection_.Remove(volumeId, removal.record.id);
+                excludedIds.push_back(removal.record.id);
             }
+            // large-index-lifecycle-and-search-scalability 4.4: one bulk
+            // accelerator update instead of per-entry sorted-vector posting
+            // erases on mass rule removal.
+            projection_.RemoveBatch(volumeId, excludedIds);
         } else {
-            projection_.EnforceMemoryLimitNow();
+            if (projection_.EnforceMemoryLimitNow()) {
+                AdvanceResidencyEpochsForStructuralChangeLocked();
+            }
             MaybeReportProjectionMemoryPressureLocked();
             return false;
         }
     }
-    projection_.EnforceMemoryLimitNow();
+    if (projection_.EnforceMemoryLimitNow()) {
+        AdvanceResidencyEpochsForStructuralChangeLocked();
+    }
     MaybeReportProjectionMemoryPressureLocked();
     if (!changes.empty()) {
         AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
@@ -987,9 +1052,14 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
             secondaryApplied = false;
         }
         if (secondaryApplied) {
+            std::vector<ffindexstore::FileId> removedIds;
+            removedIds.reserve(removals.size());
             for (const auto& removal : removals) {
-                projection_.Remove(id, removal.record.id);
+                removedIds.push_back(removal.record.id);
             }
+            // large-index-lifecycle-and-search-scalability 4.4: reconciliation
+            // mass removal is the same bulk case as rule pruning.
+            projection_.RemoveBatch(id, removedIds);
             searchableMutation = true;
         }
     }
@@ -1029,7 +1099,16 @@ ffprotocol::PooledSnapshotMap IndexPipeline::ExportDirectorySnapshotBoundedPoole
     // wrappers so the traversal and the bounded-eviction semantics exist
     // exactly once.
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!projection_.ReloadEvictedVolume(store_, id)) return {};
+    // large-index-lifecycle-and-search-scalability review-lane D P1-1: the
+    // reload (and its trailing enforcement) is a structural change -- bump
+    // residency epochs so in-flight searches re-capture instead of reading a
+    // replaced layout.
+    const bool wasCold = projection_.NeedsReload(id);
+    const bool reloaded = projection_.ReloadEvictedVolume(store_, id);
+    if (wasCold) {
+        AdvanceResidencyEpochsForStructuralChangeLocked();
+    }
+    if (!reloaded) return {};
     ffprotocol::PooledSnapshotMap result;
     projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
         if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {
@@ -1589,6 +1668,15 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                                 }
                                 entry = &projection_.EntryAt((*context.filenameCandidates)[filenameIndex++]);
                             } else if (!context.cursor.Next(entry)) {
+                                // large-index-lifecycle-and-search-scalability
+                                // review-lane C Finding 2: a disturbed layout
+                                // ends iteration early; treat it as a stale
+                                // generation (restart + re-capture), never as
+                                // exhausted (which would silently truncate).
+                                if (context.cursor.Stale()) {
+                                    stale = true;
+                                    break;
+                                }
                                 hotExhausted = true;
                                 break;
                             }
@@ -1732,6 +1820,15 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                                 }
                                 entry = &projection_.EntryAt((*context.filenameCandidates)[filenameIndex++]);
                             } else if (!context.cursor.Next(entry)) {
+                                // large-index-lifecycle-and-search-scalability
+                                // review-lane C Finding 2: a disturbed layout
+                                // ends iteration early; treat it as a stale
+                                // generation (restart + re-capture), never as
+                                // exhausted (which would silently truncate).
+                                if (context.cursor.Stale()) {
+                                    stale = true;
+                                    break;
+                                }
                                 hotExhausted = true;
                                 break;
                             }
@@ -1787,8 +1884,8 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                 if (prefixIt == context.prefixes.end() || context.reader == nullptr) continue;
                 ++coldVolumesSearched;
                 const auto streamStart = Clock::now();
-                const bool streamed = context.reader->ForEachEntryUntil(coldVolumeId,
-                    [&](const ffindexstore::EntryRecord& record) {
+                const auto coldNamePrefilter = ColdNamePrefilterNeedle(searchRequest.query);
+                const auto coldVisitor = [&](const ffindexstore::EntryRecord& record) {
                         if (isCancelled() || stale || accumulator.Cancelled()) return false;
                         ++coldRowsExamined;
                         ffsearch::Candidate candidate = MakeDurableCandidate(record, coldVolumeId,
@@ -1803,7 +1900,11 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         if (!continueSearch || accumulator.Cancelled() || streamFailed) return false;
                         ++candidateObjectsMaterialized;
                         return !stale && !isCancelled();
-                    });
+                    };
+                const bool streamed = coldNamePrefilter.has_value()
+                    ? context.reader->ForEachEntryWithAsciiNameUntil(coldVolumeId, *coldNamePrefilter,
+                                                                     coldVisitor)
+                    : context.reader->ForEachEntryUntil(coldVolumeId, coldVisitor);
                 storeStreamMs += std::chrono::duration<double, std::milli>(Clock::now() - streamStart).count();
                 if (!streamed && !isCancelled() && !stale && !accumulator.Cancelled()) {
                     streamFailed = true;
@@ -1913,8 +2014,8 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                 }
                 ++coldVolumesSearched;
                 const auto streamStart = Clock::now();
-                const bool streamed = context.reader->ForEachEntryUntil(volumeId,
-                    [&](const ffindexstore::EntryRecord& record) {
+                const auto durableNamePrefilter = ColdNamePrefilterNeedle(searchRequest.query);
+                const auto durableVisitor = [&](const ffindexstore::EntryRecord& record) {
                         if (isCancelled() || accumulator.Cancelled()) return false;
                         ++attemptRowsStreamed;
                         ++coldRowsExamined;
@@ -1929,7 +2030,11 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         if (!accumulator.Add(std::move(candidate), materializeDurable)) return false;
                         ++candidateObjectsMaterialized;
                         return !isCancelled() && !accumulator.Cancelled() && !streamFailed;
-                    });
+                    };
+                const bool streamed = durableNamePrefilter.has_value()
+                    ? context.reader->ForEachEntryWithAsciiNameUntil(volumeId, *durableNamePrefilter,
+                                                                     durableVisitor)
+                    : context.reader->ForEachEntryUntil(volumeId, durableVisitor);
                 storeStreamMs += std::chrono::duration<double, std::milli>(Clock::now() - streamStart).count();
                 if (!streamed && !isCancelled() && !accumulator.Cancelled() && !streamFailed) {
                     streamFailed = true;
@@ -2019,6 +2124,10 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
         timings->projectionRowsExamined = projectionRowsExamined;
         timings->namePoolLookups = namePoolLookups;
         timings->nameViewsConstructed = nameViewsConstructed;
+        // large-index-lifecycle-and-search-scalability 12.x: the detailed-
+        // diagnostics empty-name counter was tracked but never merged into the
+        // timings like its sibling counters.
+        timings->emptyNamesRejected = emptyNamesRejected;
         timings->hotRowsExamined = projectionRowsExamined;
         timings->coldRowsExamined = coldRowsExamined;
         timings->coldVolumesSearched = coldVolumesSearched;

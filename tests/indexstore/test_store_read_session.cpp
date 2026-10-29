@@ -224,9 +224,109 @@ void TestReadSessionFaultsFailClosed() {
 
 } // namespace
 
+// large-index-lifecycle-and-search-scalability review-remediation 18.x:
+// the conservative SQL name prefilter must be a strict superset of the
+// canonical ordinal-ignore-case matches for ASCII needles (under-match =
+// forbidden false negative) while LIKE metacharacters in the needle stay
+// literal (gross over-match = a silent full-stream regression). The
+// non-ASCII class is admitted unconditionally by design -- names carrying
+// non-ASCII UTF-8 bytes can canonically match an ASCII needle through a
+// non-ASCII unit under some host ordinal tables (see the fold-exceptional
+// contract in Projection) -- so exact-set assertions below account for it.
+void TestAsciiNamePrefilterIsConservativeAndPrecise() {
+    ffindexstore::Store store;
+    const std::string path = FreshDbPath("ffindexstore_ascii_name_prefilter.db");
+    Check(store.Open(path), "prefilter store opens");
+    const auto volume = store.GetOrCreateVolume({{}, 505});
+    Check(volume.has_value(), "prefilter volume is created");
+    std::u16string emoji = u"emoji-";
+    emoji.push_back(static_cast<char16_t>(0xD83D)); // U+1F600 pair
+    emoji.push_back(static_cast<char16_t>(0xDE00));
+    emoji += u"tailfrag.txt";
+    Check(store.ApplyBatch(*volume, {
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(5, 5, u".")},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(100, 5, u"alpha-report.txt", 4)},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(101, 5, u"ALPHA-REPORT.TXT", 4)},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(102, 5, u"\u017Foo.txt", 4)},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(103, 5, u"\u6771\u4EAC_target.txt", 4)},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(104, 5, emoji, 4)},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(105, 5, u"100%_done.txt", 4)},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(106, 5, u"a_b.txt", 4)},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(107, 5, u"axb.txt", 4)},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(108, 5, u"a\\b.txt", 4)},
+        {ffindexstore::EntryChangeKind::Upsert, MakeEntry(109, 5, u"plain.bin", 4)},
+    }), "prefilter fixture commits");
+
+    auto reader = store.OpenReadSession();
+    Check(reader != nullptr && reader->IsOpen(), "prefilter read session opens");
+    if (!reader || !reader->IsOpen()) return;
+    // Ids 102/103/104 carry non-ASCII units and are admitted for EVERY
+    // needle (the conservative GLOB disjunct); the class is named once here.
+    const std::vector<uint64_t> nonAsciiClass{102, 103, 104};
+    auto collect = [&](const std::u16string& needleUtf16) {
+        std::string needle;
+        needle.reserve(needleUtf16.size()); // ASCII only
+        for (const char16_t ch : needleUtf16) needle.push_back(static_cast<char>(ch));
+        std::vector<uint64_t> ids;
+        const bool streamed = reader->ForEachEntryWithAsciiNameUntil(*volume, needle,
+            [&](const ffindexstore::EntryRecord& entry) {
+                ids.push_back(entry.id.low);
+                return true;
+            });
+        Check(streamed, "prefiltered stream completes");
+        std::sort(ids.begin(), ids.end());
+        return ids;
+    };
+    auto contains = [](const std::vector<uint64_t>& ids, const uint64_t id) {
+        return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+
+    {
+        const auto ids = collect(u"alpha");
+        Check(contains(ids, 100) && contains(ids, 101),
+              "ASCII case variants both stream (LIKE folds ASCII case exactly)");
+    }
+    {
+        const auto ids = collect(u"soo");
+        Check(contains(ids, 102),
+              "the long-s name streams for an ASCII needle (host-fold conservative admission)");
+    }
+    {
+        const auto ids = collect(u"target");
+        Check(contains(ids, 103), "a CJK name streams when its ASCII tail matches");
+    }
+    {
+        const auto ids = collect(u"tailfrag");
+        Check(contains(ids, 104), "a surrogate-pair name streams when its ASCII tail matches");
+    }
+    {
+        const auto ids = collect(u"100%");
+        Check(contains(ids, 105), "a percent needle matches its literal occurrence (escaping)");
+    }
+    {
+        const auto ids = collect(u"a_b");
+        Check(contains(ids, 106), "an underscore needle matches its literal occurrence");
+        Check(!contains(ids, 107),
+              "an underscore needle is NOT a one-char wildcard (escaped LIKE)");
+    }
+    {
+        const auto ids = collect(u"a\\b");
+        Check(contains(ids, 108),
+              "a backslash needle matches its literal occurrence (escaped LIKE, no under-match)");
+    }
+    {
+        // A no-match ASCII needle streams exactly the conservative
+        // non-ASCII class and nothing else (documents the bounded overmatch).
+        const auto ids = collect(u"zzz");
+        Check(ids == nonAsciiClass,
+              "a no-match needle streams only the conservative non-ASCII class");
+    }
+}
+
 int main() {
     TestIndependentSnapshotOverlapsWriter();
     TestReadSessionFaultsFailClosed();
+    TestAsciiNamePrefilterIsConservativeAndPrecise();
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());
         return 1;

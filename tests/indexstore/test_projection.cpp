@@ -701,12 +701,13 @@ void TestProjectionMemoryBreakdownMatchesEstimatorAndCategories() {
     Check(breakdown.filenameIndexDistinctTrigrams > 0, "trigram postings are reported");
     Check(breakdown.filenameIndexPostingSlots >= breakdown.filenameIndexPostingPayload,
           "posting capacity is never below its payload");
-    Check(breakdown.filenameIndexNonAsciiSlots >= 1,
-          "the CJK name is tracked in the non-ASCII list");
+    Check(breakdown.filenameIndexExceptionalCount == 0,
+          "CJK names are not fold-exceptional (this host's ordinal table has no "
+          "cross-ASCII fold classes) and stay out of the exceptional list");
     Check(breakdown.filenameIndexBytes == breakdown.filenameIndexPostingBytes
               + breakdown.filenameIndexApproxNodeBytes + breakdown.filenameIndexBucketBytes
-              + breakdown.filenameIndexNonAsciiBytes,
-          "filename-index bytes sum postings, node headers, buckets, non-ASCII list");
+              + breakdown.filenameIndexExceptionalBytes,
+          "filename-index bytes sum postings, node headers, buckets, exceptional list");
     Check(breakdown.lruBytes == breakdown.lruSlotCapacity * sizeof(uint64_t),
           "LRU bytes are the dense per-slot timestamp capacity");
     Check(breakdown.lruTrackedCount <= breakdown.lruSlotCount,
@@ -724,8 +725,8 @@ void TestProjectionMemoryBreakdownMatchesEstimatorAndCategories() {
     proj.SetBulkScanActive(true);
     const auto disabled = proj.GetMemoryBreakdown();
     Check(!disabled.filenameIndexValid, "a bulk scan disables the optional accelerator");
-    Check(disabled.filenameIndexDistinctTrigrams == 0 && disabled.filenameIndexNonAsciiCount == 0,
-          "a disabled accelerator retains no posting entries or non-ASCII entries (vector capacity is retained, not entry data)");
+    Check(disabled.filenameIndexDistinctTrigrams == 0 && disabled.filenameIndexExceptionalCount == 0,
+          "a disabled accelerator retains no posting entries or fold-exceptional entries (vector capacity is retained, not entry data)");
     Check(disabled.modeledCategoryBytes == proj.EstimatedMemoryBytes(),
           "the modeled sum still matches the estimator with the accelerator disabled");
     proj.SetBulkScanActive(false);
@@ -917,7 +918,540 @@ void TestLruTimestampsSurviveIterationOrderCompaction() {
     std::filesystem::remove(dbPath.string() + "-shm", ignored);
 }
 
+// large-index-lifecycle-and-search-scalability 4.5: bulk-removal
+// equivalence. These characterize observable semantics (they pass with both
+// the legacy per-entry removal and the bulk path); the performance defect
+// they accompany is evidenced by the rebuild-isolation matrix (E1 vs B1).
+std::u16string NumberToUtf16(uint64_t value) {
+    const std::wstring wide = std::to_wstring(value);
+    return std::u16string(wide.begin(), wide.end());
+}
+
+std::vector<std::u16string> DumpRows(const Projection& proj) {
+    std::vector<std::u16string> rows;
+    proj.ForEachEntry([&](const EntryKey& key, const ProjectionEntry& entry) {
+        (void)key;
+        std::u16string line = NumberToUtf16(entry.frn.low) + u":" +
+            NumberToUtf16(entry.parentFrn.low) + u":" +
+            std::u16string(proj.Names().Get(entry.nameId));
+        rows.push_back(std::move(line));
+    });
+    std::sort(rows.begin(), rows.end());
+    return rows;
+}
+
+void PopulateRemovalFixture(Projection& proj) {
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"shared_dir", 0x10));
+    for (uint64_t i = 0; i < 400; ++i) {
+        proj.Upsert(1, MakeEntry(1000 + i, 100,
+                                 u"common_component_" + NumberToUtf16(i) + u".txt", 0));
+    }
+    proj.Upsert(1, MakeEntry(200, 5, u"keep_dir", 0x10));
+    proj.Upsert(1, MakeEntry(300, 200, u"common_component_keep.txt", 0));
+}
+
+void TestRemoveBatchMatchesPerEntryRemoval() {
+    Projection reference;
+    Projection bulk;
+    PopulateRemovalFixture(reference);
+    PopulateRemovalFixture(bulk);
+    std::vector<FileId> removed;
+    removed.reserve(400);
+    for (uint64_t i = 0; i < 400; ++i) removed.push_back(FileId{1000 + i, 0});
+    for (const FileId& id : removed) reference.Remove(1, id);
+    bulk.RemoveBatch(1, removed);
+    Check(reference.EntryCount() == bulk.EntryCount(),
+          "bulk removal leaves the same entry count as per-entry removal");
+    Check(DumpRows(reference) == DumpRows(bulk),
+          "bulk removal leaves the same rows, parents, and names");
+    Check(reference.ChildIndices(1, FileId{100, 0}).empty() &&
+              bulk.ChildIndices(1, FileId{100, 0}).empty(),
+          "bulk removal unlinks every child exactly like per-entry removal");
+    const auto referenceAggregate = reference.GetFolderAggregate(1, FileId{100, 0});
+    const auto bulkAggregate = bulk.GetFolderAggregate(1, FileId{100, 0});
+    Check(referenceAggregate.has_value() && bulkAggregate.has_value() &&
+              referenceAggregate->itemCount == bulkAggregate->itemCount &&
+              referenceAggregate->totalSizeBytes == bulkAggregate->totalSizeBytes,
+          "folder aggregates agree after bulk removal");
+    const auto referenceCandidates = reference.FilenameCandidateIndices(u"common_component_keep");
+    const auto bulkCandidates = bulk.FilenameCandidateIndices(u"common_component_keep");
+    Check(referenceCandidates.has_value() && bulkCandidates.has_value() &&
+              referenceCandidates->size() == bulkCandidates->size(),
+          "the rebuilt accelerator returns the same candidate count as the per-entry path");
+    if (bulkCandidates.has_value()) {
+        bool survivorsOnly = true;
+        for (const uint32_t slot : *bulkCandidates) {
+            if (bulk.EntryAt(slot).frn.low < 200) survivorsOnly = false;
+        }
+        Check(survivorsOnly, "bulk-path accelerator candidates reference only surviving rows");
+    }
+    // Below the bulk threshold the per-entry path keeps the accelerator
+    // current without a rebuild.
+    bulk.RemoveBatch(1, {FileId{300, 0}});
+    Check(bulk.GetMemoryBreakdown().filenameIndexValid,
+          "a small batch keeps the accelerator current via per-entry maintenance");
+}
+
+void TestRemoveVolumeKeepsFilenameAcceleratorCurrent() {
+    Projection proj;
+    PopulateRemovalFixture(proj);
+    proj.Upsert(2, MakeEntry(5, 5, u"D:", 0x10));
+    proj.Upsert(2, MakeEntry(700, 5, u"common_component_keep.txt", 0));
+    proj.RemoveVolume(1);
+    Check(proj.EntryCount() == 2, "only the surviving volume's rows remain");
+    Check(proj.Find(1, FileId{1000, 0}) == nullptr, "removed volume rows are gone");
+    Check(proj.GetMemoryBreakdown().filenameIndexValid,
+          "RemoveVolume keeps the filename accelerator current by default");
+    const auto candidates = proj.FilenameCandidateIndices(u"common_component_keep");
+    Check(candidates.has_value() && candidates->size() == 1,
+          "the rebuilt accelerator serves the surviving volume's rows");
+    if (candidates.has_value() && candidates->size() == 1) {
+        Check(proj.EntryAt((*candidates)[0]).volumeRowId == 2,
+              "accelerator candidates reference only surviving rows");
+    }
+}
+
+void TestRemoveVolumeCanLeaveAcceleratorForCallerRebuild() {
+    Projection proj;
+    PopulateRemovalFixture(proj);
+    proj.Upsert(2, MakeEntry(5, 5, u"D:", 0x10));
+    proj.Upsert(2, MakeEntry(700, 5, u"common_component_keep.txt", 0));
+    // The enclosing bulk rebuild rebuilds the accelerator once at the end,
+    // so the removal may leave it invalidated without paying a double rebuild.
+    proj.RemoveVolume(1, false);
+    Check(proj.EntryCount() == 2,
+          "caller-rebuild mode removes rows exactly like the default mode");
+    Check(!proj.GetMemoryBreakdown().filenameIndexValid,
+          "RemoveVolume(keepFilenameIndexCurrent=false) leaves the accelerator invalidated");
+    Check(!proj.FilenameCandidateIndices(u"common_component_keep").has_value(),
+          "an invalidated accelerator yields no candidates and search falls back to the canonical scan");
+}
+
+// large-index-lifecycle-and-search-scalability 6.2/6.3 + review-remediation
+// (P2-A): filename-accelerator planner. The historical accelerator
+// unconditionally unioned every non-ASCII-named row into every candidate set,
+// so at any scale whose Unicode population exceeds the caller's cap every
+// lookup returned nullopt and no query class could ever use the index. The
+// posting intersection serves pure-ASCII needles (superset guarantee), merged
+// only with the FOLD-EXCEPTIONAL rows (names that could match an ASCII needle
+// through a non-ASCII unit under the host's CompareStringOrdinal ordinal
+// table, plus every surrogate-bearing name). The pre-review intersection-only
+// variant dropped that merge and relied on an unproven assumption that the
+// host ordinal table has no cross-ASCII fold classes; the tests below pin the
+// invariant against the REAL comparison function and exercise the fallback
+// both through the host-derived probe and the testing seam.
+
+std::u16string FoldAsciiLower(const std::u16string_view value) {
+    std::u16string folded;
+    folded.reserve(value.size());
+    for (const char16_t ch : value) {
+        folded.push_back(ch >= u'A' && ch <= u'Z' ? static_cast<char16_t>(ch + (u'a' - u'A')) : ch);
+    }
+    return folded;
+}
+
+bool ContainsFolded(const std::u16string& haystackFolded, const std::u16string& needleFolded) {
+    return haystackFolded.find(needleFolded) != std::u16string::npos;
+}
+
+void PopulateUnicodeHeavyFixture(Projection& proj) {
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"ascii_dir", 0x10));
+    proj.Upsert(1, MakeEntry(101, 5, u"\u0434\u0438\u0440", 0x10));
+    proj.Upsert(1, MakeEntry(1000, 100, u"unique_target.txt", 0));
+    proj.Upsert(1, MakeEntry(1001, 101, u"\u0441\u043f\u0438\u0441\u043e\u043a_unique_target.txt", 0));
+    proj.Upsert(1, MakeEntry(1002, 101, u"\u0424\u0430\u0439\u043b_UNIQUE_TARGET.txt", 0));
+    proj.Upsert(1, MakeEntry(1003, 100, u"common_component_1.txt", 0));
+    proj.Upsert(1, MakeEntry(1004, 100, u"common_component_2.txt", 0));
+    proj.Upsert(1, MakeEntry(1005, 100, u"notes.md", 0));
+    proj.Upsert(1, MakeEntry(1006, 100, u"dotted.name.with.dots.txt", 0));
+    proj.Upsert(1, MakeEntry(1007, 100, u"ab", 0));
+    proj.Upsert(1, MakeEntry(1008, 101, u"\u65e5\u672c\u8a9e.txt", 0));
+    for (uint64_t i = 0; i < 20; ++i) {
+        proj.Upsert(1, MakeEntry(2000 + i, 101, u"\u0441\u043f\u0438\u0441\u043e\u043a_" + NumberToUtf16(i) + u".txt", 0));
+    }
+}
+
+void TestFilenameCandidatesAreConservativeSuperset() {
+    Projection proj;
+    PopulateUnicodeHeavyFixture(proj);
+    const std::u16string needles[] = {
+        u"unique_target", u"UNIQUE_TARGET", u"common_comp", u"zzz_missing",
+        u"notes", u"dots.txt", u"LIST"  // "\u0424\u0430\u0439\u043b_UNIQUE_TARGET.txt" folds to contain "_unique_target" only;
+    };
+    for (const std::u16string& raw : needles) {
+        const std::u16string folded = FoldAsciiLower(raw);
+        const auto candidates = proj.FilenameCandidateIndices(folded, 0);  // uncapped reference
+        if (!candidates.has_value()) {
+            Check(false, "an uncapped pure-ASCII needle always returns a candidate set");
+            continue;
+        }
+        std::vector<std::pair<int64_t, uint64_t>> expected;
+        proj.ForEachEntry([&](const EntryKey& key, const ProjectionEntry& entry) {
+            if (ContainsFolded(FoldAsciiLower(std::u16string(proj.Names().Get(entry.nameId))), folded)) {
+                expected.push_back({key.volumeRowId, key.frn.low});
+            }
+        });
+        std::vector<std::pair<int64_t, uint64_t>> got;
+        for (const uint32_t slot : *candidates) {
+            const ProjectionEntry& entry = proj.EntryAt(slot);
+            got.push_back({entry.volumeRowId, entry.frn.low});
+        }
+        bool superset = true;
+        for (const auto& id : expected) {
+            if (std::find(got.begin(), got.end(), id) == got.end()) {
+                superset = false;
+            }
+        }
+        Check(superset, "accelerator candidates are a conservative superset of every fold-matching row");
+    }
+    // Structural eligibility rules are unchanged.
+    Check(!proj.FilenameCandidateIndices(u"ab", 0).has_value(),
+          "needles shorter than three folded units remain ineligible");
+    Check(!proj.FilenameCandidateIndices(u"\u0441\u043f\u0438\u0441\u043e\u043a", 0).has_value(),
+          "non-ASCII folded needles remain ineligible for the ASCII trigram accelerator");
+}
+
+void TestFilenameCandidatesNarrowForSelectiveNeedlesDespiteUnicodeRows() {
+    Projection proj;
+    PopulateUnicodeHeavyFixture(proj);
+    // A deliberately small cap: non-ASCII rows that cannot match a pure-ASCII
+    // needle must not consume the cap and force the canonical scan.
+    const auto candidates = proj.FilenameCandidateIndices(u"unique_target", 8);
+    Check(candidates.has_value(),
+          "a selective pure-ASCII needle yields candidates regardless of the Unicode row count");
+    if (candidates.has_value()) {
+        Check(candidates->size() == 3,
+              "the candidate set is exactly the three fold-matching rows");
+    }
+    const auto missing = proj.FilenameCandidateIndices(u"zzz_missing", 8);
+    Check(missing.has_value() && missing->empty(),
+          "a no-match pure-ASCII needle yields an empty candidate set, not every Unicode row");
+}
+
+// review-remediation (P2-A): the exact comparison shape of the canonical
+// matcher (ffsearch::OrdinalContains: equal-length spans through
+// CompareStringOrdinal(..., TRUE)). The candidate-superset invariant is
+// stated against this function -- never against an assumed Unicode casefold.
+bool CanonicalOrdinalContains(const std::u16string& name, const std::u16string& needle) {
+    if (needle.empty()) return true;
+    if (name.size() < needle.size()) return false;
+    for (size_t i = 0; i + needle.size() <= name.size(); ++i) {
+        if (CompareStringOrdinal(reinterpret_cast<const wchar_t*>(name.data() + i),
+                                 static_cast<int>(needle.size()),
+                                 reinterpret_cast<const wchar_t*>(needle.data()),
+                                 static_cast<int>(needle.size()), TRUE) == CSTR_EQUAL) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool OrdinalUnitEqual(const char16_t a, const char16_t b) {
+    return CompareStringOrdinal(reinterpret_cast<const wchar_t*>(&a), 1,
+                                reinterpret_cast<const wchar_t*>(&b), 1, TRUE) == CSTR_EQUAL;
+}
+
+// review-remediation (P2-A): campaign-host characterization of the Windows
+// ordinal case table. The PR review's example assumed Unicode casefold
+// semantics (U+017F LONG S uppercases to 'S' in Unicode's table); the REAL
+// CompareStringOrdinal verdicts on the campaign host are NOT that. If a
+// future Windows ordinal table changes any verdict here this test fails
+// loudly and the review-remediation evidence must be re-audited. The product
+// stays correct either way: the fold-exceptional set is derived from the
+// live comparison function at run time (UnitMayFoldToAscii).
+void TestHostOrdinalFoldSemanticsMatchCampaignMeasurement() {
+    Check(OrdinalUnitEqual(u'A', u'a'),
+          "ASCII sanity: ordinal ignore-case folds A/a");
+    Check(OrdinalUnitEqual(u'\u00C9', u'\u00E9'),
+          "ordinal ignore-case DOES fold non-ASCII case pairs (E-acute): folding is not ASCII-only");
+    Check(!OrdinalUnitEqual(u'\u017F', u's') && !OrdinalUnitEqual(u'\u017F', u'S'),
+          "campaign host: LONG S is NOT equal to s/S under ordinal ignore-case (review example disproven here)");
+    Check(!OrdinalUnitEqual(u'\u212A', u'k') && !OrdinalUnitEqual(u'\u212A', u'K'),
+          "campaign host: KELVIN SIGN is NOT equal to k/K under ordinal ignore-case");
+    Check(!OrdinalUnitEqual(u'\u0131', u'i') && !OrdinalUnitEqual(u'\u0131', u'I'),
+          "campaign host: dotless i is NOT equal to i/I under ordinal ignore-case");
+    Check(!OrdinalUnitEqual(u'\u0130', u'i') && !OrdinalUnitEqual(u'\u0130', u'I'),
+          "campaign host: dotted I is NOT equal to i/I under ordinal ignore-case");
+    Check(!OrdinalUnitEqual(u'\u00DF', u's'),
+          "campaign host: sharp s is NOT equal to s under ordinal ignore-case");
+    Check(!OrdinalUnitEqual(u'\uFB01', u'f'),
+          "campaign host: fi ligature is NOT equal to f under ordinal ignore-case");
+}
+
+// review-remediation (P2-A), RED-FIRST: force the host table to exhibit the
+// exact equivalence the PR review assumed (U+017F LONG S folds to ASCII 'S').
+// The pre-fix intersection-only accelerator omits the long-s row for the
+// ASCII needle "soo" (its ASCII fold cannot contain the 'soo' trigram) --
+// a data-retrieval false negative. The fold-exceptional merge must retain it.
+void TestFilenameCandidatesRetainHostFoldExceptionalNames() {
+    Projection::SetTestingFoldExceptionalUnit(u'\u017F', true);
+    {
+        Projection proj;
+        proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+        proj.Upsert(1, MakeEntry(100, 5, u"\u017Foo.txt", 0));
+        proj.Upsert(1, MakeEntry(101, 5, u"control.txt", 0));
+        proj.Upsert(1, MakeEntry(102, 5, u"soo.txt", 0));
+        const auto candidates = proj.FilenameCandidateIndices(u"soo");
+        Check(candidates.has_value(), "eligible ASCII query still uses the accelerator");
+        if (candidates.has_value()) {
+            Check(CandidateContains(proj, *candidates, 100),
+                  "a host-fold-exceptional long-s name is retained for the ASCII needle (no false negative)");
+            Check(CandidateContains(proj, *candidates, 102),
+                  "the ordinary matching row is retained");
+            Check(!CandidateContains(proj, *candidates, 101),
+                  "the non-matching non-exceptional row is still excluded");
+        }
+        // Renaming away the exceptional unit drops the row's exceptionality.
+        proj.Upsert(1, MakeEntry(100, 5, u"foo.txt", 0));
+        const auto afterRename = proj.FilenameCandidateIndices(u"soo");
+        Check(afterRename.has_value() && !CandidateContains(proj, *afterRename, 100),
+              "renaming away the exceptional unit removes the row from the exceptional merge");
+        // Deletion removes rows from the exceptional merge exactly like postings.
+        proj.Remove(1, FileId{102, 0});
+        const auto afterRemove = proj.FilenameCandidateIndices(u"soo");
+        Check(afterRemove.has_value() && !CandidateContains(proj, *afterRemove, 102),
+              "deleting a row removes it from candidates");
+    }
+    Projection::SetTestingFoldExceptionalUnit(u'\u017F', false);
+}
+
+// review-remediation (P2-A): surrogate-bearing (astral) names are always
+// fold-exceptional (conservative: pair semantics cannot be probed unit-wise
+// and false negatives are forbidden), so they are retained in every ASCII
+// candidate set even when their ASCII fold cannot contain the needle. RED
+// against the pre-fix intersection-only accelerator: for a needle absent
+// from every name its candidate set is empty, so the conservative row was
+// silently dropped.
+void TestFilenameCandidatesRetainSurrogateNamesConservatively() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    std::u16string emojiName;
+    emojiName.push_back(static_cast<char16_t>(0xD83D)); // U+1F600 pair
+    emojiName.push_back(static_cast<char16_t>(0xDE00));
+    emojiName += u"qz.txt";
+    proj.Upsert(1, MakeEntry(100, 5, emojiName, 0));
+    proj.Upsert(1, MakeEntry(101, 5, u"qz.txt", 0));
+    const auto candidates = proj.FilenameCandidateIndices(u"xyz");
+    Check(candidates.has_value(), "eligible ASCII query returns a candidate set");
+    if (candidates.has_value()) {
+        Check(CandidateContains(proj, *candidates, 100),
+              "surrogate-bearing names are conservatively retained in every ASCII candidate set");
+        Check(!CandidateContains(proj, *candidates, 101),
+              "non-exceptional rows are still served by the posting intersection alone");
+    }
+}
+
+// review-remediation (P2-A): the correctness invariant, stated against the
+// real production comparison function: CanonicalMatches(query) is a subset of
+// FilenameCandidateIndices(query). Adversarial cross-casing corpus: long s,
+// Kelvin, dotted/dotless I, sharp s, ligatures, fullwidth, micro, Greek and
+// Cyrillic lookalikes, combining forms, surrogate pairs, mixed
+// ASCII/non-ASCII names, repeated trigrams, query at start/middle/end, and
+// mixed-case queries. On the campaign host most of these pairs are NOT
+// canonical matches (TestHostOrdinalFoldSemanticsMatchCampaignMeasurement
+// records the verdicts); the subset check is what must hold on EVERY host --
+// on a host exhibiting the review's equivalence it fails against the pre-fix
+// intersection-only accelerator (host-conditional red-first).
+void TestFilenameCandidateSupersetInvariantHoldsForAdversarialCasing() {
+    struct Case { std::u16string name; std::u16string needle; };
+    const Case cases[] = {
+        { u"\u017Foo.txt", u"soo" },
+        { u"\u017Foo.txt", u"SOO" },
+        { u"\u212Aelvin.bin", u"kelvin" },
+        { u"\u212Aelvin.bin", u"KELVIN" },
+        { u"cap\u0131tal.txt", u"capital" },
+        { u"CAP\u0130TAL.txt", u"capital" },
+        { u"CAP\u0130TAL.txt", u"CAPITAL" },
+        { u"stra\u00DFe.txt", u"strasse" },
+        { u"stra\u00DFe.txt", u"strase" },
+        { u"\uFB01le.txt", u"file" },
+        { u"\uFB03eld.dat", u"ffield" },
+        { u"\uFF21bc.txt", u"abc" },
+        { u"\u00B5icro.txt", u"micro" },
+        { u"\u03C2igma.txt", u"sigma" },
+        { u"\u0405lavic.txt", u"slavic" },
+        { u"\u0399ota.txt", u"iota" },
+        { u"foo\u017Fbar.txt", u"bar" },
+        { u"foo\u017Fbar.txt", u"FOO" },
+        { u"MiXeD_CaSe.bin", u"mIxEd_cAsE" },
+        { u"Report.TXT", u"report.txt" },
+        { u"report.txt", u"PORT.t" },
+        { u"abcabcabc.txt", u"abcabc" },
+        { u"o\u0308verlay.txt", u"verlay" },
+        { u"\u6771\u4EAC_target.txt", u"target" },
+        { u"plain.txt", u"plain" },
+    };
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    uint64_t id = 100;
+    for (const Case& c : cases) {
+        proj.Upsert(1, MakeEntry(id++, 5, c.name, 0));
+    }
+    // One surrogate-pair row built explicitly (universal-character-names
+    // cannot name surrogates).
+    std::u16string emojiName;
+    emojiName.push_back(static_cast<char16_t>(0xD801));
+    emojiName.push_back(static_cast<char16_t>(0xDC00));
+    emojiName += u"_target.txt";
+    proj.Upsert(1, MakeEntry(id++, 5, emojiName, 0));
+
+    uint64_t checkId = 100;
+    for (const Case& c : cases) {
+        const std::u16string folded = FoldAsciiLower(c.needle);
+        const auto candidates = proj.FilenameCandidateIndices(folded, 0);
+        Check(candidates.has_value(), "an eligible ASCII needle always yields an uncapped candidate set");
+        if (candidates.has_value() && CanonicalOrdinalContains(c.name, c.needle)) {
+            Check(CandidateContains(proj, *candidates, checkId),
+                  "a canonical match is always present in the accelerator candidate set");
+        }
+        // Capped lookups may fall back to nullopt (canonical scan) but may
+        // never return a set that omits a canonical match.
+        const auto capped = proj.FilenameCandidateIndices(folded, 4096);
+        if (capped.has_value() && CanonicalOrdinalContains(c.name, c.needle)) {
+            Check(CandidateContains(proj, *capped, checkId),
+                  "a capped candidate set still contains every canonical match");
+        }
+        ++checkId;
+    }
+    // Surrogate-pair row against an ASCII needle that matches its ASCII tail.
+    {
+        const std::u16string needle = u"target";
+        Check(CanonicalOrdinalContains(emojiName, needle),
+              "the surrogate-pair fixture canonically matches its ASCII tail");
+        const auto candidates = proj.FilenameCandidateIndices(FoldAsciiLower(needle), 0);
+        Check(candidates.has_value() && CandidateContains(proj, *candidates, id - 1),
+              "surrogate-pair rows are retained when their ASCII tail canonically matches");
+    }
+}
+
 } // namespace
+
+// large-index-lifecycle-and-search-scalability review-lane C Finding 3:
+// ending a bulk scan must revive the filename accelerator (it previously
+// stayed dead after every scan, silently disabling selective acceleration).
+void TestBulkScanCycleRevivesFilenameAccelerator() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"unique_target.txt", 0));
+    Check(proj.FilenameCandidateIndices(u"unique_target").has_value(),
+          "accelerator is live before the bulk scan");
+    proj.SetBulkScanActive(true);
+    proj.Upsert(1, MakeEntry(101, 5, u"unique_target_two.txt", 0));
+    Check(!proj.FilenameCandidateIndices(u"unique_target").has_value(),
+          "bulk scan keeps the accelerator disabled while active");
+    proj.SetBulkScanActive(false);
+    Check(proj.GetMemoryBreakdown().filenameIndexValid,
+          "ending the bulk scan revives the filename accelerator");
+    const auto candidates = proj.FilenameCandidateIndices(u"unique_target");
+    Check(candidates.has_value() && candidates->size() == 2,
+          "the revived accelerator serves every matching row ingested during the scan");
+}
+
+// large-index-lifecycle-and-search-scalability review-lane C Finding 2: a
+// cursor whose walk layout is disturbed (entries_ reallocation / flat-table
+// growth) must report Stale() instead of silently skipping rows.
+void TestCursorDetectsDisturbedLayout() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"a.txt", 0));
+    auto cursor = proj.BeginEntryCursor();
+    Check(!cursor.Stale(), "a fresh cursor is not stale");
+    const ProjectionEntry* entry = nullptr;
+    Check(cursor.Next(entry) && entry != nullptr, "a fresh cursor advances");
+    for (uint64_t id = 200; id < 400; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"grow_" + NumberToUtf16(id) + u".txt", 0));
+    }
+    Check(cursor.Stale(),
+          "layout growth under a held cursor marks it stale (no silent truncation)");
+    Check(!cursor.Next(entry), "a stale cursor stops iterating");
+}
+
+// large-index-lifecycle-and-search-scalability review-lane D P1-2/P2-3:
+// reloading a volume that cannot survive enforcement must fail FAST and leave
+// the volume cold (previously: an unbounded under-mutex stream, then a doomed
+// re-eviction).
+void TestOversizedVolumeReloadFailsFastAndStaysCold() {
+    ffindexstore::Store store;
+    const std::string dbPath = FreshDbPath("projection_oversized_reload.db");
+    Check(store.Open(dbPath), "oversized-reload store opens");
+    const auto volume = store.GetOrCreateVolume({{}, 707});
+    Check(volume.has_value(), "oversized-reload volume is created");
+    std::vector<ffindexstore::EntryChange> batch;
+    batch.push_back({ffindexstore::EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)});
+    for (uint64_t id = 100; id < 200; ++id) {
+        batch.push_back({ffindexstore::EntryChangeKind::Upsert,
+                         MakeEntry(id, 5, u"row_" + NumberToUtf16(id) + u".txt", 0)});
+    }
+    Check(store.ApplyBatch(*volume, batch), "oversized-reload rows persist");
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"D:", 0x10));
+    proj.EvictVolume(*volume); // mark the durable volume cold explicitly
+    Check(proj.NeedsReload(*volume), "the volume starts cold");
+    // A budget so small the 100-row reload cannot survive enforcement: the
+    // reload must fail before streaming and leave the volume cold.
+    proj.SetMaximumMemoryBytes(2048);
+    Check(!proj.ReloadEvictedVolume(store, *volume),
+          "an over-watermark volume reload fails (fast) instead of thrashing");
+    Check(proj.NeedsReload(*volume), "the failed reload leaves the volume cold");
+    Check(proj.GetMemoryDiagnostics().coldReloadFailedCount >= 1,
+          "the failed reload is counted for diagnostics");
+}
+
+// large-index-lifecycle-and-search-scalability post-completion audit repair
+// (review-lane D P1-2 correction): the fail-fast fit estimate must not use a
+// flat 512 bytes/row guess when the projection is empty. That prior rejected
+// every volume above lowWatermark/512 rows at the default budget (819,200)
+// even when the true modeled size fits comfortably -- silently leaving warm
+// startup hydration (RebuildAll) and cold reload permanently cold for
+// ~1M-row volumes (measured 1M cost ~338 MB against the 400 MiB watermark).
+// A volume that fits the watermark must reload and stay hot; the oversized
+// rejection semantics are pinned by TestOversizedVolumeReloadFailsFastAndStaysCold.
+void TestFittingVolumeReloadIsNotRejectedByEmptyProjectionPrior() {
+    ffindexstore::Store store;
+    const std::string dbPath = FreshDbPath("projection_fitting_reload.db");
+    Check(store.Open(dbPath), "fitting-reload store opens");
+    const auto volume = store.GetOrCreateVolume({{}, 708});
+    Check(volume.has_value(), "fitting-reload volume is created");
+    std::vector<ffindexstore::EntryChange> batch;
+    batch.push_back({ffindexstore::EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)});
+    for (uint64_t id = 100; id < 1800; ++id) {
+        batch.push_back({ffindexstore::EntryChangeKind::Upsert,
+                         MakeEntry(id, 5, u"row_" + NumberToUtf16(id) + u".txt", 0)});
+    }
+    Check(store.ApplyBatch(*volume, batch), "fitting-reload rows persist");
+    // 1 MiB budget: the low watermark is 838,861 bytes and the old
+    // empty-projection prior (512 bytes/row) would reject at 1,638 rows even
+    // though this 1,701-row short-name volume models at only a few hundred KB.
+    // Case 1: cold reload into a projection that holds a sibling volume.
+    {
+        Projection proj;
+        proj.Upsert(99, MakeEntry(5, 5, u"D:", 0x10));
+        Check(proj.RebuildVolumeFromStore(store, *volume, 1701),
+              "the initial load of the fitting volume succeeds at the default budget");
+        proj.EvictVolume(*volume);
+        Check(proj.NeedsReload(*volume), "the fitting volume is cold after eviction");
+        proj.SetMaximumMemoryBytes(1048576);
+        Check(proj.ReloadEvictedVolume(store, *volume),
+              "a volume that fits the watermark reloads despite exceeding the old 512-byte prior cutoff");
+        Check(!proj.NeedsReload(*volume), "the reloaded volume is hot");
+        Check(proj.EntryCount() == 1702, "every persisted row is resident and the sibling volume survives");
+        const auto diagnostics = proj.GetMemoryDiagnostics();
+        Check(diagnostics.coldReloadFailedCount == 0, "the fitting reload is not counted as failed");
+        Check(diagnostics.estimatedBytes <= 838860, "self-check: the fixture really fits the watermark");
+    }
+    // Case 2: warm startup hydration shape -- the projection is completely
+    // empty at the fit check, exactly where the old flat 512 bytes/row guess
+    // rejected every volume above lowWatermark/512 rows.
+    {
+        Projection empty;
+        empty.SetMaximumMemoryBytes(1048576);
+        Check(empty.RebuildVolumeFromStore(store, *volume, 1701),
+              "warm-shape hydration loads a fitting volume with no prior at all");
+        Check(empty.EntryCount() == 1701, "every persisted row is resident in the empty-prior rebuild");
+    }
+}
 
 int main() {
     TestSiblingsDoNotDuplicateSharedAncestorPath();
@@ -947,6 +1481,19 @@ int main() {
     TestDenseLruTimestampsTrackAccessOrder();
     TestLruTimestampsSurviveIterationOrderCompaction();
     TestRebuildReleasesBulkCapacitySlack();
+    TestRemoveBatchMatchesPerEntryRemoval();
+    TestRemoveVolumeKeepsFilenameAcceleratorCurrent();
+    TestRemoveVolumeCanLeaveAcceleratorForCallerRebuild();
+    TestFilenameCandidatesAreConservativeSuperset();
+    TestFilenameCandidatesNarrowForSelectiveNeedlesDespiteUnicodeRows();
+    TestHostOrdinalFoldSemanticsMatchCampaignMeasurement();
+    TestFilenameCandidatesRetainHostFoldExceptionalNames();
+    TestFilenameCandidatesRetainSurrogateNamesConservatively();
+    TestFilenameCandidateSupersetInvariantHoldsForAdversarialCasing();
+    TestBulkScanCycleRevivesFilenameAccelerator();
+    TestCursorDetectsDisturbedLayout();
+    TestOversizedVolumeReloadFailsFastAndStaysCold();
+    TestFittingVolumeReloadIsNotRejectedByEmptyProjectionPrior();
 
     if (fftest::FailureCount() > 0) {
         return 1;
