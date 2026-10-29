@@ -12,6 +12,7 @@
 #include "ffsetup/PinnedSignatures.h"
 #include "Gallery.h"
 #include "WindowShell.h"
+#include "ShutdownDiagnostics.h"
 
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int showCommand) {
     // Gallery is debug-only: refuse in release even if the flag is present.
@@ -49,16 +50,29 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, _I
         return 1;
     }
 
-    ffui::WindowShell shell;
-    if (!shell.Initialize(instance, showCommand)) {
-        MessageBoxW(nullptr, L"FastFiles could not initialize its window or renderer.\n\n"
-                            L"Check the diagnostics log under %LOCALAPPDATA%\\FastFiles\\logs.",
-                    L"FastFiles startup failed", MB_OK | MB_ICONERROR);
-        OleUninitialize();
-        return 1;
+    // original-vision-journey-recovery 4.8: shell COM owners must die first,
+    // including the Initialize failure path.
+    struct OleLifetime {
+        ~OleLifetime() {
+            ffui::AppendShutdownPhase(L"ole-uninitialize", L"begin");
+            OleUninitialize();
+            ffui::AppendShutdownPhase(L"ole-uninitialize", L"end");
+        }
+    } oleLifetime;
+    int exitCode = 1;
+    {
+        ffui::WindowShell shell;
+        if (!shell.Initialize(instance, showCommand)) {
+            MessageBoxW(nullptr, L"FastFiles could not initialize its window or renderer.\n\n"
+                                L"Check the diagnostics log under %LOCALAPPDATA%\\FastFiles\\logs.",
+                        L"FastFiles startup failed", MB_OK | MB_ICONERROR);
+            ffui::AppendShutdownPhase(L"shell-destruction", L"begin-initialize-failed");
+        } else {
+            exitCode = shell.RunMessageLoop();
+            ffui::AppendShutdownPhase(L"shell-destruction", L"begin");
+        }
     }
 
-    const int exitCode = shell.RunMessageLoop();
-    OleUninitialize();
+    ffui::AppendShutdownPhase(L"shell-destruction", L"end");
     return exitCode;
 }

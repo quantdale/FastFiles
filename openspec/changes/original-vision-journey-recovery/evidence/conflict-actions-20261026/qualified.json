@@ -1,0 +1,776 @@
+{
+  "schema": "fastfiles-native-conflict-qualification-v1",
+  "cppImplementation": "1dbff32a2c74b56cfdafc83d8ee10b0c38536580",
+  "conflictDialogBlob": "657d396a9e21775065461403c7b43c2b3fd4cfb3",
+  "standalone": {
+    "provenance": {
+      "source": {
+        "headSha": "f10654156a5450790e4ab2623a105bcdab9f0236",
+        "treeSha": "580a62a5891f93f53bcb294f7a91e3d2b3716c37",
+        "treeSemantic": "HEAD^{tree}",
+        "sourceClean": true,
+        "stateDigest": "847c4ab07a9eded094f16b43ee69ec25845cb16203e0b4ea5edabfed0d38a80b",
+        "reasonCodes": []
+      },
+      "boundToHead": true,
+      "boundToTree": false,
+      "treeBindingStatus": "NOT_EMBEDDED",
+      "checkResult": {
+        "status": "PASS",
+        "issueCodes": [],
+        "reason": null
+      },
+      "binaries": [
+        {
+          "filename": "FastFiles.exe",
+          "sha256": "61382c7d7e5d4a7c67e87d67087e1665e016bbc4c03a50e397e4133f6b55623d",
+          "buildIdentity": "f10654156a5450790e4ab2623a105bcdab9f0236",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        },
+        {
+          "filename": "FastFilesEngine.exe",
+          "sha256": "8e5b42bdb17ac4536267ca4cc578dabbb9bb77b2d248f838c51298f29e3fe9b5",
+          "buildIdentity": "f10654156a5450790e4ab2623a105bcdab9f0236",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        },
+        {
+          "filename": "FastFilesIndexSvc.exe",
+          "sha256": "e59add1a117a6348c1034816e1e74024ce9ec1b0fb5ac27cf1d7d0d9b12da24c",
+          "buildIdentity": "f10654156a5450790e4ab2623a105bcdab9f0236",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        },
+        {
+          "filename": "FastFilesSetup.exe",
+          "sha256": "f26d29a6a2c1fc2c4c002dd1ceda7d521f6420381ba27a0852a66f1a18dbfe3a",
+          "buildIdentity": "f10654156a5450790e4ab2623a105bcdab9f0236",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        },
+        {
+          "filename": "fftest.exe",
+          "sha256": "10e0b11c3f2fb65b91d46dcb2acfc41af593bdeb46f07d13067b67f816e964bf",
+          "buildIdentity": "f10654156a5450790e4ab2623a105bcdab9f0236",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        }
+      ]
+    },
+    "native": {
+      "brightness": {
+        "Dark": 27.932311621966786,
+        "Light": 243.2492017879897
+      },
+      "pixelReviewRequired": true,
+      "shiftTabInputPreflight": [
+        {
+          "vk": 16,
+          "down": true
+        },
+        {
+          "vk": 9,
+          "down": true
+        },
+        {
+          "vk": 9,
+          "down": false
+        },
+        {
+          "vk": 16,
+          "down": false
+        }
+      ],
+      "captures": [
+        {
+          "bounds": {
+            "Hwnd": {
+              "value": 13765418
+            },
+            "X": 203,
+            "Y": 228,
+            "Width": 809,
+            "Height": 367,
+            "Dpi": 120,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "id": "light-cancel",
+          "theme": "Light",
+          "image": "after-light.png",
+          "sha256": "bdd6bc66c4d477245e63c21ffdc9bdd763eb17694eff356982ef9a2f3adda33d"
+        },
+        {
+          "bounds": {
+            "Hwnd": {
+              "value": 21564114
+            },
+            "X": 139,
+            "Y": 164,
+            "Width": 809,
+            "Height": 367,
+            "Dpi": 120,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "id": "dark-cancel",
+          "theme": "Dark",
+          "image": "after-dark.png",
+          "sha256": "e6a4e78f2db7ae42ee8dba05ab1dfb31af7a523c877c84e89dae97f18694aabb"
+        }
+      ],
+      "cleanup": [
+        {
+          "Pass": true,
+          "OwnedPids": [
+            80872,
+            94512
+          ],
+          "Residue": [],
+          "PipePresentBefore": false,
+          "PipePresentAfter": false,
+          "PipeCleanup": {
+            "Pass": true,
+            "State": "absent"
+          },
+          "DiagnosticsPreserved": null,
+          "DiagnosticsCopyError": null,
+          "SessionRootRetained": false
+        },
+        {
+          "Pass": true,
+          "OwnedPids": [
+            88992,
+            115676
+          ],
+          "Residue": [],
+          "PipePresentBefore": false,
+          "PipePresentAfter": false,
+          "PipeCleanup": {
+            "Pass": true,
+            "State": "absent"
+          },
+          "DiagnosticsPreserved": null,
+          "DiagnosticsCopyError": null,
+          "SessionRootRetained": false
+        }
+      ],
+      "passed": 8,
+      "cases": [
+        {
+          "bounds": {
+            "x": 195,
+            "y": 228,
+            "width": 825,
+            "height": 375
+          },
+          "inputRoute": "native Invoke or real pointer fallback",
+          "pass": true,
+          "initialSkipFocus": true,
+          "sourceAndSentinelPreserved": true,
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "id": "light-cancel"
+        },
+        {
+          "bounds": {
+            "x": 195,
+            "y": 228,
+            "width": 825,
+            "height": 375
+          },
+          "inputRoute": "native Invoke or real pointer fallback",
+          "pass": true,
+          "initialSkipFocus": true,
+          "sourceAndSentinelPreserved": true,
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "id": "light-skip"
+        },
+        {
+          "bounds": {
+            "x": 195,
+            "y": 228,
+            "width": 825,
+            "height": 375
+          },
+          "inputRoute": "native Invoke or real pointer fallback",
+          "pass": true,
+          "initialSkipFocus": true,
+          "sourceAndSentinelPreserved": true,
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "id": "light-keep-both"
+        },
+        {
+          "bounds": {
+            "x": 195,
+            "y": 228,
+            "width": 825,
+            "height": 375
+          },
+          "inputRoute": "native Invoke or real pointer fallback",
+          "pass": true,
+          "initialSkipFocus": true,
+          "sourceAndSentinelPreserved": true,
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "id": "light-replace"
+        },
+        {
+          "bounds": {
+            "x": 131,
+            "y": 164,
+            "width": 825,
+            "height": 375
+          },
+          "inputRoute": "real keyboard",
+          "pass": true,
+          "initialSkipFocus": true,
+          "sourceAndSentinelPreserved": true,
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "id": "dark-cancel"
+        },
+        {
+          "bounds": {
+            "x": 131,
+            "y": 164,
+            "width": 825,
+            "height": 375
+          },
+          "inputRoute": "real keyboard",
+          "pass": true,
+          "initialSkipFocus": true,
+          "sourceAndSentinelPreserved": true,
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "id": "dark-skip"
+        },
+        {
+          "bounds": {
+            "x": 131,
+            "y": 164,
+            "width": 825,
+            "height": 375
+          },
+          "inputRoute": "real keyboard",
+          "pass": true,
+          "initialSkipFocus": true,
+          "sourceAndSentinelPreserved": true,
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "id": "dark-keep-both"
+        },
+        {
+          "bounds": {
+            "x": 131,
+            "y": 164,
+            "width": 825,
+            "height": 375
+          },
+          "inputRoute": "real keyboard",
+          "pass": true,
+          "initialSkipFocus": true,
+          "sourceAndSentinelPreserved": true,
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "id": "dark-replace"
+        }
+      ],
+      "failure": null
+    },
+    "e2e": {
+      "status": "PASS",
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "closeObservations": [
+        {
+          "processId": 68744,
+          "uiaCloseReturned": true,
+          "uiaError": "",
+          "fallbackAttempted": false,
+          "fallbackKeys": "",
+          "fallbackInput": [],
+          "fallbackError": "",
+          "deadlineMs": 10000,
+          "exitObserved": true
+        },
+        {
+          "processId": 116748,
+          "uiaCloseReturned": true,
+          "uiaError": "",
+          "fallbackAttempted": false,
+          "fallbackKeys": "",
+          "fallbackInput": [],
+          "fallbackError": "",
+          "deadlineMs": 10000,
+          "exitObserved": true
+        }
+      ]
+    },
+    "focusedRestore": {
+      "status": "PASS",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "closeObservations": [
+        {
+          "processId": 116148,
+          "uiaCloseReturned": true,
+          "uiaError": "",
+          "fallbackAttempted": false,
+          "fallbackKeys": "",
+          "fallbackInput": [],
+          "fallbackError": "",
+          "deadlineMs": 10000,
+          "exitObserved": true
+        },
+        {
+          "processId": 76168,
+          "uiaCloseReturned": true,
+          "uiaError": "",
+          "fallbackAttempted": false,
+          "fallbackKeys": "",
+          "fallbackInput": [],
+          "fallbackError": "",
+          "deadlineMs": 10000,
+          "exitObserved": true
+        }
+      ]
+    }
+  },
+  "combined": {
+    "provenance": {
+      "source": {
+        "headSha": "63ffa59532d8c874bc3e0dbe7a9eece95a06d54b",
+        "treeSha": "c86210f182186293497fe4d1adfa8f094846d6fb",
+        "treeSemantic": "HEAD^{tree}",
+        "sourceClean": true,
+        "stateDigest": "2f77a4ca88b792beae1ef05364b20dda866644bfc3d01bbc27c75787bd3476e0",
+        "reasonCodes": []
+      },
+      "boundToHead": true,
+      "boundToTree": false,
+      "treeBindingStatus": "NOT_EMBEDDED",
+      "checkResult": {
+        "status": "PASS",
+        "issueCodes": [],
+        "reason": null
+      },
+      "binaries": [
+        {
+          "filename": "FastFiles.exe",
+          "sha256": "578598eb96546fac8410e268123be9c927defd95cd1ee933c1cbe27d3392bba3",
+          "buildIdentity": "63ffa59532d8c874bc3e0dbe7a9eece95a06d54b",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        },
+        {
+          "filename": "FastFilesEngine.exe",
+          "sha256": "14caf048aff50cb634e8a7e7ca01888b29a71b35e4a40d45ec924bb0ff93f8e2",
+          "buildIdentity": "63ffa59532d8c874bc3e0dbe7a9eece95a06d54b",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        },
+        {
+          "filename": "FastFilesIndexSvc.exe",
+          "sha256": "b3251a32b8ef60a3770d96c4bb1d929972e5ee0f67012151cdf9bb6a393e3702",
+          "buildIdentity": "63ffa59532d8c874bc3e0dbe7a9eece95a06d54b",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        },
+        {
+          "filename": "FastFilesSetup.exe",
+          "sha256": "f4972f78b28bf0e9814c082724562500b31126b90f3aa8ee8f8b01bd2313ad1c",
+          "buildIdentity": "63ffa59532d8c874bc3e0dbe7a9eece95a06d54b",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        },
+        {
+          "filename": "fftest.exe",
+          "sha256": "ecf54817ae29ac1b9c3c5f8466afa6c5f7c92c38456b50ff29dd54c6652a5037",
+          "buildIdentity": "63ffa59532d8c874bc3e0dbe7a9eece95a06d54b",
+          "configuration": "Debug",
+          "worktreeState": "clean"
+        }
+      ]
+    },
+    "native": {
+      "shiftTabInputPreflight": [
+        {
+          "vk": 16,
+          "down": true
+        },
+        {
+          "vk": 9,
+          "down": true
+        },
+        {
+          "vk": 9,
+          "down": false
+        },
+        {
+          "vk": 16,
+          "down": false
+        }
+      ],
+      "brightness": {
+        "Dark": 27.932311621966786,
+        "Light": 243.2492017879897
+      },
+      "pixelReviewRequired": true,
+      "captures": [
+        {
+          "id": "light-cancel",
+          "sha256": "bdd6bc66c4d477245e63c21ffdc9bdd763eb17694eff356982ef9a2f3adda33d",
+          "image": "after-light.png",
+          "theme": "Light",
+          "bounds": {
+            "Hwnd": {
+              "value": 9179604
+            },
+            "X": 363,
+            "Y": 388,
+            "Width": 809,
+            "Height": 367,
+            "Dpi": 120,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        },
+        {
+          "id": "dark-cancel",
+          "sha256": "e6a4e78f2db7ae42ee8dba05ab1dfb31af7a523c877c84e89dae97f18694aabb",
+          "image": "after-dark.png",
+          "theme": "Dark",
+          "bounds": {
+            "Hwnd": {
+              "value": 26021354
+            },
+            "X": 299,
+            "Y": 324,
+            "Width": 809,
+            "Height": 367,
+            "Dpi": 120,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      ],
+      "passed": 8,
+      "cases": [
+        {
+          "id": "light-cancel",
+          "sourceAndSentinelPreserved": true,
+          "pass": true,
+          "bounds": {
+            "x": 355,
+            "y": 388,
+            "width": 825,
+            "height": 375
+          },
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "initialSkipFocus": true,
+          "inputRoute": "native Invoke or real pointer fallback"
+        },
+        {
+          "id": "light-skip",
+          "sourceAndSentinelPreserved": true,
+          "pass": true,
+          "bounds": {
+            "x": 355,
+            "y": 388,
+            "width": 825,
+            "height": 375
+          },
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "initialSkipFocus": true,
+          "inputRoute": "native Invoke or real pointer fallback"
+        },
+        {
+          "id": "light-keep-both",
+          "sourceAndSentinelPreserved": true,
+          "pass": true,
+          "bounds": {
+            "x": 355,
+            "y": 388,
+            "width": 825,
+            "height": 375
+          },
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "initialSkipFocus": true,
+          "inputRoute": "native Invoke or real pointer fallback"
+        },
+        {
+          "id": "light-replace",
+          "sourceAndSentinelPreserved": true,
+          "pass": true,
+          "bounds": {
+            "x": 355,
+            "y": 388,
+            "width": 825,
+            "height": 375
+          },
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "initialSkipFocus": true,
+          "inputRoute": "native Invoke or real pointer fallback"
+        },
+        {
+          "id": "dark-cancel",
+          "sourceAndSentinelPreserved": true,
+          "pass": true,
+          "bounds": {
+            "x": 291,
+            "y": 324,
+            "width": 825,
+            "height": 375
+          },
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "initialSkipFocus": true,
+          "inputRoute": "real keyboard"
+        },
+        {
+          "id": "dark-skip",
+          "sourceAndSentinelPreserved": true,
+          "pass": true,
+          "bounds": {
+            "x": 291,
+            "y": 324,
+            "width": 825,
+            "height": 375
+          },
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "initialSkipFocus": true,
+          "inputRoute": "real keyboard"
+        },
+        {
+          "id": "dark-keep-both",
+          "sourceAndSentinelPreserved": true,
+          "pass": true,
+          "bounds": {
+            "x": 291,
+            "y": 324,
+            "width": 825,
+            "height": 375
+          },
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "initialSkipFocus": true,
+          "inputRoute": "real keyboard"
+        },
+        {
+          "id": "dark-replace",
+          "sourceAndSentinelPreserved": true,
+          "pass": true,
+          "bounds": {
+            "x": 291,
+            "y": 324,
+            "width": 825,
+            "height": 375
+          },
+          "tabOrder": [
+            "Keep both",
+            "Cancel",
+            "Do this for all remaining conflicts",
+            "Replace",
+            "Skip"
+          ],
+          "initialSkipFocus": true,
+          "inputRoute": "real keyboard"
+        }
+      ],
+      "cleanup": [
+        {
+          "Pass": true,
+          "OwnedPids": [
+            113956,
+            106736
+          ],
+          "Residue": [],
+          "PipePresentBefore": false,
+          "PipePresentAfter": false,
+          "PipeCleanup": {
+            "Pass": true,
+            "State": "absent"
+          },
+          "DiagnosticsPreserved": null,
+          "DiagnosticsCopyError": null,
+          "SessionRootRetained": false
+        },
+        {
+          "Pass": true,
+          "OwnedPids": [
+            115188,
+            115956
+          ],
+          "Residue": [],
+          "PipePresentBefore": false,
+          "PipePresentAfter": false,
+          "PipeCleanup": {
+            "Pass": true,
+            "State": "absent"
+          },
+          "DiagnosticsPreserved": null,
+          "DiagnosticsCopyError": null,
+          "SessionRootRetained": false
+        }
+      ],
+      "failure": null
+    },
+    "e2e": {
+      "status": "PASS",
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "closeObservations": [
+        {
+          "processId": 109304,
+          "uiaCloseReturned": true,
+          "uiaError": "",
+          "fallbackAttempted": false,
+          "fallbackKeys": "",
+          "fallbackInput": [],
+          "fallbackError": "",
+          "deadlineMs": 10000,
+          "exitObserved": true
+        },
+        {
+          "processId": 75568,
+          "uiaCloseReturned": true,
+          "uiaError": "",
+          "fallbackAttempted": false,
+          "fallbackKeys": "",
+          "fallbackInput": [],
+          "fallbackError": "",
+          "deadlineMs": 10000,
+          "exitObserved": true
+        }
+      ]
+    },
+    "pureFocused": {
+      "passed": 4,
+      "seconds": 40.74
+    },
+    "semanticFocused": {
+      "passed": 10,
+      "seconds": 12.43
+    },
+    "pixelDeduplication": "independent standalone/combined captures have identical SHA-256; shared committed PNGs are the actual captured bytes"
+  },
+  "retainedFailures": {
+    "initialFullE2E": {
+      "passed": 7,
+      "failed": 1,
+      "failures": [
+        {
+          "id": "cold-restore",
+          "status": "FAIL",
+          "stage": "home-close",
+          "detail": "Home navigation/close failed: palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1792959549,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0,\\\"pid\\\":117136,\\\"tid\\\":117140,\\\"epochMs\\\":1792959549057}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":10885000,\"foregroundEvidenceAvailable\":true,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":117136,\"popupClasses\":[]}",
+          "durationMs": 18067.2
+        }
+      ],
+      "cause": "UNPROVEN: no original close-route telemetry"
+    },
+    "initialConflictRun": {
+      "passed": 7,
+      "cause": "test used unsupported +{TAB} syntax; corrected braced Shift modifier and four-event dry-run"
+    }
+  },
+  "logSha256": {
+    "build\\conflict-actions-20261026\\full-e2e.log": "3300d9ceadf2971191de2d6a3ced82f1deb79f85e1720d5590ab5b1fda9ce85c",
+    "build\\conflict-actions-20261026\\close-fallback-red.log": "38ac3c3f26d21dd85818932366aa1dc0c66b9607568169177d1ee79ed539dcfc",
+    "build\\conflict-actions-20261026\\close-json-red.log": "6bd48b214e922e75b26c92fb736d9c48c62bc5cf7dad271d34413f75cc39fbee",
+    "build\\conflict-actions-20261026\\close-json-isolated-green.log": "1146bb054905c88c330e738935b34d1fb07f4f5965635020b5075507f9e11d68",
+    "build\\conflict-actions-20261026\\full-qualified.log": "4997bc41ed4c5212c2ee8b35d805034cf3dc6b10e3a3312bb077f3f942ff9eb5",
+    "build\\conflict-actions-20261026\\conflict-qualified.log": "5865976376f2bbd309eb1758b8dc566f880dad7bd46cca55e2d45e78a4f33428",
+    "D:\\Documents\\tryPython\\FastFiles-worktrees\\integration-20261025\\build\\conflict-observed-integration-20261026\\full-e2e.log": "8909e24661797b9dedceb3aafe3c665b26a2f6219ea60a250822a65cc45de237",
+    "D:\\Documents\\tryPython\\FastFiles-worktrees\\integration-20261025\\build\\conflict-observed-integration-20261026\\semantic-focused.log": "fdb4420f99ac2e9a59ec07d5886386152a7052053ce434cd7fd56361c8e2912f"
+  },
+  "boundaries": [
+    "native fallback is headless -NoSend qualified; actual observed closes used UIA",
+    "initial Home-close cause remains unproven",
+    "no privileged/release/hosted/independent-review approval",
+    "ongoing-copy cancel, permanent delete, apply-all, Explorer drag and error/retry UI remain separately unqualified"
+  ]
+}

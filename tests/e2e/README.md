@@ -29,3 +29,19 @@ pwsh ./verify/e2e/Test-ColumnFocusVisibility.ps1 -Mode narrow-dual
 ```
 
 These use marked synthetic files, public UIA actions and the real native window. The strict existing provenance gate runs before launch. The narrow case reveals an inactive pane without changing the focused item. Physical row/pane bounds and measured window DPI are recorded; screenshots require actual visual review, since semantic bounds alone cannot detect cross-pane paint spill. Artifacts remain under ignored `build/column-focus-visibility/`; captures can contain local paths and must be reviewed before sharing. Existing artifact directories are rejected rather than overwritten. No admin, signing, user-file deletion or privileged service is needed.
+
+## File conflict actions qualification
+
+The focused native conflict runner exercises Cancel, Skip, Keep both and Replace
+on marker-owned collisions in both themes, including names, physical bounds,
+Tab traversal and exact file-content outcomes. Light uses native pointer input;
+dark uses keyboard activation. Run it alone after all session-pipe CTests exit:
+
+```powershell
+pwsh ./verify/e2e/Test-FileConflictActions.ps1 -RepoRoot . -ArtifactsDir build/conflict-actions-fresh
+```
+
+It requires a clean committed `debug-diagnostic` build and a fresh artifact
+folder. Review the actual light/dark PNGs as well as `result.json`; a passing
+functional result is not visual approval. It seeds settings only inside its
+isolated session sandbox and never changes system appearance preferences.

@@ -1,4 +1,6 @@
 #include "WindowShell.h"
+#include "ShutdownDiagnostics.h"
+#include "ffui/AsyncWorkAdmission.h"
 #include "IconCache.h"
 #include "UITheme.h"
 #include "UiComponents.h" // ui-v3: shared state-panel presentation for details
@@ -208,7 +210,8 @@ WindowShell::WindowShell() : previewController_([this](uint64_t requestId, Previ
             case PreviewState::Loading: columnView_.SetUiaDetailsStatus(L"Preview: Loading"); break;
             case PreviewState::Unsupported: columnView_.SetUiaDetailsStatus(L"Preview: Unsupported"); break;
         }
-        if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_PREVIEW_READY, 0, 0);
+        const HWND target = hwnd_.load();
+        if (target != nullptr) PostMessageW(target, WM_APP_PREVIEW_READY, 0, 0);
     }
 }) {}
 
@@ -1269,16 +1272,19 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                    !pendingSnapshotGeneration_.compare_exchange_weak(pending, generation)) {
             }
             if (!snapshotRefreshPosted_.exchange(true)) {
-                PostMessageW(hwnd_, WM_APP_SNAPSHOT_UPDATED, 0, 0);
+                const HWND target = hwnd_.load();
+                if (target != nullptr) PostMessageW(target, WM_APP_SNAPSHOT_UPDATED, 0, 0);
             }
         },
         [this](EngineConnectionState state, bool privilegedPathActive) {
             columnView_.SetEngineStatus(state, privilegedPathActive);
-            PostMessageW(hwnd_, WM_APP_ENGINE_STATUS, static_cast<WPARAM>(state), privilegedPathActive ? 1 : 0);
+            const HWND target = hwnd_.load();
+            if (target != nullptr) PostMessageW(target, WM_APP_ENGINE_STATUS, static_cast<WPARAM>(state), privilegedPathActive ? 1 : 0);
         },
         [this](const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
             columnView_.OnDirectoryError(path, reason);
-            PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
+            const HWND target = hwnd_.load();
+            if (target != nullptr) PostMessageW(target, WM_APP_REPAINT, 0, 0);
         });
 
     // overnight-recovery-campaign: EngineClient drops directory requests until
@@ -1353,14 +1359,18 @@ int WindowShell::RunMessageLoop() {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    AppendShutdownPhase(L"message-loop-exit", L"observed");
     navigationWorkspace_.FlushState();
+    AppendShutdownPhase(L"engine-client-stop", L"begin");
     engineClient_.Stop();
+    AppendShutdownPhase(L"engine-client-stop", L"end");
     fileOperations_.Stop();
     return static_cast<int>(msg.wParam);
 }
 
 void WindowShell::RequestRepaint() {
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    const HWND target = hwnd_.load();
+    if (target != nullptr) InvalidateRect(target, nullptr, FALSE);
 }
 
 bool WindowShell::IsSystemDark() const {
@@ -1725,6 +1735,7 @@ void WindowShell::RefreshSelectionPresentation() {
 }
 
 void WindowShell::RequestFileType(const std::wstring& path) {
+    if (!AdmitAsyncWork(fileTypeWork_, kMaxInFlightFileTypeLookups)) return;
     {
         std::lock_guard<std::mutex> lock(fileTypeMutex_);
         if (fileTypes_.contains(path)) return;
@@ -1736,14 +1747,6 @@ void WindowShell::RequestFileType(const std::wstring& path) {
         }
         fileTypes_.emplace(path, L"");
     }
-    fileTypeWork_.erase(std::remove_if(fileTypeWork_.begin(), fileTypeWork_.end(), [](std::shared_future<void>& work) {
-        return work.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
-    }), fileTypeWork_.end());
-    // Bound the in-flight list too. shared_future destruction never blocks,
-    // so abandoning the oldest lookup cannot stall the UI thread or shutdown.
-    if (fileTypeWork_.size() >= kMaxInFlightFileTypeLookups) {
-        fileTypeWork_.erase(fileTypeWork_.begin());
-    }
     fileTypeWork_.push_back(std::async(std::launch::async, [this, path] {
         SHFILEINFOW info{};
         std::wstring description;
@@ -1754,7 +1757,8 @@ void WindowShell::RequestFileType(const std::wstring& path) {
             std::lock_guard<std::mutex> lock(fileTypeMutex_);
             fileTypes_[path] = std::move(description);
         }
-        if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
+        const HWND target = hwnd_.load();
+        if (target != nullptr) PostMessageW(target, WM_APP_REPAINT, 0, 0);
     }).share());
 }
 
@@ -2033,7 +2037,7 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                                 ffprotocol::FolderAggregateResultV2Payload{engineRequestId, status, itemCount, totalSizeBytes,
                                                                            totalAllocatedSizeBytes, allocatedBytesKnownCount,
                                                                            allocatedBytesTotalCount});
-                            const HWND target = hwnd_;
+                            const HWND target = hwnd_.load();
                             if (target != nullptr
                                 && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
                                                 reinterpret_cast<LPARAM>(payload.get()))) {
@@ -3071,7 +3075,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     engineClient_.RequestUnavailableVolumes([this](auto records) {
                         auto owned = std::make_unique<std::vector<ffprotocol::UnavailableVolumeRecord>>(
                             std::move(records));
-                        const HWND target = hwnd_;
+                        const HWND target = hwnd_.load();
                         if (target != nullptr
                             && PostMessageW(target, WM_APP_UNAVAILABLE_VOLUMES, 0,
                                             reinterpret_cast<LPARAM>(owned.get()))) {
@@ -3154,6 +3158,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_DESTROY:
+            AppendShutdownPhase(L"wm-destroy", L"begin");
             storageAnalysis_.StopRanking();
             KillTimer(hwnd_, kWorkspaceSaveTimer);
             KillTimer(hwnd_, kUiScrollAnimTimer);
@@ -3162,12 +3167,15 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             RevokeDragDrop(hwnd);
             dropTarget_.Reset();
             fileOperations_.Stop();
+            AppendShutdownPhase(L"wm-destroy-file-operations-stop", L"end");
             previewController_.Clear();
+            AppendShutdownPhase(L"wm-destroy-preview-clear", L"end");
             // semantic-uia-core-surfaces 2.5: release the app's provider
             // references; client-held elements become safe zombies via the
             // owner-lifetime token before the HWND is destroyed.
             columnView_.ReleaseUiaProvider();
             searchPanel_.ReleaseUiaProvider();
+            AppendShutdownPhase(L"wm-destroy-providers-release", L"end");
             hwnd_ = nullptr;
             PostQuitMessage(0);
             return 0;

@@ -28,3 +28,9 @@ None. The new contracts make cross-surface composition explicit without weakenin
 The bounded Treemap follow-up preserves partial folder lower bounds through the actual rollup and makes logical size and coverage visible without hover, retaining existing native hierarchy, navigation and data sources.
 
 Native UI command routing, StorageAnalysis, SearchPanel, WindowShell, and E2E tests. No process, IPC, database, service, trust, or installer contract changes. Existing PRs remain separate and unmerged.
+
+The native conflict-decision slice also restores real accessible action names, Windows Tab traversal and coherent dialog/checkbox theming while preserving default Skip, all decision semantics and marker-owned validation.
+
+Native lifecycle qualification also corrects the E2E Alt+F4 fallback to the existing braced-modifier input contract and preserves close-route evidence without changing ownership controls, timeouts or product shutdown behavior.
+
+The bounded shutdown successor corrects UI COM lifetime, abandons pending icon work and declines saturated file-type lookup admission while retaining active task ownership. Opt-in metadata phases identify actual shutdown progress. This does not establish the cause of the observed Home close timeout or qualify native exit.

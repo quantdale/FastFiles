@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "UITheme.h"
+#include "UiComponents.h"
 
 namespace ffui {
 
@@ -115,10 +116,13 @@ void DrawReplaceButton(const DRAWITEMSTRUCT* item) {
         }
     }
     const std::wstring label = L"Replace";
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(item->hwndItem, WM_GETFONT, 0, 0));
+    HGDIOBJ previousFont = font ? SelectObject(dc, font) : nullptr;
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ToColorRef(theme.text));
     DrawTextW(dc, label.c_str(), -1, const_cast<LPRECT>(&rect),
               DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
+    if (previousFont != nullptr && previousFont != HGDI_ERROR) SelectObject(dc, previousFont);
 }
 
 LRESULT CALLBACK DialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -145,6 +149,14 @@ LRESULT CALLBACK DialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         DestroyWindow(window);
         return 0;
     }
+    // original-vision-journey-recovery 2.10: this is a custom window, so
+    // WM_CTLCOLORDLG alone cannot erase its native class background.
+    if (message == WM_ERASEBKGND && state != nullptr && state->themeBrush != nullptr) {
+        RECT client{};
+        GetClientRect(window, &client);
+        FillRect(reinterpret_cast<HDC>(wParam), &client, state->themeBrush);
+        return 1;
+    }
     // §5.4: themed dialog background (WM_CTLCOLORDLG) and message-text colors
     // (WM_CTLCOLORSTATIC) so the conflict dialog is never blinding-white in
     // dark mode. Channeled through gUiDarkTheme, which WindowShell publishes.
@@ -162,6 +174,7 @@ LRESULT CALLBACK DialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         HDC hdc = reinterpret_cast<HDC>(wParam);
         const UiTheme theme = GetUiTheme(gUiDarkTheme);
         SetBkColor(hdc, ToColorRef(theme.background));
+        SetTextColor(hdc, ToColorRef(theme.text));
         return reinterpret_cast<LRESULT>(state->themeBrush);
     }
     if (message == WM_DRAWITEM && state != nullptr) {
@@ -288,7 +301,7 @@ ConflictDecision ShowConflictDialog(HWND owner, const std::wstring& source, cons
     }
 
     state.applyAll = CreateWindowExW(0, L"BUTTON", L"Do this for all remaining conflicts",
-                                     WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, ScaleInt(24),
+                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, ScaleInt(24),
                                      ScaleInt(134), ScaleInt(380), ScaleInt(24),
                                      dialog, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kApplyAll)), nullptr, nullptr);
 
@@ -299,16 +312,16 @@ ConflictDecision ShowConflictDialog(HWND owner, const std::wstring& source, cons
 
     // ui-v3 conflict dialog: exact action labels; Skip is the safe default
     // (nothing is written); Cancel sits apart on the right.
-    CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+    HWND replace = CreateWindowExW(0, L"BUTTON", L"Replace", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                     ScaleInt(24), ScaleInt(206), ScaleInt(128), ScaleInt(34), dialog,
                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kReplace)), nullptr, nullptr);
-    HWND skip = CreateWindowExW(0, L"BUTTON", L"Skip", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+    HWND skip = CreateWindowExW(0, L"BUTTON", L"Skip", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
                                 ScaleInt(164), ScaleInt(206), ScaleInt(120), ScaleInt(34), dialog,
                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSkip)), nullptr, nullptr);
-    HWND keep = CreateWindowExW(0, L"BUTTON", L"Keep both", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+    HWND keep = CreateWindowExW(0, L"BUTTON", L"Keep both", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                                 ScaleInt(296), ScaleInt(206), ScaleInt(120), ScaleInt(34), dialog,
                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(kKeepBoth)), nullptr, nullptr);
-    HWND cancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+    HWND cancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                                   width - ScaleInt(144), ScaleInt(206), ScaleInt(120), ScaleInt(34), dialog,
                                   reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
 
@@ -319,6 +332,10 @@ ConflictDecision ShowConflictDialog(HWND owner, const std::wstring& source, cons
     }
     ApplyFont(state.applyAll, captionFont);
     ApplyFont(warningLabel, captionFont);
+    ApplyFont(replace, bodyFont);
+    for (HWND control : {state.applyAll, skip, keep, cancel}) {
+        ApplyNativeExplorerTheme(control, gUiDarkTheme);
+    }
     ApplyFont(skip, bodyFont);
     ApplyFont(keep, bodyFont);
     ApplyFont(cancel, bodyFont);

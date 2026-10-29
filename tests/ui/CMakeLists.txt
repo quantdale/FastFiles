@@ -327,3 +327,9 @@ target_include_directories(ffowned_message_drain_tests PRIVATE ../../src/ui/src)
 target_link_libraries(ffowned_message_drain_tests PRIVATE user32)
 add_test(NAME ffowned_message_drain_tests COMMAND ffowned_message_drain_tests)
 set_tests_properties(ffowned_message_drain_tests PROPERTIES TIMEOUT 15)
+
+# original-vision-journey-recovery 4.8: controlled async states, no shell/UI.
+add_executable(ffasync_work_admission_tests test_async_work_admission.cpp)
+target_include_directories(ffasync_work_admission_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffasync_work_admission_tests COMMAND ffasync_work_admission_tests)
+set_tests_properties(ffasync_work_admission_tests PROPERTIES TIMEOUT 120)

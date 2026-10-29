@@ -15,6 +15,7 @@
 - [x] 2.8 Reserve Settings client geometry independently from caption/frame so OK/Cancel remain fully visible. Native120DPI red fails both bounds; repaired bounds and actual Cancel pointer dismissal pass. Catalog now rejects clipped footer controls.
 
 - [x] 2.9 Keep bounded engine/status text on one legible line with ellipsis, preserve full model descriptions and truthful compact degraded/retry feedback, and inspect actual narrow screenshots.
+- [x] 2.10 Give native conflict actions real accessible names and keyboard Tab stops; apply shared native dark/High Contrast control themes and erase the custom dialog with its actual theme brush. Exercise real Cancel/Skip/Keep both/Replace on marker-owned collisions, preserve native decisions and inspect light/dark screenshots.
 
 ## 3. Search-to-navigation continuity
 
@@ -35,3 +36,7 @@
 - [ ] 4.2 Run broader local certification, independent review and integration simulation with PR14/15/16.
 - [ ] 4.3 Record exact source/evidence identity, commit, reconcile remote, publish unmerged successor work and report real limitations.
 - [x] 4.4 Preserve an already visible palette during capture activation and revalidate required surface visibility immediately before screenshot; retain red-capable headless input regression and actual pixel review. Two old-source checks fail; repaired full driver passes. Actual pixel review additionally found/repaired sibling painting in2.7.
+
+- [x] 4.5 Repair and regression-test the E2E native Alt+F4 fallback; preserve close-route/error/input/exit observations and the unchanged10s deadline, then qualify actual cold restore. Retain initial Home-close failure and distinguish demonstrated fallback defect from unproven original attribution.
+
+- [x] 4.8 Repair UI OLE/shell lifetime, discard queued icon work at stop, retain unfinished file-type tasks with saturation admission and add opt-in metadata shutdown phases; run focused controlled headless regressions and independently qualify instrumented native Home close within the unchanged10s bound. Clean09761df full native8/8 with three normal closes/cleanup observations; selected Debug/release127/127 each, Analyze and independent bounded review pass. Original7/8 result and timeout root-cause uncertainty remain preserved; ten-second exit poll starts after synchronous Close.

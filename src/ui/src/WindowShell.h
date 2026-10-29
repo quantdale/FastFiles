@@ -98,7 +98,9 @@ private:
     float NavigationViewportWidth() const;
     ffui::MainShellLayout CurrentShellLayout() const;
 
-    HWND hwnd_ = nullptr;
+    // Workers publish completion while WM_DESTROY retires the shell. Atomic
+    // publication removes the C++ data race; it does not extend HWND lifetime.
+    std::atomic<HWND> hwnd_{nullptr};
     bool uiaReady_ = false;
     Renderer renderer_;
     // Owns the bounded type-icon cache; the column view resolves icons through
@@ -161,8 +163,8 @@ private:
     PreviewController previewController_;
     mutable std::mutex fileTypeMutex_;
     std::map<std::wstring, std::wstring> fileTypes_;
-    // shared_future destruction never blocks, so bounding this list cannot
-    // stall shutdown on stragglers stuck behind dead network paths.
+    // original-vision-journey-recovery 4.8: retain unfinished async states;
+    // final destruction joins before fileTypes_ and fileTypeMutex_ die.
     std::vector<std::shared_future<void>> fileTypeWork_;
     // Details-pane metadata is fetched once per selection change (not per
     // paint frame); a failed fetch renders "—" rather than epoch-zero times.

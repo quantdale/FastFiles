@@ -397,6 +397,9 @@ Check ($found2Id -eq 'Downloads - File Explorer') 'Explorer discovery matches th
 $foundNone = Get-UiaExplorerWindow -Driver $expMock -ExpectedPath 'C:\Users\Test\ffui-drag-42\source' -CandidateProcessIds @(4242) -TimeoutMs 300 -PollIntervalMs 50
 Check ($null -eq $foundNone) 'Explorer discovery returns null for an unmatched path'
 
+Write-Host "== Explorer cleanup ownership =="
+. (Join-Path $PSScriptRoot 'test-scenario-cleanup.ps1')
+
 Write-Host ""
 if ($script:failures -gt 0) {
     Write-Host "RESULT: $script:failures check(s) FAILED"

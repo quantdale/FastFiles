@@ -38,6 +38,13 @@ Each ranked row SHALL retain its source containing folder for visible location, 
 #### Scenario: Workspace changes before completion
 - **WHEN** a ranking completion arrives after hide, scope change, category/mode replacement or a newer request
 - **THEN** it cannot replace the current rows or supply actions to another workspace
+### Requirement: Shutdown qualification observes real application closure
+
+Native restore qualification SHALL close every app lifecycle through the actual public window-close path and retain each route and observed exit under the unchanged deadline. Forced fixture teardown SHALL NOT count as graceful application shutdown. Worker callback publication SHALL synchronize access to the retired shell target without claiming extended HWND lifetime.
+
+#### Scenario: Restored Home does not close
+- **WHEN** the third restored Home app does not exit within the native close deadline
+- **THEN** restoration qualification fails and retains its close observation instead of accepting later fixture cleanup as a pass
 
 ### Requirement: Settings completion controls fit the real dialog
 
@@ -138,3 +145,30 @@ Narrow Storage surfaces SHALL offer all existing view modes through a labeled na
 #### Scenario: Storage keyboard controls remain traversable
 - **WHEN** Tab or Shift+Tab is pressed in a native Storage control
 - **THEN** focus moves through visible enabled controls in spatial order and escapes to the shell owner at a boundary, with compact selector/category and Up/selector traversal verified through actual input
+### Requirement: Native conflict actions are accessible and truthful
+
+Conflict decision controls SHALL expose their visible names through native accessibility and remain reachable through Windows Tab navigation. Skip SHALL retain initial focus. Dialog background and checkbox labels SHALL follow the shared light/dark tokens and existing High Contrast behavior. Cancel and Skip SHALL preserve both files, Keep both SHALL preserve the existing destination and create the incoming copy under a distinct name, and Replace SHALL update only the intended marked destination.
+
+#### Scenario: Named keyboard-accessible conflict decisions
+- **WHEN** copying a file into a folder containing the same name
+- **THEN** Replace, Skip, Keep both, Cancel and the apply-to-all checkbox expose their visible names and participate in Tab navigation
+
+#### Scenario: Safe cancellation
+- **WHEN** Cancel is activated in the actual conflict dialog
+- **THEN** incoming and existing destination contents remain unchanged
+
+#### Scenario: Dark conflict dialog
+- **WHEN** the workspace is dark and a conflict decision is presented
+- **THEN** its real background and checkbox label remain legible without changing the operation policy
+
+### Requirement: Native shutdown preserves owner lifetimes
+
+The UI SHALL destroy shell COM owners before OLE teardown, abandon queued icon work on stop while joining active resolution, and decline saturated file-type lookup admission without releasing unfinished task state or caching an unstarted lookup. Opt-in shutdown diagnostics SHALL carry phase/outcome, PID and timestamp without file paths or content.
+
+#### Scenario: Saturated file-type lookup
+- **WHEN** the unfinished lookup limit is reached
+- **THEN** a new lookup is declined without joining or discarding existing tasks, and completed tasks later reopen admission
+
+#### Scenario: Close qualification remains truthful
+- **WHEN** native close does not exit within the existing10s bound
+- **THEN** qualification remains failed and phase evidence is retained without attributing an unproven cause

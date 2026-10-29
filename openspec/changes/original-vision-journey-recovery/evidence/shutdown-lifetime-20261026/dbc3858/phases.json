@@ -1,0 +1,231 @@
+{
+  "source": "dbc3858aec612c5076355218c42a4c3acb0bf5eb",
+  "lifecycles": [
+    {
+      "pid": 116580,
+      "observedWmDestroyToOleEndMs": 52,
+      "engineStopMs": 2,
+      "iconJoinMs": 1,
+      "shellDestructionMs": 5,
+      "shellDestructionEndsBeforeOleUninitialize": true,
+      "phases": [
+        {
+          "phase": "wm-destroy",
+          "outcome": "begin",
+          "epochMs": 1793016914866
+        },
+        {
+          "phase": "wm-destroy-file-operations-stop",
+          "outcome": "end",
+          "epochMs": 1793016914876
+        },
+        {
+          "phase": "wm-destroy-preview-clear",
+          "outcome": "end",
+          "epochMs": 1793016914878
+        },
+        {
+          "phase": "wm-destroy-providers-release",
+          "outcome": "end",
+          "epochMs": 1793016914881
+        },
+        {
+          "phase": "message-loop-exit",
+          "outcome": "observed",
+          "epochMs": 1793016914898
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "begin",
+          "epochMs": 1793016914899
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "end",
+          "epochMs": 1793016914901
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "begin",
+          "epochMs": 1793016914905
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "begin",
+          "epochMs": 1793016914907
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "end",
+          "epochMs": 1793016914908
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "end",
+          "epochMs": 1793016914910
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "begin",
+          "epochMs": 1793016914913
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "end",
+          "epochMs": 1793016914918
+        }
+      ]
+    },
+    {
+      "pid": 122268,
+      "observedWmDestroyToOleEndMs": 37,
+      "engineStopMs": 3,
+      "iconJoinMs": 2,
+      "shellDestructionMs": 8,
+      "shellDestructionEndsBeforeOleUninitialize": true,
+      "phases": [
+        {
+          "phase": "wm-destroy",
+          "outcome": "begin",
+          "epochMs": 1793016912882
+        },
+        {
+          "phase": "wm-destroy-file-operations-stop",
+          "outcome": "end",
+          "epochMs": 1793016912885
+        },
+        {
+          "phase": "wm-destroy-preview-clear",
+          "outcome": "end",
+          "epochMs": 1793016912886
+        },
+        {
+          "phase": "wm-destroy-providers-release",
+          "outcome": "end",
+          "epochMs": 1793016912887
+        },
+        {
+          "phase": "message-loop-exit",
+          "outcome": "observed",
+          "epochMs": 1793016912899
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "begin",
+          "epochMs": 1793016912901
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "end",
+          "epochMs": 1793016912904
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "begin",
+          "epochMs": 1793016912905
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "begin",
+          "epochMs": 1793016912910
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "end",
+          "epochMs": 1793016912912
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "end",
+          "epochMs": 1793016912913
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "begin",
+          "epochMs": 1793016912914
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "end",
+          "epochMs": 1793016912919
+        }
+      ]
+    },
+    {
+      "pid": 125196,
+      "observedWmDestroyToOleEndMs": 50,
+      "engineStopMs": 2,
+      "iconJoinMs": 1,
+      "shellDestructionMs": 7,
+      "shellDestructionEndsBeforeOleUninitialize": true,
+      "phases": [
+        {
+          "phase": "wm-destroy",
+          "outcome": "begin",
+          "epochMs": 1793016909536
+        },
+        {
+          "phase": "wm-destroy-file-operations-stop",
+          "outcome": "end",
+          "epochMs": 1793016909545
+        },
+        {
+          "phase": "wm-destroy-preview-clear",
+          "outcome": "end",
+          "epochMs": 1793016909547
+        },
+        {
+          "phase": "wm-destroy-providers-release",
+          "outcome": "end",
+          "epochMs": 1793016909548
+        },
+        {
+          "phase": "message-loop-exit",
+          "outcome": "observed",
+          "epochMs": 1793016909566
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "begin",
+          "epochMs": 1793016909567
+        },
+        {
+          "phase": "engine-client-stop",
+          "outcome": "end",
+          "epochMs": 1793016909569
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "begin",
+          "epochMs": 1793016909571
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "begin",
+          "epochMs": 1793016909574
+        },
+        {
+          "phase": "icon-worker-join",
+          "outcome": "end",
+          "epochMs": 1793016909575
+        },
+        {
+          "phase": "shell-destruction",
+          "outcome": "end",
+          "epochMs": 1793016909578
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "begin",
+          "epochMs": 1793016909581
+        },
+        {
+          "phase": "ole-uninitialize",
+          "outcome": "end",
+          "epochMs": 1793016909586
+        }
+      ]
+    }
+  ],
+  "scope": "Three explicit natural app closes. No timeout attribution or arbitrary Shell-call bound."
+}

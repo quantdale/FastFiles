@@ -1,0 +1,39 @@
+{
+  "implementation": "09761df11761e209f43d31e302b167ba343c3486",
+  "compiledUiSource": "dbc3858aec612c5076355218c42a4c3acb0bf5eb",
+  "parent": "3a9a2460b67d013f07db00c7016ee9b69c7f162a",
+  "logs": [
+    {
+      "name": "analyze-ui.log.gz",
+      "rawSha256": "445db0253528e334c794e44d666e013d40372adf053c12e66e0ed1034a2712f4",
+      "compressedSha256": "d14713ec3849338fe2ab8744fd99463a8dbc408b9e3d72f74923c525334855eb"
+    },
+    {
+      "name": "debug-build.log.gz",
+      "rawSha256": "02c57c8e821ad32928736bd11625f22ffb97ea6f75c5714973617508a8fceeb9",
+      "compressedSha256": "a4ae2e780b42b821e474f582d2a9a238f982b1442dc8516d94849a70fb8a0d0b"
+    },
+    {
+      "name": "debug-selected.log.gz",
+      "rawSha256": "abfe43dfd789c6c7c859956a09332395e37b4467fb0750f36a11cd8ff1163137",
+      "compressedSha256": "d89392d3a6b41293c8c827ae7b3025da489fa171f807cc0b1469725f0efa329b"
+    },
+    {
+      "name": "release-test-build.log.gz",
+      "rawSha256": "fd99b88b8f7c0c67aa7505e72e53cf0d8cbd8d8a8c548c54b826c0a5204db845",
+      "compressedSha256": "a0bf5e13e96417e89104436e7a56cf53aaf62908ca84393667fa2cfb2237971f"
+    },
+    {
+      "name": "release-test-selected.log.gz",
+      "rawSha256": "2ffb038fdc6b09104144633e5fab3a3aed86fcf7ecea6be9d4c9806c1bfe4a96",
+      "compressedSha256": "44d46d56ca1131b8f2049216f8553d3ee99ad37d25e7ab410f8e0ab521099132"
+    },
+    {
+      "name": "strict-openspec.log.gz",
+      "rawSha256": "a2d5f8e3bff588be47febf1b141e7ee4f9ff8109b089d1d7c7d8b4f6e6561048",
+      "compressedSha256": "cdaa25d4f82da8d9bd12444c94f6db1011841ee91dd83e03b523956ac3259cf4"
+    }
+  ],
+  "excludedTest": "ffverify_process_reaper_ps_tests",
+  "independentReview": "final_evidence_review: no P1/P2 within bounded actual receipt/source evidence; reviewer performed read-only inspection."
+}

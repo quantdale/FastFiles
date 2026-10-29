@@ -1,0 +1,30 @@
+Test project D:/Documents/tryPython/FastFiles-worktrees/shutdown-lifetime-20261026/build/debug-diagnostic
+    Start 116: ffe2e_harness_ps_tests
+1/1 Test #116: ffe2e_harness_ps_tests ...........***Failed    2.94 sec
+PASS: the E2E root is inside itself
+PASS: a descendant path is accepted
+PASS: a sibling prefix escape is rejected
+PASS: the assert helper rejects paths outside the fixture root
+PASS: bounded wait returns a successful condition
+PASS: bounded wait reports a finite timeout
+PASS: the E2E module exposes its safety, wait, evidence, and runner entry points
+PASS: recorded WindowPattern failure uses the bounded native close fallback
+PASS: close fallback actually holds Alt while pressing F4 and releases both keys
+PASS: close evidence preserves rejection, actual fallback input and bounded exit observation
+PASS: recorded restore traverses the real three-lifecycle scenario without live processes
+PASS: restore JSON retains visibility and all three real close observations
+PASS: restored Home close failure cannot be accepted as a passing lifecycle
+Check: D:\Documents\tryPython\FastFiles-worktrees\shutdown-lifetime-20261026\tests\e2e\Test-E2EHarness.ps1:139
+Line |
+ 139 |      Check ($cleanupFailure.status -eq 'FAIL' -and $cleanupFailure.sta …
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | FAIL: final restore cleanup failure cannot be ignored behind a passing scenario
+
+
+0% tests passed, 1 tests failed out of 1
+
+Total Test time (real) =   3.16 sec
+
+The following tests FAILED:
+	116 - ffe2e_harness_ps_tests (Failed)
+Errors while running CTest
