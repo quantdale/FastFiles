@@ -11,6 +11,20 @@ target_compile_definitions(ffengine_index_pipeline_tests PRIVATE FF_INDEX_PIPELI
 
 add_test(NAME ffengine_index_pipeline_tests COMMAND ffengine_index_pipeline_tests)
 
+# original-vision-journey-recovery 4.9: bounded synthetic indexed ranking
+# qualification across actual hot and cold read planes (reconciled from the
+# storage-ranking-residency local input at task 1.3); do not run the unrelated
+# larger ingestion executable here.
+add_executable(ffengine_storage_ranking_residency_tests
+  test_storage_ranking_residency.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp)
+target_include_directories(ffengine_storage_ranking_residency_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_storage_ranking_residency_tests PRIVATE ffindexstore ffprotocol ffsearch Rpcrt4 Shell32 Ole32)
+target_compile_definitions(ffengine_storage_ranking_residency_tests PRIVATE FF_INDEX_PIPELINE_TESTING=1)
+add_test(NAME ffengine_storage_ranking_residency_tests COMMAND ffengine_storage_ranking_residency_tests)
+set_tests_properties(ffengine_storage_ranking_residency_tests PROPERTIES TIMEOUT 60)
+
 # durable-cold-search-index-and-hybrid-residency 4.2: bounded, disposable
 # ordinary error-return and pinned-reader tests. Historical deliberate-crash
 # cases require an explicit separate invocation and are NOT default CTest.
