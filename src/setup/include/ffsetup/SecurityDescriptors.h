@@ -43,8 +43,9 @@ struct OwnedSecurityDescriptor {
 
 // Security descriptor for the Ctrl/Data named pipes: full access for SYSTEM
 // and Administrators, connect+read+write only for the authorized client
-// group, nobody else -- never a null DACL or Everyone/Authenticated Users
-// (spec "Named Pipe Access Control").
+// group, nobody else. Client grants exclude FILE_CREATE_PIPE_INSTANCE (also
+// known as FILE_APPEND_DATA), so group members cannot add broker servers.
+// Never a null DACL or Everyone/Authenticated Users (spec "Named Pipe Access Control").
 std::optional<OwnedSecurityDescriptor> BuildPipeSecurityDescriptor(PSID clientGroupSid) noexcept;
 
 // SCM object security descriptor for FastFilesIndexSvc: full control for
@@ -81,7 +82,9 @@ std::optional<OwnedSecurityDescriptor> BuildAdminOnlySecurityDescriptorForSid(PS
 
 // Security descriptor for FastFilesEngine's same-privilege, UI-facing pipe
 // (design.md D3): read+write for SYSTEM and the current process's own
-// user only -- this seam isn't the elevation boundary, but it still
+// user only. This user also owns the engine server, so unlike the broker's
+// client group it retains instance-creation access. This seam isn't the
+// elevation boundary, but it still
 // shouldn't accept a null DACL or be reachable by other users on a shared
 // machine (design.md Risks: "Cross-user visibility").
 std::optional<OwnedSecurityDescriptor> BuildCurrentUserPipeSecurityDescriptor() noexcept;

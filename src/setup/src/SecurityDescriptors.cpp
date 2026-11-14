@@ -98,7 +98,11 @@ std::optional<OwnedSecurityDescriptor> BuildPipeSecurityDescriptor(PSID clientGr
     EXPLICIT_ACCESS_W entries[3] = {
         MakeGrant(systemSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, NO_INHERITANCE),
         MakeGrant(adminSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, NO_INHERITANCE),
-        MakeGrant(clientGroupSid, FILE_GENERIC_READ | FILE_GENERIC_WRITE, GRANT_ACCESS, NO_INHERITANCE),
+        // FILE_GENERIC_WRITE includes FILE_APPEND_DATA, whose bit means
+        // FILE_CREATE_PIPE_INSTANCE for pipes. Clients may exchange data,
+        // never add an impostor server to the broker's existing pipe name.
+        MakeGrant(clientGroupSid, (FILE_GENERIC_READ | FILE_GENERIC_WRITE) & ~FILE_CREATE_PIPE_INSTANCE,
+                  GRANT_ACCESS, NO_INHERITANCE),
     };
     return BuildFromExplicitAccess(entries, 3);
 }

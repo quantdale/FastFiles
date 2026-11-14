@@ -12,6 +12,7 @@
 
 #include "ffipc/PipeFraming.h"
 #include "ffsetup/Identifiers.h"
+#include "ffsetup/SecurityDescriptors.h"
 #include "sqlite3.h"
 #include "IndexPipeline.h"
 #include "../TestSupport.h"
@@ -208,6 +209,67 @@ int RetryOwnerCountForTest(ffengine::VolumeSessionManager& manager,
         if (manager.failedScanRetries_.contains(ephemeralValue)) ++owners;
     }
     return owners;
+}
+
+void TestProductionClientUsesDataOnlyPipeAccess() {
+    auto descriptor = ffsetup::BuildCurrentUserPipeSecurityDescriptor();
+    Check(descriptor.has_value(), "data-only client fixture builds its disposable pipe DACL");
+    if (!descriptor) return;
+    PACL acl = nullptr;
+    BOOL present = FALSE, defaulted = FALSE;
+    const bool haveAcl = GetSecurityDescriptorDacl(descriptor->attributes.lpSecurityDescriptor,
+                                                  &present, &acl, &defaulted) != FALSE && present && acl;
+    Check(haveAcl, "data-only client fixture has an explicit DACL");
+    if (!haveAcl) return;
+    // Remove instance creation from every fixture principal, including SYSTEM
+    // on a hosted token. This proves the production client asks only for data
+    // rights rather than passing by virtue of an admin/server allow-ACE.
+    for (DWORD index = 0; index < acl->AceCount; ++index) {
+        void* rawAce = nullptr;
+        if (!GetAce(acl, index, &rawAce)) { Check(false, "data-only fixture ACE is readable"); return; }
+        const auto* header = static_cast<ACE_HEADER*>(rawAce);
+        if (header->AceType == ACCESS_ALLOWED_ACE_TYPE) {
+            static_cast<ACCESS_ALLOWED_ACE*>(rawAce)->Mask &= ~FILE_CREATE_PIPE_INSTANCE;
+        }
+    }
+    const std::wstring name = L"\\\\.\\pipe\\FastFiles.DataOnlyClientTest." + std::to_wstring(GetCurrentProcessId())
+        + L"." + std::to_wstring(GetTickCount64());
+    HANDLE server = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                                     1, 4096, 4096, 0, &descriptor->attributes);
+    Check(server != INVALID_HANDLE_VALUE, "data-only client fixture creates its first server");
+    if (server == INVALID_HANDLE_VALUE) return;
+    HANDLE active = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!active) { CloseHandle(server); Check(false, "data-only fixture creates activity event"); return; }
+    std::atomic<bool> handshakeSeen{false};
+    std::thread service([&] {
+        if (ConnectOverlappedPipeWithTimeout(server, 6000)) {
+            const auto request = ffipc::ReadFrameOverlapped(server, std::chrono::steady_clock::now() + std::chrono::seconds(3));
+            if (request && request->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::Handshake)) {
+                const ffprotocol::HandshakeAckPayload ack{ffprotocol::kCurrentProtocolVersion};
+                if (ffipc::WriteFrameOverlapped(server, static_cast<uint16_t>(ffprotocol::MessageType::HandshakeAck),
+                                               &ack, sizeof(ack), std::chrono::steady_clock::now() + std::chrono::seconds(3))) {
+                    handshakeSeen.store(true);
+                    // Keep the acknowledged connection alive until the test
+                    // observes Active and shuts down the real client.
+                    (void)ffipc::ReadFrameOverlapped(server, std::chrono::steady_clock::now() + std::chrono::seconds(3));
+                }
+            }
+        }
+        CloseHandle(server);
+    });
+    ffengine::PrivilegedConnection connection;
+    connection.SetControlPipeNameForTesting(name);
+    connection.SetServiceIdentityVerifierForTesting([](HANDLE) { return true; });
+    connection.Start(L"C:\\FastFilesPipeAccessFixture", [&](ffengine::ConnectionState state, ffengine::UnavailableReason) {
+        if (state == ffengine::ConnectionState::Active) SetEvent(active);
+    });
+    const DWORD result = WaitForSingleObject(active, 5000);
+    connection.Stop();
+    service.join();
+    CloseHandle(active);
+    Check(result == WAIT_OBJECT_0 && handshakeSeen.load(),
+          "production privileged client completes its handshake with data-only pipe access");
 }
 
 void TestMatchingJournalResumesWithoutReconciliation() {
@@ -3517,6 +3579,7 @@ void TestReauthenticationFailurePreservesFloorKindForFreshId() {
 }
 
 int main() {
+    TestProductionClientUsesDataOnlyPipeAccess();
     TestMatchingJournalResumesWithoutReconciliation();
     TestChangedJournalTriggersReconciliation();
     TestDisappearanceMarksUnavailableAndWithdrawsPublishedVolume();

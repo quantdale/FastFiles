@@ -6,6 +6,13 @@ target_link_libraries(ffsetup_security_descriptor_tests PRIVATE ffsetup)
 add_test(NAME ffsetup_security_descriptor_tests COMMAND ffsetup_security_descriptor_tests)
 set_tests_properties(ffsetup_security_descriptor_tests PROPERTIES TIMEOUT 120)
 
+# Actual restricted-token AccessCheck and disposable kernel pipe regression:
+# authorized broker clients may exchange data, never create server instances.
+add_executable(ffsetup_pipe_access_tests test_pipe_access.cpp)
+target_link_libraries(ffsetup_pipe_access_tests PRIVATE ffsetup)
+add_test(NAME ffsetup_pipe_access_tests COMMAND ffsetup_pipe_access_tests)
+set_tests_properties(ffsetup_pipe_access_tests PROPERTIES TIMEOUT 30)
+
 # close-independent-validation-gaps 4.2: the service and engine may observe
 # the same installed image through normal or extended-length Win32 spelling.
 add_executable(ffsetup_peer_image_match_tests test_peer_image_match.cpp)

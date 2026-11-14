@@ -28,14 +28,23 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 - **Red/green:** 11 public-loader controls failed before structural remediation (`settings-structure-red.log`); two additional hard-link controls failed before atomic-I/O remediation (`settings-atomic-red.log`). Actual public tests plus optimized hard-link probe now pass; controls include 10k strings, 100 nested-section-isolation cases, uint64 boundary, exact byte/depth limits and three volumes with eight rules each.
 - **Measured performance:** five ordered old/new paired blocks, 2,000 loads each, optimized MSVC `/O2`, equal 735-byte canonical input and equality checks over every settings field: old **317.0–327.0 µs/load**, new **80.5–88.9 µs/load** (median **323.9 → 81.3 µs**, **3.98×**). This is a single-host warm-file microbenchmark, not end-to-end UI latency. Harness/log: `bench-settings.cpp`, `bench-settings-final-paired.log`.
 - A larger canonical 3-volume/8-rule configuration failed the old parser: instrumented unchanged historical source catches `std::regex_error(error_stack)` and returns default volumes/rules (`settings-wave1-exception-probe.log`). New loader preserves all fields, protected by a real round-trip regression; no speedup claimed for the old incorrect result.
-- Final atomic-I/O source: full Debug and release-test **144/144 each**, seven-test ASan **7/7**, incremental MSVC `/analyze` exit 0. Machine receipts and logs: `*-wave2-final-atomic-{result.json,build.log,test.log}`. Active LSP was inconclusive, never counted as a clean pass. Post-commit identity/publication still pending.
+- Final atomic-I/O source: full Debug and release-test **144/144 each**, seven-test ASan **7/7**, incremental MSVC `/analyze` exit 0. Machine receipts and logs: `*-wave2-final-atomic-{result.json,build.log,test.log}`. Active LSP was inconclusive, never counted as a clean pass. Published at `7d88ad5`; both configurations' post-commit identity/package-trust gates pass. Derive hosted result for that SHA externally.
+
+## Broker pipe permissions (wave 3)
+
+- **Confirmed security defect:** the service client-group ACE granted `FILE_GENERIC_WRITE`, including the bit shared by `FILE_APPEND_DATA` and `FILE_CREATE_PIPE_INSTANCE`. A restricted authorized client could create an additional server instance after the real first server existed. First-instance collision protection alone does not stop that action.
+- **Actual evidence:** the new portable `ffsetup_pipe_access_tests` constructs the production descriptor with an owned client-SID fixture, disables the admin SID in a restricted token, and runs both `AccessCheck` and actual `CreateNamedPipeW` under that token. Pre-fix: both server-creation assertions fail, kernel reports **ALLOWED** (`pipe-access-red.log`). Data exchange and DACL-write rejection positive/negative controls work throughout.
+- **Fix:** remove only `FILE_CREATE_PIPE_INSTANCE` from the client-group allow-ACE. SYSTEM/administrator full broker access and same-user UI server permissions remain unchanged. Regression assertions check privileged server rights and actual bidirectional client data; focused descriptor/kernel/production-engine tests pass 3/3 (`pipe-access-green.log`).
+- **Counter-hypothesis disproved:** changing the engine's `CreateFile(GENERIC_READ|GENERIC_WRITE)` request was **not needed**. Its real public connection/handshake succeeds on a test DACL with instance creation removed from every principal (including SYSTEM). The initial compatibility probe passed before the ACL fix; `data-only-client-red.log` is a historical filename, not a red verdict. Keep the regression and avoid unnecessary production-client changes.
+- Independent reference: [Microsoft named-pipe security and access rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights). Mutual signed-peer authentication remains in force; this audit does not claim a reproduced LPE, privileged install/service qualification, or cross-session exploit. Tests create no accounts, grants, trust roots, or installed-service changes.
+- **Qualification PASS:** Debug **145/145** (302.60s), release-test **145/145** (268.95s), expanded ASan **10/10** (90.99s), incremental MSVC analysis exit 0 (`*-wave3-pipe-{result.json,build.log,test.log}`). Restricted-token kernel/access/data-roundtrip regression also passed **20/20** repetitions. Drift/source/diagnostic policies and strict OpenSpec **106/106** pass. Publication/post-commit identity and hosted status are handoff gates, not an audit-complete verdict.
 
 ## Coverage ledger
 
 | Surface | Review/verification frontier |
 | --- | --- |
 | Protocol and snapshot formats | Frame/batch bounds, snapshot cursor, UI request/result parsing inspected; settings fixes above. Remaining adversarial parsing/semantic consistency review pending. |
-| IPC | Framing cancellation/quarantine and listener lifetime inspected; admission/exception/deadline and client-ACE instance-creation review pending. |
+| IPC | Framing cancellation/quarantine and listener lifetime inspected; broker client-ACE instance creation reproduced and fixed above. Remaining admission/exception/deadline review pending. |
 | Privileged service | MFT/USN parsers reviewed, MFT fixes tested. Client authentication inspected; scan/journal loops and privilege/revalidation review pending. |
 | Engine | Retry transitions, watcher, degraded enumeration and idle monitor inspected. Pipeline/publication/server/query/lifecycle review still incomplete. |
 | Index store/projection | Store schema/UTF decoding/open/integrity entry points inspected; transactional, candidate-index, projection, memory and concurrency review pending. |
@@ -50,6 +59,7 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 - `f81c66a`: NTFS stride and malformed MFT extents.
 - `e5488fb`: directory-rule scope and first settings resilience fixes.
 - `633fd2e`: build-specific validation, retry capture ordering, long-TEMP watcher fixture.
+- `7d88ad5`: structured settings, bounded fallback and atomic save/backup replacement.
 
 These identify implementation history, not an audit-complete or production-release verdict. Live HEAD, remote state and CI must be re-derived.
 
@@ -60,6 +70,6 @@ These identify implementation history, not an audit-complete or production-relea
 - First full post-portability run found the long-TEMP watcher fixture failure above; its red and intermediate cleanup failures are preserved, not retried away.
 - Wave 1 fully published through `6ebc392`: full Debug/release-test **144/144 each**, ASan **7/7**, MSVC analysis 507 steps warning-clean, strict OpenSpec **106/106**, source/diagnostic policy PASS, post-commit identity/package-trust checks PASS. Hosted run `43558980249` at this immutable checkpoint completed all six jobs successfully.
 - Wave 2 settings verification is recorded above. Remaining repository coverage, publication, and exact-SHA hosted results must be derived; do not call this audit complete.
-- Further probes: raw/parser randomized stress; service pipe client ACE creating additional instances (must distinguish SYSTEM service rights from same-user UI pipe rights); store/search differential and lifecycle/resource checks; remaining UI/installer/harness coverage.
+- Further probes: raw/parser randomized stress; store/search differential and lifecycle/resource checks; remaining IPC/UI/installer/harness coverage. The service client-ACE instance-creation defect is addressed in wave 3 above.
 
 External production signing/clean-host/elevated NTFS and physical-display qualifications remain unclaimed; ordinary audit work does not authorize changing those environments.

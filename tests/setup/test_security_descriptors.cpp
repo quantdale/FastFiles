@@ -209,8 +209,30 @@ void TestPipeDescriptor(PSID clientGroupSid, const std::wstring& clientSidString
     if (mask.has_value()) {
         Check((*mask & kReadBits) != 0, "pipe: client group ACE grants read");
         Check((*mask & kWriteBits) != 0, "pipe: client group ACE grants write");
+        Check((*mask & (FILE_READ_DATA | FILE_WRITE_DATA)) == (FILE_READ_DATA | FILE_WRITE_DATA),
+              "pipe: client group ACE grants actual read-data and write-data rights");
+        Check((*mask & FILE_CREATE_PIPE_INSTANCE) == 0,
+              "pipe: client group ACE never grants creation of additional server instances");
         Check((*mask & (kWriteDac | kWriteOwner)) == 0,
               "pipe: client group ACE grants no WRITE_DAC/WRITE_OWNER");
+    }
+    BOOL present = FALSE, defaulted = FALSE;
+    PACL acl = nullptr;
+    const bool haveAcl = GetSecurityDescriptorDacl(sd->attributes.lpSecurityDescriptor, &present, &acl, &defaulted)
+        && present && acl;
+    Check(haveAcl, "pipe: broker descriptor has an explicit DACL");
+    if (haveAcl) {
+        for (const auto principal : {WinLocalSystemSid, WinBuiltinAdministratorsSid}) {
+            const auto sid = WellKnownSid(principal);
+            Check(sid.has_value(), "pipe: privileged server principal resolves");
+            if (!sid) continue;
+            TRUSTEE_W trustee{};
+            BuildTrusteeWithSidW(&trustee, sid->Get());
+            ACCESS_MASK effective = 0;
+            Check(GetEffectiveRightsFromAclW(acl, &trustee, &effective) == ERROR_SUCCESS
+                      && (effective & FILE_ALL_ACCESS) == FILE_ALL_ACCESS,
+                  "pipe: SYSTEM and administrator servers retain full instance-creation access");
+        }
     }
     Check(rights->find(L"WD") == std::wstring::npos,
           "pipe: client group ACE text contains no WRITE_DAC (WD)");
