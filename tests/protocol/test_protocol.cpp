@@ -605,6 +605,25 @@ void TestPrefixRulePrecedence() {
     volume.rules = {{L"C:\\Work", true}, {L"C:\\Work\\Private", false}};
     Check(IsPathIncluded(volume, L"C:\\Work\\Readme.txt"), "broader include permits its subtree");
     Check(!IsPathIncluded(volume, L"C:\\Work\\Private\\notes.txt"), "longest matching prefix rule wins");
+    Check(IsPathIncluded(volume, L"C:\\Work\\Private-copy\\notes.txt"),
+          "a directory exclusion does not exclude a sibling sharing its basename prefix");
+    volume.rules.push_back({L"C:\\Work\\Private\\Public", true});
+    Check(IsPathIncluded(volume, L"C:\\Work\\Private\\Public\\notes.txt"),
+          "an included child overrides its excluded ancestor");
+    Check(!IsPathIncluded(volume, L"C:\\Work\\Private\\Publication\\secret.txt"),
+          "a child include cannot leak a sibling out of an ancestor exclusion");
+    volume.rules = {{L"C:\\Work\\Private\\", false}};
+    Check(!IsPathIncluded(volume, L"c:\\work\\private"),
+          "a trailing-separator rule also matches the directory itself, case insensitively");
+    Check(!IsPathIncluded(volume, L"C:\\Work\\Private\\notes.txt"),
+          "a trailing-separator rule matches descendants");
+    volume.rules = {{L"C:\\", false}};
+    Check(!IsPathIncluded(volume, L"C:\\Work\\notes.txt"), "drive-root exclusion matches descendants");
+    volume.rules = {{L"", false}};
+    Check(IsPathIncluded(volume, L"C:\\Work\\notes.txt"), "an empty directory rule is not a global exclusion");
+    volume.enabled = false;
+    volume.rules = {{L"C:\\Work", true}};
+    Check(!IsPathIncluded(volume, L"C:\\Work\\notes.txt"), "directory includes never enable a disabled volume");
 }
 
 void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
@@ -627,7 +646,8 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
     settings.defaultSearchScope = L"D:\\資料";
     settings.vacuumIntervalHours = 48;
     settings.vacuumSizeGrowthPercent = 15;
-    settings.indexing = {{L"C:\\", true, {{L"C:\\Work\\Private", false}}}};
+    settings.indexing = {{L"C:\\", true, {{L"C:\\Work\\Private[old]", false},
+                                          {L"C:\\Work\\allowed", true}}}};
     settings.density = DensityPreference::Comfortable;
     Check(SaveSettings(settings), "settings are written as UTF-8 JSON");
     const Settings loaded = LoadSettings();
@@ -638,9 +658,10 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
     Check(loaded.vacuumIntervalHours == settings.vacuumIntervalHours &&
               loaded.vacuumSizeGrowthPercent == settings.vacuumSizeGrowthPercent,
           "VACUUM maintenance settings round-trip through JSON");
-    Check(loaded.indexing.size() == 1 && loaded.indexing[0].rules.size() == 1
-              && loaded.indexing[0].rules[0].path == settings.indexing[0].rules[0].path,
-          "indexing paths round-trip through JSON escaping");
+    Check(loaded.indexing.size() == 1 && loaded.indexing[0].rules.size() == 2
+              && loaded.indexing[0].rules[0].path == settings.indexing[0].rules[0].path
+              && loaded.indexing[0].rules[1].path == settings.indexing[0].rules[1].path,
+          "brackets in directory names do not truncate persisted indexing rules");
     const std::wstring settingsPathBeforeLegacy = SettingsPath();
     const std::wstring shortcutPathBeforeLegacy = ShortcutSettingsPath();
     Check(settingsPathBeforeLegacy.substr(0, settingsPathBeforeLegacy.find_last_of(L'\\')) ==
@@ -676,6 +697,17 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
     const std::wstring settingsLog = std::wstring(uniquePath) + L"\\FastFiles\\logs\\settings.log";
     Check(GetFileAttributesW(settingsLog.c_str()) != INVALID_FILE_ATTRIBUTES,
           "section fallback writes a metadata-only diagnostic log entry");
+
+    for (const size_t depth : {size_t{8}, size_t{80}}) {
+        {
+            std::ofstream nested(SettingsPath(), std::ios::binary | std::ios::trunc);
+            nested << "{\"navigation\":{\"startupLocation\":\"D:\\\\nested\"},\"unknown\":"
+                   << std::string(depth, '[') << "0" << std::string(depth, ']') << "}";
+        }
+        const Settings bounded = LoadSettings(false);
+        Check(bounded.startupLocation == (depth == 8 ? L"D:\\nested" : DefaultSettings().startupLocation),
+              "settings validation accepts shallow unknown fields but bounds recursive nesting");
+    }
 
     {
         std::ofstream corrupt(SettingsPath(), std::ios::binary | std::ios::trunc);

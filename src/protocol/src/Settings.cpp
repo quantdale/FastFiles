@@ -1,4 +1,5 @@
 #include "ffprotocol/Settings.h"
+#include "ffprotocol/WindowsPath.h"
 
 #include <windows.h>
 
@@ -137,13 +138,21 @@ private:
     }
     bool Value() {
         Skip(); if (position_ >= text_.size()) return false;
-        if (text_[position_] == L'{') return Object();
-        if (text_[position_] == L'[') return Array();
+        if (text_[position_] == L'{' || text_[position_] == L'[') {
+            // Corrupt local configuration must reach fallback, not exhaust
+            // the UI/engine stack before fallback can run.
+            if (depth_ >= 64) return false;
+            ++depth_;
+            const bool valid = text_[position_] == L'{' ? Object() : Array();
+            --depth_;
+            return valid;
+        }
         if (text_[position_] == L'\"') return String();
         return Literal(L"true") || Literal(L"false") || Literal(L"null") || Number();
     }
     const std::wstring& text_;
     size_t position_ = 0;
+    size_t depth_ = 0;
 };
 
 std::optional<std::wstring> DecodeUtf8(const std::string& bytes) {
@@ -308,7 +317,8 @@ Settings LoadSettings(bool preserveCorruptFile) {
 
         std::vector<VolumeSetting> volumes;
         const std::wsregex_iterator regexEnd;
-        const std::wregex volumePattern(LR"re(\{\s*"key"\s*:\s*"((?:\\.|[^"])*)"\s*,\s*"enabled"\s*:\s*(true|false)\s*,\s*"rules"\s*:\s*\[([^\]]*)\])re");
+        // A closing bracket inside a quoted path is not the array terminator.
+        const std::wregex volumePattern(LR"re(\{\s*"key"\s*:\s*"((?:\\.|[^"])*)"\s*,\s*"enabled"\s*:\s*(true|false)\s*,\s*"rules"\s*:\s*\[((?:"(?:\\.|[^"\\])*"|[^\]"])*)\])re");
         const std::wregex rulePattern(LR"re(\{\s*"path"\s*:\s*"((?:\\.|[^"])*)"\s*,\s*"action"\s*:\s*"(include|exclude)"\s*\})re");
         for (std::wsregex_iterator volumeIt(text.begin(), text.end(), volumePattern); volumeIt != regexEnd; ++volumeIt) {
             VolumeSetting volume;
@@ -385,11 +395,20 @@ bool SaveSettings(const Settings& settings) {
 bool ResetSettings() { return SaveSettings(DefaultSettings()); }
 
 bool IsPathIncluded(const VolumeSetting& volume, const std::wstring& canonicalPath) noexcept {
-    bool included = volume.enabled;
+    if (!volume.enabled) return false;
+    bool included = true;
     size_t longest = 0;
     for (const auto& rule : volume.rules) {
-        if (canonicalPath.size() >= rule.path.size() && _wcsnicmp(canonicalPath.c_str(), rule.path.c_str(), rule.path.size()) == 0 && rule.path.size() >= longest) {
-            longest = rule.path.size(); included = rule.include;
+        std::wstring_view rulePath(rule.path);
+        while (!rulePath.empty() && (rulePath.back() == L'\\' || rulePath.back() == L'/')) {
+            rulePath.remove_suffix(1);
+        }
+        if (rulePath.empty() || rulePath.size() < longest || canonicalPath.size() < rulePath.size()) continue;
+        const bool componentBoundary = canonicalPath.size() == rulePath.size()
+            || canonicalPath[rulePath.size()] == L'\\' || canonicalPath[rulePath.size()] == L'/';
+        if (componentBoundary && WindowsPathEqual(std::wstring_view(canonicalPath).substr(0, rulePath.size()), rulePath)) {
+            longest = rulePath.size();
+            included = rule.include;
         }
     }
     return included;
