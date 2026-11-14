@@ -49,8 +49,14 @@ struct LegacyShortcutSettings {
 std::wstring SettingsPath();
 std::wstring ShortcutSettingsPath();
 Settings DefaultSettings();
+// JSON object input is limited to 1 MiB and 64 nested containers. Invalid
+// sections fall back independently; duplicate keys and non-object roots are
+// rejected. Fallback never rewrites the original. When requested, a complete
+// bounded input snapshot is preserved as .bak (backup failures are logged).
 Settings LoadSettings(bool preserveCorruptFile = true);
 LegacyShortcutSettings LoadLegacyShortcutSettings();
+// Uses exclusive temporary creation plus atomic replacement, never truncating
+// stale temporary links. Returns false above the reader's byte limit.
 bool SaveSettings(const Settings& settings);
 bool ResetSettings();
 bool IsPathIncluded(const VolumeSetting& volume, const std::wstring& canonicalPath) noexcept;

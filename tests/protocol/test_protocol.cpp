@@ -662,6 +662,34 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
               && loaded.indexing[0].rules[0].path == settings.indexing[0].rules[0].path
               && loaded.indexing[0].rules[1].path == settings.indexing[0].rules[1].path,
           "brackets in directory names do not truncate persisted indexing rules");
+    Settings multipleVolumes = settings;
+    multipleVolumes.indexing.clear();
+    for (int drive = 0; drive < 3; ++drive) {
+        VolumeSetting volume;
+        volume.key = std::wstring(1, static_cast<wchar_t>(L'C' + drive)) + L":\\";
+        for (int rule = 0; rule < 8; ++rule) {
+            volume.rules.push_back({volume.key + L"Projects\\folder_" + std::to_wstring(rule), rule % 2 != 0});
+        }
+        multipleVolumes.indexing.push_back(std::move(volume));
+    }
+    Check(SaveSettings(multipleVolumes), "canonical writer saves a modest multi-volume rule configuration");
+    const auto multipleLoaded = LoadSettings(false);
+    bool allRulesPresent = multipleLoaded.indexing.size() == multipleVolumes.indexing.size();
+    if (allRulesPresent) {
+        for (size_t index = 0; index < multipleVolumes.indexing.size(); ++index) {
+            const auto& expectedVolume = multipleVolumes.indexing[index];
+            const auto& actualVolume = multipleLoaded.indexing[index];
+            allRulesPresent = allRulesPresent && actualVolume.key == expectedVolume.key
+                && actualVolume.rules.size() == expectedVolume.rules.size();
+            if (actualVolume.rules.size() == expectedVolume.rules.size()) {
+                for (size_t rule = 0; rule < expectedVolume.rules.size(); ++rule) {
+                    allRulesPresent = allRulesPresent && actualVolume.rules[rule].path == expectedVolume.rules[rule].path
+                        && actualVolume.rules[rule].include == expectedVolume.rules[rule].include;
+                }
+            }
+        }
+    }
+    Check(allRulesPresent, "three volumes with eight rules each reload without regex complexity fallback");
     const std::wstring settingsPathBeforeLegacy = SettingsPath();
     const std::wstring shortcutPathBeforeLegacy = ShortcutSettingsPath();
     Check(settingsPathBeforeLegacy.substr(0, settingsPathBeforeLegacy.find_last_of(L'\\')) ==
@@ -683,12 +711,42 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
           "general settings persistence no longer writes a shortcut source of truth");
     savedSettings.close();
 
+    const std::wstring saveVictim = SettingsPath() + L".save-victim";
+    const std::wstring staleTemporary = SettingsPath() + L".tmp";
+    {
+        std::ofstream victim(saveVictim, std::ios::binary);
+        victim << "preserve-save-victim";
+    }
+    Check(CreateHardLinkW(staleTemporary.c_str(), saveVictim.c_str(), nullptr) != FALSE,
+          "atomic-save fixture creates an owned stale-temp hard link");
+    Check(SaveSettings(settings), "a stale predictable temporary path does not prevent a fresh atomic save");
+    {
+        std::ifstream victim(saveVictim, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(victim)), {});
+        Check(bytes == "preserve-save-victim", "saving settings never truncates the target of a stale temporary hard link");
+    }
+    DeleteFileW(staleTemporary.c_str());
+    DeleteFileW(saveVictim.c_str());
+    std::string beforeOversizedSave;
+    {
+        std::ifstream existing(SettingsPath(), std::ios::binary);
+        beforeOversizedSave.assign(std::istreambuf_iterator<char>(existing), {});
+    }
+    Settings oversizedSave = settings;
+    oversizedSave.startupLocation.assign(1024 * 1024, L'x');
+    Check(!SaveSettings(oversizedSave), "writer rejects settings that the bounded reader cannot load");
+    {
+        std::ifstream existing(SettingsPath(), std::ios::binary);
+        const std::string after((std::istreambuf_iterator<char>(existing)), {});
+        Check(after == beforeOversizedSave, "oversized save rejection leaves existing preferences unchanged");
+    }
+
     {
         std::ofstream partial(SettingsPath(), std::ios::binary | std::ios::trunc);
         partial << "{\"schemaVersion\":1,\"appearance\":{\"theme\":42},"
                    "\"navigation\":{\"startupLocation\":\"D:\\\\Valid\",\"restorePreviousSession\":false}}";
     }
-    const Settings sectionFallback = LoadSettings(false);
+    const Settings sectionFallback = LoadSettings(true);
     Check(sectionFallback.theme == DefaultSettings().theme && sectionFallback.startupLocation == L"D:\\Valid"
               && !sectionFallback.restorePreviousSession,
           "an invalid section falls back independently without discarding valid sections");
@@ -697,15 +755,104 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
     const std::wstring settingsLog = std::wstring(uniquePath) + L"\\FastFiles\\logs\\settings.log";
     Check(GetFileAttributesW(settingsLog.c_str()) != INVALID_FILE_ATTRIBUTES,
           "section fallback writes a metadata-only diagnostic log entry");
+    Check(GetFileAttributesW((SettingsPath() + L".bak").c_str()) != INVALID_FILE_ATTRIBUTES,
+          "section-scoped fallback preserves the original file when requested");
 
-    for (const size_t depth : {size_t{8}, size_t{80}}) {
+    const std::wstring backupVictim = SettingsPath() + L".backup-victim";
+    {
+        std::ofstream victim(backupVictim, std::ios::binary);
+        victim << "preserve-backup-victim";
+    }
+    DeleteFileW((SettingsPath() + L".bak").c_str());
+    Check(CreateHardLinkW((SettingsPath() + L".bak").c_str(), backupVictim.c_str(), nullptr) != FALSE,
+          "backup fixture creates an owned pre-existing hard link");
+    (void)LoadSettings(true);
+    {
+        std::ifstream victim(backupVictim, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(victim)), {});
+        Check(bytes == "preserve-backup-victim", "backup preservation replaces its own entry without truncating a hard-link target");
+    }
+    DeleteFileW(backupVictim.c_str());
+
+    const auto readStructured = [](const std::string& json) {
+        {
+            std::ofstream input(SettingsPath(), std::ios::binary | std::ios::trunc);
+            input << json;
+        }
+        return LoadSettings(false);
+    };
+    const auto reorderedVolume = readStructured(
+        R"({"indexing":{"volumes":[{"enabled":true,"rules":[{"path":"C:\\Private","action":"exclude"}],"key":"C:\\"}]}})");
+    Check(reorderedVolume.indexing.size() == 1 && reorderedVolume.indexing[0].rules.size() == 1
+              && reorderedVolume.indexing[0].rules[0].path == L"C:\\Private",
+          "volume members are read by name, not by JSON object order");
+    const auto reorderedRule = readStructured(
+        R"({"indexing":{"volumes":[{"key":"C:\\","enabled":true,"rules":[{"action":"exclude","path":"C:\\Private"}]}]}})");
+    Check(reorderedRule.indexing.size() == 1 && reorderedRule.indexing[0].rules.size() == 1
+              && !reorderedRule.indexing[0].rules[0].include,
+          "directory-rule members are read independently of JSON object order");
+    const auto scopedAppearance = readStructured(
+        R"({"unknown":{"theme":"Dark"},"appearance":{"theme":"Light"}})");
+    Check(scopedAppearance.theme == ThemePreference::Light,
+          "an unknown section cannot inject a recognized preference into another section");
+    const auto fractionalPreview = readStructured(R"({"preview":{"maxAutoPreviewBytes":1.5}})");
+    Check(fractionalPreview.maxAutoPreviewBytes == DefaultSettings().maxAutoPreviewBytes,
+          "fractional JSON numbers are not silently truncated into integer settings");
+    const auto escapedProperty = readStructured(R"({"appearance":{"th\u0065me":"Dark"}})");
+    Check(escapedProperty.theme == ThemePreference::Dark,
+          "JSON escaped member names have the same meaning as literal names");
+    const auto arrayRoot = readStructured(R"([{"appearance":{"theme":"Light"}}])");
+    Check(arrayRoot.theme == DefaultSettings().theme, "settings require an object root");
+    const auto invalidAppearance = readStructured(
+        R"({"appearance":{"theme":42,"density":"Comfortable"},"navigation":{"startupLocation":"D:\\Valid"}})");
+    Check(invalidAppearance.theme == DefaultSettings().theme
+              && invalidAppearance.density == DefaultSettings().density
+              && invalidAppearance.startupLocation == L"D:\\Valid",
+          "a malformed section falls back as a section without discarding a valid sibling section");
+    const auto oversized = readStructured(
+        std::string(R"({"appearance":{"theme":"Dark"}})") + std::string(1024 * 1024, ' '));
+    Check(oversized.theme == DefaultSettings().theme,
+          "oversized settings are rejected before unrestricted allocation or parsing");
+    std::string exactLimit = R"({"appearance":{"theme":"Dark"}})";
+    exactLimit.resize(1024 * 1024, ' ');
+    Check(readStructured(exactLimit).theme == ThemePreference::Dark,
+          "a complete settings document at the byte limit is accepted");
+    const auto maximumInteger = readStructured(R"({"preview":{"maxAutoPreviewBytes":18446744073709551615}})");
+    Check(maximumInteger.maxAutoPreviewBytes == UINT64_MAX,
+          "maximum unsigned integer settings retain every bit");
+    for (const char* number : {"18446744073709551616", "-1", "1e3", "01", "1."}) {
+        const auto rejected = readStructured(std::string("{\"preview\":{\"maxAutoPreviewBytes\":") + number + "}}");
+        Check(rejected.maxAutoPreviewBytes == DefaultSettings().maxAutoPreviewBytes,
+              "overflowing or non-decimal integer settings use the documented fallback");
+    }
+    const auto duplicate = readStructured(R"({"appearance":{"theme":"Light","th\u0065me":"Dark"}})");
+    Check(duplicate.theme == DefaultSettings().theme,
+          "duplicate JSON keys, including escaped aliases, cannot select an ambiguous preference");
+    const std::string longLocation(10000, 'x');
+    Check(readStructured("{\"navigation\":{\"startupLocation\":\"" + longLocation + "\"}}").startupLocation.size() == longLocation.size(),
+          "long valid settings strings do not require recursive regex matching");
+    for (int sample = 0; sample < 100; ++sample) {
+        const std::string unknown = "{\"unknown\":{\"nested\":[{\"theme\":\"Dark\",\"maxAutoPreviewBytes\":"
+            + std::to_string(sample) + "}]},\"appearance\":{\"theme\":\"Light\"}}";
+        const auto isolated = readStructured(unknown);
+        Check(isolated.theme == ThemePreference::Light
+                  && isolated.maxAutoPreviewBytes == DefaultSettings().maxAutoPreviewBytes,
+              "nested unknown settings never acquire authority over recognized sections");
+    }
+    (void)readStructured(R"({"shortcuts":{"bindings":[{"binding":"Ctrl+K","command":"Search"}]}})");
+    const auto reorderedLegacy = LoadLegacyShortcutSettings();
+    Check(reorderedLegacy.sectionPresent && reorderedLegacy.valid && reorderedLegacy.bindings.size() == 1
+              && reorderedLegacy.bindings[0].first == L"Search",
+          "legacy shortcut migration is independent of binding member order");
+
+    for (const size_t depth : {size_t{8}, size_t{63}, size_t{64}, size_t{80}}) {
         {
             std::ofstream nested(SettingsPath(), std::ios::binary | std::ios::trunc);
             nested << "{\"navigation\":{\"startupLocation\":\"D:\\\\nested\"},\"unknown\":"
                    << std::string(depth, '[') << "0" << std::string(depth, ']') << "}";
         }
         const Settings bounded = LoadSettings(false);
-        Check(bounded.startupLocation == (depth == 8 ? L"D:\\nested" : DefaultSettings().startupLocation),
+        Check(bounded.startupLocation == (depth < 64 ? L"D:\\nested" : DefaultSettings().startupLocation),
               "settings validation accepts shallow unknown fields but bounds recursive nesting");
     }
 
@@ -713,6 +860,17 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
         std::ofstream corrupt(SettingsPath(), std::ios::binary | std::ios::trunc);
         corrupt << "{\"theme\": Dark}"; // balanced delimiters, invalid JSON token
     }
+    HANDLE heldBackup = CreateFileW((SettingsPath() + L".bak").c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                     nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    Check(heldBackup != INVALID_HANDLE_VALUE, "corrupt-settings recovery fixture can hold the prior backup open");
+    (void)LoadSettings(true);
+    {
+        std::ifstream original(SettingsPath(), std::ios::binary);
+        const std::string originalBytes((std::istreambuf_iterator<char>(original)), {});
+        Check(originalBytes == "{\"theme\": Dark}",
+              "failed backup preservation never overwrites the corrupt original with defaults");
+    }
+    if (heldBackup != INVALID_HANDLE_VALUE) CloseHandle(heldBackup);
     const Settings recovered = LoadSettings(true);
     Check(recovered.theme == DefaultSettings().theme, "syntactically invalid balanced JSON falls back to defaults");
     Check(GetFileAttributesW((SettingsPath() + L".bak").c_str()) != INVALID_FILE_ATTRIBUTES,

@@ -7,6 +7,7 @@ add_library(ffprotocol STATIC
   src/UiProtocol.cpp
   src/IndexHealth.cpp
   src/Settings.cpp
+  src/SettingsJson.h
   src/Diagnostics.cpp
   src/SnapshotFormat.cpp
 )
@@ -28,7 +29,7 @@ target_sources(ffprotocol PRIVATE ${FF_PROTOCOL_PUBLIC_HEADERS})
 source_group("Public API" FILES ${FF_PROTOCOL_PUBLIC_HEADERS})
 source_group("Implementation" FILES
   src/Frame.cpp src/Commands.cpp src/Records.cpp src/Dispatch.cpp src/Version.cpp
-  src/UiProtocol.cpp src/IndexHealth.cpp src/Settings.cpp src/Diagnostics.cpp
+  src/UiProtocol.cpp src/IndexHealth.cpp src/Settings.cpp src/SettingsJson.h src/Diagnostics.cpp
   src/SnapshotFormat.cpp)
 
 target_include_directories(ffprotocol PUBLIC include)
