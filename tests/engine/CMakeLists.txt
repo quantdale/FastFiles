@@ -81,7 +81,8 @@ add_executable(ffengine_privileged_connection_seam_policy_tests
   test_privileged_connection_testing_policy.cpp)
 add_test(NAME ffengine_privileged_connection_seam_policy_tests
   COMMAND ffengine_privileged_connection_seam_policy_tests)
-set_tests_properties(ffengine_privileged_connection_seam_policy_tests PROPERTIES TIMEOUT 30)
+set_tests_properties(ffengine_privileged_connection_seam_policy_tests PROPERTIES
+  TIMEOUT 30 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # Portable pin-enforcement suite: no elevation, no production signer/pins, no
 # trust-store mutation. This is the mandatory default; it must keep passing on

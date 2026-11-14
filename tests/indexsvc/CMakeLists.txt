@@ -60,6 +60,11 @@ add_executable(ffntfsobserve_tests test_ntfs_observe.cpp)
 target_link_libraries(ffntfsobserve_tests PRIVATE ffntfsobserve)
 add_test(NAME ffntfsobserve_tests COMMAND ffntfsobserve_tests)
 
+# Source-policy tests inspect the checkout, not the binary directory. Keep
+# out-of-source builds valid even when no source tree is an ancestor of it.
+set_tests_properties(ffindexsvc_write_deadline_policy_tests ffservice_revalidation_policy_tests
+    ffservice_exception_boundary_policy_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 set_tests_properties(ffmftparser_tests ffusnrecord_tests ffprivilege_diagnostics_tests ffcommand_surface_tests
     ffconnection_registry_tests ffvolumescanner_terminal_tests ffindexsvc_write_deadline_policy_tests ffntfsobserve_tests
     ffservice_revalidation_policy_tests ffservice_exception_boundary_policy_tests PROPERTIES TIMEOUT 120)

@@ -21,7 +21,15 @@ namespace {
 std::filesystem::path MakeFixtureRoot() {
     wchar_t tempPath[MAX_PATH]{};
     Check(GetTempPathW(MAX_PATH, tempPath) != 0, "temporary path is available");
-    const std::filesystem::path root = std::filesystem::path(tempPath) /
+    std::wstring apiTempPath(tempPath);
+    if (!apiTempPath.starts_with(L"\\\\?\\")) {
+        apiTempPath = apiTempPath.starts_with(L"\\\\")
+            ? L"\\\\?\\UNC\\" + apiTempPath.substr(2) : L"\\\\?\\" + apiTempPath;
+    }
+    // All fixture I/O, including recursive cleanup, must support the same
+    // long paths as the watcher. A long TEMP root must not fabricate timeouts
+    // from failed file creation or strand undeletable fixture contents.
+    const std::filesystem::path root = std::filesystem::path(apiTempPath) /
         (L"FastFiles-directory-watcher-" + std::to_wstring(GetCurrentProcessId()));
     std::error_code ec;
     std::filesystem::remove_all(root, ec);
@@ -562,13 +570,19 @@ void TestWatcherDeleteRecreateUnicodeAndLongName() {
             ++callbacks;
             callbackCondition.notify_all();
         });
-        const std::wstring longName = std::wstring(120, L'x') + L"-U0001F600.txt";
+        int beforeWrite = 0;
+        {
+            std::lock_guard<std::mutex> lock(callbackMutex);
+            beforeWrite = callbacks;
+        }
+        const std::wstring longName = std::wstring(120, L'x') + L"-\U0001F600.txt";
         std::ofstream output(watched / longName, std::ios::binary | std::ios::trunc);
         output << "recreated";
         output.close();
+        Check(output.good(), "long Unicode notification fixture is actually created and written");
         {
             std::unique_lock<std::mutex> lock(callbackMutex);
-            Check(callbackCondition.wait_for(lock, std::chrono::seconds(5), [&] { return callbacks >= 2; }),
+            Check(callbackCondition.wait_for(lock, std::chrono::seconds(5), [&] { return callbacks > beforeWrite; }),
                   "recreated unicode directory observes a long Unicode filename");
         }
         watcher.UnwatchAll();

@@ -53,7 +53,8 @@ endif()
 # reintroducing an elevated %TEMP% relay or detached copied-helper teardown.
 add_executable(ffsetup_installer_source_policy_tests test_installer_source_policy.cpp)
 add_test(NAME ffsetup_installer_source_policy_tests COMMAND ffsetup_installer_source_policy_tests)
-set_tests_properties(ffsetup_installer_source_policy_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffsetup_installer_source_policy_tests PROPERTIES
+  TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # Installer lifecycle decision logic (audit campaign, installer area):
 # startup-token verdicts, self-replacement detection, fresh-install rollback

@@ -1421,6 +1421,10 @@ void TestBatchFailedScanCompletionIsNotAuthoritative() {
     manager.SetIndexingPaused(0, false);
     Check(!session.scanInProgress, "pause/resume does not bypass the owned retry floor");
     Check(!session.scanBatchFailed, "the deferred restart begins from a clean authority slate");
+    // Discard pause/resume control frames while the retry is still deferred.
+    // Draining after making it due can consume the successful StartVolumeScan
+    // itself when the scheduler wins the race (observed in hosted release-test).
+    DrainCapturedFrames(capture->client);
     {
         std::lock_guard<std::mutex> lock(manager.wakeMutex_);
         const auto retry = manager.failedScanRetries_.find(7);
@@ -1432,7 +1436,6 @@ void TestBatchFailedScanCompletionIsNotAuthoritative() {
         }
     }
     manager.wakeCv_.notify_one();
-    DrainCapturedFrames(capture->client);
     const auto restart = ReadCapturedScanStartWithTimeout(capture->client, std::chrono::milliseconds(2000));
     Check(restart && restart->volumeId == 7,
           "the owned retry restarts the unfinished scan at its due time");

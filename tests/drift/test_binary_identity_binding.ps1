@@ -1,5 +1,11 @@
+param([string] $BuildRoot = '')
+
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+if ([string]::IsNullOrWhiteSpace($BuildRoot)) {
+    $BuildRoot = Join-Path $repoRoot 'build\debug'
+}
+$BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
 
 $failures = 0
 function Check {
@@ -18,15 +24,15 @@ function Get-RepositoryHead {
 }
 function Resolve-BuildIdentityBinaries {
     $candidates = @(
-        'build\debug\src\ui\FastFiles.exe',
-        'build\debug\src\engine\FastFilesEngine.exe',
-        'build\debug\src\indexsvc\FastFilesIndexSvc.exe',
-        'build\debug\src\installer\FastFilesSetup.exe',
-        'build\debug\src\fftest\fftest.exe'
+        'src\ui\FastFiles.exe',
+        'src\engine\FastFilesEngine.exe',
+        'src\indexsvc\FastFilesIndexSvc.exe',
+        'src\installer\FastFilesSetup.exe',
+        'src\fftest\fftest.exe'
     )
     $found = @()
     foreach ($relative in $candidates) {
-        $path = Join-Path $repoRoot $relative
+        $path = Join-Path $BuildRoot $relative
         if (Test-Path -LiteralPath $path -PathType Leaf) { $found += $path }
     }
     return $found
@@ -47,9 +53,9 @@ if ([string]::IsNullOrWhiteSpace($overrideId) -and -not $expected) {
 if ([string]::IsNullOrWhiteSpace($overrideId)) { $overrideId = $expected }
 
 $binaries = Resolve-BuildIdentityBinaries
-$packageTrustBinary = Join-Path $repoRoot 'build\debug\tests\setup\ffsetup_package_trust_tests.exe'
+$packageTrustBinary = Join-Path $BuildRoot 'tests\setup\ffsetup_package_trust_tests.exe'
 if ($binaries.Count -lt 5 -or -not (Test-Path -LiteralPath $packageTrustBinary -PathType Leaf)) {
-    Write-Host "skip: only $($binaries.Count)/5 version-resource binaries and package-trust test=$([bool](Test-Path -LiteralPath $packageTrustBinary -PathType Leaf)); build the debug preset first"
+    Write-Host "skip: only $($binaries.Count)/5 version-resource binaries and package-trust test=$([bool](Test-Path -LiteralPath $packageTrustBinary -PathType Leaf)); build '$BuildRoot' first"
     exit 77
 }
 

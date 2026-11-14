@@ -39,14 +39,15 @@ if(FF_PWSH_EXECUTABLE)
   )
   set_tests_properties(ffbuild_identity_freshness_tests PROPERTIES TIMEOUT 180)
 
-  # Binary identity binding: the five debug product binaries must embed the
-  # current source identity as PrivateBuild (skip 77 until the debug preset is
-  # built). This is the detector that would have caught the stale-PrivateBuild
+  # Binary identity binding: this configuration's five product binaries must
+  # embed the current source identity as PrivateBuild (skip 77 until built).
+  # Never inspect a different build tree just because it exists. This is the detector that would have caught the stale-PrivateBuild
   # evidence incident before certification claimed exact-tip binaries.
   add_test(
     NAME ffbuild_identity_binding_tests
     COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
             "${PROJECT_SOURCE_DIR}/tests/drift/test_binary_identity_binding.ps1"
+            -BuildRoot "${CMAKE_BINARY_DIR}"
   )
   set_tests_properties(ffbuild_identity_binding_tests PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 endif()
