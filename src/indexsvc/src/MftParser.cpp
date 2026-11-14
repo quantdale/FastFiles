@@ -45,7 +45,12 @@ constexpr uint8_t kFileNameNamespaceDos = 2;
 } // namespace
 
 FixupResult ApplyFixupAndValidate(uint8_t* record, size_t recordSize, uint32_t bytesPerSector) {
-    if (bytesPerSector == 0 || recordSize < kOffsetBytesInUse + sizeof(uint32_t)) {
+    // NTFS's protection stride is fixed at 512 bytes, including on 4Kn
+    // volumes. Volume geometry must not change which tails are validated.
+    constexpr size_t kUpdateSequenceStride = 512;
+    constexpr size_t kMinimumHeaderSize = kOffsetBytesInUse + sizeof(uint32_t);
+    if (record == nullptr || bytesPerSector == 0 || recordSize < kUpdateSequenceStride
+        || recordSize % kUpdateSequenceStride != 0) {
         return FixupResult::Malformed;
     }
     if (std::memcmp(record + kOffsetSignature, "FILE", 4) != 0) {
@@ -59,11 +64,13 @@ FixupResult ApplyFixupAndValidate(uint8_t* record, size_t recordSize, uint32_t b
 
     const uint16_t usaOffset = ReadU16(record + kOffsetUpdateSeqArrayOffset);
     const uint16_t usaSize = ReadU16(record + kOffsetUpdateSeqArraySize); // includes the USN entry itself
-    if (usaSize == 0 || static_cast<size_t>(usaOffset) + static_cast<size_t>(usaSize) * sizeof(uint16_t) > recordSize) {
+    const size_t usaEnd = static_cast<size_t>(usaOffset) + static_cast<size_t>(usaSize) * sizeof(uint16_t);
+    if (usaOffset < kMinimumHeaderSize || usaOffset % sizeof(uint16_t) != 0
+        || usaSize < 2 || usaEnd > kUpdateSequenceStride - sizeof(uint16_t)) {
         return FixupResult::Malformed;
     }
 
-    const size_t sectorCount = recordSize / bytesPerSector;
+    const size_t sectorCount = recordSize / kUpdateSequenceStride;
     if (sectorCount + 1 != usaSize) {
         return FixupResult::Malformed;
     }
@@ -74,7 +81,7 @@ FixupResult ApplyFixupAndValidate(uint8_t* record, size_t recordSize, uint32_t b
     bool protectedOnDisk = true;
     bool alreadyRestored = true;
     for (size_t sector = 0; sector < sectorCount; ++sector) {
-        const size_t lastTwoBytesOffset = (sector + 1) * static_cast<size_t>(bytesPerSector) - sizeof(uint16_t);
+        const size_t lastTwoBytesOffset = (sector + 1) * kUpdateSequenceStride - sizeof(uint16_t);
         if (lastTwoBytesOffset + sizeof(uint16_t) > recordSize) {
             return FixupResult::Malformed;
         }
@@ -92,7 +99,7 @@ FixupResult ApplyFixupAndValidate(uint8_t* record, size_t recordSize, uint32_t b
     }
     if (protectedOnDisk) {
         for (size_t sector = 0; sector < sectorCount; ++sector) {
-            const size_t lastTwoBytesOffset = (sector + 1) * static_cast<size_t>(bytesPerSector) - sizeof(uint16_t);
+            const size_t lastTwoBytesOffset = (sector + 1) * kUpdateSequenceStride - sizeof(uint16_t);
             uint8_t* sectorTail = record + lastTwoBytesOffset;
             const uint8_t* trueValue = usa + (sector + 1) * sizeof(uint16_t);
             std::memcpy(sectorTail, trueValue, sizeof(uint16_t));
@@ -103,14 +110,17 @@ FixupResult ApplyFixupAndValidate(uint8_t* record, size_t recordSize, uint32_t b
 }
 
 std::optional<ParsedMftRecord> ParseMftAttributes(const uint8_t* record, size_t recordSize) {
-    if (recordSize < kOffsetBytesInUse + sizeof(uint32_t)) {
+    if (record == nullptr || recordSize < kOffsetBytesInUse + sizeof(uint32_t)) {
         return std::nullopt;
     }
 
     const uint16_t firstAttributeOffset = ReadU16(record + kOffsetFirstAttributeOffset);
     const uint32_t bytesInUse = ReadU32(record + kOffsetBytesInUse);
     const uint16_t headerFlags = ReadU16(record + kOffsetFlags);
-    const size_t recordExtent = bytesInUse < recordSize ? bytesInUse : recordSize;
+    if (bytesInUse > recordSize || firstAttributeOffset < kOffsetBytesInUse + sizeof(uint32_t)) {
+        return std::nullopt;
+    }
+    const size_t recordExtent = bytesInUse;
     if (firstAttributeOffset >= recordExtent) {
         return std::nullopt;
     }
@@ -127,9 +137,11 @@ std::optional<ParsedMftRecord> ParseMftAttributes(const uint8_t* record, size_t 
     std::u16string bestName;
 
     size_t offset = firstAttributeOffset;
-    while (offset + 8 <= recordExtent) {
+    bool haveEndMarker = false;
+    while (recordExtent - offset >= sizeof(uint32_t)) {
         const uint32_t typeCode = ReadU32(record + offset);
         if (typeCode == kAttributeTypeEnd) {
+            haveEndMarker = true;
             break;
         }
         if (offset + 24 > recordExtent) {
@@ -144,7 +156,7 @@ std::optional<ParsedMftRecord> ParseMftAttributes(const uint8_t* record, size_t 
         if (formCode == 0 /* resident */ && (typeCode == kAttributeTypeStandardInformation || typeCode == kAttributeTypeFileName)) {
             const uint32_t valueLength = ReadU32(record + offset + 16);
             const uint16_t valueOffset = ReadU16(record + offset + 20);
-            if (static_cast<uint64_t>(valueOffset) + valueLength > recordLength) {
+            if (valueOffset < 24 || static_cast<uint64_t>(valueOffset) + valueLength > recordLength) {
                 return std::nullopt;
             }
             const uint8_t* value = record + offset + valueOffset;
@@ -179,8 +191,8 @@ std::optional<ParsedMftRecord> ParseMftAttributes(const uint8_t* record, size_t 
                     if (!haveName || (bestNamespace == kFileNameNamespaceDos && nsType != kFileNameNamespaceDos)) {
                         parentRef = ReadU64(value + 0);
                         // allocated-size-storage-accuracy D2: the documented
-                        // $FILE_NAME layout carries AllocatedSize at offset
-                        // 0x20 (40) and RealSize at offset 0x28 (48) --
+                        // $FILE_NAME layout carries AllocatedSize at byte
+                        // offset 40 and RealSize at byte offset 48 --
                         // both inside the valueLength >= 66 bound already
                         // required for the name fields below, so no
                         // additional bounds condition is needed.
@@ -197,7 +209,7 @@ std::optional<ParsedMftRecord> ParseMftAttributes(const uint8_t* record, size_t 
         offset += recordLength;
     }
 
-    if (!haveStandardInformation || !haveName) {
+    if (!haveEndMarker || !haveStandardInformation || !haveName) {
         return std::nullopt;
     }
 

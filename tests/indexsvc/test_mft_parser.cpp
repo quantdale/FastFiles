@@ -338,6 +338,72 @@ void TestMissingStandardInformationRejected() {
           "a record with a malformed $STANDARD_INFORMATION is rejected, not parsed without it");
 }
 
+void TestFixupUsesNtfsStrideRatherThanVolumeSectorSize() {
+    auto record = BuildSyntheticRecord(512, u"four-kn.txt", 5, 42, false);
+    Check(ApplyFixupAndValidate(record.data(), record.size(), 4096) == FixupResult::Ok,
+          "a 4K-sector volume still uses NTFS's 512-byte update sequence stride");
+    const auto parsed = ParseMftAttributes(record.data(), record.size());
+    Check(parsed && parsed->fileName == u"four-kn.txt",
+          "a record from a 4K-sector volume retains its metadata");
+
+    auto torn = BuildSyntheticRecord(512, u"torn.txt", 5, 42, false);
+    torn[510] ^= 0xFF;
+    Check(ApplyFixupAndValidate(torn.data(), torn.size(), 4096) == FixupResult::Malformed,
+          "4K-sector geometry does not bypass torn-stride validation");
+
+    auto unprotected = BuildSyntheticRecord(512, u"unprotected.txt", 5, 42, false);
+    WriteU16(unprotected, 6, 1);
+    Check(ApplyFixupAndValidate(unprotected.data(), unprotected.size(), 4096) == FixupResult::Malformed,
+          "a marker-only update sequence array cannot claim an unprotected record is valid");
+
+    auto partial = BuildSyntheticRecord(512, u"partial.txt", 5, 42, false);
+    partial.push_back(0);
+    Check(ApplyFixupAndValidate(partial.data(), partial.size(), 512) == FixupResult::Malformed,
+          "a partial final protection stride is rejected rather than ignored");
+}
+
+void TestFixupArrayCannotOverlapHeaderOrProtectedTail() {
+    auto headerOverlap = BuildSyntheticRecord(512, u"overlap.txt", 5, 42, false);
+    WriteU16(headerOverlap, 4, 8);
+    Check(ApplyFixupAndValidate(headerOverlap.data(), headerOverlap.size(), 512) == FixupResult::Malformed,
+          "fixup replacement words cannot be sourced from fixed FILE header fields");
+
+    auto tailOverlap = BuildSyntheticRecord(512, u"overlap.txt", 5, 42, false);
+    WriteU16(tailOverlap, 4, 508);
+    WriteU16(tailOverlap, 508, 7);
+    Check(ApplyFixupAndValidate(tailOverlap.data(), tailOverlap.size(), 512) == FixupResult::Malformed,
+          "the fixup array must end before the first protected tail");
+}
+
+void TestMalformedAttributeExtentsAreRejected() {
+    constexpr size_t kFirstAttributeOffset = 0x30 + 3 * 2 + 6;
+    auto record = BuildSyntheticRecord(512, u"extent.txt", 5, 42, false);
+    Check(ApplyFixupAndValidate(record.data(), record.size(), 512) == FixupResult::Ok,
+          "attribute-extent fixture starts from a valid fixed-up record");
+
+    auto oversized = record;
+    WriteU32(oversized, 24, static_cast<uint32_t>(record.size() + 1));
+    Check(!ParseMftAttributes(oversized.data(), oversized.size()),
+          "bytes-in-use beyond the supplied record is rejected, never clamped");
+
+    auto overlapping = record;
+    WriteU16(overlapping, kFirstAttributeOffset + 20, 0);
+    Check(!ParseMftAttributes(overlapping.data(), overlapping.size()),
+          "resident allowlisted values cannot reinterpret their attribute header as metadata");
+
+    uint32_t bytesInUse = 0;
+    std::memcpy(&bytesInUse, record.data() + 24, sizeof(bytesInUse));
+    auto unterminated = record;
+    WriteU32(unterminated, 24, bytesInUse - 8);
+    Check(!ParseMftAttributes(unterminated.data(), unterminated.size()),
+          "an attribute stream without its end marker is rejected");
+
+    auto shortMarker = record;
+    WriteU32(shortMarker, 24, bytesInUse - 4);
+    Check(ParseMftAttributes(shortMarker.data(), shortMarker.size()).has_value(),
+          "the complete four-byte end marker does not require reading padding beyond bytes-in-use");
+}
+
 } // namespace
 
 int main() {
@@ -355,6 +421,9 @@ int main() {
     TestResidentDataAttributeIsNeverSurfaced();
     TestOversizedAttributeLengthIsRejectedNotOverread();
     TestMissingStandardInformationRejected();
+    TestFixupUsesNtfsStrideRatherThanVolumeSectorSize();
+    TestFixupArrayCannotOverlapHeaderOrProtectedTail();
+    TestMalformedAttributeExtentsAreRejected();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

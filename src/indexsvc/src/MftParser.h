@@ -29,7 +29,7 @@ enum class FixupResult {
 };
 
 // Applies the NTFS Update Sequence Array fixup in place (restoring each
-// sector's true last two bytes) and validates the record's signature and
+// 512-byte stride's true last two bytes, independent of bytesPerSector) and validates the record's signature and
 // in-use flag. Must be called, and must return Ok, before
 // ParseMftAttributes is called on the same buffer.
 FixupResult ApplyFixupAndValidate(uint8_t* record, size_t recordSize, uint32_t bytesPerSector);
@@ -43,9 +43,9 @@ struct ParsedMftRecord {
     uint64_t creationTime = 0;
     uint64_t lastModifiedTime = 0;
     uint64_t lastAccessTime = 0;
-    // logical size -- $FILE_NAME RealSize (offset 0x28 of the value)
+    // logical size -- $FILE_NAME RealSize (byte offset 48 of the value)
     uint64_t sizeBytes = 0;
-    // allocated/on-disk size -- $FILE_NAME AllocatedSize (offset 0x20 of
+    // allocated/on-disk size -- $FILE_NAME AllocatedSize (byte offset 40 of
     // the value). Same cached-metadata source as sizeBytes; see
     // allocated-size-storage-accuracy design D2.
     uint64_t allocatedSizeBytes = 0;
