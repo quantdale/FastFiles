@@ -13,7 +13,7 @@ function Check {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $runner = Import-Module (Join-Path $repoRoot 'verify\core\CapabilityRunner.psm1') -Force -PassThru
-Import-Module (Join-Path $PSScriptRoot 'ProcessIdentityFixture.psm1') -Force
+$fixture = Import-Module (Join-Path $PSScriptRoot 'ProcessIdentityFixture.psm1') -Force -PassThru
 function Test-CurrentIdentity {
     param($Identity)
     return (& $runner { param($Value) Test-VerificationProcessIdentityCurrent -Identity $Value } $Identity)
@@ -22,7 +22,29 @@ function Test-CurrentIdentity {
 $pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
 $child = Start-Process -FilePath $pwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 5') -PassThru -WindowStyle Hidden
 try {
-    $identity = Wait-ProcessFixtureIdentity -Process $child
+    # A newly started Process.Path can return ntdll.dll, not just an empty
+    # value. Reproduce that actual loader observation deterministically while
+    # retaining the real PID, start time and process handle.
+    & $fixture {
+        function script:Get-Process {
+            param([int] $Id, $ErrorAction)
+            $observed = Microsoft.PowerShell.Management\Get-Process -Id $Id -ErrorAction Stop
+            $view = [pscustomobject]@{
+                Path = (Join-Path $env:SystemRoot 'System32\ntdll.dll')
+                StartTime = $observed.StartTime
+                SafeHandle = $observed.SafeHandle
+                Process = $observed
+            }
+            $view | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $this.Process.Dispose() }
+            return $view
+        }
+    }
+    try {
+        $identity = Wait-ProcessFixtureIdentity -Process $child
+    } finally {
+        & $fixture { Remove-Item Function:Get-Process }
+    }
+    Check ($identity.path -ne (Join-Path $env:SystemRoot 'System32\ntdll.dll')) 'capture does not adopt a nonempty loader-module Path as the executable'
     $identity.path = & $runner { param($Path) Get-VerificationNormalizedExecutablePath -Path $Path } $identity.path
     Check ($identity.pid -eq $child.Id) 'capture retains the exact launched process ID'
     Check ([DateTime]::Parse($identity.startTimeUtc).ToUniversalTime() -eq $child.StartTime.ToUniversalTime()) 'capture retains the exact launched process start'

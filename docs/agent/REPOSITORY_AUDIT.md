@@ -39,6 +39,15 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 - Independent reference: [Microsoft named-pipe security and access rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights). Mutual signed-peer authentication remains in force; this audit does not claim a reproduced LPE, privileged install/service qualification, or cross-session exploit. Tests create no accounts, grants, trust roots, or installed-service changes.
 - **Qualification PASS:** Debug **145/145** (302.60s), release-test **145/145** (268.95s), expanded ASan **10/10** (90.99s), incremental MSVC analysis exit 0 (`*-wave3-pipe-{result.json,build.log,test.log}`). Restricted-token kernel/access/data-roundtrip regression also passed **20/20** repetitions. Drift/source/diagnostic policies and strict OpenSpec **106/106** pass. Publication/post-commit identity and hosted status are handoff gates, not an audit-complete verdict.
 
+## Hosted process-identity fixture failure (2026-11-17)
+
+- Wave-3 publication `0a1c443` completed; exact-SHA hosted run `43565293329` passed five jobs but failed Debug's normalized-path reaper identity assertion. That failure was not a pipe ACL regression or a passing certification.
+- Reproduced in an owned-process probe: **11/200 launches** captured `ntdll.dll` through `Get-Process.Path`, then the verifier observed `pwsh.exe` at the same PID/start (**55/1,000 failed comparisons**, five reads per launch). Nonempty module-derived Path is not sufficient executable-image evidence during loader startup. The single baseline test passed, demonstrating why retrying it alone is insufficient.
+- `ProcessIdentityFixture.psm1` now calls handle-bound `QueryFullProcessImageNameW` through a bounded Unicode buffer and SafeProcessHandle; exact start-time checking, timeout and disposal remain. Production CapabilityRunner ownership/path/start predicates are unchanged; no launch-path substitution or weaker identity acceptance.
+- Deterministic regression injects the actual wrong nonempty Path while retaining a real owned child's PID/start/handle. Before fix: two decisive assertions fail (`fixture-red.log`); after: all nine pass (`fixture-green.log`). Existing launch-alias negative control still fails as required. Natural child lifetime/cleanup semantics preserved.
+- Same 200-launch/1,000-comparison probe now **0 failures**. Reaper + identity fixture CTests each passed **30 consecutive executions**; full Debug **145/145** (285.75s), release-test **145/145** (291.99s). Active PowerShell LSP checks: two files clean. Evidence: `D:/Documents/tryPython/_AgentArtifacts/FastFiles/sessions/20261117-pi-production-readiness/`. No claim of exhaustive race elimination or production release qualification.
+- API contract checked against [Microsoft QueryFullProcessImageNameW documentation](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamew). The code-search backend remains unavailable; direct documentation/web research was used instead.
+
 ## Coverage ledger
 
 | Surface | Review/verification frontier |
