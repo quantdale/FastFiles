@@ -76,7 +76,7 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 | Search | Literal/glob matching, query parsing, path helpers and history persistence inspected; model verifies hot/durable candidate outputs after canonical filtering. Complete pipeline differential/boundary/resource review pending. |
 | UI/navigation/commands/operations/preview/accessibility | Icon worker/cache and recent-folder identity inspected; remaining surfaces and real runtime checks pending. |
 | Setup/installer/security | Peer path matching, Authenticode, security descriptors and early installer staging inspected; package/ACL/lifecycle review incomplete. |
-| Build/CI/verification/governance | Workflow/toolchain reviewed; out-of-tree test/identity defects fixed. Broader harness/policy tests pending. |
+| Build/CI/verification/governance | Workflow/toolchain reviewed; out-of-tree test/identity defects fixed. New formal equivalence probe rejects actual external generated version RCs due to hard-coded repo/build assumption (closure-equivalence-fullsha.log); no pass claimed, bounded harness repair pending. Broader harness/policy tests incomplete. |
 | Dependencies | SQLite 3.53.4 provenance/options checked; upstream CVE and 3.54.1 notes consulted. Session extension not enabled; no demonstrated reachable new SQLite vulnerability yet, no speculative vendor edits. Finish applicability review. |
 
 ## Validated implementation checkpoints
