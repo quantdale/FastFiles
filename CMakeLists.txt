@@ -194,7 +194,7 @@ fastfiles_set_target_folder("Tests/Protocol"
 fastfiles_set_target_folder("Tests/IPC" ffipc_framing_tests ffipc_listener_lifecycle_tests)
 fastfiles_set_target_folder("Tests/Index Store"
   ffindexstore_store_tests ffindexstore_projection_tests ffindexstore_flat_hash_map_tests
-  ffindexstore_read_session_tests ffindexstore_bench_projection_memory)
+  ffindexstore_read_session_tests ffindexstore_store_projection_model_tests ffindexstore_bench_projection_memory)
 fastfiles_set_target_folder("Tests/Search"
   ffsearch_tests ffsearch_ascii_fold_tests ffsearch_scan_tests ffsearch_ondisk_filter_tests
   ffsearch_history_tests ffsearch_bench_literal_matcher)

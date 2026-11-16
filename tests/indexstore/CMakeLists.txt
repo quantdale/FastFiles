@@ -24,6 +24,13 @@ add_executable(ffindexstore_read_session_tests test_store_read_session.cpp)
 target_link_libraries(ffindexstore_read_session_tests PRIVATE ffindexstore)
 add_test(NAME ffindexstore_read_session_tests COMMAND ffindexstore_read_session_tests)
 
+# Repository audit: independent seeded oracle across mutations, resident/cold
+# rebuilds, durable candidates and overlapping WAL snapshots.
+add_executable(ffindexstore_store_projection_model_tests test_store_projection_model.cpp)
+target_link_libraries(ffindexstore_store_projection_model_tests PRIVATE ffindexstore)
+add_test(NAME ffindexstore_store_projection_model_tests COMMAND ffindexstore_store_projection_model_tests)
+set_tests_properties(ffindexstore_store_projection_model_tests PROPERTIES TIMEOUT 120)
+
 # Informational only (tasks.md 9.7) -- not registered with add_test, since
 # it reports a measurement rather than passing/failing.
 add_executable(ffindexstore_bench_projection_memory bench_projection_memory.cpp)

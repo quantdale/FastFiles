@@ -48,6 +48,14 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 - Same 200-launch/1,000-comparison probe now **0 failures**. Reaper + identity fixture CTests each passed **30 consecutive executions**; full Debug **145/145** (285.75s), release-test **145/145** (291.99s). Active PowerShell LSP checks: two files clean. Evidence: `D:/Documents/tryPython/_AgentArtifacts/FastFiles/sessions/20261117-pi-production-readiness/`. No claim of exhaustive race elimination or production release qualification.
 - API contract checked against [Microsoft QueryFullProcessImageNameW documentation](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamew). The code-search backend remains unavailable; direct documentation/web research was used instead.
 
+## Store/projection model qualification (2026-11-17)
+
+- Added `ffindexstore_store_projection_model_tests`, linked to the **production** indexstore library. Four fixed seeds run 160 twelve-operation batches each (**7,680 mutation attempts**) over three volumes with repeated 128-bit IDs, full/partial field masks, removes/reinserts, reparenting, uint64 metadata, SQL-pattern punctuation, mixed case, supplementary and unpaired-surrogate names.
+- An independent ordered-map model checks every durable/resident row, all semantically meaningful fields (unknown allocation bytes are ignored), point lookup, child membership and canonically filtered hot/durable candidate identity sets after each batch. Canonical name matching uses Windows ordinal case-insensitive comparison, not either accelerator. Wrong metadata, missing rows and invented identities are explicit negative-oracle controls.
+- A separate reader spans each writer commit and must return the exact **previous** model; recurring eviction/reload and close/open/rebuild must preserve current results. This qualifies a bounded mutation/lifecycle corpus, not arbitrary concurrency schedules, crash/power-loss behavior, large-scale memory bounds, or the complete engine/UI search route. Existing fault/crash suites remain separate evidence.
+- All four seeds pass in Debug and optimized builds; focused ASan model **1/1** (57.49s), target MSVC `/analyze` warning-clean. Full Debug **146/146** (305.35s), release-test **146/146** (275.42s). LSP initially reported an unused include (removed); final active probe was inconclusive, not a clean result. Native compilation/analysis and executable tests are the acceptance evidence.
+- No new production defect was demonstrated by this bounded model, so no speculative production change was made. Logs `*-model-*-{build,test}.log` are in the 2026-11-17 session folder. Original first compile rejected an implicit char16-to-char narrowing; explicit ASCII conversion repaired the test without relaxing warning policy.
+
 ## Coverage ledger
 
 | Surface | Review/verification frontier |
@@ -56,8 +64,8 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 | IPC | Framing cancellation/quarantine and listener lifetime inspected; broker client-ACE instance creation reproduced and fixed above. Remaining admission/exception/deadline review pending. |
 | Privileged service | MFT/USN parsers reviewed, MFT fixes tested. Client authentication inspected; scan/journal loops and privilege/revalidation review pending. |
 | Engine | Retry transitions, watcher, degraded enumeration and idle monitor inspected. Pipeline/publication/server/query/lifecycle review still incomplete. |
-| Index store/projection | Store schema/UTF decoding/open/integrity entry points inspected; transactional, candidate-index, projection, memory and concurrency review pending. |
-| Search | Literal/glob matching, query parsing, path helpers and history persistence inspected; differential/boundary/resource review pending. |
+| Index store/projection | Store schema/UTF decoding/open/integrity, batch/mask/candidate maintenance and projection mutation code inspected; new seeded model above qualifies bounded rows/children/candidates/snapshots/rebuilds. Exception safety, memory bounds and wider concurrency/fault review remain incomplete. |
+| Search | Literal/glob matching, query parsing, path helpers and history persistence inspected; model verifies hot/durable candidate outputs after canonical filtering. Complete pipeline differential/boundary/resource review pending. |
 | UI/navigation/commands/operations/preview/accessibility | Icon worker/cache and recent-folder identity inspected; remaining surfaces and real runtime checks pending. |
 | Setup/installer/security | Peer path matching, Authenticode, security descriptors and early installer staging inspected; package/ACL/lifecycle review incomplete. |
 | Build/CI/verification/governance | Workflow/toolchain reviewed; out-of-tree test/identity defects fixed. Broader harness/policy tests pending. |
