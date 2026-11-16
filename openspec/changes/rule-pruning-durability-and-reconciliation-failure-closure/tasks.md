@@ -47,6 +47,15 @@ Prior 86/86 and hosted green results remain useful baseline evidence but do not 
 - [x] 7.1 Update lifecycle, WORKSTATE, progress, and evidence with exact commands, test counts, implementation SHA, hosted run ID, failure/recovery observations, and remaining external boundaries. Recorded in `evidence/implementation-and-validation.md`, lifecycle, and the synchronized handoff documents.
 - [x] 7.2 Restore the deleted completion gate: mark this bounded change COMPLETE only after every requirement above is evidence-backed and exact-SHA hosted CI is green. Then return control to `.agent/NEXT_CAMPAIGN_12H.md` / `completion-integrity-hardening-and-release-certification` while useful session budget remains. The lifecycle entry is completed; the follow-on remains active.
 
+## 8. Committed-prefix read invalidation correction (reopened 2026-11-17)
+
+Historical completion above is preserved; the current-tree mixed-generation reproducer reopens this bounded correction. Invalidation is not successful publication (design D5).
+
+- [x] 8.1 Reproduce both MFT and USN mixed-generation search after primary commit plus secondary-prune failure; retain exact old-metadata/new-path evidence and a primary-rollback negative control. Both overlap arms red: size 41 with C:\\after, no generation restart.
+- [x] 8.2 Invalidate affected-volume read dependencies before returning secondary failure, without changing failure status, retained rows, retries, primary rollback behavior, rebuild or reconciliation completion callbacks. Existing failure/retention/retry checks must remain decisive; correct the mistaken success-epoch conflation.
+- [x] 8.3 Run focused overlap plus engine/indexstore/search regressions, full Debug and optimized CTests, MSVC analysis, ASan, policy/drift and strict OpenSpec; record actual results and scope. Final Debug/optimized 146/146 each, affected engine ASan 1/1, full incremental /analyze warning-clean, policies/strict pass; see evidence/committed-prefix-read-invalidation.md.
+- [ ] 8.4 Commit/push without force, refresh identity gates and inspect exact implementation-SHA hosted CI through terminal outcome; record immutable evidence before closing this correction.
+
 ## Acceptance summary
 
 This change is complete only when:

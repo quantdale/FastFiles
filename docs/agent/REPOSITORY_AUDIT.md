@@ -56,6 +56,14 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 - All four seeds pass in Debug and optimized builds; focused ASan model **1/1** (57.49s), target MSVC `/analyze` warning-clean. Full Debug **146/146** (305.35s), release-test **146/146** (275.42s). LSP initially reported an unused include (removed); final active probe was inconclusive, not a clean result. Native compilation/analysis and executable tests are the acceptance evidence.
 - No new production defect was demonstrated by this bounded model, so no speculative production change was made. Logs `*-model-*-{build,test}.log` are in the 2026-11-17 session folder. Original first compile rejected an implicit char16-to-char narrowing; explicit ASCII conversion repaired the test without relaxing warning policy.
 
+## Committed-prefix ingestion/search invalidation (2026-11-17)
+
+- **Confirmed correctness defect:** MFT/USN primary writes committed and updated the projection, but a failed secondary-pruning write returned without advancing read dependencies. Active search could combine captured old metadata and a newly renamed parent path while reporting Completed. Both deterministic overlap arms returned **size 41 / C:\\after**, belonging to neither old nor new generation.
+- **Minimal fix:** invalidate the affected volume's EntryMutation epoch on those two failed-secondary return paths. The call still fails; excluded rows remain durably/residently retained and retry remains required. A rolled-back primary transaction still does not invalidate unchanged state. Success/publication callbacks and reconciliation semantics are not broadened.
+- The historical pruning campaign conflated invalidation with success acknowledgement. Its lifecycle is reopened for bounded tasks 8.1–8.4; design D5/spec correct the distinction and four prior MFT/USN epoch assertions now require invalidation. All existing failure status/retention/retry and rebuild/reconciliation assertions remain.
+- Final valid-directory fixture reproduced both failures with only the new production additions temporarily removed; restored corrected source passes both arms. Final **Debug 146/146** (298.23s), **optimized 146/146** (255.05s), engine **ASan 1/1** (35.13s), full incremental MSVC analysis warning-clean, source/diagnostic/strict gates PASS. Active LSP inconclusive, not a clean finding. Exact evidence/limits: `openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/committed-prefix-read-invalidation.md`.
+- Publication and exact-SHA terminal hosted evidence remain the open gate. Prior fixture `31e6f13` and model `ae0e6fb` each independently completed **6/6 hosted jobs SUCCESS** (runs `43940468536`, `43943205124`); those do not certify this newer engine correction.
+
 ## Coverage ledger
 
 | Surface | Review/verification frontier |
@@ -63,7 +71,7 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 | Protocol and snapshot formats | Frame/batch bounds, snapshot cursor, UI request/result parsing inspected; settings fixes above. Remaining adversarial parsing/semantic consistency review pending. |
 | IPC | Framing cancellation/quarantine and listener lifetime inspected; broker client-ACE instance creation reproduced and fixed above. Remaining admission/exception/deadline review pending. |
 | Privileged service | MFT/USN parsers reviewed, MFT fixes tested. Client authentication inspected; scan/journal loops and privilege/revalidation review pending. |
-| Engine | Retry transitions, watcher, degraded enumeration and idle monitor inspected. Pipeline/publication/server/query/lifecycle review still incomplete. |
+| Engine | Retry/watcher/degraded enumeration/idle inspected. Primary/secondary ingestion and read-plane dependencies traced; committed-prefix mixed-generation defect reproduced/fixed above. Rebuild layout invalidation, allocation-failure recovery, publication/server/query/lifecycle review still incomplete. |
 | Index store/projection | Store schema/UTF decoding/open/integrity, batch/mask/candidate maintenance and projection mutation code inspected; new seeded model above qualifies bounded rows/children/candidates/snapshots/rebuilds. Exception safety, memory bounds and wider concurrency/fault review remain incomplete. |
 | Search | Literal/glob matching, query parsing, path helpers and history persistence inspected; model verifies hot/durable candidate outputs after canonical filtering. Complete pipeline differential/boundary/resource review pending. |
 | UI/navigation/commands/operations/preview/accessibility | Icon worker/cache and recent-folder identity inspected; remaining surfaces and real runtime checks pending. |

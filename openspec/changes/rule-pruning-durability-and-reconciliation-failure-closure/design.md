@@ -28,10 +28,16 @@ Add an `IndexPipeline` test-only setter `SetSecondaryPruningFaultInjector` (or e
 ### D4 — Minimal state for retry
 For MFT/USN paths, the existing pattern of returning `false` is sufficient; callers retry the whole batch (which re-evaluates `IsEntryIncludedLocked`). For `RebuildAll`, a per-volume `rebuildPruningDirty_` flag (or simply returning failure for that volume's rebuild step) forces the next `RebuildAll` or next incremental batch to re-evaluate pruning. No new persisted state is needed because the exclusion rule is derived from `volumeRules_` and `ReconstructPath`.
 
+### D5 — Committed primary writes invalidate readers even when secondary pruning fails (2026-11-17 correction)
+
+The previous epoch-visibility rationale conflated a read-dependency invalidation with a successful ingestion/publication acknowledgement. MFT/USN primary transactions commit before secondary pruning; mixed batches can change INCLUDED rows and parent paths even though pruning subsequently fails. A deterministic overlap reproduced a completed candidate with old size 41 and a new parent path, belonging to neither generation.
+
+After primary state has changed, the failed-secondary return path MUST advance the affected volume's data/query-visible invalidation epoch under the same mutation lock. The call still returns false, excluded rows remain durably/residently retained, and retry remains required. No snapshot is published and no rebuild-success callback is introduced. A rolled-back primary transaction still leaves the epoch unchanged. Ordinary successful ingestion remains one data invalidation; unrelated scoped searches remain unaffected. Rebuild and reconciliation completion semantics are unchanged by this correction.
+
 ## Risks / Trade-offs
 
 - **Retry amplification:** callers that retry the whole MFT/USN batch will redo `IsEntryIncludedLocked` walks; bounded by batch size.
-- **Epoch visibility:** returning failure delays `AdvanceQueryVisibleEpochLocked` until pruning succeeds; search continues to show the pre-pruning set, which is correct vs publishing a divergent set.
+- **Epoch visibility:** the original assumption that delaying invalidation preserves the pre-pruning set was disproven by the D5 overlap regression. Primary MFT/USN changes must invalidate old read captures even on secondary failure; invalidation is not publication or a success acknowledgement.
 - **Shutdown:** a failure retained across shutdown is durable (SQLite unchanged) and will be retried after restart via normal rebuild/reconciliation; no new recovery mechanism.
 - **Test coverage vs invasiveness:** the fault injector is test-only and not part of the product surface; it is guarded by `FASTFILES_TEST` or a `friend` test seam to avoid shipping it.
 

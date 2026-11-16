@@ -1959,6 +1959,84 @@ void TestCancellationDuringColdStream() {
           "cold search completes normally after cancellation during materialization");
 }
 
+void TestFailedSecondaryPruneCannotMixSearchGenerations(const bool useUsn) {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath(useUsn ? "engine_test_failed_usn_prune_search_generation.db"
+                                            : "engine_test_failed_mft_prune_search_generation.db")),
+          "failed-prune generation fixture opens");
+    VolumeKey key;
+    key.serialNumber = 9901;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.rules.push_back({L"C:\\blocked.txt", false});
+    pipeline.SetVolumeRules(volume, setting);
+    Check(pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(1, 1, u"", 0x10, 0),
+        MakeMftRecord(10, 1, u"before", 0x10, 0),
+        MakeMftRecord(11, 10, u"needle.txt", 0, 41),
+    }), "failed-prune fixture seeds the old generation");
+    const auto epochBeforePrimaryFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    SetTestingCandidateMaintenanceFault(1, false);
+    const bool primaryFailed = !pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(11, 10, u"needle.txt", 0, 999),
+    });
+    SetTestingCandidateMaintenanceFault(0, false);
+    Check(primaryFailed && pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforePrimaryFailure,
+          "rolled-back primary mutation does not invalidate an unchanged data generation");
+    SecondaryFailurePlan plan{useUsn ? SecondaryBoundary::UsnRulePrune : SecondaryBoundary::MftRulePrune,
+                              1, false, 0, {}};
+    InstallSecondaryFailurePlan(pipeline, plan);
+    bool mutationAttempted = false;
+    bool mutationFailed = false;
+    IndexPipeline::SearchTestHooks hooks;
+    hooks.onPhase = [&](const IndexPipeline::SearchPhase phase) {
+        if (phase != IndexPipeline::SearchPhase::Matching || mutationAttempted) return;
+        mutationAttempted = true;
+        if (useUsn) {
+            auto renamedParent = MakeUsnRecord(100, 10, 1, u"after", 0);
+            renamedParent.fixed.fileAttributes = 0x10;
+            mutationFailed = !pipeline.ApplyUsnBatch(volume, {
+                renamedParent,
+                MakeUsnRecord(101, 11, 10, u"needle.txt", 82),
+                MakeUsnRecord(102, 12, 1, u"blocked.txt", 1),
+            });
+        } else {
+            mutationFailed = !pipeline.ApplyMftBatch(volume, {
+                MakeMftRecord(10, 1, u"after", 0x10, 0),
+                MakeMftRecord(11, 10, u"needle.txt", 0, 82),
+                MakeMftRecord(12, 1, u"blocked.txt", 0, 1),
+            });
+        }
+    };
+    pipeline.SetSearchTestHooks(hooks);
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 9901;
+    request.scope = 3;
+    request.sortField = 1;
+    request.maxResults = 100;
+    request.query = L"needle";
+    IndexPipeline::SearchTimings timings;
+    const auto response = pipeline.SearchIndexed(request, &timings);
+    pipeline.SetSearchTestHooks({});
+    pipeline.SetSecondaryPruningFaultInjector({});
+    Check(mutationAttempted && mutationFailed && plan.targetCalls == 1,
+          "search overlaps a committed primary mutation followed by failed secondary pruning");
+    Check(response.status == ffprotocol::IndexedSearchStatus::Completed && response.candidates.size() == 1,
+          "failed-prune overlap returns one complete searchable candidate");
+    Check(timings.generationRestarts >= 1,
+          "committed primary prefix invalidates the old search capture despite secondary failure");
+    if (response.candidates.size() == 1) {
+        const auto& row = response.candidates.front();
+        const bool oldSnapshot = row.folder == L"C:\\before" && row.sizeBytes == 41;
+        const bool newSnapshot = row.folder == L"C:\\after" && row.sizeBytes == 82;
+        Check(oldSnapshot || newSnapshot,
+              "search never combines pre-commit metadata with a post-commit parent path");
+        std::printf("failed-prune observation: size=%llu folder=%ls\n",
+                    static_cast<unsigned long long>(row.sizeBytes), row.folder.c_str());
+    }
+}
+
 // rule-pruning-durability-and-reconciliation-failure-closure: MFT secondary
 // pruning is fail-closed, boundary-specific, and immediately retryable.
 void TestMftSecondaryFailureIsFailClosedAndRetryable() {
@@ -2000,8 +2078,8 @@ void TestMftSecondaryFailureIsFailClosedAndRetryable() {
     const auto failedDurable = ReadDurableEntryState(dbPath, volume, target);
     Check(failedDurable.opened && failedDurable.entryCount == 2 && failedDurable.hasTarget,
           "the failed MFT prune leaves the durable row intact");
-    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforeFailure,
-          "a failed MFT mutation does not publish a success epoch");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epochBeforeFailure,
+          "committed primary MFT changes invalidate readers without acknowledging pruning success");
 
     pipeline.SetSecondaryPruningFaultInjector({});
     Check(pipeline.ApplyMftBatch(volume, blocked),
@@ -2038,8 +2116,8 @@ void TestMftSecondaryFailureIsFailClosedAndRetryable() {
     const auto persistentDurable = ReadDurableEntryState(dbPath, volume, persistentTarget);
     Check(persistentDurable.opened && persistentDurable.entryCount == 2 && persistentDurable.hasTarget,
           "persistent MFT failure leaves the primary durable row intact");
-    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforePersistentFailure,
-          "persistent MFT failure does not publish a searchable epoch");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epochBeforePersistentFailure,
+          "persistent MFT secondary failure still invalidates committed primary changes");
     pipeline.SetSecondaryPruningFaultInjector({});
     Check(pipeline.ApplyMftBatch(volume, persistentBlocked),
           "persistent MFT failure converges after the fault clears");
@@ -2100,8 +2178,8 @@ void TestUsnSecondaryFailureIsBoundarySpecificAndRetryable() {
     const auto failedDurable = ReadDurableEntryState(dbPath, volume, target);
     Check(failedDurable.opened && failedDurable.entryCount == 2 && failedDurable.hasTarget,
           "the failed USN prune leaves its durable row intact");
-    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforeFailure,
-          "a failed USN mutation does not publish a success epoch");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epochBeforeFailure,
+          "committed primary USN changes invalidate readers without acknowledging pruning success");
 
     pipeline.SetSecondaryPruningFaultInjector({});
     Check(pipeline.ApplyUsnBatch(volume, blocked),
@@ -2137,8 +2215,8 @@ void TestUsnSecondaryFailureIsBoundarySpecificAndRetryable() {
     const auto persistentDurable = ReadDurableEntryState(dbPath, volume, persistentTarget);
     Check(persistentDurable.opened && persistentDurable.entryCount == 2 && persistentDurable.hasTarget,
           "persistent USN failure leaves the primary durable row intact");
-    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforePersistentFailure,
-          "persistent USN failure does not publish a searchable epoch");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epochBeforePersistentFailure,
+          "persistent USN secondary failure still invalidates committed primary changes");
     pipeline.SetSecondaryPruningFaultInjector({});
     Check(pipeline.ApplyUsnBatch(volume, persistentBlocked),
           "persistent USN failure converges after the fault clears");
@@ -2727,6 +2805,8 @@ int main() {
         TestColdMutationsAndRestartEquivalence();
         TestColdFolderAggregateServedFromStore();
         TestCancellationDuringColdStream();
+    TestFailedSecondaryPruneCannotMixSearchGenerations(false);
+    TestFailedSecondaryPruneCannotMixSearchGenerations(true);
     TestMftSecondaryFailureIsFailClosedAndRetryable();
     TestUsnSecondaryFailureIsBoundarySpecificAndRetryable();
     TestRebuildSecondaryFailureDoesNotPublishSuccess();

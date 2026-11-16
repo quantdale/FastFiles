@@ -42,6 +42,18 @@ After any secondary-write failure, durable SQLite state, resident projection sta
 - **WHEN** rule-excluded rows exist and secondary pruning fails
 - **THEN** search, `ExportDirectorySnapshot`, and `GetFolderAggregate` MUST reflect the same consistent set of rows as the durable store, not a divergent projection-only removal or SQLite-only removal
 
+### Requirement: Committed primary changes invalidate search captures despite secondary failure
+
+MFT/USN ingestion MUST invalidate affected-volume search dependencies whenever its primary transaction has changed durable and resident state, including when the follow-on pruning transaction fails. An invalidation epoch MUST NOT be interpreted as acknowledgement that the enclosing ingestion/pruning operation succeeded. Failure return values, retained rows and retry obligations remain required.
+
+#### Scenario: Mixed included and excluded batch overlaps search
+- **WHEN** search captures an included row, a primary MFT/USN batch changes that row or its parent path, and secondary pruning of another excluded row fails
+- **THEN** search MUST discard the affected old capture and recapture or use its stable durable fallback; it MUST NOT combine pre-commit metadata with post-commit parent paths in a Completed response
+
+#### Scenario: Primary transaction rolls back
+- **WHEN** the primary durable batch fails and no projection mutation occurs
+- **THEN** ingestion MUST return failure without advancing the data epoch for unchanged state
+
 ### Requirement: Cancellation, shutdown, and restart interactions preserve the contract
 
 Cancellation or engine shutdown during a secondary pruning or reconciliation removal MUST NOT create a persistent divergent state, and restart MUST recover to a consistent state where the next reconciliation can repair any outstanding pruning debt.

@@ -812,6 +812,13 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
         } else {
             // Secondary pruning failed: durable and projection remain consistent (both retain the excluded rows),
             // but do not report success. Caller can retry the batch; the next attempt will re-evaluate pruning.
+            // rule-pruning-durability-and-reconciliation-failure-closure 8.2:
+            // the primary batch DID commit. Invalidate in-flight read captures
+            // even though the overall call failed; this epoch is not a success
+            // acknowledgement or snapshot publication.
+            if (!changes.empty()) {
+                AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
+            }
             if (projection_.EnforceMemoryLimitNow()) {
                 AdvanceResidencyEpochsForStructuralChangeLocked();
             }
@@ -965,6 +972,12 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
             // erases on mass rule removal.
             projection_.RemoveBatch(volumeId, excludedIds);
         } else {
+            // rule-pruning-durability-and-reconciliation-failure-closure 8.2:
+            // primary USN changes remain committed on secondary failure, so
+            // previously captured search rows/paths must be invalidated.
+            if (!changes.empty()) {
+                AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
+            }
             if (projection_.EnforceMemoryLimitNow()) {
                 AdvanceResidencyEpochsForStructuralChangeLocked();
             }
