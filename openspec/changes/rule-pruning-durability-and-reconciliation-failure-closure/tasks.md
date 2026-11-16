@@ -54,7 +54,7 @@ Historical completion above is preserved; the current-tree mixed-generation repr
 - [x] 8.1 Reproduce both MFT and USN mixed-generation search after primary commit plus secondary-prune failure; retain exact old-metadata/new-path evidence and a primary-rollback negative control. Both overlap arms red: size 41 with C:\\after, no generation restart.
 - [x] 8.2 Invalidate affected-volume read dependencies before returning secondary failure, without changing failure status, retained rows, retries, primary rollback behavior, rebuild or reconciliation completion callbacks. Existing failure/retention/retry checks must remain decisive; correct the mistaken success-epoch conflation.
 - [x] 8.3 Run focused overlap plus engine/indexstore/search regressions, full Debug and optimized CTests, MSVC analysis, ASan, policy/drift and strict OpenSpec; record actual results and scope. Final Debug/optimized 146/146 each, affected engine ASan 1/1, full incremental /analyze warning-clean, policies/strict pass; see evidence/committed-prefix-read-invalidation.md.
-- [ ] 8.4 Commit/push without force, refresh identity gates and inspect exact implementation-SHA hosted CI through terminal outcome; record immutable evidence before closing this correction.
+- [x] 8.4 Commit/push without force, refresh identity gates and inspect exact implementation-SHA hosted CI through terminal outcome; record immutable evidence before closing this correction. Implementation da4111e7905b1b5f7094f584f65e84a006303177 pushed normally; post-commit Debug/optimized 6/6 each; hosted run 43947668140 terminal SUCCESS, all six jobs. See evidence/committed-prefix-read-invalidation.md.
 
 ## Acceptance summary
 

@@ -753,7 +753,7 @@
     },
     {
       "name": "rule-pruning-durability-and-reconciliation-failure-closure",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -778,6 +778,16 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/committed-prefix-read-invalidation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "da4111e7905b1b5f7094f584f65e84a006303177"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "43947668140",
+          "sha": "da4111e7905b1b5f7094f584f65e84a006303177",
+          "record": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/committed-prefix-read-invalidation.md"
         },
         {
           "kind": "git-commit",
