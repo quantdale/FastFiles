@@ -162,6 +162,44 @@ function Test-ExecutableManifestIsExecutable {
     return $false
 }
 
+# qualify-external-build-executable-equivalence 2.1: a path outside Git is
+# not automatically generated. Only an existing output below a configured
+# binary root belonging to this exact source tree gets that classification.
+function Get-VerifiedGeneratedBuildRoot {
+    param([string] $CompileDb, [string] $RepoRootResolved)
+    $root = [IO.Path]::GetDirectoryName($CompileDb).Replace('\', '/').TrimEnd('/')
+    $cache = Join-Path $root 'CMakeCache.txt'
+    if (-not (Test-Path -LiteralPath $cache -PathType Leaf)) { return $null }
+    $lines = @(Get-Content -LiteralPath $cache -ErrorAction Stop)
+    $sourceEntries = @($lines | Where-Object { $_ -match '^CMAKE_HOME_DIRECTORY:INTERNAL=' })
+    $binaryEntries = @($lines | Where-Object { $_ -match '^CMAKE_CACHEFILE_DIR:INTERNAL=' })
+    if ($sourceEntries.Count -ne 1 -or $binaryEntries.Count -ne 1) {
+        throw 'Generated build-root provenance is missing or ambiguous in CMakeCache.txt'
+    }
+    $source = $sourceEntries[0].Substring('CMAKE_HOME_DIRECTORY:INTERNAL='.Length)
+    $binary = $binaryEntries[0].Substring('CMAKE_CACHEFILE_DIR:INTERNAL='.Length)
+    if (-not [IO.Path]::IsPathRooted($source) -or -not [IO.Path]::IsPathRooted($binary)) {
+        throw 'Generated build-root provenance must use absolute source/binary paths'
+    }
+    $source = [IO.Path]::GetFullPath($source).Replace('\', '/').TrimEnd('/')
+    $binary = [IO.Path]::GetFullPath($binary).Replace('\', '/').TrimEnd('/')
+    if (-not $source.Equals($RepoRootResolved, [StringComparison]::OrdinalIgnoreCase) -or
+        -not $binary.Equals($root, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Generated build-root provenance does not match source/cache directory'
+    }
+    if ($RepoRootResolved.Equals($root, [StringComparison]::OrdinalIgnoreCase) -or
+        $RepoRootResolved.StartsWith($root + '/', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Generated binary root must not contain the source tree'
+    }
+    return $root
+}
+
+function Test-GeneratedBuildFile {
+    param([string] $Path, [string] $BuildRoot)
+    return $BuildRoot -and $Path.StartsWith($BuildRoot + '/', [StringComparison]::OrdinalIgnoreCase) -and
+        (Test-Path -LiteralPath $Path -PathType Leaf)
+}
+
 function Resolve-Include {
     param(
         [string] $IncludeName,
@@ -169,6 +207,7 @@ function Resolve-Include {
         [string[]] $Known,
         [string] $FromFile,
         [string] $RepoRootResolved,
+        [string] $GeneratedBuildRoot,
         [bool] $IsQuoted = $true
     )
     $bs = [string][char]92
@@ -182,17 +221,13 @@ function Resolve-Include {
     if ($IsQuoted -or $name -match '^\.\.?/') {
         $fromDir = (Split-Path $FromFile -Parent).Replace($bs, '/')
         $base = if ([string]::IsNullOrWhiteSpace($fromDir)) { $RepoRootResolved } else { $RepoRootResolved + '/' + $fromDir }
-        try { $combined = [IO.Path]::GetFullPath((Join-Path $base $name)).Replace($bs, '/') } catch { $combined = $null }
+        try { $combined = [IO.Path]::GetFullPath($name, $base).Replace($bs, '/') } catch { $combined = $null }
         if ($combined -and $combined.StartsWith($RepoRootResolved + '/', [System.StringComparison]::OrdinalIgnoreCase)) {
             $rel = $combined.Substring($RepoRootResolved.Length + 1)
             if ($Known -contains $rel) { return $rel }
-            if ($rel -match '(?i)^build/') {
-                # Build output is outside the git-controlled claim, but only
-                # when it actually EXISTS. Returning GENERATED for a name that
-                # resolves to nothing lets an unresolved quoted include hide
-                # behind the build-output escape and never fail closed.
-                if (Test-Path -LiteralPath $combined -PathType Leaf) { return 'GENERATED:' + $rel }
-            }
+        }
+        if ($combined -and (Test-GeneratedBuildFile -Path $combined -BuildRoot $GeneratedBuildRoot)) {
+            return 'GENERATED:' + $combined
         }
     }
 
@@ -200,12 +235,16 @@ function Resolve-Include {
     #    repository-relative form so they compare equal to the tracked paths.
     foreach ($root in $IncludeDirs) {
         if ([string]::IsNullOrWhiteSpace($root)) { continue }
-        $candidate = $root.TrimEnd('/') + '/' + $name.TrimStart('/')
+        try {
+            $candidateFull = [IO.Path]::GetFullPath($root.TrimEnd('/') + '/' + $name, $RepoRootResolved).Replace($bs, '/')
+        } catch { continue }
+        $candidate = $candidateFull
+        if ($candidate.StartsWith($RepoRootResolved + '/', [StringComparison]::OrdinalIgnoreCase)) {
+            $candidate = $candidate.Substring($RepoRootResolved.Length + 1)
+        }
         if ($Known -contains $candidate) { return $candidate }
-        if ($candidate -match '(?i)^build/') {
-            $candidateFull = if ([IO.Path]::IsPathRooted($candidate)) { $candidate } else { $RepoRootResolved + '/' + $candidate }
-            try { $candidateFull = [IO.Path]::GetFullPath($candidateFull) } catch { $candidateFull = $null }
-            if ($candidateFull -and (Test-Path -LiteralPath $candidateFull -PathType Leaf)) { return 'GENERATED:' + $candidate }
+        if (Test-GeneratedBuildFile -Path $candidateFull -BuildRoot $GeneratedBuildRoot) {
+            return 'GENERATED:' + $candidateFull
         }
     }
 
@@ -240,21 +279,35 @@ try {
     $commands = Get-Content -LiteralPath $compileDb -Raw | ConvertFrom-Json
 
     $translationUnits = [System.Collections.Generic.List[string]]::new()
+    $generatedTranslationUnitCount = 0
     $includeDirs = [System.Collections.Generic.List[string]]::new()
+    $allTrackedPaths = @(@($implementationPaths) + @($evidencePaths) | Sort-Object -Unique)
     # Normalise both sides to a forward-slash, fully-resolved form so an
     # absolute compile-database path and the repo root compare equal.
     $repoRootResolved = [IO.Path]::GetFullPath($RepoRoot).Replace([string][char]92, '/').TrimEnd('/')
+    $generatedBuildRoot = Get-VerifiedGeneratedBuildRoot -CompileDb $compileDb -RepoRootResolved $repoRootResolved
     foreach ($entry in $commands) {
+        if ([string]::IsNullOrWhiteSpace([string]$entry.directory) -or
+            [string]::IsNullOrWhiteSpace([string]$entry.file)) {
+            throw 'Compile database entry is missing its directory or file'
+        }
+        # qualify-external-build-executable-equivalence 2.2: relative paths
+        # belong to this compilation, never the guard process's current CWD.
+        $compilationDirectory = [IO.Path]::GetFullPath([string]$entry.directory, [IO.Path]::GetDirectoryName($compileDb))
         $raw = ([string]$entry.file).Replace([string][char]92, '/')
-        $full = if ([IO.Path]::IsPathRooted($raw)) { [IO.Path]::GetFullPath($raw).Replace([string][char]92, '/').TrimEnd('/') } else { $raw.TrimStart('/') }
+        $full = [IO.Path]::GetFullPath($raw, $compilationDirectory).Replace([string][char]92, '/').TrimEnd('/')
         # Make the path repository-relative first, then drop build-tree
         # artifacts (generated version resources, build-tree sources), which
         # the compile database records but which are not repository inputs.
         $repoRel = $full
-        if ($repoRel.StartsWith($repoRootResolved + '/')) {
+        if ($repoRel.StartsWith($repoRootResolved + '/', [StringComparison]::OrdinalIgnoreCase)) {
             $repoRel = $repoRel.Substring($repoRootResolved.Length + 1)
         }
-        if ($repoRel -match '(?i)^build/') { continue }
+        if ($allTrackedPaths -notcontains $repoRel -and
+            (Test-GeneratedBuildFile -Path $full -BuildRoot $generatedBuildRoot)) {
+            ++$generatedTranslationUnitCount
+            continue
+        }
         [void]$translationUnits.Add($repoRel)
         # The -I flags are the authoritative include roots for this TU.
         $command = [string]$entry.command
@@ -282,7 +335,7 @@ try {
             # Canonicalise before comparison: MSVC emits roots like
             # 'D:\...\tests\ui\..', and a literal 'tests/ui/..' never matches
             # the normalised tracked path 'tests/TestSupport.h'.
-            try { $root = [IO.Path]::GetFullPath($root).Replace('\', '/') } catch { }
+            try { $root = [IO.Path]::GetFullPath($root, $compilationDirectory).Replace('\', '/') } catch { }
             if ($root.StartsWith($repoRootResolved + '/', [System.StringComparison]::OrdinalIgnoreCase)) {
                 $root = $root.Substring($repoRootResolved.Length + 1)
             }
@@ -341,7 +394,7 @@ try {
             $name = if ($isQuoted) { $m.Groups[1].Value } else { $m.Groups[2].Value }
             if ([string]::IsNullOrWhiteSpace($name)) { continue }
             $resolved = Resolve-Include -IncludeName $name -IncludeDirs @($includeDirs) `
-                -Known $implementationPaths -FromFile $current -RepoRootResolved $repoRootResolved -IsQuoted $isQuoted
+                -Known $allTrackedPaths -FromFile $current -RepoRootResolved $repoRootResolved -GeneratedBuildRoot $generatedBuildRoot -IsQuoted $isQuoted
             if ($resolved -like 'GENERATED:*') { continue }   # build output, covered by its generator module
             if ($null -eq $resolved) {
                 # Angle includes may legitimately name SDK/STL headers outside
@@ -368,7 +421,7 @@ try {
             foreach ($m in $rcResourceMatcher.Matches($text)) {
                 $resName = $m.Groups[1].Value
                 $resolved = Resolve-Include -IncludeName $resName -IncludeDirs @() `
-                    -Known $implementationPaths -FromFile $current -RepoRootResolved $repoRootResolved -IsQuoted $true
+                    -Known $allTrackedPaths -FromFile $current -RepoRootResolved $repoRootResolved -GeneratedBuildRoot $generatedBuildRoot -IsQuoted $true
                 if ($resolved -like 'GENERATED:*') { continue }
                 if ($null -eq $resolved) {
                     [void]$coverageFailures.Add("unresolved-rc-resource: $current -> $resName")
@@ -574,6 +627,8 @@ try {
         derivation = @{
             method = 'compile_commands.json translation units + recursive #include closure over recorded -I roots + CMake/version build inputs'
             coverageVerified = $coverageFailures.Count -eq 0
+            generatedBuildRootVerified = [bool]$generatedBuildRoot
+            generatedTranslationUnitCount = $generatedTranslationUnitCount
             coverageFailures = @($coverageFailures)
             coverageNotes = @($coverageNotes)
         }

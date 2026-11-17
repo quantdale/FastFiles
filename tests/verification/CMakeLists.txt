@@ -46,6 +46,14 @@ if(FF_PWSH_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-Provenance.ps1"
   )
   set_tests_properties(ffverify_provenance_ps_tests PROPERTIES TIMEOUT 120)
+  # qualify-external-build-executable-equivalence 2.3: owned Git fixtures
+  # exercise the real guard, including fail-closed generated-input controls.
+  add_test(
+    NAME ffverify_executable_equivalence_ps_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/verify/qualification/Test-ExecutableTreeEquivalenceFixtures.ps1"
+  )
+  set_tests_properties(ffverify_executable_equivalence_ps_tests PROPERTIES TIMEOUT 180)
   # hardening-campaign Phase 4: the foreground-skip converter must require
   # proven foreign ownership or a blocked input point; missing evidence is a
   # real failure, never an environment skip.

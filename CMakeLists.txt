@@ -237,7 +237,7 @@ fastfiles_set_target_folder("Tests/Tooling" ffprovider_contract_ps_tests ffproje
 fastfiles_set_target_folder("Tests/Verification"
   ffuia_driver_ps_tests ffintake_gate_ps_tests ffverify_result_composition_ps_tests
   ffverify_uia_selection_ps_tests ffverify_process_reaper_ps_tests ffe2e_harness_ps_tests ffdoc_drift_tests
-  ffdoc_truth_fixture_tests ffsource_provenance_fixture_tests)
+  ffdoc_truth_fixture_tests ffsource_provenance_fixture_tests ffverify_executable_equivalence_ps_tests)
 
 if(CMAKE_GENERATOR MATCHES "Visual Studio")
   set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT FastFiles)

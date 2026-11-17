@@ -64,6 +64,13 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 - Final valid-directory fixture reproduced both failures with only the new production additions temporarily removed; restored corrected source passes both arms. Final **Debug 146/146** (298.23s), **optimized 146/146** (255.05s), engine **ASan 1/1** (35.13s), full incremental MSVC analysis warning-clean, source/diagnostic/strict gates PASS. Active LSP inconclusive, not a clean finding. Exact evidence/limits: `openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/committed-prefix-read-invalidation.md`.
 - **Published/certified bounded correction:** `da4111e7905b1b5f7094f584f65e84a006303177`; both post-commit gate sets 6/6, exact-SHA hosted run `43947668140` terminal **6/6 jobs SUCCESS**. Prior fixture `31e6f13` and model `ae0e6fb` independently completed 6/6 hosted jobs (runs `43940468536`, `43943205124`). Broader audit/production certification remains incomplete.
 
+## External-build executable-equivalence guard
+
+- Fixed the demonstrated `repo/build` path assumption without filtering the real compile database. Generated outputs now need existing files beneath a CMake binary root with matching unambiguous source/cache metadata; tracked input paths in either compared commit retain content-hash precedence. Relative compile paths use their recorded working directory.
+- Added portable `ffverify_executable_equivalence_ps_tests`: **21/21** positive/adversarial assertions, including missing/foreign cache/input, sibling/traversal, nested header, RC manifest, generator template, product additions and tracked inputs beneath a binary root.
+- Both actual external Debug and optimized databases prove `da4111e` -> `d6fe665` equivalence: **425 paths / 355 TU records / five generated RCs**, complete coverage and equal digest. Full suites now **147/147 each**, PowerShell LSP two files clean, source/diagnostic/strict/lifecycle gates PASS. Initial 300s full-tree timeout produced no verdict; later bounded run completed.
+- This is Git-controlled input equivalence, not generated-output equality, trusted cache attestation or binary reproducibility. Exact evidence/scope: `openspec/changes/qualify-external-build-executable-equivalence/evidence/qualification.md`. Publication/terminal hosted gate remains open at this checkpoint; broader audit remains incomplete.
+
 ## Coverage ledger
 
 | Surface | Review/verification frontier |
@@ -76,7 +83,7 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 | Search | Literal/glob matching, query parsing, path helpers and history persistence inspected; model verifies hot/durable candidate outputs after canonical filtering. Complete pipeline differential/boundary/resource review pending. |
 | UI/navigation/commands/operations/preview/accessibility | Icon worker/cache and recent-folder identity inspected; remaining surfaces and real runtime checks pending. |
 | Setup/installer/security | Peer path matching, Authenticode, security descriptors and early installer staging inspected; package/ACL/lifecycle review incomplete. |
-| Build/CI/verification/governance | Workflow/toolchain reviewed; out-of-tree test/identity defects fixed. New formal equivalence probe rejects actual external generated version RCs due to hard-coded repo/build assumption (closure-equivalence-fullsha.log); no pass claimed, bounded harness repair pending. Broader harness/policy tests incomplete. |
+| Build/CI/verification/governance | Workflow/toolchain reviewed; out-of-tree test/identity defects fixed. Formal equivalence external-build/relative-path defect repaired and qualified above; broader harness/policy review incomplete. |
 | Dependencies | SQLite 3.53.4 provenance/options checked; upstream CVE and 3.54.1 notes consulted. Session extension not enabled; no demonstrated reachable new SQLite vulnerability yet, no speculative vendor edits. Finish applicability review. |
 
 ## Validated implementation checkpoints

@@ -1986,6 +1986,22 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "qualify-external-build-executable-equivalence",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/qualify-external-build-executable-equivalence/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/qualify-external-build-executable-equivalence/evidence/qualification.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

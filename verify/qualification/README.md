@@ -62,6 +62,27 @@ and require the current source checkout itself to remain clean. A legacy or dirt
 development PASS is projected as `DEVELOPMENT_ONLY`; stale, mutated, or otherwise
 contradictory exact-tree evidence fails closed.
 
+## Compare executable inputs across commits
+
+`Test-ExecutableTreeEquivalence.ps1` derives a content-sensitive Git-input closure
+from a CMake compilation database. Supply full implementation/evidence SHAs and an
+explicit `-CompileCommandsPath` for isolated builds. Relative file/include paths
+are resolved against each compilation's recorded working directory.
+
+Generated translation units and headers are excluded only when they exist beneath
+the compilation database's configured binary root. Its adjacent `CMakeCache.txt`
+must identify this source tree and its actual cache directory unambiguously. A
+missing cache grants no generated-file exemption; mismatched/ambiguous metadata
+fails closed. Tracked paths in either compared commit still take precedence and
+remain content-hashed even beneath the binary root. Nested headers, embedded RC
+resources, generator templates and added product inputs retain coverage checks.
+
+This proves equivalence of the Git-controlled executable inputs, not equality of
+mutable generated files, trusted cache provenance, compiler/SDK state, or binaries.
+Run `ffverify_executable_equivalence_ps_tests` for the owned positive/adversarial
+fixture matrix. Keep comparison results outside the compared source tree to avoid
+self-referential evidence commits.
+
 Hosted GitHub Actions remains separate, stronger remote evidence for the complete CI
 matrix: each workflow checkout is bound to its `head_sha`, uses full history, and
 runs against the committed tree. Local exact-tree qualification complements that
