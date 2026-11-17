@@ -1959,6 +1959,81 @@ void TestCancellationDuringColdStream() {
           "cold search completes normally after cancellation during materialization");
 }
 
+void TestFailedRebuildInvalidatesCapturedFilenameSlots(const bool multiVolume) {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath(multiVolume ? "engine_test_failed_rebuild_shared_slots.db"
+                                               : "engine_test_failed_rebuild_search_slots.db")),
+          "failed-rebuild search fixture opens");
+    const auto emptyEpoch = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    pipeline.RebuildAll({});
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == emptyEpoch,
+          "empty rebuild does not invent a structural mutation");
+    VolumeRowId otherVolume = 0;
+    if (multiVolume) {
+        VolumeKey otherKey;
+        otherKey.serialNumber = 9903;
+        otherVolume = pipeline.ResolveVolume(otherKey);
+        ffprotocol::VolumeSetting otherSetting;
+        otherSetting.key = L"S:";
+        pipeline.SetVolumeRules(otherVolume, otherSetting);
+        Check(pipeline.ApplyMftBatch(otherVolume, {
+            MakeMftRecord(1, 1, u"", 0x10, 0),
+            MakeMftRecord(100, 1, u"other.txt", 0, 200),
+        }), "unrelated volume shares projection storage before failed rebuild");
+    }
+    VolumeKey key;
+    key.serialNumber = 9902;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"R:";
+    pipeline.SetVolumeRules(volume, setting);
+    std::vector<ffprotocol::MftRecordV1> rows{MakeMftRecord(1, 1, u"", 0x10, 0)};
+    // Deliberately non-ID order: rebuild compaction/streaming repacks slots
+    // without changing the durable identities or canonical search result.
+    for (uint64_t index = 0; index < 80; ++index) {
+        const uint64_t id = 100 + ((index * 37) % 80);
+        rows.push_back(MakeMftRecord(id, 1, index == 0 ? u"needle.txt" : u"other.txt", 0, id));
+    }
+    rows.push_back(MakeMftRecord(900, 1, u"blocked.txt", 0, 1));
+    Check(pipeline.ApplyMftBatch(volume, rows), "failed-rebuild search rows commit");
+    setting.rules.push_back({L"R:\\blocked.txt", false});
+    pipeline.SetVolumeRules(volume, setting);
+    SecondaryFailurePlan plan{SecondaryBoundary::RebuildRulePrune, 1, false, 0, {}};
+    InstallSecondaryFailurePlan(pipeline, plan);
+    bool rebuilt = false;
+    size_t callbacks = 0;
+    bool failedVolumePublished = false;
+    IndexPipeline::SearchTestHooks hooks;
+    hooks.onPhase = [&](const IndexPipeline::SearchPhase phase) {
+        if (phase == IndexPipeline::SearchPhase::WorkStarted && !rebuilt) {
+            rebuilt = true;
+            pipeline.RebuildAll([&](const VolumeRowId rebuiltVolume) {
+                ++callbacks;
+                failedVolumePublished = failedVolumePublished || rebuiltVolume == volume;
+            });
+        }
+    };
+    pipeline.SetSearchTestHooks(hooks);
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 9902;
+    request.scope = 2; // CurrentDrive: only this volume's dependency matters.
+    request.scopePath = L"R:\\";
+    request.maxResults = 100;
+    request.query = L"needle";
+    IndexPipeline::SearchTimings timings;
+    const auto result = pipeline.SearchIndexed(request, &timings);
+    pipeline.SetSearchTestHooks({});
+    pipeline.SetSecondaryPruningFaultInjector({});
+    Check(rebuilt && plan.targetCalls == 1 && !failedVolumePublished && callbacks == (multiVolume ? 1u : 0u),
+          "overlapped rebuild publishes only successful volumes, never the failed prune");
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 1 &&
+              result.candidates.front().id == 100 && result.candidates.front().name == L"needle.txt" &&
+              result.candidates.front().sizeBytes == 100 && result.candidates.front().folder == L"R:\\",
+          "failed rebuild cannot retarget captured filename slots or lose exact scoped search results");
+    Check(timings.generationRestarts >= 1,
+          "failed rebuild invalidates structural read dependencies before old slots are reused");
+}
+
 void TestFailedSecondaryPruneCannotMixSearchGenerations(const bool useUsn) {
     IndexPipeline pipeline;
     Check(pipeline.Open(FreshDbPath(useUsn ? "engine_test_failed_usn_prune_search_generation.db"
@@ -2277,8 +2352,8 @@ void TestRebuildSecondaryFailureDoesNotPublishSuccess() {
     const auto failedDurable = ReadDurableEntryState(dbPath, volume, FileId{2, 0});
     Check(failedDurable.opened && failedDurable.entryCount == 3 && failedDurable.hasTarget,
           "failed RebuildAll leaves the durable pruning obligation intact");
-    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforeFailure,
-          "failed RebuildAll does not advance the query-visible success epoch");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epochBeforeFailure,
+          "failed RebuildAll invalidates repacked storage without acknowledging pruning success");
 
     pipeline.SetSecondaryPruningFaultInjector({});
     pipeline.RebuildAll([&callbackCount](VolumeRowId) { ++callbackCount; });
@@ -2325,8 +2400,8 @@ void TestRebuildSecondaryFailureDoesNotPublishSuccess() {
     const auto persistentDurable = ReadDurableEntryState(dbPath, volume, persistentTarget);
     Check(persistentDurable.opened && persistentDurable.entryCount == 3 && persistentDurable.hasTarget,
           "persistent rebuild failure leaves the durable pruning obligation intact");
-    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforePersistentFailure,
-          "persistent rebuild failure does not publish a searchable epoch");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epochBeforePersistentFailure,
+          "persistent rebuild failure still invalidates captured structural dependencies");
     pipeline.SetSecondaryPruningFaultInjector({});
     pipeline.RebuildAll([&persistentCallbackCount](VolumeRowId) { ++persistentCallbackCount; });
     Check(persistentCallbackCount == 1,
@@ -2805,6 +2880,8 @@ int main() {
         TestColdMutationsAndRestartEquivalence();
         TestColdFolderAggregateServedFromStore();
         TestCancellationDuringColdStream();
+    TestFailedRebuildInvalidatesCapturedFilenameSlots(false);
+    TestFailedRebuildInvalidatesCapturedFilenameSlots(true);
     TestFailedSecondaryPruneCannotMixSearchGenerations(false);
     TestFailedSecondaryPruneCannotMixSearchGenerations(true);
     TestMftSecondaryFailureIsFailClosedAndRetryable();

@@ -591,7 +591,15 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
     std::vector<ffindexstore::VolumeRowId> volumeIds;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        for (const auto& meta : store_.GetAllVolumes()) {
+        const auto volumes = store_.GetAllVolumes();
+        if (!volumes.empty()) {
+            // preserve-rebuild-search-generation-consistency 2.1: every
+            // rebuild can repack slots belonging to ANY resident volume,
+            // even when streaming or later pruning fails. Retire captures
+            // before mutation; this is not a rebuild-success publication.
+            AdvanceResidencyEpochsForStructuralChangeLocked();
+        }
+        for (const auto& meta : volumes) {
             bool rebuildSucceeded =
                 projection_.RebuildVolumeFromStore(store_, meta.rowId, meta.entryCount);
             // zero-touch-autonomous-engineering (subtree gating): after the

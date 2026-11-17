@@ -2012,6 +2012,18 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "preserve-rebuild-search-generation-consistency",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/preserve-rebuild-search-generation-consistency/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

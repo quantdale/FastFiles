@@ -71,6 +71,13 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 - Both actual external Debug and optimized databases prove `da4111e` -> `d6fe665` equivalence: **425 paths / 355 TU records / five generated RCs**, complete coverage and equal digest. Full suites now **147/147 each**, PowerShell LSP two files clean, source/diagnostic/strict/lifecycle gates PASS. Initial 300s full-tree timeout produced no verdict; later bounded run completed.
 - This is Git-controlled input equivalence, not generated-output equality, trusted cache attestation or binary reproducibility. Exact evidence/scope: `openspec/changes/qualify-external-build-executable-equivalence/evidence/qualification.md`. Bounded repair published as `c1dba201beba162870c0af677bc75feec364adfe`; post-commit gates 7/7 per configuration and exact-SHA hosted run `44000162097` terminal 6/6 jobs SUCCESS. Broader audit remains incomplete.
 
+## Rebuild structural read invalidation
+
+- Reproduced a second engine correctness defect: scoped search captures filename slot indices, RebuildAll repacks shared projection storage and subsequently fails pruning, then search reports Completed but loses an existing matching row. Exact-result and generation-restart assertions fail before the fix (`debug-rebuild-slots-red-test.log`).
+- Nonempty rebuild now retires all potentially repacked read dependencies under lock BEFORE mutation. Success callbacks remain confined to successful volumes; failed pruning retains rows/retry debt. Single/shared-volume regression checks exact ID/name/size/path, successful-neighbor callback and empty-rebuild negative control.
+- Local qualification: full Debug/optimized **147/147 each**, engine ASan **1/1**, full incremental MSVC analysis warning-clean, source/diagnostic/strict gates PASS. Active C++ LSP inconclusive. Publication/hosted gates remain open. Evidence: `openspec/changes/preserve-rebuild-search-generation-consistency/evidence/qualification.md`.
+- Retiring old captures before mutation is NOT strong allocation-exception recovery; that question remains distinct. Integrated native runtime/package acceptance is the next verification layer after publication.
+
 ## Coverage ledger
 
 | Surface | Review/verification frontier |
@@ -78,7 +85,7 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 | Protocol and snapshot formats | Frame/batch bounds, snapshot cursor, UI request/result parsing inspected; settings fixes above. Remaining adversarial parsing/semantic consistency review pending. |
 | IPC | Framing cancellation/quarantine and listener lifetime inspected; broker client-ACE instance creation reproduced and fixed above. Remaining admission/exception/deadline review pending. |
 | Privileged service | MFT/USN parsers reviewed, MFT fixes tested. Client authentication inspected; scan/journal loops and privilege/revalidation review pending. |
-| Engine | Retry/watcher/degraded enumeration/idle inspected. Primary/secondary ingestion and read-plane dependencies traced; committed-prefix mixed-generation defect reproduced/fixed above. Rebuild layout invalidation, allocation-failure recovery, publication/server/query/lifecycle review still incomplete. |
+| Engine | Retry/watcher/degraded enumeration/idle inspected. Primary/secondary ingestion and read-plane dependencies traced; committed-prefix mixed-generation defect reproduced/fixed above. Rebuild slot invalidation now reproduced/repaired above; allocation-failure recovery and publication/server/query/lifecycle review remain incomplete. |
 | Index store/projection | Store schema/UTF decoding/open/integrity, batch/mask/candidate maintenance and projection mutation code inspected; new seeded model above qualifies bounded rows/children/candidates/snapshots/rebuilds. Exception safety, memory bounds and wider concurrency/fault review remain incomplete. |
 | Search | Literal/glob matching, query parsing, path helpers and history persistence inspected; model verifies hot/durable candidate outputs after canonical filtering. Complete pipeline differential/boundary/resource review pending. |
 | UI/navigation/commands/operations/preview/accessibility | Icon worker/cache and recent-folder identity inspected; remaining surfaces and real runtime checks pending. |
