@@ -1989,7 +1989,7 @@
     },
     {
       "name": "qualify-external-build-executable-equivalence",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1998,6 +1998,16 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/qualify-external-build-executable-equivalence/evidence/qualification.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "c1dba201beba162870c0af677bc75feec364adfe"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "44000162097",
+          "sha": "c1dba201beba162870c0af677bc75feec364adfe",
+          "record": "openspec/changes/qualify-external-build-executable-equivalence/evidence/qualification.md"
         }
       ],
       "supersededBy": null,

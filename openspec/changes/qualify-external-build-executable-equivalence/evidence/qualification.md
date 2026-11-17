@@ -40,6 +40,10 @@ Machine records: `equivalence/actual-debug-bounded.json` and `actual-release-tes
 
 Raw logs/scripts/build records are under `D:/Documents/tryPython/_AgentArtifacts/FastFiles/sessions/20261117-pi-production-readiness/` (the reused isolated builds are in the 20261114 audit session). The protected scheduled-task `build/debug` was not rebuilt. Goal mode is inactive; this is completion of the bounded resumed repair only.
 
-## Publication frontier
+## Publication and bounded completion
 
-Implementation commit, post-commit identity checks and terminal exact-SHA hosted qualification remain pending. Task 3.3 stays open; local tests and the older immutable comparison do not certify an unpublished commit or whole-product production readiness.
+**COMPLETE:** implementation `c1dba201beba162870c0af677bc75feec364adfe` was committed and pushed without force. Both post-commit identity/package-trust/reaper/identity-fixture/model/engine/new-equivalence gates passed **7/7** (`equivalence/debug-postcommit-test.log`, `release-test-postcommit-test.log`). Local/remote equality and clean source state were verified at publication.
+
+Exact implementation-SHA hosted [run 44000162097](https://github.com/quantdale/FastFiles/actions/runs/44000162097) completed **SUCCESS, all six jobs**: Debug, release-test, MSVC analysis, ASan protocol/IPC/lifecycle, repository hygiene/contracts, and unsigned release-candidate qualification. A bounded `gh run watch --interval 60 --exit-status` returned 0; final headSha/status/job conclusions were independently queried. Task 3.3 is satisfied.
+
+The implementation SHA is an immutable validated baseline, not a self-reference to this evidence document. Subsequent documentation-only closure must preserve its executable inputs; derive latest Git and hosted status externally on resume. No whole-repository clean bill of health or production-release authorization is claimed.
