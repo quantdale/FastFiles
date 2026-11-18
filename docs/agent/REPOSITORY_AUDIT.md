@@ -75,8 +75,14 @@ Session build trees, raw logs and scratch probes: `D:/Documents/tryPython/_Agent
 
 - Reproduced a second engine correctness defect: scoped search captures filename slot indices, RebuildAll repacks shared projection storage and subsequently fails pruning, then search reports Completed but loses an existing matching row. Exact-result and generation-restart assertions fail before the fix (`debug-rebuild-slots-red-test.log`).
 - Nonempty rebuild now retires all potentially repacked read dependencies under lock BEFORE mutation. Success callbacks remain confined to successful volumes; failed pruning retains rows/retry debt. Single/shared-volume regression checks exact ID/name/size/path, successful-neighbor callback and empty-rebuild negative control.
-- Local qualification: full Debug/optimized **147/147 each**, engine ASan **1/1**, full incremental MSVC analysis warning-clean, source/diagnostic/strict gates PASS. Active C++ LSP inconclusive. Publication/hosted gates remain open. Evidence: `openspec/changes/preserve-rebuild-search-generation-consistency/evidence/qualification.md`.
+- Local qualification: full Debug/optimized **147/147 each**, engine ASan **1/1**, full incremental MSVC analysis warning-clean, source/diagnostic/strict gates PASS. Active C++ LSP inconclusive. Published as `af45578ddd3bbf589cb873361ba76867491a9cdf`; post-commit checks 7/7 each, hosted run `44012418224` passed 6/6. Evidence: `openspec/changes/preserve-rebuild-search-generation-consistency/evidence/qualification.md`.
 - Retiring old captures before mutation is NOT strong allocation-exception recovery; that question remains distinct. Integrated native runtime/package acceptance is the next verification layer after publication.
+
+## Native readiness checks
+
+- Exact-source worktree E2E **8/8** on `af45578`; owned file operations, both conflict modes, and palette runners passed. An earlier out-of-tree E2E attempt failed and left run-owned process residue because the UIA ownership filter is repository-build scoped. That residue was cleaned; external-build UIA ownership remains an open harness issue.
+- Full UIA initially **23 PASS / 3 FAIL / 3 SKIP**. Clean focused retest reproduced treemap failure: six 734×1 physical-pixel seams. Outward rounding explains those seams; corrected verifier still rejects intersections deeper than one pixel on both axes, with five pure controls. The selection verifier now requires a real singleton-to-six transition and exact inactive-pane map parity, instead of ignoring the wait or missing keys.
+- Corrected full UIA **25 PASS / 0 FAIL / 4 SKIP** against exact `af45578` product binaries with the updated harness. Skips: two privileged scenarios, Explorer drag-in delivery, and Explorer drag-out with an observed foreign overlay. This does not qualify either Explorer direction or production installation on a clean host. Raw records: `e2e-worktree-af45578.log`, `focused-uia-corrected-all/result.json`, and `treemap-intersections.log` in the 20261117 session.
 
 ## Coverage ledger
 

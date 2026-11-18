@@ -38,6 +38,20 @@ $unknownRejected = $false
 try { Resolve-UiaScenarioSelection -Options @{ UiaScenario = 'not-a-scenario' } | Out-Null } catch { $unknownRejected = $true }
 Check $unknownRejected 'unknown UIA scenario is rejected before lifecycle launch'
 
+$validation = Get-Module UiAutomationValidation
+$left = @{ x = 20; y = 10; width = 734; height = 80 }
+foreach ($case in @(
+    @{ x = 20; y = 90; overlap = $false; name = 'touching edges' },
+    @{ x = 20; y = 89; overlap = $false; name = 'one-pixel horizontal seam' },
+    @{ x = 753; y = 10; overlap = $false; name = 'one-pixel vertical seam' },
+    @{ x = 20; y = 88; overlap = $true; name = 'two-pixel overlap' },
+    @{ x = 20; y = 10; overlap = $true; name = 'coincident tiles' }
+)) {
+    $right = @{ x = $case.x; y = $case.y; width = 734; height = 80 }
+    $overlap = & $validation { param($a, $b) Test-UiaTreemapBoundsOverlap -Left $a -Right $b } $left $right
+    Check ($overlap -eq $case.overlap) "treemap physical bounds: $($case.name)"
+}
+
 if ($failures -gt 0) { exit 1 }
 Write-Host 'All UIA scenario-selection checks passed.'
 exit 0

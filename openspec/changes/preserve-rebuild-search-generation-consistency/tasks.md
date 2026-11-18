@@ -11,4 +11,4 @@
 ## 3. Qualify
 
 - [x] 3.1 Full Debug/optimized CTests, affected engine ASan and full MSVC analysis, active changed-path diagnostics and policy/strict/drift/lifecycle gates; review production delta and existing failure/retention/retry assertions. Debug/optimized 147/147 each, engine ASan 1/1, full incremental /analyze warning-clean; policies/strict PASS, active LSP inconclusive. See evidence/qualification.md.
-- [ ] 3.2 Commit/push normally, refresh identity gates, obtain exact-SHA terminal hosted evidence and record immutable implementation baseline before lifecycle closure.
+- [x] 3.2 Commit/push normally, refresh identity gates, obtain exact-SHA terminal hosted evidence and record immutable implementation baseline before lifecycle closure. `af45578ddd3bbf589cb873361ba76867491a9cdf`: both post-commit gates 7/7; hosted run `44012418224` passed all six jobs.

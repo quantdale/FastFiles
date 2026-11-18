@@ -2015,7 +2015,7 @@
     },
     {
       "name": "preserve-rebuild-search-generation-consistency",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",

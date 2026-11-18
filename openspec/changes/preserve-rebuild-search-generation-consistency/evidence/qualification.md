@@ -23,6 +23,6 @@ This does not claim strong allocation-exception recovery; retiring old captures 
 
 Raw logs are in `D:/Documents/tryPython/_AgentArtifacts/FastFiles/sessions/20261117-pi-production-readiness/` under `*-rebuild-final-{build,test}.log` and `analyze-rebuild-final-build.log`. Builds remain isolated; protected build/debug and installed service/signing/trust state unchanged.
 
-## Publication frontier
+## Publication
 
-Implementation push, post-commit identity gates and terminal hosted exact-SHA qualification remain pending. Task 3.2 stays open. This bounded repair is one part of the continuing production-readiness audit, not an overall readiness declaration.
+Implementation `af45578ddd3bbf589cb873361ba76867491a9cdf` was pushed normally. Post-commit identity/regression gates passed **7/7 each**; exact-SHA [hosted run 44012418224](https://github.com/quantdale/FastFiles/actions/runs/44012418224) passed all six jobs. The bounded repair is complete; this is not a production-release declaration.

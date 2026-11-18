@@ -2728,6 +2728,16 @@ function Invoke-UiaScenarioSearchAllocatedSize {
 # semantic-treemap-uia 52.x: treemap readability, proportionality, click
 # precision, folder/file Invoke, and many-tiles stress test. Requires the
 # TreemapUIA provider layer and the shared StorageAnalysis treemap surface.
+function Test-UiaTreemapBoundsOverlap {
+    param($Left, $Right)
+    $width = [Math]::Min(($Left.x + $Left.width), ($Right.x + $Right.width)) - [Math]::Max($Left.x, $Right.x)
+    $height = [Math]::Min(($Left.y + $Left.height), ($Right.y + $Right.height)) - [Math]::Max($Left.y, $Right.y)
+    # UiaRectToScreen floors leading edges and ceils trailing edges. Two
+    # tiles sharing a fractional boundary can therefore share one pixel
+    # in the reported bounds without overlapping in layout or hit testing.
+    return $width -gt 1 -and $height -gt 1
+}
+
 function Invoke-UiaScenarioTreemapReadability {
     param($Context, [string] $ArtifactsDir)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -2913,14 +2923,13 @@ function Invoke-UiaScenarioTreemapReadability {
                 for ($i = 0; $i -lt $rects.Count; $i++) {
                     for ($j = $i + 1; $j -lt $rects.Count; $j++) {
                         $ri = $rects[$i]; $rj = $rects[$j]
-                        if ($ri.x -lt ($rj.x + $rj.width) -and $rj.x -lt ($ri.x + $ri.width) -and
-                            $ri.y -lt ($rj.y + $rj.height) -and $rj.y -lt ($ri.y + $ri.height)) {
+                        if (Test-UiaTreemapBoundsOverlap -Left $ri -Right $rj) {
                             $overlapCount++
                         }
                     }
                 }
                 if ($overlapCount -gt 0) {
-                    return & $fail "detected $overlapCount overlapping tile bounding rectangles"
+                    return & $fail "detected $overlapCount tile bounding rectangle intersections exceeding one physical pixel on both axes"
                 }
             }
         }
@@ -4284,12 +4293,22 @@ function Invoke-UiaScenarioSelectionModelInteractions {
             return & $fail "could not establish known selection {selF.ffsel} in inactive Pane.1; got {$(& $joinSelected 'Pane.1')}"
         }
         $beforeMap = & $getSelectionMap 'Pane.1'
-        # Re-activate Pane.0 and perform Ctrl+A in the ACTIVE pane.
-        $activatePane = Activate-UiaPane -Driver $driver -Main $main -ProcessId $appPid -PaneId 'Pane.0'
-        if (-not $activatePane.Pass) {
-            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $activatePane.Detail
+        $selectedBefore = @($beforeMap.Keys | Where-Object { $beforeMap[$_] })
+        if ($beforeMap.Count -ne 6 -or $selectedBefore.Count -ne 1 -or $selectedBefore[0] -ne 'selF.ffsel') {
+            return & $fail 'could not capture the complete six-row Pane.1 selection baseline'
+        }
+        # Reset Pane.0 to a known singleton before Ctrl+A. Pane.0 already
+        # selected all six earlier, so merely finding six after the key does
+        # not prove the input reached it. Use the scoped row-click path,
+        # which scrolls and reacquires the row before measuring its bounds.
+        $click = & $invokeRowClick 'selB.ffsel' '' 'Pane.0'
+        if (-not $click.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $click.Detail
             if ($blocked) { return $blocked }
-            return & $fail $activatePane.Detail
+            return & $fail $click.Detail
+        }
+        if (-not (& $waitSelection @('selB.ffsel') 'Pane.0')) {
+            return & $fail "Pane.0 reset did not establish {selB.ffsel}; got {$(& $joinSelected 'Pane.0')}"
         }
         $null = Reset-UiaModifierKeys -Driver $driver
         Start-Sleep -Milliseconds 150
@@ -4305,12 +4324,13 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         }
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'
         # Wait for Pane.0 to select all, then re-read Pane.1.
-        & $waitSelection @('selA.ffsel', 'selB.ffsel', 'selC.ffsel', 'selD.ffsel', 'selE.ffsel', 'selF.ffsel') 'Pane.0' | Out-Null
-        Start-Sleep -Milliseconds 400
+        if (-not (& $waitSelection @('selA.ffsel', 'selB.ffsel', 'selC.ffsel', 'selD.ffsel', 'selE.ffsel', 'selF.ffsel') 'Pane.0')) {
+            return & $fail "Ctrl+A after Pane.0 reset did not select all six rows; got {$(& $joinSelected 'Pane.0')}"
+        }
         $afterMap = & $getSelectionMap 'Pane.1'
-        $isolationOk = $true
+        $isolationOk = $afterMap.Count -eq $beforeMap.Count
         foreach ($k in $beforeMap.Keys) {
-            if ($afterMap.ContainsKey($k) -and $afterMap[$k] -ne $beforeMap[$k]) { $isolationOk = $false; break }
+            if (-not $afterMap.ContainsKey($k) -or $afterMap[$k] -ne $beforeMap[$k]) { $isolationOk = $false; break }
         }
         if (-not $isolationOk) {
             $b = (($beforeMap.Keys | Where-Object { $beforeMap[$_] } | Sort-Object) -join ',')
