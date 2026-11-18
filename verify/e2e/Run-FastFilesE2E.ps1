@@ -20,6 +20,12 @@ if ([string]::IsNullOrWhiteSpace($Exe)) {
     $Exe = Join-Path $resolvedRepo 'build\debug-diagnostic\src\ui\FastFiles.exe'
 }
 $resolvedExe = [IO.Path]::GetFullPath($Exe)
+# The UIA lifecycle only tracks processes under this repository's build
+# root. Binary provenance does not extend that cleanup boundary.
+$buildPrefix = [IO.Path]::GetFullPath((Join-Path $resolvedRepo 'build')).TrimEnd('\') + '\'
+if (-not $resolvedExe.StartsWith($buildPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Refusing an E2E executable outside the repository build tree: use an owned worktree with its own build directory.'
+}
 if (-not (Test-Path -LiteralPath $resolvedExe -PathType Leaf)) {
     Write-Error "FastFiles executable was not found at '$resolvedExe'. Build it with .\dev.ps1 build -Preset debug-diagnostic -Target FastFiles."
     exit 3

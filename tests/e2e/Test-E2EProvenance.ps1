@@ -148,6 +148,18 @@ Export-ModuleMember -Function Resolve-E2EFilterSelection, Invoke-FastFilesE2E
     $singleExit = $LASTEXITCODE
     $singleHandoff = Get-Content -LiteralPath (Join-Path $ownedRoot 'success-handoff.json') -Raw | ConvertFrom-Json
     Assert ($singleExit -eq 2 -and $singleHandoff.rootEmpty -and $singleHandoff.lifecycleIterations -eq 1 -and $singleOutput.Contains('SKIPPED')) 'actual CLI preserves an explicit positive iteration count'
+    # A sibling directory with a misleading build prefix is outside the
+    # process ownership fence, even with provenance explicitly bypassed.
+    $outsideExe = Join-Path $ownedRoot 'build-sibling/test-preset/src/ui/FastFiles.exe'
+    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($outsideExe))
+    [IO.File]::WriteAllText($outsideExe, 'Owned non-executable outside-build placeholder')
+    $outsideArtifacts = Join-Path $ownedRoot 'outside-build-artifacts'
+    $priorHandoff = [IO.File]::ReadAllText((Join-Path $ownedRoot 'success-handoff.json'))
+    $outsideOutput = & $shell -NoProfile -File $copiedRunner -RepoRoot $ownedRoot -Exe $outsideExe -ArtifactsDir $outsideArtifacts -SkipProvenanceGate 2>&1 | Out-String
+    $outsideExit = $LASTEXITCODE
+    Assert ($outsideExit -ne 0 -and $outsideOutput.Contains('outside the repository build tree') -and
+            -not [IO.Directory]::Exists($outsideArtifacts) -and
+            [IO.File]::ReadAllText((Join-Path $ownedRoot 'success-handoff.json')) -eq $priorHandoff) 'outside-build executable is refused before evidence creation or app dispatch'
     # Assert only after both safe preflight executions so a red old-runner
     # receipt records both the complete and missing-engine failure modes.
     foreach ($case in $result.Cases) {

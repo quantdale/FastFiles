@@ -35,6 +35,8 @@ pwsh -NoProfile -File .\verify\e2e\Run-FastFilesE2E.ps1 `
   -ArtifactsDir .\build\e2e-artifacts\preview-manual
 ```
 
+The executable must be under the specified repository's `build/` directory, where the UIA lifecycle can track and clean up its processes. For an isolated run, build `debug-diagnostic` inside an owned worktree and pass that worktree as `-RepoRoot`. Binary provenance alone does not make an external build safe for this runner.
+
 The selected artifact root must be new or empty. Each scenario reserves a new
 subdirectory inside it.
 If that scenario directory already exists, the scenario reports a failure
