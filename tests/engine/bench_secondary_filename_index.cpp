@@ -445,7 +445,7 @@ private:
         return value.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), value.begin());
     }
 
-    auto LowerBound(const std::u16string& folded, const EntryId id) {
+    std::vector<Posting>::iterator LowerBound(const std::u16string& folded, const EntryId id) {
         return std::lower_bound(postings_.begin(), postings_.end(), folded,
                                 [id](const Posting& posting, const std::u16string& value) {
                                     return posting.folded < value ||
